@@ -1,0 +1,26 @@
+2. Continuar noutro computador
+Instala previamente:
+Git
+Node.js
+Docker Desktop
+npm ou pnpm
+Depois clona o projeto:
+git clone https://github.com/UTILIZADOR/NOME-DO-REPOSITORIO.git
+cd NOME-DO-REPOSITORIO
+Instala as dependências:
+npm install
+Copia os ficheiros privados da pasta private-config do bundle antigo:
+transfer/private-config/root.env        → .env
+transfer/private-config/apps-web.env.local → apps/web/.env.local
+Depois inicia os serviços:
+docker compose up -d
+Gera o cliente da base de dados:
+npx prisma generate --schema packages/database/prisma/schema.prisma
+Inicia a aplicação:
+npm run dev
+O contexto técnico está em:
+context.md
+Para obter alterações futuras do GitHub:
+git pull
+npm install
+npm run dev

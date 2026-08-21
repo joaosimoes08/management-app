@@ -1,0 +1,3 @@
+ALTER TABLE "DeviceModel" ADD COLUMN IF NOT EXISTS "supportsNetworkPorts" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "DeviceModel" ADD COLUMN IF NOT EXISTS "networkPortCount" INTEGER;
+ALTER TABLE "DeviceInterface" ADD COLUMN IF NOT EXISTS "interfaceType" TEXT;

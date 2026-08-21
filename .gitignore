@@ -1,0 +1,36 @@
+# Dependencies and package-manager caches
+node_modules/
+.pnpm-store/
+
+# Build output and framework caches
+dist/
+.next/
+out/
+build/
+coverage/
+*.tsbuildinfo
+packages/database/generated/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+!.env*.example
+
+# Runtime data, temporary files and generated local assets
+*.log
+*.tmp
+*.temp
+*.pid
+tmp/
+temp/
+uploads/
+
+# Local IDE and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Private transfer bundle and local-only configuration
+transfer/

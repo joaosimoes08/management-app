@@ -1,0 +1,554 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AssetStatus {
+  ACTIVE
+  INACTIVE
+  MAINTENANCE
+  RETIRED
+  UNKNOWN
+}
+
+enum IpState {
+  FREE
+  OCCUPIED
+  RESERVED
+  EXCLUDED
+  UNKNOWN
+}
+
+enum SourceType {
+  MANUAL
+  SNMP
+  AGENT
+  ICMP
+  TCP
+  DNS
+  DHCP
+  IMPORT
+}
+
+enum RoleName {
+  ADMIN
+  NETWORK_OPERATOR
+  SYSTEMS_OPERATOR
+  STORAGE_OPERATOR
+  AUDITOR
+  READ_ONLY
+}
+
+enum DiscoveryJobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum DiscoveryResultStatus {
+  PENDING
+  APPROVED
+  IGNORED
+}
+
+enum NatRuleType {
+  SNAT
+  DNAT
+  STATIC_1_TO_1
+  PAT
+}
+
+model User {
+  id String @id @default(uuid()) @db.Uuid
+  externalId String @unique
+  username String @unique
+  displayName String?
+  email String?
+  roles UserRole[]
+  ipamGroupMemberships IpamGroupMember[]
+  auditLogs AuditLog[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+model UserRole {
+  userId String @db.Uuid
+  role RoleName
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([userId, role])
+}
+model AuditLog {
+  id String @id @default(uuid()) @db.Uuid
+  userId String? @db.Uuid
+  action String
+  entityType String?
+  entityId String?
+  metadata Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+model Site {
+  id String @id @default(uuid()) @db.Uuid
+  name String
+  code String @unique
+  address String?
+  city String?
+  region String?
+  country String?
+  buildings Building[]
+  subnets Subnet[]
+  vlans Vlan[]
+  devices Device[]
+  vrfs Vrf[]
+  natRules NatRule[]
+  ipamGroups IpamGroup[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model SystemSettings {
+  id String @id @default(uuid()) @db.Uuid
+  organizationName String?
+  organizationCode String?
+  timezone String @default("Europe/Lisbon")
+  setupCompleted Boolean @default(false)
+  setupCompletedAt DateTime?
+  setupCompletedBy String? @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+model Building {
+  id String @id @default(uuid()) @db.Uuid
+  name String
+  siteId String @db.Uuid
+  site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  rooms Room[]
+  @@unique([siteId, name])
+}
+model Room {
+  id String @id @default(uuid()) @db.Uuid
+  name String
+  buildingId String @db.Uuid
+  building Building @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  racks Rack[]
+  @@unique([buildingId, name])
+}
+model Rack {
+  id String @id @default(uuid()) @db.Uuid
+  name String
+  units Int @default(42)
+  modelId String? @db.Uuid
+  frontAssetId String? @db.Uuid
+  roomId String @db.Uuid
+  model RackModel? @relation(fields: [modelId], references: [id], onDelete: SetNull)
+  frontAsset AssetFile? @relation("RackFrontOverride", fields: [frontAssetId], references: [id], onDelete: SetNull)
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  devices Device[]
+  @@unique([roomId, name])
+}
+model RackModel {
+  id String @id @default(uuid()) @db.Uuid
+  manufacturer String
+  model String
+  units Int @default(42)
+  widthMm Int?
+  depthMm Int?
+  iconAssetId String? @db.Uuid
+  frontAssetId String? @db.Uuid
+  capabilities Json?
+  active Boolean @default(true)
+  racks Rack[]
+  iconAsset AssetFile? @relation("RackModelIcon", fields: [iconAssetId], references: [id], onDelete: SetNull)
+  frontAsset AssetFile? @relation("RackModelFront", fields: [frontAssetId], references: [id], onDelete: SetNull)
+  @@unique([manufacturer, model])
+}
+model AssetFile {
+  id String @id @default(uuid()) @db.Uuid
+  filename String
+  storageKey String @unique
+  mimeType String
+  sizeBytes Int
+  kind String
+  source String @default("MANUAL")
+  license String?
+  createdAt DateTime @default(now())
+  rackIcons RackModel[] @relation("RackModelIcon")
+  rackFronts RackModel[] @relation("RackModelFront")
+  rackFrontOverrides Rack[] @relation("RackFrontOverride")
+  deviceFronts DeviceModel[] @relation("DeviceModelFront")
+  deviceBacks DeviceModel[] @relation("DeviceModelBack")
+  deviceIcons DeviceModel[] @relation("DeviceModelIcon")
+  deviceFrontOverrides Device[] @relation("DeviceFrontOverride")
+  deviceIconOverrides Device[] @relation("DeviceIconOverride")
+}
+model DeviceModel {
+  id String @id @default(uuid()) @db.Uuid
+  manufacturer String
+  model String
+  portCount Int?
+  supportsNetworkPorts Boolean @default(false)
+  networkPortCount Int?
+  type String?
+  capabilities Json?
+  frontAssetId String? @db.Uuid
+  backAssetId String? @db.Uuid
+  iconAssetId String? @db.Uuid
+  portLayout Json?
+  devices Device[]
+  frontAsset AssetFile? @relation("DeviceModelFront", fields: [frontAssetId], references: [id], onDelete: SetNull)
+  backAsset AssetFile? @relation("DeviceModelBack", fields: [backAssetId], references: [id], onDelete: SetNull)
+  iconAsset AssetFile? @relation("DeviceModelIcon", fields: [iconAssetId], references: [id], onDelete: SetNull)
+  @@unique([manufacturer, model])
+}
+model Device {
+  id String @id @default(uuid()) @db.Uuid
+  name String
+  type String
+  serialNumber String?
+  assetTag String?
+  hostname String?
+  managementIp String?
+  notes String?
+  source SourceType @default(MANUAL)
+  status AssetStatus @default(UNKNOWN)
+  modelId String? @db.Uuid
+  rackId String? @db.Uuid
+  rackUnitStart Int?
+  rackUnitSize Int?
+  frontAssetId String? @db.Uuid
+  iconAssetId String? @db.Uuid
+  model DeviceModel? @relation(fields: [modelId], references: [id], onDelete: SetNull)
+  frontAsset AssetFile? @relation("DeviceFrontOverride", fields: [frontAssetId], references: [id], onDelete: SetNull)
+  iconAsset AssetFile? @relation("DeviceIconOverride", fields: [iconAssetId], references: [id], onDelete: SetNull)
+  siteId String? @db.Uuid
+  site Site? @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  rack Rack? @relation(fields: [rackId], references: [id], onDelete: SetNull)
+  interfaces DeviceInterface[]
+  ipAddresses IpAddress[]
+  natRules NatRule[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([type, status])
+  @@index([siteId])
+}
+
+model Host {
+  id String @id @default(uuid()) @db.Uuid
+  name String @unique
+  hostname String?
+  operatingSystem String?
+  macAddress String?
+  status AssetStatus @default(UNKNOWN)
+  lastSeenAt DateTime?
+  ipAddresses IpAddress[]
+  services Service[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([hostname])
+}
+
+model Service {
+  id String @id @default(uuid()) @db.Uuid
+  name String
+  protocol String?
+  port Int?
+  status String?
+  version String?
+  hostId String @db.Uuid
+  host Host @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([hostId, protocol, port])
+  @@index([name, status])
+}
+model DeviceInterface {
+  id String @id @default(uuid()) @db.Uuid
+  name String
+  portKey String?
+  interfaceType String?
+  description String?
+  adminUp Boolean?
+  operUp Boolean?
+  speedMbps Int?
+  mode String?
+  nativeVlanId String? @db.Uuid
+  accessVlanId String? @db.Uuid
+  macAddress String?
+  source SourceType @default(MANUAL)
+  lastSeenAt DateTime?
+  deviceId String @db.Uuid
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  nativeVlan Vlan? @relation("NativeVlan", fields: [nativeVlanId], references: [id], onDelete: SetNull)
+  accessVlan Vlan? @relation("AccessVlan", fields: [accessVlanId], references: [id], onDelete: SetNull)
+  allowedVlans InterfaceVlan[]
+  ipAddresses IpAddress[]
+  @@unique([deviceId, name])
+}
+model Vlan {
+  id String @id @default(uuid()) @db.Uuid
+  vlanId Int
+  name String
+  description String?
+  siteId String? @db.Uuid
+  site Site? @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  subnets Subnet[]
+  nativeInterfaces DeviceInterface[] @relation("NativeVlan")
+  accessInterfaces DeviceInterface[] @relation("AccessVlan")
+  interfaceVlans InterfaceVlan[]
+  @@unique([siteId, vlanId])
+}
+
+model InterfaceVlan {
+  interfaceId String @db.Uuid
+  vlanId String @db.Uuid
+  tagged Boolean @default(true)
+  interface DeviceInterface @relation(fields: [interfaceId], references: [id], onDelete: Cascade)
+  vlan Vlan @relation(fields: [vlanId], references: [id], onDelete: Cascade)
+  @@id([interfaceId, vlanId])
+}
+model Subnet {
+  id String @id @default(uuid()) @db.Uuid
+  cidr String @unique
+  version Int
+  gateway String?
+  purpose String?
+  environment String?
+  siteId String? @db.Uuid
+  vlanId String? @db.Uuid
+  site Site? @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  vlan Vlan? @relation(fields: [vlanId], references: [id], onDelete: SetNull)
+  ips IpAddress[]
+  discoveryJobs DiscoveryJob[]
+  discoverySchedule DiscoverySchedule?
+  vrfId String? @db.Uuid
+  parentSubnetId String? @db.Uuid
+  vrf Vrf? @relation(fields: [vrfId], references: [id], onDelete: SetNull)
+  parentSubnet Subnet? @relation("SubnetHierarchy", fields: [parentSubnetId], references: [id], onDelete: SetNull)
+  childSubnets Subnet[] @relation("SubnetHierarchy")
+  natSourceRules NatRule[] @relation("NatSourceSubnet")
+  natTranslatedRules NatRule[] @relation("NatTranslatedSubnet")
+  scanEnabled Boolean @default(false)
+  scanIntervalHours Int @default(12)
+  scanMethods Json?
+  scanTcpPorts Json?
+  reverseDnsEnabled Boolean @default(true)
+  lastScanAt DateTime?
+  nextScanAt DateTime?
+  lastScanStatus String?
+  lastScanError String?
+  @@index([vlanId])
+  @@index([siteId, vrfId, version])
+}
+
+model Vrf {
+  id String @id @default(uuid()) @db.Uuid
+  name String
+  routeDistinguisher String?
+  description String?
+  status String @default("ACTIVE")
+  siteId String @db.Uuid
+  site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  subnets Subnet[]
+  natRules NatRule[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([siteId, name])
+  @@index([siteId, status])
+}
+model DiscoverySchedule {
+  id String @id @default(uuid()) @db.Uuid
+  subnetId String @unique @db.Uuid
+  enabled Boolean @default(false)
+  intervalHours Int @default(12)
+  methods Json
+  tcpPorts Json?
+  lastRunAt DateTime?
+  nextRunAt DateTime?
+  lastStatus String?
+  lastError String?
+  subnet Subnet @relation(fields: [subnetId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+model IpAddress {
+  id String @id @default(uuid()) @db.Uuid
+  address String
+  state IpState @default(UNKNOWN)
+  hostname String?
+  macAddress String?
+  source SourceType @default(MANUAL)
+  lastSeenAt DateTime?
+  notes String?
+  version Int @default(4)
+  observedState String?
+  lastCheckAt DateTime?
+  lastCheckMethod String?
+  icmpReachable Boolean?
+  responseMs Int?
+  openPorts Json?
+  natRules NatRule[] @relation("NatSourceIp")
+  translatedNatRules NatRule[] @relation("NatTranslatedIp")
+  subnetId String @db.Uuid
+  deviceId String? @db.Uuid
+  interfaceId String? @db.Uuid
+  hostId String? @db.Uuid
+  subnet Subnet @relation(fields: [subnetId], references: [id], onDelete: Cascade)
+  device Device? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  interface DeviceInterface? @relation(fields: [interfaceId], references: [id], onDelete: SetNull)
+  host Host? @relation(fields: [hostId], references: [id], onDelete: SetNull)
+  @@unique([subnetId, address])
+  @@index([hostname])
+  @@index([version, address])
+}
+
+model NatRule {
+  id String @id @default(uuid()) @db.Uuid
+  name String
+  type NatRuleType
+  protocol String?
+  sourceAddress String?
+  translatedAddress String?
+  sourcePort Int?
+  translatedPort Int?
+  destinationPort Int?
+  sourceSubnetId String? @db.Uuid
+  translatedSubnetId String? @db.Uuid
+  sourceIpId String? @db.Uuid
+  translatedIpId String? @db.Uuid
+  deviceId String? @db.Uuid
+  vrfId String? @db.Uuid
+  siteId String? @db.Uuid
+  enabled Boolean @default(true)
+  description String?
+  sourceSubnet Subnet? @relation("NatSourceSubnet", fields: [sourceSubnetId], references: [id], onDelete: SetNull)
+  translatedSubnet Subnet? @relation("NatTranslatedSubnet", fields: [translatedSubnetId], references: [id], onDelete: SetNull)
+  sourceIp IpAddress? @relation("NatSourceIp", fields: [sourceIpId], references: [id], onDelete: SetNull)
+  translatedIp IpAddress? @relation("NatTranslatedIp", fields: [translatedIpId], references: [id], onDelete: SetNull)
+  device Device? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  vrf Vrf? @relation(fields: [vrfId], references: [id], onDelete: SetNull)
+  site Site? @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([type, enabled])
+  @@index([deviceId, vrfId])
+}
+
+model IpamGroup {
+  id String @id @default(uuid()) @db.Uuid
+  name String
+  description String?
+  siteId String? @db.Uuid
+  site Site? @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  members IpamGroupMember[]
+  permissions IpamPermission[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([siteId, name])
+}
+
+model IpamGroupMember {
+  groupId String @db.Uuid
+  userId String @db.Uuid
+  group IpamGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([groupId, userId])
+}
+
+model IpamPermission {
+  id String @id @default(uuid()) @db.Uuid
+  groupId String @db.Uuid
+  scopeType String
+  scopeId String @db.Uuid
+  permission String
+  group IpamGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  @@unique([groupId, scopeType, scopeId, permission])
+  @@index([scopeType, scopeId])
+}
+
+model DiscoveryJob {
+  id String @id @default(uuid()) @db.Uuid
+  name String
+  subnetId String @db.Uuid
+  methods Json
+  tcpPorts Json?
+  status DiscoveryJobStatus @default(PENDING)
+  startedAt DateTime?
+  completedAt DateTime?
+  errorMessage String?
+  scannedCount Int @default(0)
+  icmpReachableCount Int @default(0)
+  tcpReachableCount Int @default(0)
+  reachableCount Int @default(0)
+  unreachableCount Int @default(0)
+  resultCount Int @default(0)
+  subnet Subnet @relation(fields: [subnetId], references: [id], onDelete: Cascade)
+  results DiscoveryResult[]
+  createdAt DateTime @default(now())
+  @@index([subnetId, createdAt])
+}
+
+model DiscoveryResult {
+  id String @id @default(uuid()) @db.Uuid
+  jobId String @db.Uuid
+  address String
+  hostname String?
+  icmpReachable Boolean @default(false)
+  responseMs Int?
+  openPorts Json?
+  status DiscoveryResultStatus @default(PENDING)
+  reviewedAt DateTime?
+  reviewedBy String? @db.Uuid
+  job DiscoveryJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  @@unique([jobId, address])
+  @@index([status, createdAt])
+}
+
+model ApplicationLink {
+  id                String                @id @default(uuid()) @db.Uuid
+  name              String
+  url               String
+  icon              String                @default("external-link")
+  description       String?
+  category          String                @default("Operações")
+  sortOrder         Int                   @default(0)
+  isActive          Boolean               @default(true)
+  checkAvailability Boolean               @default(false)
+  lastCheckedAt     DateTime?
+  isAvailable       Boolean?
+  roles             ApplicationLinkRole[]
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  @@index([isActive, category, sortOrder])
+}
+
+model ApplicationLinkRole {
+  linkId String          @db.Uuid
+  role   RoleName
+  link   ApplicationLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
+
+  @@id([linkId, role])
+}
+
+model RipeImport {
+  id          String   @id @default(uuid()) @db.Uuid
+  query       String
+  queryType   String
+  source      String   @default("RIPESTAT")
+  status      String   @default("PREVIEW")
+  result      Json
+  createdBy   String?  @db.Uuid
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  @@index([status, createdAt])
+}
