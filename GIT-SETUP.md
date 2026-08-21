@@ -1,10 +1,8 @@
 # Publicar no GitHub
 
-O repositório Git local já foi inicializado. Ainda não existe remote nem commit.
+O repositório Git local está inicializado na branch `main` e já tem um commit-baseline. Ainda não existe remote.
 
 ```powershell
-git add .
-git commit -m "Initial project import"
 git branch -M main
 git remote add origin https://github.com/UTILIZADOR/NOME-DO-REPOSITORIO.git
 git push -u origin main
