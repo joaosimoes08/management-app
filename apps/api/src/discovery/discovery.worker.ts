@@ -4,16 +4,13 @@ import { promisify } from 'node:util';
 import { reverse } from 'node:dns/promises';
 import * as net from 'node:net';
 import { PrismaClient } from '@simoes/database';
+import { hostsFor } from './discovery-network';
 
 const execFileAsync = promisify(execFile);
-const MAX_DISCOVERY_HOSTS = 4096;
 const prisma = new PrismaClient();
 const redisUrl = new URL(process.env.REDIS_URL ?? 'redis://localhost:6379');
 const connection = { host: redisUrl.hostname, port: Number(redisUrl.port || 6379), ...(redisUrl.password ? { password: redisUrl.password } : {}) };
 
-function ipv4ToNumber(ip: string) { return ip.split('.').reduce((value, part) => (value * 256) + Number(part), 0) >>> 0; }
-function numberToIpv4(value: number) { return [value >>> 24, (value >>> 16) & 255, (value >>> 8) & 255, value & 255].join('.'); }
-function hostsFor(cidr: string) { const [address, bitsText] = cidr.split('/'); const bits = Number(bitsText); if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(address) || !Number.isInteger(bits) || bits < 0 || bits > 32) throw new Error('CIDR IPv4 inválido'); const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0; const network = ipv4ToNumber(address) & mask; const broadcast = (network | (~mask >>> 0)) >>> 0; const first = bits >= 31 ? network : network + 1; const last = bits >= 31 ? broadcast : broadcast - 1; const count = last >= first ? last - first + 1 : 0; if (count > MAX_DISCOVERY_HOSTS) throw new Error(`Discovery limitado a ${MAX_DISCOVERY_HOSTS} hosts`); return Array.from({ length: count }, (_, index) => numberToIpv4(first + index)); }
 async function ping(address: string) { const started = Date.now(); try { const args = process.platform === 'win32' ? ['-n', '1', '-w', '800', address] : ['-c', '1', '-W', '1', address]; await execFileAsync(process.platform === 'win32' ? 'ping.exe' : 'ping', args, { timeout: 1500, windowsHide: true }); return { reachable: true, responseMs: Date.now() - started }; } catch { return { reachable: false, responseMs: undefined }; } }
 function testPort(address: string, port: number) { return new Promise<boolean>((resolve) => { const socket = net.createConnection({ host: address, port, timeout: 800 }); const done = (result: boolean) => { socket.destroy(); resolve(result); }; socket.once('connect', () => done(true)); socket.once('timeout', () => done(false)); socket.once('error', () => done(false)); }); }
 

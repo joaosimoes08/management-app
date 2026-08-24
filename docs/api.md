@@ -109,8 +109,8 @@ Obter um access token no endpoint OIDC do realm `COCiber` e chamar `/api/v1/auth
 - `GET/POST /api/v1/assets` — consulta e upload manual de SVG, PNG ou WebP; apenas ADMIN pode criar.
 - `GET /api/v1/assets/:id/file` — serve o ficheiro do asset.
 - `DELETE /api/v1/assets/:id` — remove assets não associados; apenas ADMIN.
-- `GET/POST/PATCH/DELETE /api/v1/rack-models` — catálogo de modelos de bastidor.
-- `GET/POST/PATCH /api/v1/racks` — bastidores e associação a salas/modelos.
+- `GET/POST/PATCH/DELETE /api/v1/rack-models` — catálogo histórico de modelos de bastidor; já não pode ser associado a bastidores operacionais.
+- `GET/POST/PATCH /api/v1/racks` — consulta e gestão de bastidores associados a salas. `POST` e `PATCH` aceitam apenas `name` e `roomId`; a capacidade é sempre 42U e a imagem/modelo são fixos pela aplicação.
 - `GET /api/v1/interfaces?deviceId=` — interfaces de um equipamento, incluindo VLANs permitidas e IPs.
 - `GET /api/v1/subnets/:id/discovery-schedule` — configuração atual ou defaults desligados.
 - `PATCH /api/v1/subnets/:id/discovery-schedule` — ativa/desativa o schedule de 12 horas.
@@ -122,8 +122,8 @@ Uma VLAN só pode receber uma subnet associada. Discovery agendado cria `Discove
 
 - `GET /api/v1/sites/:siteId/racks` — bastidores e equipamentos posicionados de um Site.
 - `GET /api/v1/sites/:siteId/locations` — edifícios e salas disponíveis para criação de bastidores.
-- `GET /api/v1/racks/:id` — detalhe de bastidor com unidades e equipamentos.
-- `POST/PATCH/DELETE /api/v1/racks` — gestão de bastidores, com roles `ADMIN`/`SYSTEMS_OPERATOR`.
+- `GET /api/v1/racks/:id` — detalhe do bastidor padrão de 42U com os equipamentos posicionados.
+- `POST/PATCH/DELETE /api/v1/racks` — gestão de bastidores, com roles `ADMIN`/`SYSTEMS_OPERATOR`; os payloads de criação/edição contêm apenas `name` e `roomId`.
 - `GET /api/v1/device-models?type=&supportsNetworkPorts=true` — catálogo filtrável.
 - `POST /api/v1/device-models/seed` — seed idempotente do catálogo base, apenas `ADMIN`.
 
@@ -144,8 +144,8 @@ Remoções com dependências são recusadas para preservar a hierarquia física 
 
 - `POST /api/v1/assets` — upload administrativo de SVG, PNG ou WebP.
 - `GET /api/v1/assets/:id/file` — preview/ficheiro do asset.
-- Racks e equipamentos aceitam `frontAssetId`; equipamentos aceitam também `iconAssetId`.
-- A precedência visual é override do equipamento/rack, depois asset do modelo e finalmente fallback interno.
+- Equipamentos aceitam `frontAssetId`; o ícone do equipamento é determinado automaticamente pelo respetivo tipo.
+- O bastidor usa sempre o asset interno `rack-empty-42u.png`. Nos equipamentos, a precedência visual continua a ser override do equipamento, asset do modelo e fallback interno.
 - `DiscoveryJob` devolve `scannedCount`, `icmpReachableCount`, `tcpReachableCount`, `reachableCount`, `unreachableCount` e `resultCount`.
 - `DiscoveryResult` só é criado quando ICMP responde ou pelo menos uma porta TCP abre; reverse DNS é best effort nesses resultados.
 
@@ -153,7 +153,7 @@ Remoções com dependências são recusadas para preservar a hierarquia física 
 
 - `GET /api/v1/sites/:siteId/network-map` — devolve VLANs, subnet principal, equipamentos e interfaces associadas.
 - Estados de VLAN: `CONFIGURED`, `MISSING_SUBNET` e `NO_EQUIPMENT`.
-- Racks, devices e modelos aceitam `frontAssetId`; devices aceitam também `iconAssetId`.
+- Racks, devices e modelos aceitam `frontAssetId`; os ícones de devices e modelos são determinados automaticamente pelo tipo.
 
 - `GET /api/v1/device-models/:id/port-layout` — layout visual e asset frontal do modelo.
 - `PATCH /api/v1/device-models/:id/port-layout` — atualiza coordenadas normalizadas de portas.

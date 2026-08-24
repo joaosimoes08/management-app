@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res } fr
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { Roles } from '../auth/roles.decorator';
-import { CreateAssetDto, CreateBuildingDto, CreateDeviceDto, CreateDeviceModelDto, CreateInterfaceDto, CreateRackDto, CreateRackModelDto, CreateRoomDto, DetectPortLayoutDto, UpdateBuildingDto, UpdateDeviceDto, UpdateDeviceModelDto, UpdateInterfaceDto, UpdatePortLayoutDto, UpdateRackDto, UpdateRackModelDto, UpdateRoomDto } from './dto';
+import { CreateAssetDto, CreateBuildingDto, CreateDeviceDto, CreateDeviceModelDto, CreateInterfaceDto, CreateRackDto, CreateRackModelDto, CreateRoomDto, DetectPortLayoutDto, ReorderRacksDto, UpdateBuildingDto, UpdateDeviceDto, UpdateDeviceModelDto, UpdateInterfaceDto, UpdatePortLayoutDto, UpdateRackDto, UpdateRackModelDto, UpdateRoomDto } from './dto';
 import { InfrastructureService } from './infrastructure.service';
 
 @ApiTags('infrastructure') @ApiBearerAuth()
@@ -31,6 +31,7 @@ export class InfrastructureController {
   @Get('racks') racks(@Query('siteId') siteId?: string) { return this.service.listRacks(siteId); }
   @Get('racks/:id') rack(@Param('id') id: string) { return this.service.getRack(id); }
   @Post('racks') @Roles('ADMIN', 'SYSTEMS_OPERATOR') createRack(@Body() dto: CreateRackDto, @Req() req: { user: AuthenticatedUser }) { return this.service.createRack(dto, req.user); }
+  @Patch('rooms/:roomId/racks/order') @Roles('ADMIN', 'SYSTEMS_OPERATOR') reorderRacks(@Param('roomId') roomId: string, @Body() dto: ReorderRacksDto, @Req() req: { user: AuthenticatedUser }) { return this.service.reorderRacks(roomId, dto, req.user); }
   @Patch('racks/:id') @Roles('ADMIN', 'SYSTEMS_OPERATOR') updateRack(@Param('id') id: string, @Body() dto: UpdateRackDto, @Req() req: { user: AuthenticatedUser }) { return this.service.updateRack(id, dto, req.user); }
   @Delete('racks/:id') @Roles('ADMIN', 'SYSTEMS_OPERATOR') deleteRack(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.service.deleteRack(id, req.user); }
   @Get('device-models') models(@Query('search') search?: string, @Query('type') type?: string, @Query('supportsNetworkPorts') supportsNetworkPorts?: string) { return this.service.listModels(search, type, supportsNetworkPorts); }

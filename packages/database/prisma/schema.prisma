@@ -144,6 +144,7 @@ model Room {
 model Rack {
   id String @id @default(uuid()) @db.Uuid
   name String
+  displayOrder Int @default(0)
   units Int @default(42)
   modelId String? @db.Uuid
   frontAssetId String? @db.Uuid
@@ -153,6 +154,7 @@ model Rack {
   room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
   devices Device[]
   @@unique([roomId, name])
+  @@index([roomId, displayOrder])
 }
 model RackModel {
   id String @id @default(uuid()) @db.Uuid

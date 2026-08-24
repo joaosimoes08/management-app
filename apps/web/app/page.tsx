@@ -1,16 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Activity,
   ArrowUpRight,
-  Bell,
   BookOpen,
   Boxes,
   Database,
   ExternalLink,
   Gauge,
   Network,
+  RefreshCw,
   Search,
   Server,
   ShieldCheck,
@@ -19,7 +19,7 @@ import {
   TerminalSquare,
 } from 'lucide-react';
 import { useAuth } from '../lib/auth';
-import { AppShell, UserMenu } from '../components/app-shell';
+import { AppShell } from '../components/app-shell';
 
 const systems = [
   { name: 'PostgreSQL', detail: 'Base de dados principal', status: 'Operacional', tone: 'green', icon: Database },
@@ -32,7 +32,6 @@ type DashboardSummary = {
   counts: { sites: number; devices: number; vlans: number; subnets: number; ips: number; occupiedIps: number; freeIps: number; applications: number };
   recentAudit: { id: string; action: string; entityType?: string | null; username: string; createdAt: string }[];
 };
-type SearchResult = { id: string; title: string; detail: string; type: string; href: string };
 
 const activity = [
   { title: 'João iniciou sessão', meta: 'há 4 min · ADMIN', icon: ShieldCheck, tone: 'dark' },
@@ -60,9 +59,6 @@ export default function DashboardPage() {
   const [apiOnline, setApiOnline] = useState<boolean | null>(null);
   const { user, profile, apiFetch } = useAuth();
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [searching, setSearching] = useState(false);
   const displayName = profile?.firstName || user?.username || 'Utilizador';
 
   useEffect(() => {
@@ -72,35 +68,8 @@ export default function DashboardPage() {
       .catch(() => setApiOnline(false));
   }, []);
 
-  useEffect(() => {
-    void apiFetch<DashboardSummary>('/api/v1/dashboard/summary').then(setSummary).catch(() => setSummary(null));
-  }, [apiFetch]);
-
-  useEffect(() => {
-    const query = searchQuery.trim();
-    if (query.length < 2) { setSearchResults([]); setSearching(false); return undefined; }
-    let active = true;
-    const timer = window.setTimeout(() => {
-      setSearching(true);
-      void Promise.all([
-        apiFetch<{ items: { id: string; name: string; code: string }[] }>('/api/v1/sites?pageSize=100'),
-        apiFetch<{ items: { id: string; vlanId: number; name: string }[] }>('/api/v1/vlans?pageSize=100'),
-        apiFetch<{ items: { id: string; cidr: string; purpose?: string | null }[] }>('/api/v1/subnets?pageSize=100'),
-        apiFetch<{ items: { id: string; address: string; hostname?: string | null; subnetId: string }[] }>(`/api/v1/ip-addresses?search=${encodeURIComponent(query)}&pageSize=100`),
-      ]).then(([sites, vlans, subnets, ips]) => {
-        if (!active) return;
-        const normalized = query.toLowerCase();
-        const results: SearchResult[] = [
-          ...sites.items.filter((item) => `${item.name} ${item.code}`.toLowerCase().includes(normalized)).map((item) => ({ id: item.id, title: item.name, detail: `Site · ${item.code}`, type: 'Site', href: `/ipam?siteId=${item.id}` })),
-          ...vlans.items.filter((item) => `${item.vlanId} ${item.name}`.toLowerCase().includes(normalized)).map((item) => ({ id: item.id, title: `VLAN ${item.vlanId} · ${item.name}`, detail: 'VLAN', type: 'VLAN', href: `/ipam?vlanId=${item.id}` })),
-          ...subnets.items.filter((item) => `${item.cidr} ${item.purpose ?? ''}`.toLowerCase().includes(normalized)).map((item) => ({ id: item.id, title: item.cidr, detail: `Subnet · ${item.purpose ?? 'sem finalidade'}`, type: 'Subnet', href: `/ipam?subnetId=${item.id}` })),
-          ...ips.items.map((item) => ({ id: item.id, title: item.address, detail: `IP · ${item.hostname ?? 'hostname desconhecido'}`, type: 'IP', href: `/ipam?subnetId=${item.subnetId}&tab=ips` })),
-        ].slice(0, 8);
-        setSearchResults(results); setSearching(false);
-      }).catch(() => { if (active) { setSearchResults([]); setSearching(false); } });
-    }, 250);
-    return () => { active = false; window.clearTimeout(timer); };
-  }, [apiFetch, searchQuery]);
+  const refreshDashboard = useCallback(() => { void apiFetch<DashboardSummary>('/api/v1/dashboard/summary').then(setSummary).catch(() => setSummary(null)); }, [apiFetch]);
+  useEffect(() => { refreshDashboard(); }, [refreshDashboard]);
 
   const counts = summary?.counts;
   const recentAudit = summary?.recentAudit ?? [];
@@ -113,11 +82,7 @@ export default function DashboardPage() {
   ] : [];
 
   return (
-    <AppShell section="Dashboard" topbarContent={<>
-              <div className="dashboard-search"><div className="search-field"><Search size={16} /><input aria-label="Pesquisar" placeholder="Pesquisar sites, VLANs, subnets ou IPs..." value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} /><kbd>⌘ K</kbd></div>{searchQuery.trim().length >= 2 && <div className="search-results">{searching ? <div className="search-empty">A pesquisar...</div> : searchResults.length ? searchResults.map((result) => <a href={result.href} key={`${result.type}-${result.id}`}><span className="search-result-icon"><Network size={14} /></span><span><strong>{result.title}</strong><small>{result.detail}</small></span><ArrowUpRight size={14} /></a>) : <div className="search-empty">Sem resultados para “{searchQuery}”.</div>}</div>}</div>
-              <button className="icon-button" aria-label="Ver atividade" onClick={() => { window.location.href = '/auditoria'; }}><Bell size={18} /><i className="notification-dot" /></button>
-              <UserMenu compact />
-            </>}>
+    <AppShell section="Dashboard" globalSearch actions={<button className="topbar-action secondary-button" onClick={refreshDashboard}><RefreshCw size={14} /> Atualizar</button>}>
           <div className="dashboard-content">
             <section className="hero-row">
               <div><div className="eyebrow"><span className="live-dot" /> SISTEMA OPERACIONAL</div><h1>Bom dia, {displayName} <span>👋</span></h1><p>Aqui está o estado atual da sua infraestrutura.</p></div>

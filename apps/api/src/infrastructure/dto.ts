@@ -1,4 +1,4 @@
-import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
+import { ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
 
 const deviceTypes = ['SWITCH', 'ROUTER', 'FIREWALL', 'SERVER', 'STORAGE', 'OTHER'];
 const statuses = ['ACTIVE', 'INACTIVE', 'MAINTENANCE', 'RETIRED', 'UNKNOWN'];
@@ -13,7 +13,6 @@ export class CreateDeviceModelDto {
   @IsOptional() capabilities?: unknown;
   @IsOptional() @IsString() frontAssetId?: string;
   @IsOptional() @IsString() backAssetId?: string;
-  @IsOptional() @IsString() iconAssetId?: string;
   @IsOptional() portLayout?: unknown;
 }
 export class UpdateDeviceModelDto extends CreateDeviceModelDto {}
@@ -32,7 +31,6 @@ export class CreateDeviceDto {
   @IsOptional() @IsInt() rackUnitStart?: number;
   @IsOptional() @IsInt() rackUnitSize?: number;
   @IsOptional() @IsString() frontAssetId?: string;
-  @IsOptional() @IsString() iconAssetId?: string;
   @IsOptional() @IsString() managementIpAddressId?: string;
   @IsOptional() @IsString() notes?: string;
 }
@@ -99,12 +97,12 @@ export class CreateRackModelDto {
 export class UpdateRackModelDto extends CreateRackModelDto {}
 export class CreateRackDto {
   @IsString() @MinLength(1) name!: string;
-  @IsInt() @Min(1) @Max(60) units!: number;
   @IsString() roomId!: string;
-  @IsOptional() @IsString() modelId?: string;
-  @IsOptional() @IsString() frontAssetId?: string;
 }
 export class UpdateRackDto extends CreateRackDto {}
+export class ReorderRacksDto {
+  @IsArray() @ArrayMinSize(1) @IsString({ each: true }) rackIds!: string[];
+}
 
 export class CreateBuildingDto {
   @IsString() @MinLength(1) name!: string;

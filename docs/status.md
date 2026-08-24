@@ -167,7 +167,7 @@ Estado: funcional na primeira versão.
 - Sidebar com Site real, persistência local, prioridade de `siteId` na URL e rail recolhível estável.
 - Barra superior sem utilizador duplicado; username, roles e logout permanecem no sidebar.
 - Definições e Ajuda foram separadas dos estilos genéricos e ganharam layouts responsivos próprios.
-- `Rack.frontAssetId`, `Device.frontAssetId` e `Device.iconAssetId` permitem overrides de assets.
+- `Rack.frontAssetId` e `Device.frontAssetId` permitem overrides de imagem frontal; o ícone do equipamento é fixo por tipo.
 - Infraestrutura mostra imagem de rack, overlays clicáveis e fallback em unidades U.
 - Upload manual de assets foi disponibilizado para administradores.
 - Discovery filtra resultados por alcance ICMP/TCP e executa reverse DNS apenas em hosts alcançáveis.
@@ -276,3 +276,10 @@ Estado: implementado no frontend.
 - O detalhe do equipamento é um overlay dentro do palco do rack; não abre uma nova página nem altera a rota ao clicar no ativo.
 - O rack permanece visível e desfocado durante o zoom; clique exterior e Escape regressam ao bastidor.
 - Os hotspots são renderizados dentro de um frame com a proporção do asset/template.
+
+### Incremento — bastidor padrão fixo de 42U
+
+- Todos os bastidores usam o asset interno `rack-empty-42u.png`, substituído pela imagem de referência numerada de U42 no topo a U1 em baixo.
+- A criação e edição aceitam apenas nome e sala; capacidade, imagem e modelo deixam de ser configuráveis na UI e na API.
+- Os overlays são calculados de baixo para cima e recortados ao intervalo U configurado, evitando sobreposições visuais em equipamentos com 2U ou mais.
+- A migração `20260823120000_fixed_42u_racks` normaliza bastidores existentes e deixa por posicionar equipamentos que excedam U42.
