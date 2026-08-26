@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { PrismaClient } from '@simoes/database';
 import { Queue } from 'bullmq';
 import { AuthenticatedUser } from '../auth/auth.service';
@@ -21,16 +21,17 @@ export type GlobalSearchResult = {
 };
 
 @Injectable()
-export class DashboardService {
+export class DashboardService implements OnModuleDestroy {
   private readonly discoveryQueue = new Queue('discovery', { connection: this.redisConnection() });
   constructor(private readonly prisma: PrismaClient) {}
+  async onModuleDestroy() { await this.discoveryQueue.disconnect(); }
 
   private redisConnection() {
     const url = new URL(process.env.REDIS_URL ?? 'redis://localhost:6379');
     return { host: url.hostname, port: Number(url.port || 6379), connectTimeout: 1500, maxRetriesPerRequest: 1, ...(url.password ? { password: url.password } : {}) };
   }
 
-  async summary() {
+  async summary(user?: AuthenticatedUser) {
     const [sites, devices, vlans, subnets, ips, occupiedIps, freeIps, applications, recentAudit] = await Promise.all([
       this.prisma.site.count(),
       this.prisma.device.count(),
@@ -40,7 +41,7 @@ export class DashboardService {
       this.prisma.ipAddress.count({ where: { state: 'OCCUPIED' } }),
       this.prisma.ipAddress.count({ where: { state: 'FREE' } }),
       this.prisma.applicationLink.count({ where: { isActive: true } }),
-      this.prisma.auditLog.findMany({
+      user && !user.roles.some((role) => role === 'ADMIN' || role === 'AUDITOR') ? Promise.resolve([]) : this.prisma.auditLog.findMany({
         take: 6,
         orderBy: { createdAt: 'desc' },
         include: { user: { select: { username: true, displayName: true } } },
@@ -87,7 +88,7 @@ export class DashboardService {
 
   async topbarState() {
     const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const [failedJobs, pendingResults, processes, redis] = await Promise.all([
+    const [failedJobs, pendingResults, processes, redis, settings] = await Promise.all([
       this.prisma.discoveryJob.findMany({
         where: { status: 'FAILED', createdAt: { gte: cutoff } },
         include: { subnet: { select: { cidr: true, site: { select: { name: true } } } } },
@@ -102,6 +103,7 @@ export class DashboardService {
         take: 5,
       }),
       this.discoveryQueue.getJobCounts('waiting', 'active', 'failed').then((counts) => ({ available: true, counts })).catch(() => ({ available: false, counts: {} })),
+      this.prisma.systemSettings.findFirst({ select: { setupCompleted: true, setupCompletedAt: true } }),
     ]);
 
     const alerts: TopbarAlert[] = [];
@@ -114,6 +116,7 @@ export class DashboardService {
     return {
       environment: {
         state: redis.available ? 'OPERATIONAL' : 'DEGRADED',
+        setup: { completed: settings?.setupCompleted ?? false, completedAt: settings?.setupCompletedAt ?? null },
         services: [
           { key: 'api', label: 'API', state: 'OPERATIONAL' },
           { key: 'postgres', label: 'PostgreSQL', state: 'OPERATIONAL' },

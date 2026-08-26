@@ -69,6 +69,26 @@
           }
         }
       ]
+    },
+    {
+      "clientId": "simoes-settings-admin",
+      "name": "SIMOES Settings Administration",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "change-me-settings-admin-secret",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true
+    }
+  ],
+  "users": [
+    {
+      "username": "service-account-simoes-settings-admin",
+      "enabled": true,
+      "serviceAccountClientId": "simoes-settings-admin",
+      "clientRoles": { "realm-management": ["manage-users", "query-users"] }
     }
   ]
 }

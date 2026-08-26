@@ -8,6 +8,7 @@ O realm é importado a partir de `infra/keycloak/realm-cociber.json`. Existem do
 
 - `simoes-api`: confidential, usado pela API e testes direct grant.
 - `simoes-web`: public, usado pelo browser com Authorization Code + PKCE. Nunca deve ter client secret.
+- `simoes-settings-admin`: confidential, limitado a `manage-users` e `query-users` para gerir roles da aplicação e proteger o último ADMIN.
 
 ## API
 

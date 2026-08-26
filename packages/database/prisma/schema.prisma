@@ -119,6 +119,15 @@ model SystemSettings {
   organizationName String?
   organizationCode String?
   timezone String @default("Europe/Lisbon")
+  locale String @default("pt-PT")
+  discoveryDefaultMethods Json @default("[\"ICMP\",\"TCP\"]")
+  discoveryDefaultTcpPorts Json @default("[22,80,443,3389]")
+  discoveryDefaultReverseDns Boolean @default(true)
+  discoveryDefaultIntervalHours Int @default(12)
+  discoveryAllowedCidrs Json @default("[\"10.0.0.0/8\",\"172.16.0.0/12\",\"192.168.0.0/16\",\"fc00::/7\"]")
+  auditRetentionDays Int @default(90)
+  lastAuditCleanupAt DateTime?
+  lastAuditCleanupDeletedCount Int?
   setupCompleted Boolean @default(false)
   setupCompletedAt DateTime?
   setupCompletedBy String? @db.Uuid
@@ -235,6 +244,7 @@ model Device {
   rack Rack? @relation(fields: [rackId], references: [id], onDelete: SetNull)
   interfaces DeviceInterface[]
   ipAddresses IpAddress[]
+  host Host?
   natRules NatRule[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -248,8 +258,14 @@ model Host {
   hostname String?
   operatingSystem String?
   macAddress String?
+  notes String?
+  source SourceType @default(MANUAL)
   status AssetStatus @default(UNKNOWN)
+  observedHostname String?
+  observedStatus String?
   lastSeenAt DateTime?
+  deviceId String? @unique @db.Uuid
+  device Device? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
   ipAddresses IpAddress[]
   services Service[]
   createdAt DateTime @default(now())
@@ -263,7 +279,11 @@ model Service {
   protocol String?
   port Int?
   status String?
+  observedStatus String?
   version String?
+  notes String?
+  source SourceType @default(MANUAL)
+  lastSeenAt DateTime?
   hostId String @db.Uuid
   host Host @relation(fields: [hostId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
@@ -372,6 +392,7 @@ model DiscoverySchedule {
   intervalHours Int @default(12)
   methods Json
   tcpPorts Json?
+  reverseDns Boolean @default(true)
   lastRunAt DateTime?
   nextRunAt DateTime?
   lastStatus String?
@@ -482,6 +503,7 @@ model DiscoveryJob {
   subnetId String @db.Uuid
   methods Json
   tcpPorts Json?
+  reverseDns Boolean @default(true)
   status DiscoveryJobStatus @default(PENDING)
   startedAt DateTime?
   completedAt DateTime?

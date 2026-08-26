@@ -17,12 +17,12 @@ export class SetupService {
   async status() {
     const settings = await this.settings();
     const siteCount = await this.prisma.site.count();
-    return { setupCompleted: settings.setupCompleted, organizationName: settings.organizationName, organizationCode: settings.organizationCode, timezone: settings.timezone, siteCount, hasSite: siteCount > 0 };
+    return { setupCompleted: settings.setupCompleted, organizationName: settings.organizationName, organizationCode: settings.organizationCode, timezone: settings.timezone, locale: settings.locale, siteCount, hasSite: siteCount > 0 };
   }
 
   async saveOrganization(dto: OrganizationDto, user: AuthenticatedUser) {
     const settings = await this.settings();
-    const updated = await this.prisma.systemSettings.update({ where: { id: settings.id }, data: { organizationName: dto.name.trim(), organizationCode: dto.code?.trim().toUpperCase() || null, timezone: dto.timezone ?? settings.timezone, setupCompleted: false } });
+    const updated = await this.prisma.systemSettings.update({ where: { id: settings.id }, data: { organizationName: dto.name.trim(), organizationCode: dto.code?.trim().toUpperCase() || null, timezone: dto.timezone ?? settings.timezone, locale: dto.locale ?? settings.locale, setupCompleted: false } });
     await this.audit.record({ userId: user.id, action: 'INITIAL_SETUP_ORGANIZATION_SAVED', entityType: 'SystemSettings', entityId: updated.id, metadata: { organizationName: updated.organizationName, organizationCode: updated.organizationCode } });
     return updated;
   }

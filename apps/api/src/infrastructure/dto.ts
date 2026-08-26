@@ -56,6 +56,7 @@ export class UpdateInterfaceDto extends CreateInterfaceDto {
   @IsOptional() source?: unknown;
   @IsOptional() lastSeenAt?: unknown;
   @IsOptional() deviceId?: string;
+  @IsOptional() device?: unknown;
   @IsOptional() nativeVlan?: unknown;
   @IsOptional() accessVlan?: unknown;
   @IsOptional() allowedVlans?: unknown;

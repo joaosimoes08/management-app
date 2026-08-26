@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: simoes_http_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d simoes_http_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/simoes_http_test
+      REDIS_URL: redis://127.0.0.1:6379
+      AUTH_DISABLED: "false"
+      NODE_ENV: test
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:3001
+      NEXT_PUBLIC_KEYCLOAK_URL: http://127.0.0.1:8080
+      NEXT_PUBLIC_KEYCLOAK_REALM: COCiber
+      NEXT_PUBLIC_KEYCLOAK_CLIENT_ID: simoes-web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Generate Prisma client
+        run: npx prisma generate --schema packages/database/prisma/schema.prisma
+      - name: Apply migrations to isolated PostgreSQL
+        run: npx prisma migrate deploy --schema packages/database/prisma/schema.prisma
+      - name: Check translations
+        run: npm run i18n:check
+      - name: Unit tests
+        run: npm test --workspace=@simoes/api
+      - name: HTTP integration tests
+        run: npm run test:http
+      - name: Build API and web
+        run: npm run build

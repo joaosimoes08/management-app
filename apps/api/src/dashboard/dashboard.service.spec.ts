@@ -53,6 +53,7 @@ test('topbar state degrades when Redis is unavailable and derives current alerts
       },
     },
     discoveryResult: { count: async () => 3 },
+    systemSettings: { findFirst: async () => ({ setupCompleted: true, setupCompletedAt: now }) },
   }, { getJobCounts: async () => { throw new Error('Redis offline'); } });
 
   const result = await service.topbarState();

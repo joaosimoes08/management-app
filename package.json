@@ -8,11 +8,18 @@
     "worker:dev": "dotenv -e .env -o -- npm run worker:dev --workspace=@simoes/api",
     "web:dev": "npm run dev --workspace=@simoes/web",
     "web:build": "npm run build --workspace=@simoes/web",
+    "test:http": "npm run test:http --workspace=@simoes/api",
     "db:generate": "dotenv -e .env -o -- npm run db:generate --workspace=@simoes/database",
     "db:migrate:dev": "dotenv -e .env -o -- npm run db:migrate:dev --workspace=@simoes/database",
     "db:migrate": "dotenv -e .env -o -- npm run db:migrate --workspace=@simoes/database",
     "db:seed": "dotenv -e .env -o -- npm run db:seed --workspace=@simoes/database",
-    "db:studio": "dotenv -e .env -o -- npm run db:studio --workspace=@simoes/database"
+    "db:studio": "dotenv -e .env -o -- npm run db:studio --workspace=@simoes/database",
+    "keycloak:provision-settings": "dotenv -e .env -o -- node infra/keycloak/provision-settings-admin.mjs",
+    "qa:provision": "node scripts/provision-qa-users.mjs",
+    "qa:scope": "node scripts/setup-qa-scope.mjs",
+    "pilot:seed": "dotenv -e .env -o -- node scripts/seed-pilot.mjs",
+    "pilot:baseline": "dotenv -e .env -o -- node scripts/pilot-baseline.mjs",
+    "i18n:check": "node scripts/check-i18n.mjs"
   },
   "devDependencies": {
     "dotenv-cli": "^8.0.0"

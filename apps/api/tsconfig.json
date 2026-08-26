@@ -14,5 +14,7 @@
     "skipLibCheck": true,
     "strict": true,
     "moduleResolution": "node"
-  }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["dist", "node_modules", "test"]
 }

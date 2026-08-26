@@ -567,18 +567,11 @@ O IPAM é a primeira funcionalidade operacional central. Os dados oficiais devem
 - A API passou a expor equipamentos, modelos e interfaces; interfaces suportam VLAN nativa, VLAN de acesso e VLANs permitidas através de relação normalizada.
 - `/definicoes` passou a consultar/editar organização para ADMIN, mostrar sessão/roles e estado das integrações.
 - `/ajuda` passou a disponibilizar artigos internos para arranque, IPAM, Discovery, equipamentos, operação e troubleshooting.
-- LDAP, SNMP, agentes, NetApp, bastidores visuais e diagrama frontal de switches continuam planeados.
+- LDAP/LDAPS, SNMP, agentes e NetApp continuam planeados. Bastidores visuais, diagramas frontais de switches e configuração manual de portas já têm uma primeira versão operacional.
 
-### Próxima ordem de implementação
+### Próxima ordem de implementação (histórica)
 
-1. Filtros e paginação equivalentes para Sites, VLANs e Subnets, além da tabela de IPs.
-2. Gestão visual de Hosts e Services no inventário.
-3. Agendamento e histórico de execuções BullMQ, com retries e métricas do worker.
-4. Suporte IPv6 e validações de sobreposição de subnets.
-5. CRUD de equipamentos, modelos e interfaces.
-6. Associação de interfaces a VLANs e navegação visual de switches.
-7. Discovery SNMP para enriquecer dispositivos e portas sem substituir dados manuais.
-8. Substituir páginas de roadmap por módulos operacionais à medida que cada domínio for implementado.
+Esta lista foi executada parcialmente e é substituída pelo roadmap consolidado no final deste documento. Permanecem relevantes a gestão visual de Hosts/Services, o reforço do histórico operacional e a integração SNMP; o suporte IPv6, o CRUD de infraestrutura, o agendamento de discovery e a navegação visual de switches já têm uma base funcional.
 
 ### Atualização — catálogo físico, switch visual e discovery periódico
 
@@ -716,3 +709,114 @@ Limitações: a UI ainda precisa de completar drawers de edição de IPs, config
 - As salas só são disponibilizadas depois da seleção de um Edifício; sem contexto a vista mostra placeholders e não assume uma sala.
 - O zoom de equipamento é um overlay no palco do rack, com o rack desfocado atrás, fecho por clique exterior/Escape e ligação explícita para a ficha completa.
 - Os hotspots usam um frame com o mesmo aspect ratio de `imageWidth`/`imageHeight` do `portLayout`, preservando as coordenadas confirmadas.
+
+## 16. Estado consolidado e roadmap — 25 de agosto de 2026
+
+Esta secção é a referência atual para planeamento. As listas cronológicas anteriores documentam a evolução do projeto, mas podem descrever como pendentes funcionalidades que já receberam uma primeira implementação.
+
+### 16.1 Resultado já entregue
+
+- Base técnica: monorepo npm, Next.js, NestJS, PostgreSQL/Prisma, Redis/BullMQ, Keycloak, Swagger, validação global, rate limiting, headers de segurança e auditoria.
+- Acesso: login OIDC, refresh/logout, roles da aplicação, sincronização do utilizador autenticado e onboarding inicial de organização/Site.
+- IPAM: Sites, VLANs, subnets IPv4/IPv6, IPs, VRFs, NAT documental, calculadora CIDR, importação RIPE assistida, pesquisa/paginação e checks manuais/agendados.
+- Discovery: ICMP/TCP, reverse DNS, worker separado, schedules opt-in, métricas de execução e revisão explícita antes de promover resultados para o inventário oficial.
+- Infraestrutura: `Site → Edifício → Sala → Bastidor 42U → Equipamento`, validação de ocupação, catálogo de modelos/assets, imagens frontais, zoom local e inventário pesquisável.
+- Rede manual: modelos com portas, editor visual de hotspots, geração aditiva de interfaces e configuração ACCESS/TRUNK/ROUTED com VLAN access, native e allowed.
+- Portal e operação: links internos por role, dashboard com dados reais, pesquisa global, página de auditoria, ajuda e definições.
+
+### 16.2 Incremento em validação antes de ser considerado concluído
+
+- Nova área de Definições para organização, Sites, utilizadores/roles do Keycloak, defaults de Discovery e política de retenção da auditoria.
+- Idioma persistido por organização (`pt-PT`/`en-US`) e infraestrutura inicial de traduções no frontend.
+- Client confidencial dedicado do Keycloak, com service account limitada a `manage-users`, para listar utilizadores e alterar apenas roles da aplicação.
+- Limpeza diária da auditoria por uma fila BullMQ `maintenance`, respeitando a retenção configurada.
+- Defaults de métodos, portas TCP, reverse DNS e intervalo aplicados apenas a novos jobs/schedules, sem alterar silenciosamente configurações existentes.
+
+Critério para fechar este incremento: migração aplicada num ambiente limpo e num ambiente com dados, testes e builds verdes, provisionamento Keycloak validado, e teste manual com ADMIN/AUDITOR/READ_ONLY incluindo perda e recuperação temporária de Redis/Keycloak.
+
+### 16.3 Problema prioritário atual
+
+A plataforma já permite documentar os elementos separadamente, mas o percurso operacional principal ainda não está completamente fechado numa experiência única. Um operador deve conseguir partir de uma porta, abrir a VLAN, ver subnets e IPs, identificar o Host/Service e regressar ao equipamento sem perder o contexto. A próxima entrega deve otimizar este resultado, em vez de acrescentar domínios novos.
+
+### 16.4 Roadmap Now / Next / Later
+
+#### Now — estabilizar e fechar o núcleo manual
+
+1. **Concluir e validar Definições operacionais.** Owner: engenharia. Métrica: migração, testes API e builds API/web verdes; 100% dos fluxos de roles auditados; nenhuma role da aplicação removível ao último ADMIN.
+2. **Fechar a navegação porta → VLAN → subnet → IP → Host/Service.** Owner: produto + frontend/backend. Métrica: o percurso completo executa-se sem pesquisa manual paralela e preserva `siteId`, entidade selecionada e ação de retorno.
+3. **Ficha operacional de Host e Service.** Incluir CRUD coerente, IPs, portas/serviços, origem, última observação, equipamento/interface relacionados e distinção entre estado manual e observado. Métrica: um resultado aprovado de Discovery fica consultável e editável no mesmo fluxo do IPAM.
+4. **Qualidade e segurança do núcleo.** Cobrir RBAC por endpoint e scopes IPAM, validação de destinos de Discovery, erros consistentes, testes de integração dos fluxos críticos e histórico das alterações de interfaces/IPs. Métrica: zero falhas críticas conhecidas e matriz de permissões automatizada antes de piloto.
+5. **Piloto com dados reais manuais.** Carregar um Site, uma sala, pelo menos um rack, um switch, VLANs/subnets e uma amostra de hosts. Métrica: cinco tarefas operacionais representativas concluídas por operadores sem intervenção técnica; registar tempo, erros e lacunas.
+
+#### Next — autenticação empresarial e sincronização de rede read-only
+
+1. **Keycloak federado com LDAP/LDAPS.** Definir grupos→roles, truststore/certificados, política de sincronização e conta break-glass local. Métrica: login, remoção de acesso e alteração de grupo refletidos e auditados no ambiente piloto.
+2. **Cofre e perfis de credenciais.** Antes de SNMP, implementar encriptação em repouso, rotação, teste de conectividade, separação read/write e auditoria sem exposição de secrets.
+3. **SNMPv3 read-only MVP.** Recolher identidade, uptime, interfaces, admin/oper status, velocidade e contadores. A sincronização deve guardar observações separadas dos dados manuais e apresentar diferenças para aprovação. Métrica: sincronização bem-sucedida e repetível nos modelos do piloto, sem sobrescrita silenciosa.
+4. **MAC address table e reconciliação.** Relacionar MAC → interface → VLAN → IP/Host com confiança e timestamp. Métrica: localizar um host do piloto a partir do IP ou MAC até à porta física.
+5. **Saúde e qualidade do inventário.** Indicadores acionáveis para dados desatualizados, IPs duplicados, ativos sem localização/modelo/IP de gestão e falhas de sincronização; evitar gráficos decorativos sem ação associada.
+
+#### Later — enriquecimento de sistemas e integrações
+
+1. Agente Linux e depois Windows, outbound sobre TLS, começando por identidade, OS, uptime, hardware, discos e heartbeat; serviços/software/VMs entram após estabilizar o contrato.
+2. Integração NetApp pela API oficial para clusters, capacidade, volumes, snapshots, estado, firmware e licenciamento.
+3. Ligações físicas entre equipamentos, patch panels, cablagem e vista traseira dos bastidores.
+4. Integrações contextuais com Zabbix, Ansible, BookStack e Zammad a partir das fichas dos ativos.
+5. Exports, backups/restauro testados, observabilidade da própria plataforma, CI/CD, testes de carga e hardening de produção.
+
+### 16.5 Fora de âmbito por agora
+
+- Execução arbitrária de comandos, configuração automática de switches ou escrita SNMP.
+- Substituir Zabbix, Ansible, BookStack ou Zammad.
+- Agentes, NetApp e gráficos históricos avançados antes de o fluxo manual e o piloto estarem validados.
+- Drag-and-drop horizontal livre dentro do rack ou vista traseira antes de existir evidência operacional que justifique a complexidade.
+
+### 16.6 Métrica de produto recomendada
+
+**North Star:** percentagem de ativos ativos com localização física, IP de gestão e relações de rede suficientes para navegar do equipamento até ao Host/Service associado.
+
+Métricas de apoio:
+
+- percentagem de subnets com inventário revisto nos últimos 30 dias;
+- percentagem de resultados de Discovery revistos dentro de 48 horas;
+- percentagem de interfaces de rede com modo e VLAN documentados;
+- número de inconsistências manuais versus observadas por resolver;
+- tempo mediano para localizar fisicamente um host a partir de IP, hostname ou MAC;
+- taxa de sucesso dos jobs de Discovery e, posteriormente, das sincronizações SNMP.
+
+Os valores de referência devem ser recolhidos no piloto. Não devem ser inventados targets antes de existir uma baseline real.
+
+## 17. Incremento operacional e hardening — 25 de agosto de 2026
+
+Esta secção substitui o estado de “Now” da secção 16 para o código atual.
+
+### 17.1 Entregue no backend e na base de dados
+
+- A migração `20260825120000_operational_core_hardening` acrescenta allowlist de Discovery, campos manuais/observados de Host e Service, relação única Device↔Host e garantia PostgreSQL de apenas um job `PENDING`/`RUNNING` por subnet.
+- `Host` tem detalhe, filtros, criação/edição, retirada lógica (`RETIRED`) e associação/desassociação explícita de IPs e Device. `Service` tem CRUD auditado e validação de protocolo/porta.
+- Aprovar Discovery é transacional, concorrente e idempotente. O processo reutiliza o Host do IP, preserva todos os campos manuais e atualiza apenas observações e `lastSeenAt`.
+- `IpamAccessService` centraliza scopes para Sites, VRFs, VLANs, subnets, IPs, Hosts, Services, NAT e Discovery. ADMIN ignora scopes; ausência de permissões scoped conserva o comportamento legado; permissões de grupos formam uma união; escritas em Hosts multi-subnet exigem autorização em todas as subnets.
+- Listagens usam filtros Prisma, leituras fora do scope devolvem 404 e mutações fora do scope devolvem 403. A criação/movimentação de subnets valida também a coerência entre Site, VLAN, VRF e subnet pai.
+- A API de administração de grupos IPAM permite CRUD, membros locais sincronizados e permissões SITE/VRF/VLAN/SUBNET validadas contra o Site do grupo.
+- Discovery só aceita subnets integralmente contidas na allowlist, bloqueia sempre redes especiais, limita 4096 hosts e 64 portas e rejeita enumeração IPv6. O worker recarrega Job, Subnet e política da base e não confia no CIDR da fila.
+- Respostas de erro da API são normalizadas como `{ code, message, details? }`; detalhes operacionais de Discovery permanecem nos logs e a base/API guarda apenas um código sanitizado.
+- Alterações de roles Keycloak adicionam antes de remover, protegem o último ADMIN, verificam o resultado, compensam falhas, terminam sessões e auditam o diff preservando roles herdadas.
+
+### 17.2 Entregue no frontend
+
+- O percurso visual é `porta → VLAN → subnet → IP → Host → Service`. O popover da porta apresenta VLAN access/native/allowed e respetivas subnets clicáveis.
+- O contexto usa `siteId`, `vlanId`, `subnetId`, `hostId`, `fromDeviceId` e `fromInterfaceId`; existe ação explícita para regressar à porta e a infraestrutura restaura Device/interface da URL.
+- IPs sem Host oferecem “Criar/associar Host”. A ficha lateral do Host mostra estados manual/observado, origem, último avistamento, SO, MAC, notas, IPs, Sites, VLANs, subnets, Device/localização, interfaces e Services.
+- A tab IPAM “Permissões” permite gerir grupos, membros sincronizados e a matriz de scopes/ações.
+- Definições permite editar a allowlist de Discovery e mostra o estado sondado de PostgreSQL, Redis/BullMQ e Keycloak. A infraestrutura global de idioma e as traduções de shell, autenticação, setup e Definições estão ativas em `pt-PT` e `en-US`; os módulos operacionais ainda contêm alguns textos legados em português que devem ser migrados para chaves antes do piloto bilingue.
+
+### 17.3 Validação executada
+
+- Prisma válido; builds de API e web verdes; testes unitários verdes.
+- Migrações aplicadas com sucesso sobre a base local com inventário e, sequencialmente, sobre uma base PostgreSQL temporária vazia. A base temporária foi removida após a validação.
+- Client `simoes-settings-admin` provisionado no Keycloak real com service account limitada a `manage-users`.
+- Smoke de saúde confirmou API e PostgreSQL operacionais. O smoke manual completo com ADMIN, NETWORK_OPERATOR scoped/legacy, AUDITOR e READ_ONLY depende de contas de ensaio autenticáveis e continua como gate de piloto.
+
+### 17.4 Próximo gate
+
+Antes do piloto: concluir a extração dos textos legados dos módulos operacionais para o catálogo `pt-PT`/`en-US`, executar a matriz manual com as cinco personas e acrescentar testes HTTP de integração Nest/Fastify sobre PostgreSQL isolado ao pipeline CI.

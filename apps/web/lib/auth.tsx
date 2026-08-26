@@ -27,11 +27,71 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+const localizedApiErrors: Record<string, Record<string, string>> = {
+  'pt-PT': {
+    APPLICATION_ROLE_REQUIRED: 'O utilizador tem de manter pelo menos uma role da aplicação.',
+    KEYCLOAK_ADMIN_AUTH_FAILED: 'Não foi possível autenticar o serviço administrativo no Keycloak.',
+    KEYCLOAK_ADMIN_NOT_CONFIGURED: 'A integração administrativa do Keycloak não está configurada.',
+    KEYCLOAK_ADMIN_REQUEST_FAILED: 'O Keycloak recusou a operação administrativa.',
+    LAST_ADMIN_REQUIRED: 'Não é possível remover a role do último administrador ativo.',
+    SITE_NOT_EMPTY: 'Só é possível eliminar Sites vazios.',
+    TCP_PORT_REQUIRED: 'Define pelo menos uma porta para Discovery TCP.',
+    DISCOVERY_TARGET_FORBIDDEN: 'A rede pertence ou sobrepõe uma gama especial bloqueada.',
+    DISCOVERY_TARGET_NOT_ALLOWED: 'A subnet não está incluída nas redes autorizadas para Discovery.',
+    DISCOVERY_IPV6_UNSUPPORTED: 'A enumeração de subnets IPv6 ainda não é suportada.',
+    DISCOVERY_PORT_LIMIT: 'Discovery aceita no máximo 64 portas por execução.',
+    DISCOVERY_ALREADY_ACTIVE: 'Já existe uma execução ativa para esta subnet.',
+    IPAM_SCOPE_FORBIDDEN: 'Não tens permissão para esta operação neste scope IPAM.',
+    IPAM_SCOPE_SITE_MISMATCH: 'O scope não pertence ao Site do grupo.',
+    IPAM_PLACEMENT_SITE_MISMATCH: 'Site, VLAN, VRF e subnet pai têm de pertencer ao mesmo Site.',
+    SERVICE_PORT_REQUIRED: 'Services TCP/UDP exigem uma porta.',
+    DEVICE_HOST_CONFLICT: 'O equipamento já está associado a outro Host.',
+    VALIDATION_ERROR: 'Existem campos inválidos no pedido.',
+  },
+  'en-US': {
+    APPLICATION_ROLE_REQUIRED: 'The user must retain at least one application role.',
+    KEYCLOAK_ADMIN_AUTH_FAILED: 'The Keycloak administration service could not authenticate.',
+    KEYCLOAK_ADMIN_NOT_CONFIGURED: 'The Keycloak administration integration is not configured.',
+    KEYCLOAK_ADMIN_REQUEST_FAILED: 'Keycloak rejected the administrative operation.',
+    LAST_ADMIN_REQUIRED: 'The role cannot be removed from the last active administrator.',
+    SITE_NOT_EMPTY: 'Only empty Sites can be deleted.',
+    TCP_PORT_REQUIRED: 'Define at least one port for TCP Discovery.',
+    DISCOVERY_TARGET_FORBIDDEN: 'The network belongs to or overlaps a blocked special range.',
+    DISCOVERY_TARGET_NOT_ALLOWED: 'The subnet is not included in the Discovery allowlist.',
+    DISCOVERY_IPV6_UNSUPPORTED: 'IPv6 subnet enumeration is not supported yet.',
+    DISCOVERY_PORT_LIMIT: 'Discovery accepts at most 64 ports per run.',
+    DISCOVERY_ALREADY_ACTIVE: 'There is already an active run for this subnet.',
+    IPAM_SCOPE_FORBIDDEN: 'You do not have permission for this operation in this IPAM scope.',
+    IPAM_SCOPE_SITE_MISMATCH: 'The scope does not belong to the group Site.',
+    IPAM_PLACEMENT_SITE_MISMATCH: 'Site, VLAN, VRF, and parent subnet must belong to the same Site.',
+    SERVICE_PORT_REQUIRED: 'TCP/UDP Services require a port.',
+    DEVICE_HOST_CONFLICT: 'The device is already linked to another Host.',
+    VALIDATION_ERROR: 'The request contains invalid fields.',
+  },
+};
+
 const keycloak = new Keycloak({
   url: process.env.NEXT_PUBLIC_KEYCLOAK_URL ?? 'http://localhost:8080',
   realm: process.env.NEXT_PUBLIC_KEYCLOAK_REALM ?? 'COCiber',
   clientId: process.env.NEXT_PUBLIC_KEYCLOAK_CLIENT_ID ?? 'simoes-web',
 });
+
+let keycloakInitPromise: Promise<boolean> | null = null;
+
+function initializeKeycloak() {
+  if (!keycloakInitPromise) {
+    keycloakInitPromise = keycloak.init({
+      onLoad: 'check-sso',
+      silentCheckSsoRedirectUri: `${window.location.origin}/silent-check-sso.html`,
+      checkLoginIframe: false,
+      pkceMethod: 'S256',
+    }).catch((error) => {
+      keycloakInitPromise = null;
+      throw error;
+    });
+  }
+  return keycloakInitPromise;
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
@@ -76,7 +136,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     keycloak.onTokenExpired = () => { void refreshToken(); };
     keycloak.onAuthLogout = () => { setAuthenticated(false); setUser(null); setToken(undefined); };
 
-  void keycloak.init({ onLoad: 'check-sso', silentCheckSsoRedirectUri: `${window.location.origin}/silent-check-sso.html`, checkLoginIframe: false, pkceMethod: 'S256' })
+    void initializeKeycloak()
       .then(async (isAuthenticated) => {
         if (!active) return;
         setAuthError(null);
@@ -122,6 +182,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const headers = {
       ...init.headers,
       Authorization: `Bearer ${keycloak.token}`,
+      'Accept-Language': typeof window !== 'undefined' ? (window.localStorage.getItem('cociber.locale') ?? 'pt-PT') : 'pt-PT',
       ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
     };
     const response = await fetch(`${apiUrl}${path}`, {
@@ -132,8 +193,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!response.ok) {
       let detail = '';
       try {
-        const payload = await response.json() as { message?: string | string[]; error?: string };
-        detail = Array.isArray(payload.message) ? payload.message.join(', ') : payload.message ?? payload.error ?? '';
+        const payload = await response.json() as { code?: string; message?: string | string[]; error?: string };
+        const locale = window.localStorage.getItem('cociber.locale') === 'en-US' ? 'en-US' : 'pt-PT';
+        detail = (payload.code && localizedApiErrors[locale][payload.code]) || (Array.isArray(payload.message) ? payload.message.join(', ') : payload.message ?? payload.error ?? '');
       } catch {
         // Keep the status as a useful fallback when the API did not return JSON.
       }

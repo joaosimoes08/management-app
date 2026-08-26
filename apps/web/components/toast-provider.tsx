@@ -2,6 +2,7 @@
 
 import { AlertTriangle, CheckCircle2, Info, X, XCircle } from 'lucide-react';
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import { useI18n } from '../lib/i18n';
 
 export type ToastKind = 'error' | 'warning' | 'success';
 
@@ -26,9 +27,9 @@ type ToastContextValue = {
 const ToastContext = createContext<ToastContextValue | undefined>(undefined);
 const minimumDuration: Record<ToastKind, number> = { error: 15_000, warning: 10_000, success: 5_000 };
 const icons = { error: XCircle, warning: AlertTriangle, success: CheckCircle2 };
-const labels = { error: 'Erro', warning: 'Atenção', success: 'Sucesso' };
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
+  const { locale } = useI18n();
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const dismiss = useCallback((id: number) => setToasts((current) => current.filter((toast) => toast.id !== id)), []);
@@ -48,7 +49,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         const Icon = icons[toast.kind];
         return <article className={`toast toast-${toast.kind}`} key={toast.id} role={toast.kind === 'error' ? 'alert' : 'status'}>
           <div className="toast-icon"><Icon size={18} aria-hidden="true" /></div>
-          <div className="toast-copy"><strong>{toast.operation}</strong><span>{toast.message}</span><small>{labels[toast.kind]}</small></div>
+          <div className="toast-copy"><strong>{toast.operation}</strong><span>{toast.message}</span><small>{locale === 'en-US' ? ({ error: 'Error', warning: 'Warning', success: 'Success' } as const)[toast.kind] : ({ error: 'Erro', warning: 'Atenção', success: 'Sucesso' } as const)[toast.kind]}</small></div>
           <button className="toast-close" onClick={() => dismiss(toast.id)} aria-label="Fechar notificação"><X size={15} /></button>
           <i className="toast-progress" style={{ animationDuration: `${toast.duration}ms` }} />
         </article>;

@@ -1,4 +1,5 @@
-import { IsArray, IsBoolean, IsIn, IsInt, IsIP, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsIP, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { PartialType } from '@nestjs/swagger';
 
 export class CreateSiteDto {
   @IsString() @MinLength(2) @MaxLength(100) name!: string;
@@ -27,7 +28,7 @@ export class CreateSubnetDto {
   @IsOptional() @IsString() vrfId?: string;
   @IsOptional() @IsString() parentSubnetId?: string;
 }
-export class UpdateSubnetDto extends CreateSubnetDto {}
+export class UpdateSubnetDto extends PartialType(CreateSubnetDto) {}
 export class CreateIpDto {
   @IsString() @IsIP() address!: string;
   @IsString() subnetId!: string;
@@ -36,6 +37,9 @@ export class CreateIpDto {
   @IsOptional() @IsString() @MaxLength(40) macAddress?: string;
   @IsOptional() @IsString() @MaxLength(1000) notes?: string;
   @IsOptional() @IsInt() @IsIn([4, 6]) version?: number;
+  @IsOptional() @IsUUID() hostId?: string;
+  @IsOptional() @IsUUID() deviceId?: string | null;
+  @IsOptional() @IsUUID() interfaceId?: string;
 }
 export class UpdateIpDto {
   @IsOptional() @IsIP() address?: string;
@@ -43,12 +47,16 @@ export class UpdateIpDto {
   @IsOptional() @IsString() @MaxLength(160) hostname?: string;
   @IsOptional() @IsString() @MaxLength(40) macAddress?: string;
   @IsOptional() @IsString() @MaxLength(1000) notes?: string;
+  @IsOptional() @IsUUID() hostId?: string;
+  @IsOptional() @IsUUID() deviceId?: string | null;
+  @IsOptional() @IsUUID() interfaceId?: string;
 }
 export class UpdateSubnetScanDto {
   @IsBoolean() enabled!: boolean;
   @IsArray() @IsIn(['ICMP', 'TCP'], { each: true }) methods!: string[];
   @IsOptional() @IsArray() @IsInt({ each: true }) @Min(1, { each: true }) @Max(65535, { each: true }) tcpPorts?: number[];
   @IsOptional() @IsBoolean() reverseDns?: boolean;
+  @IsOptional() @IsInt() @Min(1) @Max(168) intervalHours?: number;
 }
 export class CalculatorDto {
   @IsOptional() @IsString() cidr?: string;
@@ -91,6 +99,8 @@ export class CreateIpamGroupDto {
   @IsOptional() @IsString() @MaxLength(240) description?: string;
   @IsOptional() @IsString() siteId?: string;
 }
+export class UpdateIpamGroupDto extends CreateIpamGroupDto {}
+export class IpamGroupMemberDto { @IsUUID() userId!: string; }
 export class CreateIpamPermissionDto {
   @IsString() groupId!: string;
   @IsIn(['SITE', 'VRF', 'VLAN', 'SUBNET']) scopeType!: string;
@@ -115,12 +125,15 @@ export class CreateDiscoveryJobDto {
   @IsString() @MinLength(2) @MaxLength(100) name!: string;
   @IsString() subnetId!: string;
   @IsArray() @IsIn(['ICMP', 'TCP'], { each: true }) methods!: string[];
-  @IsOptional() @IsArray() @IsInt({ each: true }) @Min(1, { each: true }) @Max(65535, { each: true }) tcpPorts?: number[];
+  @IsOptional() @IsArray() @ArrayMaxSize(64) @IsInt({ each: true }) @Min(1, { each: true }) @Max(65535, { each: true }) tcpPorts?: number[];
+  @IsOptional() @IsBoolean() reverseDns?: boolean;
 }
 export class UpdateDiscoveryScheduleDto {
   @IsBoolean() enabled!: boolean;
   @IsArray() @IsIn(['ICMP', 'TCP'], { each: true }) methods!: string[];
-  @IsOptional() @IsArray() @IsInt({ each: true }) @Min(1, { each: true }) @Max(65535, { each: true }) tcpPorts?: number[];
+  @IsOptional() @IsArray() @ArrayMaxSize(64) @IsInt({ each: true }) @Min(1, { each: true }) @Max(65535, { each: true }) tcpPorts?: number[];
+  @IsOptional() @IsBoolean() reverseDns?: boolean;
+  @IsOptional() @IsInt() @Min(1) @Max(168) intervalHours?: number;
 }
 export class ReviewDiscoveryResultDto {
   @IsIn(['APPROVED', 'IGNORED']) status!: string;
@@ -130,13 +143,34 @@ export class CreateHostDto {
   @IsOptional() @IsString() @MaxLength(160) hostname?: string;
   @IsOptional() @IsString() @MaxLength(120) operatingSystem?: string;
   @IsOptional() @IsString() @MaxLength(40) macAddress?: string;
+  @IsOptional() @IsString() @MaxLength(1000) notes?: string;
+  @IsOptional() @IsIn(['ACTIVE', 'INACTIVE', 'MAINTENANCE', 'RETIRED', 'UNKNOWN']) status?: string;
+  @IsOptional() @IsUUID() deviceId?: string;
+  @IsOptional() @IsUUID() ipAddressId?: string;
 }
-export class UpdateHostDto extends CreateHostDto {}
+export class UpdateHostDto {
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(160) name?: string;
+  @IsOptional() @IsString() @MaxLength(160) hostname?: string;
+  @IsOptional() @IsString() @MaxLength(120) operatingSystem?: string;
+  @IsOptional() @IsString() @MaxLength(40) macAddress?: string;
+  @IsOptional() @IsString() @MaxLength(1000) notes?: string;
+  @IsOptional() @IsIn(['ACTIVE', 'INACTIVE', 'MAINTENANCE', 'RETIRED', 'UNKNOWN']) status?: string;
+  @IsOptional() @IsUUID() deviceId?: string;
+}
 export class CreateServiceDto {
   @IsString() @MinLength(1) @MaxLength(120) name!: string;
-  @IsOptional() @IsString() @MaxLength(20) protocol?: string;
+  @IsOptional() @IsIn(['TCP', 'UDP', 'OTHER']) protocol?: string;
   @IsOptional() @IsInt() @Min(1) @Max(65535) port?: number;
-  @IsOptional() @IsString() @MaxLength(40) status?: string;
+  @IsOptional() @IsIn(['UNKNOWN', 'OPEN', 'CLOSED', 'DEGRADED', 'DISABLED']) status?: string;
   @IsOptional() @IsString() @MaxLength(80) version?: string;
-  @IsString() hostId!: string;
+  @IsOptional() @IsString() @MaxLength(1000) notes?: string;
+  @IsUUID() hostId!: string;
+}
+export class UpdateServiceDto {
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(120) name?: string;
+  @IsOptional() @IsIn(['TCP', 'UDP', 'OTHER']) protocol?: string;
+  @IsOptional() @IsInt() @Min(1) @Max(65535) port?: number;
+  @IsOptional() @IsIn(['UNKNOWN', 'OPEN', 'CLOSED', 'DEGRADED', 'DISABLED']) status?: string;
+  @IsOptional() @IsString() @MaxLength(80) version?: string;
+  @IsOptional() @IsString() @MaxLength(1000) notes?: string;
 }

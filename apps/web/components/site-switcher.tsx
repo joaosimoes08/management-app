@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, ChevronDown, MapPin, Plus, X } from 'lucide-react';
 import { useAuth } from '../lib/auth';
+import { useI18n } from '../lib/i18n';
 
 type Site = { id: string; name: string; code: string };
 type SiteForm = { name: string; code: string; address: string; city: string; region: string; country: string; buildingName: string; roomName: string; rackName: string };
@@ -11,6 +12,7 @@ const emptyForm: SiteForm = { name: '', code: '', address: '', city: '', region:
 
 export function SiteSwitcher() {
   const { apiFetch, hasRole } = useAuth();
+  const { t } = useI18n();
   const rootRef = useRef<HTMLDivElement>(null);
   const [sites, setSites] = useState<Site[]>([]);
   const [siteId, setSiteId] = useState('');
@@ -58,13 +60,13 @@ export function SiteSwitcher() {
     <div className="site-switcher-root" ref={rootRef} onMouseLeave={() => setOpen(false)}>
       <button className="workspace-switcher" type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-haspopup="menu">
         <span className="workspace-avatar" aria-hidden="true">{selected?.name.trim().charAt(0).toUpperCase() || 'T'}</span>
-        <span className="workspace-switcher-copy"><small>Site ativo</small><strong>{selected?.name ?? 'Todos os Sites'}</strong></span>
+        <span className="workspace-switcher-copy"><small>{t('shell.activeSite')}</small><strong>{selected?.name ?? t('shell.allSites')}</strong></span>
         <ChevronDown size={15} />
       </button>
       {open && <div className="site-switcher-menu" role="menu" aria-label="Selecionar Site">
-        <button className={!siteId ? 'active' : ''} role="menuitemradio" aria-checked={!siteId} onClick={() => activate('')}><span className="site-option-mark">T</span><span><strong>Todos os Sites</strong><small>Visão global da organização</small></span>{!siteId && <Check size={14} />}</button>
+        <button className={!siteId ? 'active' : ''} role="menuitemradio" aria-checked={!siteId} onClick={() => activate('')}><span className="site-option-mark">T</span><span><strong>{t('shell.allSites')}</strong><small>{t('shell.globalView')}</small></span>{!siteId && <Check size={14} />}</button>
         {sites.map((site) => <button className={site.id === siteId ? 'active' : ''} role="menuitemradio" aria-checked={site.id === siteId} key={site.id} onClick={() => activate(site.id)}><span className="site-option-mark">{site.code.charAt(0)}</span><span><strong>{site.name}</strong><small>{site.code}</small></span>{site.id === siteId && <Check size={14} />}</button>)}
-        {hasRole('ADMIN') && <><div className="site-switcher-divider"/><button className="site-create-trigger" role="menuitem" onClick={() => { setOpen(false); setCreating(true); }}><span className="site-option-mark"><Plus size={14}/></span><span><strong>Criar novo Site</strong><small>Adicionar uma localização operacional</small></span></button></>}
+        {hasRole('ADMIN') && <><div className="site-switcher-divider"/><button className="site-create-trigger" role="menuitem" onClick={() => { setOpen(false); setCreating(true); }}><span className="site-option-mark"><Plus size={14}/></span><span><strong>{t('shell.createSite')}</strong><small>{t('shell.addLocation')}</small></span></button></>}
       </div>}
     </div>
     {creating && <SiteWalkthrough apiFetch={apiFetch} onClose={() => setCreating(false)} onCreated={(site) => { setSites((current) => [...current, site].sort((a, b) => a.name.localeCompare(b.name))); setSiteId(site.id); }} onActivate={activate}/>}

@@ -6,5 +6,15 @@ import { AuthService } from './auth.service';
 import { AuditModule } from '../audit/audit.module';
 import { AuthController } from './auth.controller';
 
-@Module({ imports: [AuditModule], controllers: [AuthController], providers: [AuthService, { provide: APP_GUARD, useClass: AuthGuard }, { provide: APP_GUARD, useClass: RolesGuard }] })
+@Module({
+  imports: [AuditModule],
+  controllers: [AuthController],
+  providers: [
+    AuthService,
+    AuthGuard,
+    RolesGuard,
+    { provide: APP_GUARD, useExisting: AuthGuard },
+    { provide: APP_GUARD, useExisting: RolesGuard },
+  ],
+})
 export class AuthModule {}

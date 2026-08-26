@@ -9,4 +9,7 @@ export class OrganizationDto {
 
   @IsOptional() @IsIn(['Europe/Lisbon', 'UTC', 'Europe/London', 'Europe/Madrid'])
   timezone?: string;
+
+  @IsOptional() @IsIn(['pt-PT', 'en-US'])
+  locale?: string;
 }

@@ -10,7 +10,7 @@ export class DashboardController {
   constructor(private readonly service: DashboardService) {}
 
   @Get('summary')
-  summary() { return this.service.summary(); }
+  summary(@Req() request: { user: AuthenticatedUser }) { return this.service.summary(request.user); }
 
   @Get('search')
   search(@Query('q') query: string | undefined, @Query('limit') limit: string | undefined, @Req() request: { user: AuthenticatedUser }) {

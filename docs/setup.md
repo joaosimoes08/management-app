@@ -25,7 +25,7 @@ Para processar discovery ICMP/TCP, abrir um terminal adicional e executar:
 npm run worker:dev
 ```
 
-O worker usa a fila `discovery` no Redis da porta `6379`. Se o worker estiver desligado, os jobs ficam pendentes e serão processados quando voltar a arrancar.
+O worker usa as filas `discovery` e `maintenance` no Redis da porta `6379`. A segunda executa diariamente a retenção configurada da auditoria. Se o worker estiver desligado, os jobs ficam pendentes e serão processados quando voltar a arrancar.
 
 Depois do login no Keycloak, o primeiro utilizador com a role `ADMIN` é encaminhado para `/setup`. O walkthrough pede o nome da organização e cria o primeiro site. A localização física (edifício, sala e bastidor) é opcional. Só depois de concluir este passo é que o dashboard fica disponível.
 
@@ -63,6 +63,14 @@ O frontend inclui `public/silent-check-sso.html`, necessário para o `check-sso`
 ## Keycloak local
 
 Abrir `http://localhost:8080/admin`, entrar com `KEYCLOAK_ADMIN_USERNAME` e `KEYCLOAK_ADMIN_PASSWORD`, selecionar o realm `COCiber`, criar utilizadores em `Users` e atribuir roles.
+
+A gestão de roles em `/definicoes?tab=users` usa o client confidencial `simoes-settings-admin`. Em instalações novas, o realm importado já contém esse client. Para provisionar ou atualizar uma instalação existente sem usar a consola, definir `KEYCLOAK_ADMIN_CLIENT_SECRET` e executar:
+
+```powershell
+npm run keycloak:provision-settings
+```
+
+O backend precisa de `KEYCLOAK_ADMIN_URL`, `KEYCLOAK_ADMIN_REALM`, `KEYCLOAK_ADMIN_CLIENT_ID` e `KEYCLOAK_ADMIN_CLIENT_SECRET`. O service account recebe apenas `realm-management/manage-users` e `realm-management/query-users`; a segunda role permite confirmar quantos administradores permanecem antes de alterar roles. Não são expostas operações de criação, passwords ou eliminação de utilizadores pela aplicação.
 
 ## Parar e reiniciar
 

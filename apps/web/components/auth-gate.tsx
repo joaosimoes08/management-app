@@ -3,6 +3,7 @@
 import { AlertTriangle, LogIn, RefreshCw, ShieldCheck } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth';
+import { useI18n } from '../lib/i18n';
 
 function AuthVisual() {
   return <div className="auth-visual" aria-hidden="true">
@@ -24,6 +25,7 @@ function AuthLayout({ children, error = false }: { children: React.ReactNode; er
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const { loading, authError, authenticated, login, retry, apiFetch } = useAuth();
+  const { locale } = useI18n();
   const [checkingSetup, setCheckingSetup] = useState(false);
   const [setupError, setSetupError] = useState<string | null>(null);
   const isSetupPage = typeof window !== 'undefined' && window.location.pathname === '/setup';
@@ -40,9 +42,9 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       .finally(() => { if (active) setCheckingSetup(false); });
     return () => { active = false; };
   }, [authenticated, apiFetch, isSetupPage]);
-  if (loading) return <div className="auth-loading"><div className="auth-spinner" /><span>A ligar ao COCiber...</span></div>;
+  if (loading) return <div className="auth-loading"><div className="auth-spinner" /><span>{locale === 'en-US' ? 'Connecting to COCiber…' : 'A ligar ao COCiber...'}</span></div>;
   if (authError) return <AuthLayout error><div className="auth-panel-icon error"><AlertTriangle size={21} /></div><span className="section-kicker">COCIBER MANAGEMENT</span><h1>Não foi possível ligar.</h1><p>{authError} Confirma se o Keycloak está ativo e se o client <code>simoes-web</code> existe no realm <code>COCiber</code>.</p><div className="auth-actions"><button className="secondary-button" onClick={retry}><RefreshCw size={15} /> Tentar novamente</button><button className="primary-button" onClick={() => void login()}><LogIn size={16} /> Iniciar sessão</button></div></AuthLayout>;
-  if (!authenticated) return <AuthLayout><span className="section-kicker">SECURE ACCESS</span><h1>Bem-vindo de volta.</h1><p>Entra no centro de gestão de infraestrutura e ciberdefesa através da tua conta COCiber.</p><button className="primary-button auth-login" onClick={() => void login()}><LogIn size={16} /> Continuar com Keycloak</button><div className="auth-panel-note"><ShieldCheck size={14} /><span>Autenticação segura · Realm COCiber</span></div></AuthLayout>;
+  if (!authenticated) return <AuthLayout><span className="section-kicker">SECURE ACCESS</span><h1>{locale === 'en-US' ? 'Welcome back.' : 'Bem-vindo de volta.'}</h1><p>{locale === 'en-US' ? 'Sign in to the infrastructure and cyber defence management center with your COCiber account.' : 'Entra no centro de gestão de infraestrutura e ciberdefesa através da tua conta COCiber.'}</p><button className="primary-button auth-login" onClick={() => void login()}><LogIn size={16} /> {locale === 'en-US' ? 'Continue with Keycloak' : 'Continuar com Keycloak'}</button><div className="auth-panel-note"><ShieldCheck size={14} /><span>{locale === 'en-US' ? 'Secure authentication' : 'Autenticação segura'} · Realm COCiber</span></div></AuthLayout>;
   if (checkingSetup && !isSetupPage) return <div className="auth-loading"><div className="auth-spinner" /><span>A validar a configuração inicial...</span></div>;
   if (setupError && !isSetupPage) return <main className="auth-screen"><div className="auth-card"><div className="auth-logo error"><AlertTriangle size={26} /></div><span className="section-kicker">CONFIGURAÇÃO INICIAL</span><h1>Não foi possível validar o setup.</h1><p>{setupError}</p><button className="primary-button auth-login" onClick={() => window.location.reload()}><RefreshCw size={16} /> Tentar novamente</button></div></main>;
   return <>{children}</>;
