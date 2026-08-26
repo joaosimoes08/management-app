@@ -16,7 +16,6 @@ import {
   InterfaceWorkspace,
   ModelList,
   PortLayoutEditor as LegacyPortLayoutEditor,
-  RackWorkspace as LegacyRackWorkspace,
   AssetImage,
   RoomModal,
 } from './infrastructure-workspace';
@@ -46,8 +45,6 @@ let currentDetect: Any = () => undefined;
 let currentConfirm: Any = () => undefined;
 let currentEditInterface: Any = undefined;
 let currentEditDevice: Any = undefined;
-let currentReorderRacks: Any = async () => undefined;
-let currentCanReorderRacks = false;
 function PortLayoutEditor(props: Any) { if (!props.modal || !props.layoutModel) return null; return <LegacyPortLayoutEditor {...props} detect={currentDetect} confirm={currentConfirm}/>; }
 function normalizedPortLayoutPorts(device:Any){const configured=device?.model?.portLayout?.ports;if(Array.isArray(configured))return configured;const count=Math.max(0,Number(device?.model?.networkPortCount??device?.model?.portCount??(typeof configured==='number'?configured:0))||0);if(!count)return [];const columns=Math.min(24,Math.max(1,count));const rows=Math.ceil(count/columns);return Array.from({length:count},(_,index)=>({portKey:`ethernet1/${index+1}`,label:`${index+1}`,x:(index%columns+.5)/columns,y:(Math.floor(index/columns)+.5)/rows,width:.8/columns,height:.6/rows}))}
 function formatPortTooltipTitle(item:Any, port:Any) {
@@ -121,15 +118,33 @@ function InterfaceEditor({modal,close,form,setForm,vlans,save}: Any) {
   return <Modal title={`Configurar interface ${form.interface.name}`} close={close}><form className="modal-form" onSubmit={submit}><label>Nome<input required value={form.interface.name ?? ''} onChange={(e) => update({ name: e.target.value })}/></label><div className="form-row"><label>Port key<input value={form.interface.portKey ?? ''} onChange={(e) => update({ portKey: e.target.value })}/></label><label>Tipo<select value={form.interface.interfaceType ?? 'ETHERNET'} onChange={(e) => update({ interfaceType: e.target.value })}><option>FAST_ETHERNET</option><option>ETHERNET</option><option>GIGABIT_ETHERNET</option><option>SFP</option><option>SFP_PLUS</option><option>QSFP</option><option>MANAGEMENT</option><option>CONSOLE</option><option>FIBRE_CHANNEL</option><option>OTHER</option></select></label></div><label>Descrição<input value={form.interface.description ?? ''} onChange={(e) => update({ description: e.target.value })}/></label><div className="form-row"><label>Modo<select value={mode} onChange={(e) => update({ mode: e.target.value, accessVlanId: '', nativeVlanId: '', allowedVlanIds: [] })}><option>ACCESS</option><option>TRUNK</option><option>ROUTED</option></select></label><label>Velocidade Mbps<input type="number" value={form.interface.speedMbps ?? ''} onChange={(e) => update({ speedMbps: e.target.value })}/></label></div>{mode === 'ACCESS' && <label>VLAN access<select value={form.interface.accessVlanId ?? ''} onChange={(e) => update({ accessVlanId: e.target.value })}><option value="">Sem VLAN</option>{vlans.map((v: Any) => <option key={v.id} value={v.id}>VLAN {v.vlanId} · {v.name}</option>)}</select></label>}{mode === 'TRUNK' && <><label>VLAN nativa<select value={form.interface.nativeVlanId ?? ''} onChange={(e) => update({ nativeVlanId: e.target.value })}><option value="">Sem VLAN</option>{vlans.map((v: Any) => <option key={v.id} value={v.id}>VLAN {v.vlanId} · {v.name}</option>)}</select></label><div className="vlan-allowed-heading"><span>VLANs permitidas</span><div className="vlan-search-actions"><div className="vlan-search-slide open"><Search size={13}/><input aria-label="Pesquisar VLANs" placeholder="Pesquisar por número ou nome" value={vlanSearch} onChange={(e) => { setVlanSearch(e.target.value); setVlanPage(0); }}/></div></div></div><div className="multi-select-list">{visibleVlans.map((v: Any) => <label key={v.id}><input type="checkbox" checked={(form.interface.allowedVlanIds ?? []).includes(v.id)} onChange={(e) => update({ allowedVlanIds: e.target.checked ? [...(form.interface.allowedVlanIds ?? []), v.id] : (form.interface.allowedVlanIds ?? []).filter((id: string) => id !== v.id) })}/><span className="vlan-option-text">{v.name}</span></label>)}{!visibleVlans.length && <span className="vlan-search-empty">Nenhuma VLAN encontrada.</span>}</div><div className="vlan-pagination"><button type="button" className="icon-button subtle" aria-label="Página anterior" disabled={activeVlanPage === 0} onClick={() => setVlanPage(activeVlanPage - 1)}><ChevronLeft size={14}/></button><span>Página {activeVlanPage + 1} de {vlanPageCount}</span><button type="button" className="icon-button subtle" aria-label="Página seguinte" disabled={activeVlanPage >= vlanPageCount - 1} onClick={() => setVlanPage(activeVlanPage + 1)}><ChevronRight size={14}/></button></div></>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={close}>Cancelar</button><button type="submit" className="primary-button">Guardar configuração</button></div></form></Modal>;
 }
 function Editor(props: Any) { return props.modal === 'interface' ? <InterfaceEditor {...props}/> : <LegacyEditor {...props}/>; }
-function RackEquipmentPreview({ rack }: Any) {
+const rackUnitFromDrop = (event: Any, units: number, size: number) => {
+  const bounds = event.currentTarget.getBoundingClientRect();
+  const relativeY = Math.max(0, Math.min(bounds.height - 1, event.clientY - bounds.top));
+  const pointerUnit = units - Math.floor((relativeY / bounds.height) * units);
+  const offsetFromTop = Number(event.dataTransfer.getData('application/x-rack-offset')) || 0;
+  const end = pointerUnit + offsetFromTop;
+  return Math.max(1, Math.min(units - size + 1, end - size + 1));
+};
+function RackEquipmentPreview({ rack, reordering = false, movingDeviceId = '', onMove, onMoving }: Any) {
   const placed = (rack.devices ?? []).filter((device: Any) => {
     const start = Number(device.rackUnitStart);
     const size = Math.max(1, Number(device.rackUnitSize) || 1);
     return Number.isFinite(start) && start >= 1 && start + size - 1 <= RACK_UNITS;
   });
   return <span
-    className="rack-preview-overlay-area"
-    aria-hidden="true"
+    className={`rack-preview-overlay-area${reordering ? ' equipment-drop-zone' : ''}`}
+    aria-hidden={reordering ? undefined : 'true'}
+    onDragOver={(event) => { if (reordering) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; } }}
+    onDrop={(event) => {
+      if (!reordering) return;
+      event.preventDefault();
+      const deviceId = event.dataTransfer.getData('application/x-device-id') || event.dataTransfer.getData('text/plain');
+      const device = placed.find((item: Any) => item.id === deviceId)
+        ?? ({ rackUnitSize: Number(event.dataTransfer.getData('application/x-device-size')) || 1 });
+      if (deviceId) void onMove(deviceId, rack.id, rackUnitFromDrop(event, rack.units ?? RACK_UNITS, Number(device.rackUnitSize) || 1));
+      onMoving('');
+    }}
     style={{ left: `${RACK_VIEWPORT.left * 100}%`, top: `${RACK_VIEWPORT.top * 100}%`, width: `${RACK_VIEWPORT.width * 100}%`, height: `${RACK_VIEWPORT.height * 100}%` }}
   >
     {placed.map((device: Any) => {
@@ -139,7 +154,24 @@ function RackEquipmentPreview({ rack }: Any) {
       const top = ((RACK_UNITS - end) / RACK_UNITS) * 100;
       const height = (size / RACK_UNITS) * 100;
       const visual = device.frontAsset || device.model?.frontAsset;
-      return <span className="rack-preview-device" key={device.id} style={{ top: `${top}%`, height: `${height}%` }}>
+      return <span className={`rack-preview-device${movingDeviceId === device.id ? ' moving' : ''}`} key={device.id} style={{ top: `${top}%`, height: `${height}%` }} draggable={reordering} role={reordering ? 'button' : undefined} tabIndex={reordering ? 0 : undefined} aria-label={reordering ? `Mover ${device.name}, atualmente em U${start}` : undefined} onKeyDown={(event) => {
+        if (!reordering) return;
+        const rackIndex = onMove.racks.findIndex((item: Any) => item.id === rack.id);
+        if (event.key === 'ArrowUp') { event.preventDefault(); void onMove(device.id, rack.id, start + 1); }
+        if (event.key === 'ArrowDown') { event.preventDefault(); void onMove(device.id, rack.id, start - 1); }
+        if (event.key === 'ArrowLeft' && rackIndex > 0) { event.preventDefault(); void onMove(device.id, onMove.racks[rackIndex - 1].id, start); }
+        if (event.key === 'ArrowRight' && rackIndex < onMove.racks.length - 1) { event.preventDefault(); void onMove(device.id, onMove.racks[rackIndex + 1].id, start); }
+      }} onDragStart={(event) => {
+        if (!reordering) return;
+        const bounds = event.currentTarget.getBoundingClientRect();
+        const offset = Math.max(0, Math.min(size - 1, Math.floor(((event.clientY - bounds.top) / bounds.height) * size)));
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', device.id);
+        event.dataTransfer.setData('application/x-device-id', device.id);
+        event.dataTransfer.setData('application/x-device-size', String(size));
+        event.dataTransfer.setData('application/x-rack-offset', String(offset));
+        onMoving(device.id);
+      }} onDragEnd={() => onMoving('')}>
         {visual
           ? <AssetImage asset={visual} alt="" />
           : <EquipmentTypeIcon type={device.type} alt="" className="rack-device-type-icon"/>}
@@ -147,73 +179,41 @@ function RackEquipmentPreview({ rack }: Any) {
     })}
   </span>;
 }
-function RackWorkspace({ rooms, roomId, buildingId, racks, selected, setRack, onOut, onDevice, onEdit, onDelete, deletingRackId, canEdit }: Any) {
+function RackWorkspace({ rooms, roomId, buildingId, racks, selected, setRack, onOut, onDevice, onEdit, onDelete, deletingRackId, canEdit, onPreviewPlacement, onPlaceDevice }: Any) {
   const racksPerPage = 5;
   const [firstVisibleRack, setFirstVisibleRack] = useState(0);
   const [reordering, setReordering] = useState(false);
-  const [draftRacks, setDraftRacks] = useState<Any[]>([]);
-  const [draggedRackId, setDraggedRackId] = useState('');
-  const [dragTargetId, setDragTargetId] = useState('');
-  const [savingOrder, setSavingOrder] = useState(false);
+  const [movingDeviceId, setMovingDeviceId] = useState('');
+  const [savingPlacement, setSavingPlacement] = useState(false);
   const lastPossibleStart = Math.max(0, racks.length - racksPerPage);
   const visibleStart = Math.min(firstVisibleRack, lastPossibleStart);
-  const visibleRacks = reordering ? draftRacks : racks.slice(visibleStart, visibleStart + racksPerPage);
+  const visibleRacks = reordering ? racks : racks.slice(visibleStart, visibleStart + racksPerPage);
   useEffect(() => {
     setFirstVisibleRack(0);
     setReordering(false);
-    setDraftRacks([]);
   }, [roomId]);
   useEffect(() => {
     setFirstVisibleRack((current) => Math.min(current, lastPossibleStart));
   }, [lastPossibleStart]);
   const startReordering = () => {
-    setDraftRacks([...racks]);
     setReordering(true);
     setFirstVisibleRack(0);
   };
   const cancelReordering = () => {
-    setDraftRacks([]);
     setReordering(false);
-    setDraggedRackId('');
-    setDragTargetId('');
+    setMovingDeviceId('');
   };
-  const moveRackTo = (rackId: string, targetId: string, afterTarget: boolean) => {
-    if (!rackId || rackId === targetId) return;
-    setDraftRacks((current) => {
-      const from = current.findIndex((rack) => rack.id === rackId);
-      if (from < 0) return current;
-      const next = [...current];
-      const [movedRack] = next.splice(from, 1);
-      const target = next.findIndex((rack) => rack.id === targetId);
-      if (target < 0) return current;
-      next.splice(target + (afterTarget ? 1 : 0), 0, movedRack);
-      return next;
-    });
-  };
-  const moveRackBy = (rackId: string, offset: number) => {
-    setDraftRacks((current) => {
-      const from = current.findIndex((rack) => rack.id === rackId);
-      const to = Math.max(0, Math.min(current.length - 1, from + offset));
-      if (from < 0 || from === to) return current;
-      const next = [...current];
-      const [movedRack] = next.splice(from, 1);
-      next.splice(to, 0, movedRack);
-      return next;
-    });
-  };
-  const saveOrder = async () => {
-    setSavingOrder(true);
+  const moveDevice = async (deviceId: string, targetRackId: string, rackUnitStart: number) => {
+    setSavingPlacement(true);
     try {
-      await currentReorderRacks(roomId, draftRacks.map((rack) => rack.id));
-      setReordering(false);
-      setDraftRacks([]);
-      setFirstVisibleRack(0);
+      await onPlaceDevice(deviceId, targetRackId, rackUnitStart);
     } catch {
-      // O erro é apresentado pelo workspace; mantém o modo de edição para tentar novamente.
+      // O workspace apresenta o erro e o modo de reorganização permanece ativo.
     } finally {
-      setSavingOrder(false);
+      setSavingPlacement(false);
     }
   };
+  moveDevice.racks = racks;
   const activeBuildingId = buildingId
     || rooms.find((room: Any) => room.id === roomId)?.building?.id
     || racks.find((rack: Any) => (rack.room?.id ?? rack.roomId) === roomId)?.room?.building?.id
@@ -224,17 +224,17 @@ function RackWorkspace({ rooms, roomId, buildingId, racks, selected, setRack, on
     const url = new URL(location.href);
     url.searchParams.delete('rackId');
     history.replaceState({}, '', `${url.pathname}${url.search}`);
-  }} onDevice={onDevice} onEdit={onEdit} onDelete={onDelete} deleting={deletingRackId === selected.id} />;
+  }} onDevice={onDevice} onEdit={onEdit} onDelete={onDelete} deleting={deletingRackId === selected.id} canEdit={canEdit} onPreviewPlacement={onPreviewPlacement} onPlaceDevice={onPlaceDevice} />;
   if (!activeBuildingId) return <section className="ipam-card empty-context"><MapPinned size={28}/><strong>Seleciona um edifício para ver as salas</strong></section>;
   if (!roomId) return <section className="ipam-card empty-context"><MapPinned size={28}/><strong>Seleciona uma sala para ver os bastidores</strong></section>;
   return <section className="ipam-card rack-room-section">
-    <div className="panel-heading"><div><span className="section-kicker">SALA SELECIONADA</span><h2>Bastidores</h2>{reordering && <p>Arrasta os bastidores horizontalmente e guarda a nova ordem.</p>}</div><div className="rack-order-actions">{reordering ? <><button type="button" className="secondary-button" disabled={savingOrder} onClick={cancelReordering}><X size={14}/> Cancelar</button><button type="button" className="primary-button" disabled={savingOrder} onClick={saveOrder}><Check size={14}/> {savingOrder ? 'A guardar…' : 'Guardar ordem'}</button></> : <>{currentCanReorderRacks && racks.length > 1 && <button type="button" className="secondary-button" onClick={startReordering}><GripVertical size={14}/> Reorganizar</button>}{canEdit && <button className="primary-button" onClick={() => onEdit({ name: '', room: { id: roomId }, roomId })}><Plus size={14}/> Adicionar bastidor</button>}</>}</div></div>
-    <div className={`rack-figure-grid${reordering ? ' reordering' : ''}`}>{visibleRacks.map((r: Any) => <figure className={`rack-figure${reordering ? ' reorderable' : ''}${draggedRackId === r.id ? ' dragging' : ''}${dragTargetId === r.id ? ' drag-target' : ''}`} key={r.id} draggable={reordering} tabIndex={reordering ? 0 : undefined} aria-label={reordering ? `Reordenar bastidor ${r.name}` : undefined} onKeyDown={(event) => { if (!reordering) return; if (event.key === 'ArrowLeft') { event.preventDefault(); moveRackBy(r.id, -1); } if (event.key === 'ArrowRight') { event.preventDefault(); moveRackBy(r.id, 1); } }} onDragStart={(event) => { if (!reordering) return; setDraggedRackId(r.id); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', r.id); }} onDragOver={(event) => { if (!reordering) return; event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setDragTargetId(r.id); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragTargetId(''); }} onDrop={(event) => { event.preventDefault(); const rackId = draggedRackId || event.dataTransfer.getData('text/plain'); const bounds = event.currentTarget.getBoundingClientRect(); moveRackTo(rackId, r.id, event.clientX > bounds.left + bounds.width / 2); setDraggedRackId(''); setDragTargetId(''); }} onDragEnd={() => { setDraggedRackId(''); setDragTargetId(''); }}>
-      {reordering && <span className="rack-drag-handle" aria-hidden="true"><GripVertical size={14}/> Arrastar</span>}
-      <button type="button" className="rack-figure-image" aria-disabled={reordering} tabIndex={reordering ? -1 : undefined} onClick={() => { if (!reordering) setRack(r); }} aria-label={`Abrir bastidor ${r.name}, ${r.devices?.length ?? 0} equipamentos`}>
+    <div className="panel-heading"><div><span className="section-kicker">SALA SELECIONADA</span><h2>Bastidores</h2>{reordering && <p>Arrasta os equipamentos para outro bastidor ou U. Cada movimento é guardado automaticamente.</p>}</div><div className="rack-order-actions">{reordering ? <button type="button" className="primary-button" disabled={savingPlacement} onClick={cancelReordering}><Check size={14}/> {savingPlacement ? 'A atualizar…' : 'Concluir reorganização'}</button> : <>{canEdit && racks.length > 0 && <button type="button" className="secondary-button" onClick={startReordering}><GripVertical size={14}/> Reorganizar</button>}{canEdit && <button className="primary-button" onClick={() => onEdit({ name: '', room: { id: roomId }, roomId })}><Plus size={14}/> Adicionar bastidor</button>}</>}</div></div>
+    <div className={`rack-figure-grid${reordering ? ' reordering equipment-reordering' : ''}`}>{visibleRacks.map((r: Any) => <figure className={`rack-figure${reordering ? ' equipment-reorderable' : ''}`} key={r.id}>
+      {reordering && <span className="rack-drag-handle" aria-hidden="true"><GripVertical size={14}/> Equipamentos</span>}
+      <div className="rack-figure-image" role={reordering ? 'group' : 'button'} tabIndex={reordering ? undefined : 0} onClick={() => { if (!reordering) setRack(r); }} onKeyDown={(event) => { if (!reordering && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); setRack(r); } }} aria-label={`${reordering ? 'Reorganizar equipamentos no' : 'Abrir'} bastidor ${r.name}, ${r.devices?.length ?? 0} equipamentos`}>
         <img src={FIXED_RACK_IMAGE} alt="" draggable={false}/>
-        <RackEquipmentPreview rack={r}/>
-      </button>
+        <RackEquipmentPreview rack={r} reordering={reordering} movingDeviceId={movingDeviceId} onMove={moveDevice} onMoving={setMovingDeviceId}/>
+      </div>
       <figcaption><strong>{r.name}</strong><small>Bastidor padrão · 42U · {r.devices?.length ?? 0} equipamentos</small></figcaption>
     </figure>)}</div>
     {!reordering && racks.length > racksPerPage && <nav className="rack-gallery-navigation" aria-label="Navegação dos bastidores">
@@ -245,11 +245,89 @@ function RackWorkspace({ rooms, roomId, buildingId, racks, selected, setRack, on
     {!racks.length && <div className="empty-context"><strong>Esta sala ainda não tem bastidores</strong></div>}
   </section>;
 }
-function RackEquipmentOverlay({rack,onSelect}:Any){const placed=(rack.devices??[]).filter((device:Any)=>{const start=Number(device.rackUnitStart);const size=Math.max(1,Number(device.rackUnitSize)||1);return Number.isFinite(start)&&start>=1&&start+size-1<=RACK_UNITS});return <div className="rack-overlay-area" style={{left:`${RACK_VIEWPORT.left*100}%`,top:`${RACK_VIEWPORT.top*100}%`,width:`${RACK_VIEWPORT.width*100}%`,height:`${RACK_VIEWPORT.height*100}%`}}>{placed.map((device:Any)=>{const start=Number(device.rackUnitStart);const size=Math.max(1,Number(device.rackUnitSize)||1);const end=start+size-1;const top=((RACK_UNITS-end)/RACK_UNITS)*100;const height=(size/RACK_UNITS)*100;const visual=device.frontAsset||device.model?.frontAsset;return <button type="button" key={device.id} className={`rack-overlay rack-${String(device.type||'other').toLowerCase()}`} style={{top:`${top}%`,height:`${height}%`}} onClick={()=>onSelect(device.id)} aria-label={`Abrir ${device.name}, U${start}${size>1?` a U${end}`:''}`}>
+function RackEquipmentOverlay({rack,onSelect,onDropDevice,draggingDeviceId,onDragging,canEdit,pendingDeviceId}:Any){const placed=(rack.devices??[]).filter((device:Any)=>{const start=Number(device.rackUnitStart);const size=Math.max(1,Number(device.rackUnitSize)||1);return Number.isFinite(start)&&start>=1&&start+size-1<=RACK_UNITS});return <div className={`rack-overlay-area${canEdit?' equipment-drop-zone':''}`} style={{left:`${RACK_VIEWPORT.left*100}%`,top:`${RACK_VIEWPORT.top*100}%`,width:`${RACK_VIEWPORT.width*100}%`,height:`${RACK_VIEWPORT.height*100}%`}} onDragOver={event=>{if(canEdit){event.preventDefault();event.dataTransfer.dropEffect='move'}}} onDrop={event=>{if(!canEdit)return;event.preventDefault();const id=event.dataTransfer.getData('application/x-device-id')||event.dataTransfer.getData('text/plain');const size=Number(event.dataTransfer.getData('application/x-device-size'))||1;if(id)void onDropDevice(id,rackUnitFromDrop(event,rack.units??RACK_UNITS,size));onDragging('')}}>{placed.map((device:Any)=>{const start=Number(device.rackUnitStart);const size=Math.max(1,Number(device.rackUnitSize)||1);const end=start+size-1;const top=((RACK_UNITS-end)/RACK_UNITS)*100;const height=(size/RACK_UNITS)*100;const visual=device.frontAsset||device.model?.frontAsset;return <button type="button" key={device.id} draggable={canEdit} className={`rack-overlay rack-${String(device.type||'other').toLowerCase()}${draggingDeviceId===device.id?' moving':''}${pendingDeviceId===device.id?' pending-placement':''}`} style={{top:`${top}%`,height:`${height}%`}} onKeyDown={event=>{if(!canEdit)return;if(event.key==='ArrowUp'){event.preventDefault();void onDropDevice(device.id,start+1)}if(event.key==='ArrowDown'){event.preventDefault();void onDropDevice(device.id,start-1)}}} onDragStart={event=>{const bounds=event.currentTarget.getBoundingClientRect();const offset=Math.max(0,Math.min(size-1,Math.floor(((event.clientY-bounds.top)/bounds.height)*size)));event.dataTransfer.effectAllowed='move';event.dataTransfer.setData('text/plain',device.id);event.dataTransfer.setData('application/x-device-id',device.id);event.dataTransfer.setData('application/x-device-size',String(size));event.dataTransfer.setData('application/x-rack-offset',String(offset));onDragging(device.id)}} onDragEnd={()=>window.setTimeout(()=>onDragging(''),0)} onClick={()=>{if(!draggingDeviceId)onSelect(device.id)}} aria-label={`${canEdit?'Arrastar ou abrir':'Abrir'} ${device.name}, U${start}${size>1?` a U${end}`:''}`}>
       <span className="rack-device-media">{visual?<AssetImage asset={visual} alt={`Vista frontal de ${device.name}`}/>:<EquipmentTypeIcon type={device.type} alt={`Ícone de ${device.type}`} className="rack-device-type-icon"/>}</span>
       <span className="rack-equipment-tooltip" role="tooltip"><strong>{device.name}</strong><span><small>Localização:</small><b>{rack.name}</b></span><span><small>U:</small><b>{size > 1 ? `U${start}–U${end}` : `U${start}`}</b></span><span><small>IP Management:</small><b>{device.managementIp||'não definido'}</b></span><span><small>Status:</small><b>{String(device.status||'unknown').toLowerCase()}</b></span></span>
     </button>})}</div>}
-function RackDetail({ rack, onOut, onDevice, onEdit, onDelete, deleting }: Any) { const [zoomDeviceId, setZoomDeviceId] = useState(''); const hasUnpositioned=(rack.devices??[]).some((device:Any)=>{const start=Number(device.rackUnitStart);const size=Math.max(1,Number(device.rackUnitSize)||1);return !Number.isFinite(start)||start<1||start+size-1>RACK_UNITS}); return <section className="ipam-card rack-view"><div className="rack-zoom-toolbar"><button className="secondary-button" onClick={onOut}>Voltar aos bastidores</button><span>{rack.room?.building?.name} / {rack.room?.name} / <strong>{rack.name}</strong></span><div className="button-row rack-detail-actions">{onEdit && <button type="button" className="secondary-button" onClick={() => onEdit(rack)}><Edit3 size={14}/> Editar bastidor</button>}{onDelete && <button type="button" className="secondary-button danger-button" disabled={deleting} onClick={() => onDelete(rack)}><Trash2 size={14}/> {deleting ? 'A eliminar…' : 'Eliminar bastidor'}</button>}</div></div><div className="panel-heading"><div><span className="section-kicker">BASTIDOR VISUAL</span><h2>{rack.name}</h2><p>{rack.devices?.length ?? 0} equipamentos · Bastidor padrão · 42U</p></div></div><div className="rack-stage"><div className="rack-frame"><img src={FIXED_RACK_IMAGE} alt={`Bastidor ${rack.name}`} draggable={false}/><RackEquipmentOverlay rack={rack} onSelect={setZoomDeviceId}/></div>{zoomDeviceId && <LegacyRackDeviceZoom deviceId={zoomDeviceId} onBack={() => setZoomDeviceId('')} onInterfaces={onDevice} onEditDevice={currentEditDevice}/>}</div>{hasUnpositioned && <div className="no-data">Existem equipamentos por posicionar.</div>}</section>; }
+function RackDetail({ rack, onOut, onDevice, onEdit, onDelete, deleting, canEdit, onPreviewPlacement, onPlaceDevice }: Any) {
+  const [zoomDeviceId, setZoomDeviceId] = useState('');
+  const [draggingDeviceId, setDraggingDeviceId] = useState('');
+  const [pending, setPending] = useState<Any>(null);
+  const [saving, setSaving] = useState(false);
+  const [correctingUnit, setCorrectingUnit] = useState(false);
+  const [correctedUnit, setCorrectedUnit] = useState('');
+  const [adjustingUnit, setAdjustingUnit] = useState(false);
+  const displayRack = useMemo(() => {
+    if (!pending) return rack;
+    const changes = new Map(pending.changes.map((change: Any) => [change.id, change]));
+    return {
+      ...rack,
+      devices: (rack.devices ?? [])
+        .map((device: Any) => changes.has(device.id) ? { ...device, ...changes.get(device.id) } : device)
+        .filter((device: Any) => device.rackId === rack.id),
+    };
+  }, [rack, pending]);
+  const hasUnpositioned = (rack.devices ?? []).some((device: Any) => {
+    const start = Number(device.rackUnitStart);
+    const size = Math.max(1, Number(device.rackUnitSize) || 1);
+    return !Number.isFinite(start) || start < 1 || start + size - 1 > RACK_UNITS;
+  });
+  const preview = async (deviceId: string, rackUnitStart: number) => {
+    try {
+      const next = await onPreviewPlacement(deviceId, rack.id, rackUnitStart);
+      setPending(next);
+      setCorrectingUnit(false);
+      setCorrectedUnit(String(next.target.rackUnitStart));
+    } catch {
+      setPending(null);
+    }
+  };
+  const adjustUnit = async (event: Any) => {
+    event.preventDefault();
+    if (!pending) return;
+    const requestedUnit = Number(correctedUnit);
+    const maximumStart = (rack.units ?? RACK_UNITS) - pending.target.rackUnitSize + 1;
+    if (!Number.isInteger(requestedUnit) || requestedUnit < 1 || requestedUnit > maximumStart) return;
+    setAdjustingUnit(true);
+    try {
+      const next = await onPreviewPlacement(pending.target.id, rack.id, requestedUnit);
+      setPending(next);
+      setCorrectedUnit(String(next.target.rackUnitStart));
+      setCorrectingUnit(false);
+    } catch {
+      // O workspace apresenta o erro e mantém o valor para o utilizador corrigir.
+    } finally {
+      setAdjustingUnit(false);
+    }
+  };
+  const confirm = async () => {
+    if (!pending) return;
+    setSaving(true);
+    try {
+      await onPlaceDevice(pending.target.id, pending.target.rackId, pending.target.rackUnitStart);
+      setPending(null);
+      setCorrectingUnit(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+  const cancelPlacement = () => {
+    setPending(null);
+    setCorrectingUnit(false);
+    setCorrectedUnit('');
+  };
+  const maximumCorrectedUnit = pending ? (rack.units ?? RACK_UNITS) - pending.target.rackUnitSize + 1 : RACK_UNITS;
+  return <section className="ipam-card rack-view">
+    <div className="rack-zoom-toolbar"><button className="secondary-button" onClick={onOut}>Voltar aos bastidores</button><span>{rack.room?.building?.name} / {rack.room?.name} / <strong>{rack.name}</strong></span><div className="button-row rack-detail-actions">{onEdit && <button type="button" className="secondary-button" onClick={() => onEdit(rack)}><Edit3 size={14}/> Editar bastidor</button>}{onDelete && <button type="button" className="secondary-button danger-button" disabled={deleting} onClick={() => onDelete(rack)}><Trash2 size={14}/> {deleting ? 'A eliminar…' : 'Eliminar bastidor'}</button>}</div></div>
+    <div className="panel-heading"><div><span className="section-kicker">BASTIDOR VISUAL</span><h2>{rack.name}</h2><p>{rack.devices?.length ?? 0} equipamentos · Bastidor padrão · 42U{canEdit ? ' · Arrasta um equipamento para o mover' : ''}</p></div></div>
+    <div className="rack-stage"><div className="rack-frame"><img src={FIXED_RACK_IMAGE} alt={`Bastidor ${rack.name}`} draggable={false}/><RackEquipmentOverlay rack={displayRack} onSelect={setZoomDeviceId} onDropDevice={preview} draggingDeviceId={draggingDeviceId} onDragging={setDraggingDeviceId} canEdit={canEdit && !pending} pendingDeviceId={pending?.target?.id}/></div>{zoomDeviceId && <LegacyRackDeviceZoom deviceId={zoomDeviceId} onBack={() => setZoomDeviceId('')} onInterfaces={onDevice} onEditDevice={currentEditDevice}/>}</div>
+    {pending && <aside className="rack-placement-confirmation" aria-live="polite">
+      <div className="rack-placement-summary"><span className="section-kicker">POSIÇÃO SNAPPED-IN</span><strong>{pending.target.name} ficou em U{pending.target.rackUnitStart}{pending.target.rackUnitSize > 1 ? `–U${pending.target.rackUnitStart + pending.target.rackUnitSize - 1}` : ''}</strong><small>{pending.changes.length > 1 ? `${pending.changes.length - 1} equipamento(s) também serão reposicionados para libertar espaço.` : 'A nova posição está livre.'}</small>{!correctingUnit && <button type="button" className="rack-placement-correction-trigger" disabled={saving} onClick={() => { setCorrectedUnit(String(pending.target.rackUnitStart)); setCorrectingUnit(true); }}>Calhou no U errado?</button>}{correctingUnit && <form className="rack-placement-correction" onSubmit={adjustUnit}><label htmlFor="corrected-rack-unit">Em que U deveria ficar?</label><div><span>U</span><input id="corrected-rack-unit" type="number" inputMode="numeric" min="1" max={maximumCorrectedUnit} required autoFocus value={correctedUnit} onChange={(event) => setCorrectedUnit(event.target.value)} aria-describedby="corrected-rack-unit-help"/><button type="submit" className="secondary-button" disabled={adjustingUnit || !correctedUnit}>{adjustingUnit ? 'A ajustar…' : 'Ajustar automaticamente'}</button></div><small id="corrected-rack-unit-help">Escolhe um valor entre U1 e U{maximumCorrectedUnit}.</small></form>}</div>
+      <div className="button-row"><button type="button" className="secondary-button" disabled={saving || adjustingUnit} onClick={cancelPlacement}>Cancelar</button><button type="button" className="primary-button" disabled={saving || adjustingUnit || correctingUnit} onClick={confirm}><Check size={14}/>{saving ? 'A guardar…' : 'Confirmar U'}</button></div>
+    </aside>}
+    {hasUnpositioned && <div className="no-data">Existem equipamentos por posicionar.</div>}
+  </section>;
+}
 
 export function InfrastructureWorkspace() {
   const { apiFetch, hasRole } = useAuth();
@@ -398,7 +476,28 @@ export function InfrastructureWorkspace() {
   const editDevice = async (d: Any) => { const full = await apiFetch(`/api/v1/devices/${d.id}`); setEditingId(full.id); setDeviceForm({ name: full.name ?? '', type: full.type ?? 'SWITCH', hostname: full.hostname ?? '', managementIp: full.managementIp ?? '', managementIpAddressId: full.ipAddresses?.find((i: Any) => i.address === full.managementIp)?.id ?? '', rackId: full.rackId ?? '', rackUnitStart: full.rackUnitStart ? String(full.rackUnitStart) : '', rackUnitSize: String(full.rackUnitSize ?? 1), modelId: full.modelId ?? full.model?.id ?? '', status: full.status ?? 'UNKNOWN', frontAssetId: full.frontAssetId ?? full.frontAsset?.id ?? '' }); setModal('device'); };
   const editInterface = (i: Any) => { setSelectedInterface(i); setInterfaceForm({ ...interfaceForm, ...i, id: i.id, speedMbps: i.speedMbps ? String(i.speedMbps) : '', accessVlanId: i.accessVlanId ?? '', nativeVlanId: i.nativeVlanId ?? '', allowedVlanIds: (i.allowedVlans ?? []).map((v: Any) => v.vlanId) }); setModal('interface'); };
   const save = async (path: string, body: Any, method = editingId ? 'PATCH' : 'POST') => { try { await apiFetch(path, { method, body: JSON.stringify(body) }); setModal(''); setEditingId(''); await load(); if (device) await openDevice(device); } catch (e) { setError(e instanceof Error ? e.message : 'Operação falhou.'); } };
-  const reorderRacks = async (targetRoomId: string, rackIds: string[]) => { try { setError(''); await apiFetch(`/api/v1/rooms/${targetRoomId}/racks/order`, { method: 'PATCH', body: JSON.stringify({ rackIds }) }); setRackId(''); const url = new URL(location.href); url.searchParams.delete('rackId'); history.replaceState({}, '', `${url.pathname}${url.search}`); await load(); } catch (e) { const message = e instanceof Error ? e.message : 'Não foi possível guardar a ordem dos bastidores.'; setError(message); throw e; } };
+  const previewPlacement = async (deviceId: string, targetRackId: string, rackUnitStart: number) => {
+    try {
+      setError('');
+      return await apiFetch(`/api/v1/devices/${deviceId}/placement/preview`, { method: 'POST', body: JSON.stringify({ rackId: targetRackId, rackUnitStart }) });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Não foi possível pré-visualizar a posição do equipamento.';
+      setError(message);
+      throw e;
+    }
+  };
+  const placeDevice = async (deviceId: string, targetRackId: string, rackUnitStart: number) => {
+    try {
+      setError('');
+      const result = await apiFetch(`/api/v1/devices/${deviceId}/placement`, { method: 'PATCH', body: JSON.stringify({ rackId: targetRackId, rackUnitStart }) });
+      await load();
+      return result;
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Não foi possível atualizar a localização do equipamento.';
+      setError(message);
+      throw e;
+    }
+  };
   const deleteRack = async (rack: Any) => {
     if (!window.confirm(`Eliminar o bastidor “${rack.name}”? Os bastidores seguintes serão deslocados uma posição para a esquerda.`)) return;
     setDeletingRackId(rack.id);
@@ -440,13 +539,11 @@ export function InfrastructureWorkspace() {
   currentConfirm = confirmLayout;
   currentEditInterface = editInterface;
   currentEditDevice = editDevice;
-  currentReorderRacks = reorderRacks;
-  currentCanReorderRacks = hasRole('ADMIN') || hasRole('SYSTEMS_OPERATOR');
   const canDeleteRack = hasRole('ADMIN') || hasRole('SYSTEMS_OPERATOR');
   const modalForEditor = modal === 'room' || modal === 'building' ? '' : modal;
   const siteName = sites.find((item: Any) => item.id === siteId)?.name ?? 'Site';
   const buildingName = buildings.find((item: Any) => item.id === buildingId)?.name;
   const roomName = rooms.find((item: Any) => item.id === roomId)?.name;
   const tabName = ({ racks: 'Bastidores', devices: 'Equipamentos', models: 'Modelos', interfaces: 'Interfaces', assets: 'Assets' } as Record<string, string>)[tab] ?? tab;
-  return <AppShell section="Infraestrutura" context={[siteName, ...(buildingName ? [buildingName] : []), ...(roomName ? [roomName] : []), tabName]} search={{ value: search, onChange: setSearch, placeholder: `Pesquisar em ${tabName.toLowerCase()}…` }}><main className="module-page infrastructure-workspace"><header className="workspace-head"><div><span className="section-kicker">MAPA FÍSICO</span><h1>Infraestrutura</h1><p>Site → edifício → sala → bastidor → equipamento → interfaces.</p></div></header>{error && <div className="ipam-alert error"><X size={15}/>{error}</div>}<section className="infra-context-bar"><label><MapPinned size={15}/> Edifício<select value={buildingId} onChange={(e) => chooseBuilding(e.target.value)}><option value="">Seleciona um edifício</option>{buildings.map((b: Any) => <option key={b.id} value={b.id}>{b.name}</option>)}{canEdit && <option value="__new__">Criar novo Edifício</option>}</select></label><label><MapPinned size={15}/> Sala<select value={roomId} onChange={(e) => chooseRoom(e.target.value)}><option value="">Seleciona uma sala</option>{rooms.map((r: Any) => <option key={r.id} value={r.id}>{r.name}</option>)}{canEdit && <option value="__new__">Criar nova Sala</option>}</select></label><span>{busy ? 'A carregar…' : `${racks.length} bastidores · ${devices.length} equipamentos ativos`}</span></section><nav className="infra-menu">{[['racks', 'Bastidores', MapPinned], ['devices', 'Equipamentos', Server], ['models', 'Modelos', Boxes], ['interfaces', 'Interfaces', Layers], ['assets', 'Assets', HardDrive]].map(([key, label, Icon]: Any) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => selectTab(key)}><Icon size={15}/><span>{label}</span></button>)}</nav>{tab === 'racks' && <RackWorkspace rooms={rooms} roomId={roomId} racks={roomRacks} selected={selectedRack} setRoom={(id: string) => { setRoomId(id); setRackId(''); }} setRack={(r: Any) => { setRoomId(r.room.id); setRackId(r.id); history.replaceState({}, '', `/infraestrutura?siteId=${siteId}&buildingId=${r.room?.building?.id ?? buildingId}&roomId=${r.room?.id ?? roomId}&rackId=${r.id}`); }} onOut={() => setRackId('')} onDevice={openDevice} onEdit={(r: Any) => { setEditingId(r.id ?? ''); setRackForm({ name: r.name ?? '', units: String(r.units ?? 42), roomId: r.room?.id ?? r.roomId ?? roomId, modelId: r.modelId ?? r.model?.id ?? '', frontAssetId: r.frontAssetId ?? r.frontAsset?.id ?? '' }); setModal('rack'); }} onDelete={canDeleteRack ? deleteRack : undefined} deletingRackId={deletingRackId} canEdit={canEdit}/>} {tab === 'devices' && <DeviceList devices={devices} search={search} setSearch={setSearch} onSelect={openDevice} onEdit={editDevice} onNew={newDevice} canEdit={canEdit}/>} {tab === 'models' && <ModelList models={visibleModels} onEdit={(m: Any) => { setEditingId(m.id); setModelForm({ manufacturer: m.manufacturer, model: m.model, type: m.type ?? 'OTHER', supportsNetworkPorts: !!m.supportsNetworkPorts, networkPortCount: String(m.networkPortCount ?? ''), frontAssetId: m.frontAssetId ?? m.frontAsset?.id ?? '' }); setModal('model'); }} onLayout={openLayout} canEdit={canEdit}/>} {tab === 'assets' && <AssetList assets={visibleAssets} onDelete={deleteAsset} canEdit={canEdit} canDelete={hasRole('ADMIN')}/>} {tab === 'interfaces' && <InterfaceWorkspace devices={devices} selected={device} interfaces={visibleInterfaces} selectedInterface={selectedInterface} onDevice={openDevice} onInterface={editInterface} onGenerate={generateInterfaces} onEditDevice={() => device && editDevice(device)}/>}<Editor modal={modalForEditor} close={() => setModal('')} editingId={editingId} form={{ rack: rackForm, device: deviceForm, interface: interfaceForm, model: modelForm }} setForm={{ rack: setRackForm, device: setDeviceForm, interface: setInterfaceForm, model: setModelForm }} rooms={rooms} racks={racks} models={models} assets={assets} vlans={vlans} ips={ips} save={save}/><BuildingModal modal={modal === 'building'} close={() => setModal('')} buildingForm={buildingForm} setBuildingForm={setBuildingForm} createBuilding={createBuilding}/><RoomModal modal={modal === 'room'} close={() => setModal('')} roomForm={roomForm} setRoomForm={setRoomForm} buildings={buildings} createRoom={createRoom}/><AssetUploadModal modal={modal === 'asset-upload'} close={() => setModal('')} file={pendingUpload} name={assetName} setName={setAssetName} modelId={uploadModelId} setModelId={setUploadModelId} models={models} choose={chooseUpload} submit={submitUpload} busy={uploading}/><PortLayoutEditor modal={modal === 'layout'} close={() => setModal('')} layoutModel={layoutModel} layout={layout} setLayout={setLayout} assets={assets} assetId={layoutAssetId} setAssetId={setLayoutAssetId} detect={() => undefined} confirm={() => undefined} saving={layoutSaving} error={layoutError}/></main></AppShell>;
+  return <AppShell section="Infraestrutura" context={[siteName, ...(buildingName ? [buildingName] : []), ...(roomName ? [roomName] : []), tabName]} search={{ value: search, onChange: setSearch, placeholder: `Pesquisar em ${tabName.toLowerCase()}…` }}><main className="module-page infrastructure-workspace"><header className="workspace-head"><div><span className="section-kicker">MAPA FÍSICO</span><h1>Infraestrutura</h1><p>Site → edifício → sala → bastidor → equipamento → interfaces.</p></div></header>{error && <div className="ipam-alert error"><X size={15}/>{error}</div>}<section className="infra-context-bar"><label><MapPinned size={15}/> Edifício<select value={buildingId} onChange={(e) => chooseBuilding(e.target.value)}><option value="">Seleciona um edifício</option>{buildings.map((b: Any) => <option key={b.id} value={b.id}>{b.name}</option>)}{canEdit && <option value="__new__">Criar novo Edifício</option>}</select></label><label><MapPinned size={15}/> Sala<select value={roomId} onChange={(e) => chooseRoom(e.target.value)}><option value="">Seleciona uma sala</option>{rooms.map((r: Any) => <option key={r.id} value={r.id}>{r.name}</option>)}{canEdit && <option value="__new__">Criar nova Sala</option>}</select></label><span>{busy ? 'A carregar…' : `${racks.length} bastidores · ${devices.length} equipamentos ativos`}</span></section><nav className="infra-menu">{[['racks', 'Bastidores', MapPinned], ['devices', 'Equipamentos', Server], ['models', 'Modelos', Boxes], ['interfaces', 'Interfaces', Layers], ['assets', 'Assets', HardDrive]].map(([key, label, Icon]: Any) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => selectTab(key)}><Icon size={15}/><span>{label}</span></button>)}</nav>{tab === 'racks' && <RackWorkspace rooms={rooms} roomId={roomId} buildingId={buildingId} racks={roomRacks} selected={selectedRack} setRoom={(id: string) => { setRoomId(id); setRackId(''); }} setRack={(r: Any) => { setRoomId(r.room.id); setRackId(r.id); history.replaceState({}, '', `/infraestrutura?siteId=${siteId}&buildingId=${r.room?.building?.id ?? buildingId}&roomId=${r.room?.id ?? roomId}&rackId=${r.id}`); }} onOut={() => setRackId('')} onDevice={openDevice} onEdit={(r: Any) => { setEditingId(r.id ?? ''); setRackForm({ name: r.name ?? '', units: String(r.units ?? 42), roomId: r.room?.id ?? r.roomId ?? roomId, modelId: r.modelId ?? r.model?.id ?? '', frontAssetId: r.frontAssetId ?? r.frontAsset?.id ?? '' }); setModal('rack'); }} onDelete={canDeleteRack ? deleteRack : undefined} deletingRackId={deletingRackId} canEdit={canEdit} onPreviewPlacement={previewPlacement} onPlaceDevice={placeDevice}/>} {tab === 'devices' && <DeviceList devices={devices} search={search} setSearch={setSearch} onSelect={openDevice} onEdit={editDevice} onNew={newDevice} canEdit={canEdit}/>} {tab === 'models' && <ModelList models={visibleModels} onEdit={(m: Any) => { setEditingId(m.id); setModelForm({ manufacturer: m.manufacturer, model: m.model, type: m.type ?? 'OTHER', supportsNetworkPorts: !!m.supportsNetworkPorts, networkPortCount: String(m.networkPortCount ?? ''), frontAssetId: m.frontAssetId ?? m.frontAsset?.id ?? '' }); setModal('model'); }} onLayout={openLayout} canEdit={canEdit}/>} {tab === 'assets' && <AssetList assets={visibleAssets} onDelete={deleteAsset} canEdit={canEdit} canDelete={hasRole('ADMIN')}/>} {tab === 'interfaces' && <InterfaceWorkspace devices={devices} selected={device} interfaces={visibleInterfaces} selectedInterface={selectedInterface} onDevice={openDevice} onInterface={editInterface} onGenerate={generateInterfaces} onEditDevice={() => device && editDevice(device)}/>}<Editor modal={modalForEditor} close={() => setModal('')} editingId={editingId} form={{ rack: rackForm, device: deviceForm, interface: interfaceForm, model: modelForm }} setForm={{ rack: setRackForm, device: setDeviceForm, interface: setInterfaceForm, model: setModelForm }} rooms={rooms} racks={racks} models={models} assets={assets} vlans={vlans} ips={ips} save={save}/><BuildingModal modal={modal === 'building'} close={() => setModal('')} buildingForm={buildingForm} setBuildingForm={setBuildingForm} createBuilding={createBuilding}/><RoomModal modal={modal === 'room'} close={() => setModal('')} roomForm={roomForm} setRoomForm={setRoomForm} buildings={buildings} createRoom={createRoom}/><AssetUploadModal modal={modal === 'asset-upload'} close={() => setModal('')} file={pendingUpload} name={assetName} setName={setAssetName} modelId={uploadModelId} setModelId={setUploadModelId} models={models} choose={chooseUpload} submit={submitUpload} busy={uploading}/><PortLayoutEditor modal={modal === 'layout'} close={() => setModal('')} layoutModel={layoutModel} layout={layout} setLayout={setLayout} assets={assets} assetId={layoutAssetId} setAssetId={setLayoutAssetId} detect={() => undefined} confirm={() => undefined} saving={layoutSaving} error={layoutError}/></main></AppShell>;
 }

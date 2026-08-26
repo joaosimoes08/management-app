@@ -104,6 +104,10 @@ export class UpdateRackDto extends CreateRackDto {}
 export class ReorderRacksDto {
   @IsArray() @ArrayMinSize(1) @IsString({ each: true }) rackIds!: string[];
 }
+export class PlaceDeviceDto {
+  @IsString() @MinLength(1) rackId!: string;
+  @IsInt() @Min(1) rackUnitStart!: number;
+}
 
 export class CreateBuildingDto {
   @IsString() @MinLength(1) name!: string;

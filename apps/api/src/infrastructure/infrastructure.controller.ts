@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res } fr
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { Roles } from '../auth/roles.decorator';
-import { CreateAssetDto, CreateBuildingDto, CreateDeviceDto, CreateDeviceModelDto, CreateInterfaceDto, CreateRackDto, CreateRackModelDto, CreateRoomDto, DetectPortLayoutDto, ReorderRacksDto, UpdateBuildingDto, UpdateDeviceDto, UpdateDeviceModelDto, UpdateInterfaceDto, UpdatePortLayoutDto, UpdateRackDto, UpdateRackModelDto, UpdateRoomDto } from './dto';
+import { CreateAssetDto, CreateBuildingDto, CreateDeviceDto, CreateDeviceModelDto, CreateInterfaceDto, CreateRackDto, CreateRackModelDto, CreateRoomDto, DetectPortLayoutDto, PlaceDeviceDto, ReorderRacksDto, UpdateBuildingDto, UpdateDeviceDto, UpdateDeviceModelDto, UpdateInterfaceDto, UpdatePortLayoutDto, UpdateRackDto, UpdateRackModelDto, UpdateRoomDto } from './dto';
 import { InfrastructureService } from './infrastructure.service';
 
 @ApiTags('infrastructure') @ApiBearerAuth()
@@ -48,6 +48,8 @@ export class InfrastructureController {
   @Get('devices') devices(@Query('search') search?: string, @Query('type') type?: string, @Query('siteId') siteId?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) { return this.service.listDevices(search, type, siteId, page, pageSize); }
   @Get('devices/:id') device(@Param('id') id: string) { return this.service.getDevice(id); }
   @Post('devices') @Roles('ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR') createDevice(@Body() dto: CreateDeviceDto, @Req() req: { user: AuthenticatedUser }) { return this.service.createDevice(dto, req.user); }
+  @Post('devices/:id/placement/preview') @Roles('ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR') previewDevicePlacement(@Param('id') id: string, @Body() dto: PlaceDeviceDto) { return this.service.previewDevicePlacement(id, dto); }
+  @Patch('devices/:id/placement') @Roles('ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR') placeDevice(@Param('id') id: string, @Body() dto: PlaceDeviceDto, @Req() req: { user: AuthenticatedUser }) { return this.service.placeDevice(id, dto, req.user); }
   @Patch('devices/:id') @Roles('ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR') updateDevice(@Param('id') id: string, @Body() dto: UpdateDeviceDto, @Req() req: { user: AuthenticatedUser }) { return this.service.updateDevice(id, dto, req.user); }
   @Delete('devices/:id') @Roles('ADMIN') deleteDevice(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.service.deleteDevice(id, req.user); }
   @Get('interfaces') interfaces(@Query('deviceId') deviceId?: string, @Query('search') search?: string) { return this.service.listInterfaces(deviceId, search); }
