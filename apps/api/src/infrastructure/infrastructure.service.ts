@@ -2,7 +2,8 @@ import { ConflictException, Injectable, NotFoundException, OnModuleInit, Streama
 import { PrismaClient } from '@simoes/database';
 import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../auth/auth.service';
-import { CreateAssetDto, CreateBuildingDto, CreateDeviceDto, CreateDeviceModelDto, CreateInterfaceDto, CreateRackDto, CreateRackModelDto, CreateRoomDto, DetectPortLayoutDto, ReorderRacksDto, UpdateBuildingDto, UpdateDeviceDto, UpdateDeviceModelDto, UpdateInterfaceDto, UpdateRackDto, UpdateRackModelDto, UpdateRoomDto } from './dto';
+import { CreateAssetDto, CreateBuildingDto, CreateDeviceDto, CreateDeviceModelDto, CreateInterfaceDto, CreateRackDto, CreateRackModelDto, CreateRoomDto, DetectPortLayoutDto, PlaceDeviceDto, ReorderRacksDto, UpdateBuildingDto, UpdateDeviceDto, UpdateDeviceModelDto, UpdateInterfaceDto, UpdateRackDto, UpdateRackModelDto, UpdateRoomDto } from './dto';
+import { planRackPlacement } from './rack-placement';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { extname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -129,6 +130,51 @@ export class InfrastructureService implements OnModuleInit {
   private async validateDeviceFrontAsset(frontAssetId?: string) { if (!frontAssetId) throw new ConflictException('O equipamento tem de ter a imagem frontal definida'); const asset = await this.prisma.assetFile.count({ where: { id: frontAssetId } }); if (asset !== 1) throw new NotFoundException('A imagem frontal selecionada não foi encontrada'); }
   private async validateRackPlacement(dto: CreateDeviceDto, deviceId?: string) { if (!dto.rackId) return; if (!dto.rackUnitStart || !dto.rackUnitSize) throw new ConflictException('Define a unidade inicial e o tamanho do equipamento'); const rack = await this.prisma.rack.findUnique({ where: { id: dto.rackId }, include: { room: { include: { building: true } }, devices: true } }); if (!rack) throw new NotFoundException('Bastidor não encontrado'); if (dto.rackUnitStart < 1 || dto.rackUnitStart + dto.rackUnitSize - 1 > rack.units) throw new ConflictException('A posição do equipamento excede as unidades do bastidor'); if (dto.siteId && dto.siteId !== rack.room.building.siteId) throw new ConflictException('O bastidor não pertence ao Site selecionado'); const end = dto.rackUnitStart + dto.rackUnitSize - 1; const overlap = rack.devices.some((device) => device.id !== deviceId && device.rackUnitStart && device.rackUnitSize && dto.rackUnitStart! <= device.rackUnitStart + device.rackUnitSize - 1 && end >= device.rackUnitStart); if (overlap) throw new ConflictException('A posição indicada já está ocupada no bastidor'); }
   async createDevice(dto: CreateDeviceDto, user: AuthenticatedUser) { await this.validateDeviceModel(dto.modelId); await this.validateDeviceFrontAsset(dto.frontAssetId); await this.validateRackPlacement(dto); try { const data = { ...dto, status: (dto.rackId && dto.status !== 'RETIRED' ? 'ACTIVE' : (dto.status ?? 'UNKNOWN')) as never } as any; delete data.managementIpAddressId; const item = await this.prisma.device.create({ data }); if (dto.managementIpAddressId) await this.prisma.ipAddress.update({ where: { id: dto.managementIpAddressId }, data: { deviceId: item.id } }).catch(() => { throw new ConflictException('IP de gestão não encontrado'); }); await this.log(user, 'DEVICE_CREATED', 'Device', item.id); return this.getDevice(item.id); } catch (error) { if (error instanceof ConflictException) throw error; throw new ConflictException('Não foi possível criar o equipamento'); } }
+  private async buildDevicePlacementPlan(client: any, id: string, dto: PlaceDeviceDto) {
+    const device = await client.device.findUnique({ where: { id }, include: { rack: { include: { room: { include: { building: true } } } } } });
+    if (!device) throw new NotFoundException('Equipamento não encontrado');
+    if (!device.rackId || !device.rackUnitStart || !device.rackUnitSize) throw new ConflictException('O equipamento tem de estar posicionado num bastidor antes de ser arrastado');
+    const targetRack = await client.rack.findUnique({ where: { id: dto.rackId }, include: { room: { include: { building: true } } } });
+    if (!targetRack) throw new NotFoundException('Bastidor de destino não encontrado');
+    if (targetRack.roomId !== device.rack.roomId) throw new ConflictException('Só é possível mover equipamentos entre bastidores da mesma sala');
+    if (targetRack.room.building.siteId !== device.rack.room.building.siteId) throw new ConflictException('O bastidor não pertence ao Site do equipamento');
+
+    const rackIds = [...new Set([device.rackId, dto.rackId])];
+    const racks = await client.rack.findMany({
+      where: { id: { in: rackIds } },
+      include: { devices: { where: { status: { not: 'RETIRED' } } } },
+    });
+    try {
+      return planRackPlacement(
+        racks.map((rack: any) => ({
+          id: rack.id,
+          name: rack.name,
+          units: rack.units,
+          devices: rack.devices
+            .filter((item: any) => item.rackUnitStart && item.rackUnitSize)
+            .map((item: any) => ({ id: item.id, name: item.name, rackId: rack.id, rackUnitStart: item.rackUnitStart, rackUnitSize: item.rackUnitSize })),
+        })),
+        id,
+        dto.rackId,
+        dto.rackUnitStart,
+      );
+    } catch (error) {
+      throw new ConflictException(error instanceof Error ? error.message : 'Não foi possível posicionar o equipamento');
+    }
+  }
+  async previewDevicePlacement(id: string, dto: PlaceDeviceDto) { return this.buildDevicePlacementPlan(this.prisma, id, dto); }
+  async placeDevice(id: string, dto: PlaceDeviceDto, user: AuthenticatedUser) {
+    const plan = await this.prisma.$transaction(async (tx) => {
+      const next = await this.buildDevicePlacementPlan(tx, id, dto);
+      for (const change of next.changes) {
+        const rack = await tx.rack.findUnique({ where: { id: change.rackId }, select: { room: { select: { building: { select: { siteId: true } } } } } });
+        await tx.device.update({ where: { id: change.id }, data: { rackId: change.rackId, rackUnitStart: change.rackUnitStart, siteId: rack!.room.building.siteId, status: 'ACTIVE' } });
+      }
+      return next;
+    }, { isolationLevel: 'Serializable' });
+    await this.log(user, 'DEVICE_PLACEMENT_UPDATED', 'Device', id, { changes: plan.changes });
+    return plan;
+  }
   async updateDevice(id: string, dto: UpdateDeviceDto, user: AuthenticatedUser) { const current = await this.prisma.device.findUnique({ where: { id }, select: { status: true, rackId: true, frontAssetId: true } }); if (!current) throw new NotFoundException('Equipamento não encontrado'); await this.validateDeviceFrontAsset(dto.frontAssetId ?? current.frontAssetId ?? undefined); await this.validateRackPlacement(dto, id); const status = dto.rackId && current.status !== 'RETIRED' ? 'ACTIVE' : (dto.status ?? current.status); const data = { ...dto, status: status as never, managementIpAddressId: undefined } as any; delete data.managementIpAddressId; const item = await this.prisma.device.update({ where: { id }, data }).catch(() => { throw new NotFoundException('Equipamento não encontrado'); }); if (dto.managementIpAddressId) await this.prisma.ipAddress.update({ where: { id: dto.managementIpAddressId }, data: { deviceId: id } }).catch(() => { throw new ConflictException('IP de gestão não encontrado'); }); await this.log(user, 'DEVICE_UPDATED', 'Device', id, { rackId: dto.rackId, managementIp: dto.managementIp, managementIpAddressId: dto.managementIpAddressId }); return this.getDevice(item.id); }
   async deleteDevice(id: string, user: AuthenticatedUser) { await this.prisma.device.update({ where: { id }, data: { status: 'RETIRED' } }).catch(() => { throw new NotFoundException('Equipamento não encontrado'); }); await this.log(user, 'DEVICE_RETIRED', 'Device', id); return { success: true }; }
   private readonly vlanInclude = { include: { subnets: { take: 1, orderBy: { id: 'asc' as const } } } };

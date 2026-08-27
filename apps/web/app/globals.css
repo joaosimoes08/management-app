@@ -896,6 +896,56 @@ button { cursor:pointer; }
   pointer-events:none;
 }
 .rack-figure.reorderable .rack-figure-image { cursor:grab; opacity:1; }
+.rack-figure.equipment-reorderable {
+  position:relative;
+  padding-top:28px;
+  border-radius:10px;
+  outline:1px dashed #c9c5c8;
+  outline-offset:4px;
+}
+.rack-figure.equipment-reorderable .rack-figure-image { cursor:default; }
+.equipment-drop-zone { pointer-events:auto; transition:background-color .15s ease,box-shadow .15s ease; }
+.equipment-drop-zone:has(.rack-preview-device.moving),
+.rack-overlay-area.equipment-drop-zone:has(.rack-overlay.moving) { background:rgba(44,107,237,.05); box-shadow:inset 0 0 0 1px rgba(44,107,237,.22); }
+.rack-preview-device[draggable='true'],.rack-overlay[draggable='true'] { cursor:grab; }
+.rack-preview-device[draggable='true']:active,.rack-overlay[draggable='true']:active { cursor:grabbing; }
+.rack-preview-device.moving,.rack-overlay.moving { opacity:.35; }
+.rack-preview-device:focus-visible { z-index:4; outline:2px solid #2c6bed; outline-offset:2px; }
+.rack-overlay.pending-placement .rack-device-media::after { opacity:1; border-color:#2c6bed; box-shadow:0 0 0 3px rgba(44,107,237,.18); }
+.rack-placement-confirmation {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:18px;
+  width:min(620px,100%);
+  margin:16px auto 0;
+  padding:15px 16px;
+  border:1px solid #cdd9f7;
+  border-radius:12px;
+  background:#f6f8ff;
+  box-shadow:0 8px 24px rgba(44,107,237,.08);
+}
+.rack-placement-summary { display:grid; gap:4px; }
+.rack-placement-confirmation strong { color:#28242a; font-size:12px; }
+.rack-placement-confirmation small { color:#77727a; font-size:9px; line-height:1.45; }
+.rack-placement-correction-trigger {
+  justify-self:start;
+  margin-top:4px;
+  padding:0;
+  color:#315fb9;
+  border:0;
+  background:transparent;
+  font-size:9px;
+  font-weight:650;
+  text-decoration:underline;
+  text-underline-offset:3px;
+}
+.rack-placement-correction { display:grid; gap:6px; margin-top:7px; padding-top:10px; border-top:1px solid #dce4f8; }
+.rack-placement-correction > label { color:#4f4a51; font-size:9px; font-weight:650; }
+.rack-placement-correction > div { display:flex; align-items:center; gap:7px; }
+.rack-placement-correction > div > span { color:#67616a; font:600 10px 'DM Mono'; }
+.rack-placement-correction input { width:72px; min-height:36px; padding:7px 8px; border:1px solid #c9d4ef; border-radius:8px; background:#fff; font:600 10px 'DM Mono'; }
+.rack-placement-correction .secondary-button { min-height:36px; }
 
 /* The selected rack always has a concrete frame; no empty grey loading surface. */
 .rack-view .rack-stage {
@@ -928,6 +978,10 @@ button { cursor:pointer; }
     max-width:100%;
     height:auto;
   }
+  .rack-placement-confirmation { align-items:stretch; flex-direction:column; }
+  .rack-placement-confirmation .button-row { justify-content:flex-end; }
+  .rack-placement-correction > div { align-items:stretch; flex-wrap:wrap; }
+  .rack-placement-correction .secondary-button { flex:1 1 180px; }
 }
 
 /* Contextual application topbar. Sidebar owns navigation and identity; this
