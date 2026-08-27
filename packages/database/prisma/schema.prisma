@@ -64,6 +64,13 @@ enum NatRuleType {
   PAT
 }
 
+enum RoleRequestStatus {
+  PENDING
+  PROCESSING
+  APPROVED
+  REJECTED
+}
+
 model User {
   id String @id @default(uuid()) @db.Uuid
   externalId String @unique
@@ -73,8 +80,41 @@ model User {
   roles UserRole[]
   ipamGroupMemberships IpamGroupMember[]
   auditLogs AuditLog[]
+  roleRequests RoleRequest[]
+  reviewedRoleRequests RoleRequest[] @relation("RoleRequestReviewer")
+  notifications Notification[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model RoleRequest {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  roles RoleName[]
+  status RoleRequestStatus @default(PENDING)
+  reviewerId String? @db.Uuid
+  createdAt DateTime @default(now())
+  processingAt DateTime?
+  decidedAt DateTime?
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviewer User? @relation("RoleRequestReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  notifications Notification[]
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
+model Notification {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  roleRequestId String? @db.Uuid
+  type String
+  title String
+  message String
+  readAt DateTime?
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roleRequest RoleRequest? @relation(fields: [roleRequestId], references: [id], onDelete: SetNull)
+  @@index([userId, readAt, createdAt])
 }
 model UserRole {
   userId String @db.Uuid

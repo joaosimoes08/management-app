@@ -18,11 +18,34 @@ test('role updates preserve inherited roles, apply a direct diff and logout the 
       return directRoles;
     }
     if (path.endsWith('/role-mappings/realm/composite')) return [...directRoles, { id: 'audit', name: 'AUDITOR' }];
-    const roleName = roles.find((role) => path.endsWith(`/roles/${role}`)); if (roleName) return { id: roleName.toLowerCase(), name: roleName };
+    if (path.endsWith('/role-mappings/realm/available')) return roles.filter((role) => !directRoles.some((current) => current.name === role)).map((role) => ({ id: role.toLowerCase(), name: role }));
     return undefined;
   };
   const result = await service.updateRoles('target', ['ADMIN', 'NETWORK_OPERATOR'], actor as never);
-  assert.deepEqual(result.inheritedRoles, ['AUDITOR']); assert.ok(calls.some((call) => call.method === 'DELETE' && call.body?.includes('READ_ONLY'))); assert.ok(calls.some((call) => call.method === 'POST' && call.body?.includes('NETWORK_OPERATOR'))); assert.ok(calls.some((call) => call.path.endsWith('/logout'))); assert.equal(records[0].action, 'USER_ROLES_UPDATED');
+  assert.deepEqual(result.inheritedRoles, ['AUDITOR']); assert.ok(calls.some((call) => call.method === 'DELETE' && call.body?.includes('READ_ONLY'))); assert.ok(calls.some((call) => call.method === 'POST' && call.body?.includes('NETWORK_OPERATOR'))); assert.ok(calls.some((call) => call.path.endsWith('/logout'))); assert.ok(calls.every((call) => !call.path.startsWith('/roles/'))); assert.equal(records[0].action, 'USER_ROLES_UPDATED');
+});
+
+test('requested roles are resolved through user mappings without global role access', async () => {
+  const calls: { path: string; method: string; body?: string }[] = [];
+  const service = new KeycloakAdminService({ record: async () => undefined } as never);
+  let directRoles = [{ id: 'read', name: 'READ_ONLY' }];
+  (service as any).request = async (path: string, init: RequestInit = {}) => {
+    calls.push({ path, method: init.method ?? 'GET', body: init.body as string | undefined });
+    if (path.endsWith('/role-mappings/realm/composite')) return directRoles;
+    if (path.endsWith('/role-mappings/realm/available')) return [{ id: 'network', name: 'NETWORK_OPERATOR' }];
+    if (path.endsWith('/role-mappings/realm')) {
+      if (init.method === 'POST') directRoles = [...directRoles, ...JSON.parse(String(init.body))];
+      return directRoles;
+    }
+    return undefined;
+  };
+
+  const result = await service.grantRoles('target', ['NETWORK_OPERATOR']);
+
+  assert.ok(result.effectiveRoles.includes('NETWORK_OPERATOR'));
+  assert.ok(calls.some((call) => call.path.endsWith('/role-mappings/realm/available')));
+  assert.ok(calls.some((call) => call.method === 'POST' && call.body?.includes('NETWORK_OPERATOR')));
+  assert.ok(calls.every((call) => !call.path.startsWith('/roles/')));
 });
 
 test('role updates cannot leave a user without an effective application role', async () => {
