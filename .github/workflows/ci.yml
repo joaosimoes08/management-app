@@ -53,6 +53,8 @@ jobs:
       - run: npm ci
       - name: Generate Prisma client
         run: npx prisma generate --schema packages/database/prisma/schema.prisma
+      - name: Build database package
+        run: npm run build --workspace=@simoes/database
       - name: Apply migrations to isolated PostgreSQL
         run: npx prisma migrate deploy --schema packages/database/prisma/schema.prisma
       - name: Check translations
