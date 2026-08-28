@@ -2,13 +2,23 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaClient } from '@simoes/database';
 import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../auth/auth.service';
+import { KeycloakAdminService } from './keycloak-admin.service';
 import { UpdateAuditPolicyDto, UpdateDiscoveryDefaultsDto, UpdateOrganizationSettingsDto } from './dto';
 import Redis from 'ioredis';
 import { DiscoveryPolicyError, normalizeAllowedCidrs } from '../discovery/discovery-policy';
 
 @Injectable()
 export class SettingsService {
-  constructor(private readonly prisma: PrismaClient, private readonly audit: AuditService) {}
+  constructor(private readonly prisma: PrismaClient, private readonly audit: AuditService, private readonly keycloak?: KeycloakAdminService) {}
+
+  async users(search?: string, page?: string, pageSize?: string) {
+    if (!this.keycloak) throw new Error('Keycloak service unavailable');
+    const result = await this.keycloak.listUsers(search, page, pageSize);
+    const users = await this.prisma.user.findMany({ where: { externalId: { in: result.items.map((item) => item.externalId) } }, select: { id: true, externalId: true } });
+    const pending = await this.prisma.roleRequest.findMany({ where: { userId: { in: users.map((item) => item.id) }, status: { in: ['PENDING', 'PROCESSING'] } }, orderBy: { createdAt: 'asc' } });
+    const byExternal = new Map(users.map((item) => [item.id, item.externalId]));
+    return { ...result, items: result.items.map((item) => { const request = pending.find((entry) => byExternal.get(entry.userId) === item.externalId); return { ...item, pendingRoleRequest: request ? { id: request.id, requestedRoles: Array.isArray(request.roles) ? request.roles : [], status: request.status, createdAt: request.createdAt } : null }; }) };
+  }
   private async getSettings() { return (await this.prisma.systemSettings.findFirst()) ?? this.prisma.systemSettings.create({ data: {} }); }
   private stringArray(value: unknown, fallback: string[]) { return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : fallback; }
   private numberArray(value: unknown, fallback: number[]) { return Array.isArray(value) ? value.filter((item): item is number => typeof item === 'number') : fallback; }

@@ -61,7 +61,7 @@ const request = (method: string, url: string, persona?: string, payload?: unknow
 
 async function resetDatabase() {
   await prisma.$executeRawUnsafe(`TRUNCATE TABLE
-    "ApplicationLinkRole", "ApplicationLink", "RipeImport", "IpamPermission", "IpamGroupMember", "IpamGroup",
+    "Notification", "RoleRequest", "ApplicationLinkRole", "ApplicationLink", "RipeImport", "IpamPermission", "IpamGroupMember", "IpamGroup",
     "DiscoveryResult", "DiscoveryJob", "DiscoverySchedule", "Service", "IpAddress", "InterfaceVlan", "DeviceInterface",
     "Host", "Device", "DeviceModel", "AssetFile", "Rack", "RackModel", "Room", "Building", "NatRule", "Subnet", "Vrf",
     "Vlan", "Site", "AuditLog", "UserRole", "User", "SystemSettings" RESTART IDENTITY CASCADE`);
@@ -112,6 +112,8 @@ before(async () => {
     .overrideProvider(AuthGuard).useClass(HeaderAuthGuard)
     .overrideProvider(KeycloakAdminService).useValue({
       listUsers: async () => ({ items: [], page: 1, pageSize: 25, total: 0 }),
+      effectiveRoles: async () => [],
+      grantRoles: async () => ({ directRoles: [], inheritedRoles: [], effectiveRoles: [] }),
       updateRoles: async () => { throw new ConflictException({ code: 'LAST_ADMIN_REQUIRED', message: 'A aplicação tem de manter pelo menos um ADMIN ativo.' }); },
     })
     .compile();
@@ -165,6 +167,27 @@ test('protects the last ADMIN through the HTTP settings endpoint', async () => {
   const response = await request('PATCH', '/api/v1/settings/users/http-admin/roles', 'qa-admin', { roles: ['READ_ONLY'] });
   assert.equal(response.statusCode, 409);
   assert.equal(json(response).code, 'LAST_ADMIN_REQUIRED');
+});
+
+test('allows self-service role requests but reserves decisions for ADMIN', async () => {
+  const submitted = await request('POST', '/api/v1/settings/role-requests', 'qa-readonly', { roles: ['AUDITOR', 'NETWORK_OPERATOR'] });
+  assert.equal(submitted.statusCode, 201);
+  const roleRequest = json(submitted) as { id: string; status: string };
+  assert.equal(roleRequest.status, 'PENDING');
+
+  const duplicate = await request('POST', '/api/v1/settings/role-requests', 'qa-readonly', { roles: ['STORAGE_OPERATOR'] });
+  assert.equal(duplicate.statusCode, 409);
+  assert.equal(json(duplicate).code, 'ROLE_REQUEST_PENDING');
+  assert.equal((await request('PATCH', `/api/v1/settings/role-requests/${roleRequest.id}`, 'qa-readonly', { decision: 'APPROVE' })).statusCode, 403);
+
+  const approved = await request('PATCH', `/api/v1/settings/role-requests/${roleRequest.id}`, 'qa-admin', { decision: 'APPROVE' });
+  assert.equal(approved.statusCode, 200);
+  assert.equal(json(approved).status, 'APPROVED');
+  const notification = await prisma.notification.findFirstOrThrow({ where: { userId: ids.readonly, roleRequestId: roleRequest.id } });
+  assert.equal(notification.readAt, null);
+  assert.equal(await prisma.auditLog.count({ where: { action: 'ROLE_REQUEST_APPROVED', entityId: roleRequest.id } }), 1);
+  assert.equal((await request('PATCH', '/api/v1/dashboard/notifications/read-all', 'qa-readonly')).statusCode, 200);
+  assert.ok((await prisma.notification.findUniqueOrThrow({ where: { id: notification.id } })).readAt);
 });
 
 test('approves Discovery idempotently without duplicating inventory or audit', async () => {

@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Req } from '@nestjs/common';
+import { Controller, Get, Patch, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { DashboardService } from './dashboard.service';
@@ -18,5 +18,8 @@ export class DashboardController {
   }
 
   @Get('topbar-state')
-  topbarState() { return this.service.topbarState(); }
+  topbarState(@Req() request: { user: AuthenticatedUser }) { return this.service.topbarState(request.user); }
+
+  @Patch('notifications/read-all')
+  readNotifications(@Req() request: { user: AuthenticatedUser }) { return this.service.readNotifications(request.user); }
 }

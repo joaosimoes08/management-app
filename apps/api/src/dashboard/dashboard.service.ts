@@ -86,9 +86,9 @@ export class DashboardService implements OnModuleDestroy {
     return { items: items.slice(0, limit) };
   }
 
-  async topbarState() {
+  async topbarState(user?: AuthenticatedUser) {
     const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const [failedJobs, pendingResults, processes, redis, settings] = await Promise.all([
+    const [failedJobs, pendingResults, processes, redis, settings, pendingRoleRequests, notifications] = await Promise.all([
       this.prisma.discoveryJob.findMany({
         where: { status: 'FAILED', createdAt: { gte: cutoff } },
         include: { subnet: { select: { cidr: true, site: { select: { name: true } } } } },
@@ -104,12 +104,16 @@ export class DashboardService implements OnModuleDestroy {
       }),
       this.discoveryQueue.getJobCounts('waiting', 'active', 'failed').then((counts) => ({ available: true, counts })).catch(() => ({ available: false, counts: {} })),
       this.prisma.systemSettings.findFirst({ select: { setupCompleted: true, setupCompletedAt: true } }),
+      user?.roles.includes('ADMIN') ? this.prisma.roleRequest.count({ where: { status: { in: ['PENDING', 'PROCESSING'] } } }) : Promise.resolve(0),
+      user ? this.prisma.notification.findMany({ where: { userId: user.id, readAt: null }, orderBy: { createdAt: 'desc' }, take: 20 }) : Promise.resolve([]),
     ]);
 
     const alerts: TopbarAlert[] = [];
     if (!redis.available) alerts.push({ id: 'redis-unavailable', severity: 'CRITICAL', title: 'Fila de discovery indisponível', detail: 'Não foi possível contactar o Redis/BullMQ.', href: '/definicoes?tab=system', occurredAt: new Date().toISOString() });
     alerts.push(...failedJobs.map((job) => ({ id: `discovery-failed-${job.id}`, severity: 'WARNING' as const, title: `Discovery falhou em ${job.subnet.cidr}`, detail: job.errorMessage || `Site ${job.subnet.site?.name ?? 'não definido'}`, href: `/descoberta?jobId=${job.id}`, occurredAt: (job.completedAt ?? job.createdAt).toISOString() })));
     if (pendingResults > 0) alerts.push({ id: 'discovery-pending-review', severity: 'INFO', title: `${pendingResults} resultado${pendingResults === 1 ? '' : 's'} por rever`, detail: 'Existem resultados de discovery à espera de aprovação.', href: '/descoberta', occurredAt: new Date().toISOString() });
+    if (pendingRoleRequests > 0) alerts.push({ id: 'role-requests-pending', severity: 'INFO', title: `${pendingRoleRequests} pedido${pendingRoleRequests === 1 ? '' : 's'} de role${pendingRoleRequests === 1 ? '' : 's'} por rever`, detail: 'Existem pedidos de acesso à espera de decisão.', href: '/definicoes?tab=users', occurredAt: new Date().toISOString() });
+    alerts.push(...notifications.map((notification) => ({ id: `notification-${notification.id}`, severity: 'INFO' as const, title: notification.title, detail: notification.message, href: '/perfil?tab=roles', occurredAt: notification.createdAt.toISOString() })));
 
     const severityOrder = { CRITICAL: 0, WARNING: 1, INFO: 2 };
     alerts.sort((left, right) => severityOrder[left.severity] - severityOrder[right.severity] || right.occurredAt.localeCompare(left.occurredAt));
@@ -127,5 +131,10 @@ export class DashboardService implements OnModuleDestroy {
       processes: processes.map((job) => ({ id: job.id, label: job.name, detail: job.subnet.cidr, state: job.status, href: `/descoberta?jobId=${job.id}` })),
       updatedAt: new Date().toISOString(),
     };
+  }
+
+  async readNotifications(user: AuthenticatedUser) {
+    const result = await this.prisma.notification.updateMany({ where: { userId: user.id, readAt: null }, data: { readAt: new Date() } });
+    return { updated: result.count };
   }
 }

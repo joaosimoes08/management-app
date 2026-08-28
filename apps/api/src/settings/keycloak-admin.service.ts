@@ -1,6 +1,6 @@
 import { BadGatewayException, ConflictException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service';
-import { APPLICATION_ROLES, ApplicationRole, isApplicationRole } from '../auth/roles';
+import { ApplicationRole, isApplicationRole } from '../auth/roles';
 import { AuthenticatedUser } from '../auth/auth.service';
 
 type KeycloakUser = { id: string; username?: string; firstName?: string; lastName?: string; email?: string; enabled?: boolean; serviceAccountClientId?: string };
@@ -39,6 +39,7 @@ export class KeycloakAdminService {
     const effectiveRoles = effective.map((role) => role.name).filter(isApplicationRole);
     return { directRoles, effectiveRoles, inheritedRoles: effectiveRoles.filter((role) => !directRoles.includes(role)) };
   }
+  async effectiveRoles(externalId: string) { return (await this.roleSets(externalId)).effectiveRoles; }
   async listUsers(searchText?: string, pageText?: string, pageSizeText?: string) {
     const page = Math.max(Number(pageText) || 1, 1); const pageSize = Math.min(Math.max(Number(pageSizeText) || 20, 1), 50); const search = searchText?.trim();
     const query = new URLSearchParams({ first: String((page - 1) * pageSize), max: String(pageSize), ...(search ? { search } : {}) }); const countQuery = new URLSearchParams(search ? { search } : {});
@@ -47,7 +48,15 @@ export class KeycloakAdminService {
     const items = await Promise.all(users.map(async (item) => ({ externalId: item.id, username: item.username ?? '', displayName: [item.firstName, item.lastName].filter(Boolean).join(' ') || item.username || '', email: item.email ?? null, enabled: item.enabled !== false, ...(await this.roleSets(item.id)) })));
     return { items, page, pageSize, total: countResult, totalPages: Math.max(1, Math.ceil(countResult / pageSize)) };
   }
-  private async roleRepresentations() { const roles = await Promise.all(APPLICATION_ROLES.map((role) => this.request<KeycloakRole>(`/roles/${encodeURIComponent(role)}`))); return new Map(roles.map((role) => [role.name as ApplicationRole, role])); }
+  private async roleRepresentations(externalId: string) {
+    const path = `/users/${encodeURIComponent(externalId)}/role-mappings/realm`;
+    const [direct, available] = await Promise.all([
+      this.request<KeycloakRole[]>(path),
+      this.request<KeycloakRole[]>(`${path}/available`),
+    ]);
+    const roles = [...direct, ...available].filter((role) => isApplicationRole(role.name));
+    return new Map(roles.map((role) => [role.name as ApplicationRole, role]));
+  }
   private async assertAnotherAdmin(targetUserId: string) {
     // Keycloak protects the role-members endpoint with `view-users`. Listing
     // users and their effective mappings works with the narrower `query-users`
@@ -68,7 +77,7 @@ export class KeycloakAdminService {
     const desired = [...new Set(desiredInput)]; const before = await this.roleSets(externalId); const effectiveAfter = [...new Set([...before.inheritedRoles, ...desired])];
     if (!effectiveAfter.length) throw new ConflictException({ code: 'APPLICATION_ROLE_REQUIRED', message: 'O utilizador tem de manter pelo menos uma role da aplicação.' });
     if (before.effectiveRoles.includes('ADMIN') && !effectiveAfter.includes('ADMIN')) await this.assertAnotherAdmin(externalId);
-    const roleMap = await this.roleRepresentations(); const added = desired.filter((role) => !before.directRoles.includes(role)).map((role) => roleMap.get(role)!); const removed = before.directRoles.filter((role) => !desired.includes(role)).map((role) => roleMap.get(role)!); const path = `/users/${encodeURIComponent(externalId)}/role-mappings/realm`;
+    const roleMap = await this.roleRepresentations(externalId); const added = desired.filter((role) => !before.directRoles.includes(role)).map((role) => roleMap.get(role)!); const removed = before.directRoles.filter((role) => !desired.includes(role)).map((role) => roleMap.get(role)!); const path = `/users/${encodeURIComponent(externalId)}/role-mappings/realm`;
     let verified;
     try {
       if (added.length) await this.request<void>(path, { method: 'POST', body: JSON.stringify(added) });
@@ -83,5 +92,17 @@ export class KeycloakAdminService {
     await this.request<void>(`/users/${encodeURIComponent(externalId)}/logout`, { method: 'POST' });
     await this.audit.record({ userId: actor.id, action: 'USER_ROLES_UPDATED', entityType: 'User', entityId: externalId, metadata: { previousDirectRoles: before.directRoles, nextDirectRoles: desired, inheritedRoles: before.inheritedRoles } });
     return { externalId, directRoles: verified.directRoles, inheritedRoles: verified.inheritedRoles, effectiveRoles: verified.effectiveRoles, reauthenticationRequired: actor.externalId === externalId };
+  }
+
+  /** Add roles for the request workflow without replacing mappings or logging the user out. */
+  async grantRoles(externalId: string, requested: ApplicationRole[]) {
+    const before = await this.roleSets(externalId);
+    const roleMap = await this.roleRepresentations(externalId);
+    const additions = requested.filter((role) => !before.effectiveRoles.includes(role)).map((role) => roleMap.get(role)!);
+    const path = `/users/${encodeURIComponent(externalId)}/role-mappings/realm`;
+    if (additions.length) await this.request<void>(path, { method: 'POST', body: JSON.stringify(additions) });
+    const verified = await this.roleSets(externalId);
+    if (requested.some((role) => !verified.effectiveRoles.includes(role))) throw new BadGatewayException({ code: 'KEYCLOAK_ROLE_VERIFICATION_FAILED', message: 'O Keycloak não confirmou as roles pedidas.' });
+    return verified;
   }
 }

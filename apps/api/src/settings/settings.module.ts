@@ -4,4 +4,5 @@ import { SettingsController } from './settings.controller';
 import { SettingsService } from './settings.service';
 import { KeycloakAdminService } from './keycloak-admin.service';
 import { MaintenanceService } from './maintenance.service';
-@Module({ imports: [AuditModule], controllers: [SettingsController], providers: [SettingsService, KeycloakAdminService, MaintenanceService] }) export class SettingsModule {}
+import { RoleRequestService } from './role-request.service';
+@Module({ imports: [AuditModule], controllers: [SettingsController], providers: [SettingsService, KeycloakAdminService, MaintenanceService, RoleRequestService] }) export class SettingsModule {}
