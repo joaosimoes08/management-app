@@ -109,28 +109,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<KeycloakProfile | null>(null);
   const [token, setToken] = useState<string>();
   const refreshTimer = useRef<number | undefined>(undefined);
+  const tokenRefreshPromise = useRef<Promise<string> | null>(null);
 
-  const loadIdentity = useCallback(async () => {
+  const loadIdentity = useCallback(async (accessToken: string) => {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
     const response = await fetch(`${apiUrl}/api/v1/auth/me`, {
-      headers: { Authorization: `Bearer ${keycloak.token}` },
+      headers: { Authorization: `Bearer ${accessToken}` },
       cache: 'no-store',
     });
     if (!response.ok) throw new Error(`Falha ao carregar identidade (${response.status})`);
     setUser(await response.json() as ApiUser);
   }, []);
 
-  const refreshToken = useCallback(async () => {
-    if (!keycloak.authenticated) return;
-    try {
-      await keycloak.updateToken(60);
-      setToken(keycloak.token);
-      if (typeof window !== 'undefined' && keycloak.token) localStorage.setItem('cociber.token', keycloak.token);
-      await loadIdentity();
-    } catch {
-      setAuthError('A sessão expirou.');
-      await keycloak.logout({ redirectUri: window.location.origin });
+  const refreshToken = useCallback(async (): Promise<string> => {
+    if (!keycloak.authenticated || !keycloak.token) throw new Error('Sessão não autenticada.');
+    if (!tokenRefreshPromise.current) {
+      tokenRefreshPromise.current = (async () => {
+        let refreshed: boolean;
+        let accessToken: string;
+        try {
+          refreshed = await keycloak.updateToken(60);
+          const nextToken = keycloak.token;
+          if (!nextToken) throw new Error('O Keycloak não devolveu um access token.');
+          accessToken = nextToken;
+          setToken(nextToken);
+        } catch (error) {
+          setAuthError('A sessão expirou.');
+          await keycloak.logout({ redirectUri: window.location.origin });
+          throw error;
+        }
+        if (refreshed) await loadIdentity(accessToken).catch(() => undefined);
+        return accessToken;
+      })().finally(() => { tokenRefreshPromise.current = null; });
     }
+    return tokenRefreshPromise.current;
   }, [loadIdentity]);
 
   useEffect(() => {
@@ -141,7 +153,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setLoading(false);
       }
     }, 10000);
-    keycloak.onTokenExpired = () => { void refreshToken(); };
+    keycloak.onTokenExpired = () => { void refreshToken().catch(() => undefined); };
     keycloak.onAuthLogout = () => { setAuthenticated(false); setUser(null); setToken(undefined); };
 
     void initializeKeycloak()
@@ -150,7 +162,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setAuthError(null);
         setAuthenticated(isAuthenticated);
         setToken(keycloak.token);
-        if (typeof window !== 'undefined' && keycloak.token) localStorage.setItem('cociber.token', keycloak.token);
         if (isAuthenticated) {
           try {
             setProfile(await keycloak.loadUserProfile());
@@ -161,7 +172,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setProfile(null);
           }
           try {
-            await loadIdentity();
+            if (!keycloak.token) throw new Error('O Keycloak não devolveu um access token.');
+            await loadIdentity(keycloak.token);
           } catch {
             setAuthenticated(false);
             setUser(null);
@@ -171,7 +183,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .catch(() => { if (active) { setAuthenticated(false); setAuthError('Não foi possível iniciar a autenticação.'); } })
       .finally(() => { window.clearTimeout(initTimeout); if (active) setLoading(false); });
 
-    refreshTimer.current = window.setInterval(() => { void refreshToken(); }, 30_000);
+    refreshTimer.current = window.setInterval(() => { void refreshToken().catch(() => undefined); }, 30_000);
     return () => {
       active = false;
       window.clearTimeout(initTimeout);
@@ -185,11 +197,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const hasRole = useCallback((role: string) => user?.roles.includes(role) ?? false, [user]);
   const apiFetch = useCallback(async <T = any,>(path: string, init: RequestInit = {}) => {
     if (typeof window !== 'undefined') (window as any).__cociberApiFetch = apiFetch;
-    await refreshToken();
+    const accessToken = await refreshToken();
     const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
     const headers = {
       ...init.headers,
-      Authorization: `Bearer ${keycloak.token}`,
+      Authorization: `Bearer ${accessToken}`,
       'Accept-Language': typeof window !== 'undefined' ? (window.localStorage.getItem('cociber.locale') ?? 'pt-PT') : 'pt-PT',
       ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
     };

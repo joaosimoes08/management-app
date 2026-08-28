@@ -23,19 +23,11 @@ export class AuthGuard implements CanActivate {
     const authorization = request.headers.authorization;
     if (!authorization?.startsWith('Bearer ')) throw new UnauthorizedException();
 
+    let payload: JWTPayload;
     try {
-      const { payload } = await jwtVerify(authorization.slice('Bearer '.length), this.jwks, { issuer: this.issuer });
+      ({ payload } = await jwtVerify(authorization.slice('Bearer '.length), this.jwks, { issuer: this.issuer }));
       this.assertAudience(payload);
-      const realmRoles = this.extractRealmRoles(payload);
       if (!payload.sub || typeof payload.preferred_username !== 'string') throw new UnauthorizedException('Token sem identidade de utilizador');
-      request.user = await this.authService.syncUser({
-        externalId: payload.sub,
-        username: payload.preferred_username,
-        displayName: typeof payload.name === 'string' ? payload.name : undefined,
-        email: typeof payload.email === 'string' ? payload.email : undefined,
-        roles: realmRoles,
-        ipAddress: request.ip,
-      });
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
         console.error('[AuthGuard] OIDC validation failed:', error instanceof Error ? error.message : error);
@@ -43,6 +35,15 @@ export class AuthGuard implements CanActivate {
       if (error instanceof UnauthorizedException) throw error;
       throw new UnauthorizedException('Token inválido');
     }
+
+    request.user = await this.authService.syncUser({
+      externalId: payload.sub!,
+      username: payload.preferred_username as string,
+      displayName: typeof payload.name === 'string' ? payload.name : undefined,
+      email: typeof payload.email === 'string' ? payload.email : undefined,
+      roles: this.extractRealmRoles(payload),
+      ipAddress: request.ip,
+    });
     return true;
   }
 

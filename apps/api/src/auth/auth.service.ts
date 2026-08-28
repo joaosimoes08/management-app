@@ -39,9 +39,15 @@ export class AuthService {
             where: { id: userByUsername.id },
             data: { externalId: input.externalId, displayName: input.displayName, email: input.email },
           })
-        : await this.prisma.user.create({
-            data: {
+        : await this.prisma.user.upsert({
+            where: { externalId: input.externalId },
+            create: {
               externalId: input.externalId,
+              username: input.username,
+              displayName: input.displayName,
+              email: input.email,
+            },
+            update: {
               username: input.username,
               displayName: input.displayName,
               email: input.email,
