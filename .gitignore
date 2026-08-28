@@ -10,12 +10,14 @@ build/
 coverage/
 *.tsbuildinfo
 packages/database/generated/
+.codex/
 
 # Local configuration and secrets
 .env
 .env.*
 !.env.example
 !.env*.example
+AGENTS.md
 
 # Runtime data, temporary files and generated local assets
 *.log
