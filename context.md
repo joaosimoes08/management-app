@@ -238,6 +238,54 @@ Deverão ser controladas permissões como ver inventário, editar IPs, editar VL
 
 - Docker ou Podman.
 - Docker Compose/Podman Compose para desenvolvimento e primeiro deployment.
+
+## 7. Estado atual — grupos, roles e permissões
+
+Esta secção regista o estado da reconstrução do controlo de acesso após o refactor do frontend (PR #6).
+
+### 7.1 Regra de autorização
+
+O acesso efetivo é calculado no backend como:
+
+```text
+capacidades da role ∩ permissões concedidas pelos grupos
+```
+
+`ADMIN` tem bypass dos scopes. As restantes roles continuam a limitar as capacidades funcionais; a associação do utilizador a um grupo e ao Site correspondente é obrigatória para aceder aos dados desse Site. `STORAGE_OPERATOR` permanece apenas como valor legado, sem novas atribuições.
+
+As ACLs de Infraestrutura seguem a hierarquia `SITE → BUILDING → ROOM`, com substituição integral no nível mais específico. Operações sobre recursos visíveis mas não permitidas devolvem `403`; recursos fora do scope devolvem `404`.
+
+### 7.2 Dados e API
+
+Os grupos são globais à Organização. Membros são definidos uma vez e as associações Grupo–Site podem existir para vários Sites, com ações IPAM e ACLs de Infraestrutura independentes. A associação a um Site, mesmo sem ações IPAM, torna o Site selecionável.
+
+O endpoint de acesso efetivo é:
+
+```text
+GET /api/v1/access/effective?siteId=<id>
+```
+
+O IPAM é isolado por `siteId` para VLANs, VRFs, subnets, IPs e Hosts. Um Host com IPs em várias subnets só pode ser alterado quando o utilizador tem acesso à totalidade das subnets; se o Host for parcialmente visível, a mutação responde `403` (`IPAM_SCOPE_FORBIDDEN`). Esta regra está coberta por teste unitário.
+
+### 7.3 Frontend
+
+- `SiteProvider` é a única fonte do Site ativo; sincroniza URL, `localStorage` e seletor, selecionando automaticamente o único Site acessível.
+- IPAM e Infraestrutura usam o contexto de Site e React Query; a mudança de Site limpa os contextos descendentes sem reload.
+- A gestão de grupos vive em `features/settings`; permissões IPAM e Infraestrutura são geridas nas tabs dos respetivos domínios.
+- A tab de permissões IPAM usa os seletores Grupo/Site, checkboxes incluindo `FULL CONTROL`, edição e remoção de regras, e atualiza as “Regras atuais” por Site.
+- “Todos os sites” só deve aparecer em páginas agregadas quando existem vários Sites acessíveis.
+
+### 7.4 Estado Git e validação
+
+O trabalho está na branch `joao/feature/access-control-rebuild`, no PR [#7](https://github.com/joaosimoes08/management-app/pull/7). O último commit é `6a91e26` (`fix: return forbidden for partial host access`).
+
+Validação mais recente:
+
+- Testes da API: **58/58 passaram**.
+- Build da API: concluído com sucesso.
+- `npm run test:http`: requer uma `DATABASE_URL` isolada cujo nome termine em `_test`; sem essa configuração o comando termina antes de executar os testes. No CI, o teste que falhava (esperava `403`, recebia `404`) foi corrigido.
+
+Antes de fazer merge, repetir os testes HTTP numa base isolada e validar manualmente com `ADMIN`, `READ_ONLY`/Lara, `NETWORK_OPERATOR`, `SYSTEMS_OPERATOR` e `AUDITOR`. Não executar `prisma migrate reset` numa base com dados sem autorização explícita.
 - Nginx ou Caddy como reverse proxy TLS.
 - Prometheus e Grafana, se for necessário monitorizar a própria plataforma.
 - MinIO, caso seja necessário guardar ficheiros, exports ou snapshots localmente.
