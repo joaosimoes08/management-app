@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { IpamAccessService } from './ipam-access.service';
+import { AccessPolicyService } from '../access/access-policy.service';
 
 const user = { id: 'user', externalId: 'external', username: 'network', roles: ['NETWORK_OPERATOR'] };
 function service(assignments: { siteId: string; permissions: string[] }[]) {
@@ -13,7 +14,7 @@ function service(assignments: { siteId: string; permissions: string[] }[]) {
     vrf: { findUnique: async ({ where }: any) => ({ id: where.id, siteId: 'site-a' }) },
     ipAddress: { findUnique: async () => null }, host: { findUnique: async () => null },
   };
-  return new IpamAccessService(prisma as never);
+  return new IpamAccessService(prisma as never, new AccessPolicyService());
 }
 
 test('denies IPAM access when the user has no Site assignment', async () => {
@@ -59,4 +60,22 @@ test('a systems role can select its Site but cannot read IPAM records', async ()
   assert.deepEqual(await access.whereFor(systems as never, 'READ', 'site'), { id: { in: ['site-a'] } });
   assert.deepEqual(await access.whereFor(systems as never, 'READ', 'subnet'), { siteId: { in: [] } });
   await assert.rejects(() => access.assertContext(systems as never, 'READ', { siteId: 'site-a' }), NotFoundException);
+});
+
+test('the legacy storage role does not activate a group assignment', async () => {
+  const access = service([{ siteId: 'site-a', permissions: ['READ'] }]);
+  const legacy = { ...user, roles: ['STORAGE_OPERATOR'] };
+  assert.deepEqual(await access.whereFor(legacy as never, 'READ', 'site'), { id: { in: [] } });
+});
+
+test('returns forbidden when mutating a visible Host spanning an inaccessible subnet', async () => {
+  const prisma = {
+    accessGroupMember: { findMany: async () => [{ group: { siteAssignments: [{ siteId: 'site-a', permissions: [{ permission: 'READ' }, { permission: 'UPDATE' }] }] } }] },
+    host: { findUnique: async () => ({ id: 'host-multi', ipAddresses: [
+      { subnet: { id: 'subnet-a', siteId: 'site-a', vlanId: null, vrfId: null } },
+      { subnet: { id: 'subnet-b', siteId: 'site-b', vlanId: null, vrfId: null } },
+    ] }) },
+  };
+  const access = new IpamAccessService(prisma as never, new AccessPolicyService());
+  await assert.rejects(() => access.assertHost(user as never, 'UPDATE', 'host-multi'), ForbiddenException);
 });

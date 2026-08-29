@@ -3,18 +3,19 @@ import { PrismaClient } from '@simoes/database';
 import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { CreateInfrastructurePermissionDto, UpdateInfrastructurePermissionDto } from './dto';
+import { AccessPolicyService } from '../access/access-policy.service';
 
 export type InfrastructureAction = 'READ' | 'CREATE' | 'UPDATE' | 'DELETE';
 type Rule = { groupId: string; scopeType: string; scopeId: string; permission: string };
 
 @Injectable()
 export class InfrastructureAccessService {
-  constructor(private readonly prisma: PrismaClient, private readonly audit: AuditService) {}
+  constructor(private readonly prisma: PrismaClient, private readonly audit: AuditService, private readonly policy: AccessPolicyService) {}
 
   private candidates(rules: Rule[], action: InfrastructureAction) { return rules.filter((rule) => action === 'READ' || rule.permission === action); }
   private async groupIds(user: AuthenticatedUser, siteId: string) {
     if (user.roles.includes('ADMIN')) return null;
-    if (!user.roles.length) return [];
+    if (!this.policy.hasApplicationRole(user)) return [];
     return (await this.prisma.accessGroupMember.findMany({ where: { userId: user.id, group: { siteAssignments: { some: { siteId } } } }, select: { groupId: true } })).map((item) => item.groupId);
   }
   private allowed(rules: Rule[], action: InfrastructureAction, groups: string[] | null) {
@@ -37,45 +38,48 @@ export class InfrastructureAccessService {
     return { site, building, room, effective: room.length ? room : building.length ? building : site };
   }
 
-  async assertSite(user: AuthenticatedUser, action: InfrastructureAction, siteId: string) {
+  private roleAllows(user: AuthenticatedUser, action: InfrastructureAction, kind: 'PHYSICAL' | 'DEVICE', deviceType?: string | null) {
+    return kind === 'DEVICE' ? this.policy.canManageDevice(user, action, deviceType) : this.policy.canManagePhysical(user, action);
+  }
+  async assertSite(user: AuthenticatedUser, action: InfrastructureAction, siteId: string, kind: 'PHYSICAL' | 'DEVICE' = 'PHYSICAL', deviceType?: string | null) {
     if (!await this.prisma.site.findUnique({ where: { id: siteId }, select: { id: true } })) throw new NotFoundException('Site não encontrado');
     const groups = await this.groupIds(user, siteId); const { site: rules } = await this.rules(siteId);
-    if (this.allowed(rules, action, groups)) return { id: siteId };
+    if (this.roleAllows(user, action, kind, deviceType) && this.allowed(rules, action, groups)) return { id: siteId };
     const visible = this.allowed(rules, 'READ', groups) || Boolean((await this.visibleBuildingIds(user, siteId)).length);
-    if (visible && action === 'READ') return { id: siteId };
+    if (visible && action === 'READ' && this.policy.canReadScoped(user)) return { id: siteId };
     if (!visible) return this.denied('READ');
     return this.denied(action);
   }
-  async assertBuilding(user: AuthenticatedUser, action: InfrastructureAction, buildingId: string) {
+  async assertBuilding(user: AuthenticatedUser, action: InfrastructureAction, buildingId: string, kind: 'PHYSICAL' | 'DEVICE' = 'PHYSICAL', deviceType?: string | null) {
     const building = await this.prisma.building.findUnique({ where: { id: buildingId }, select: { id: true, siteId: true } });
     if (!building) throw new NotFoundException('Edifício não encontrado');
     const groups = await this.groupIds(user, building.siteId); const { effective } = await this.rules(building.siteId, building.id);
-    if (this.allowed(effective, action, groups)) return building;
+    if (this.roleAllows(user, action, kind, deviceType) && this.allowed(effective, action, groups)) return building;
     let visible = this.allowed(effective, 'READ', groups);
     if (!visible) {
       const visibleRoomIds = await this.visibleRoomIds(user, building.siteId);
       const child = await this.prisma.room.findFirst({ where: { id: { in: visibleRoomIds }, buildingId }, select: { id: true } }); visible = Boolean(child);
     }
-    if (visible && action === 'READ') return building;
+    if (visible && action === 'READ' && this.policy.canReadScoped(user)) return building;
     if (!visible) return this.denied('READ');
     return this.denied(action);
   }
-  async assertRoom(user: AuthenticatedUser, action: InfrastructureAction, roomId: string) {
+  async assertRoom(user: AuthenticatedUser, action: InfrastructureAction, roomId: string, kind: 'PHYSICAL' | 'DEVICE' = 'PHYSICAL', deviceType?: string | null) {
     const room = await this.prisma.room.findUnique({ where: { id: roomId }, select: { id: true, buildingId: true, building: { select: { siteId: true } } } });
     if (!room) throw new NotFoundException('Sala não encontrada');
     const groups = await this.groupIds(user, room.building.siteId); const { effective } = await this.rules(room.building.siteId, room.buildingId, room.id);
-    if (this.allowed(effective, action, groups)) return room;
+    if (this.roleAllows(user, action, kind, deviceType) && this.allowed(effective, action, groups)) return room;
     if (!this.allowed(effective, 'READ', groups)) return this.denied('READ');
     return this.denied(action);
   }
-  async assertRack(user: AuthenticatedUser, action: InfrastructureAction, rackId: string) {
+  async assertRack(user: AuthenticatedUser, action: InfrastructureAction, rackId: string, kind: 'PHYSICAL' | 'DEVICE' = 'PHYSICAL', deviceType?: string | null) {
     const rack = await this.prisma.rack.findUnique({ where: { id: rackId }, select: { id: true, roomId: true } });
-    if (!rack) throw new NotFoundException('Bastidor não encontrado'); await this.assertRoom(user, action, rack.roomId); return rack;
+    if (!rack) throw new NotFoundException('Bastidor não encontrado'); await this.assertRoom(user, action, rack.roomId, kind, deviceType); return rack;
   }
   async assertDevice(user: AuthenticatedUser, action: InfrastructureAction, deviceId: string) {
-    const device = await this.prisma.device.findUnique({ where: { id: deviceId }, select: { id: true, siteId: true, rack: { select: { roomId: true } } } });
+    const device = await this.prisma.device.findUnique({ where: { id: deviceId }, select: { id: true, type: true, siteId: true, rack: { select: { roomId: true } } } });
     if (!device) throw new NotFoundException('Equipamento não encontrado');
-    if (device.rack) await this.assertRoom(user, action, device.rack.roomId); else if (device.siteId) await this.assertSite(user, action, device.siteId); else this.denied(action);
+    if (device.rack) await this.assertRoom(user, action, device.rack.roomId, 'DEVICE', device.type); else if (device.siteId) await this.assertSite(user, action, device.siteId, 'DEVICE', device.type); else this.denied(action);
     return device;
   }
   async assertInterface(user: AuthenticatedUser, action: InfrastructureAction, interfaceId: string) {
@@ -86,7 +90,7 @@ export class InfrastructureAccessService {
   async visibleRoomIds(user: AuthenticatedUser, siteId?: string) {
     const rooms = await this.prisma.room.findMany({ where: siteId ? { building: { siteId } } : {}, select: { id: true, buildingId: true, building: { select: { siteId: true } } } });
     if (user.roles.includes('ADMIN')) return rooms.map((room) => room.id);
-    if (!user.roles.length) return [];
+    if (!this.policy.canReadScoped(user)) return [];
     const siteIds = [...new Set(rooms.map((room) => room.building.siteId))];
     const memberships = await this.prisma.accessGroupMember.findMany({ where: { userId: user.id, group: { siteAssignments: { some: { siteId: { in: siteIds } } } } }, select: { groupId: true, group: { select: { siteAssignments: { where: { siteId: { in: siteIds } }, select: { siteId: true } } } } } });
     const groupsBySite = new Map(siteIds.map((id) => [id, memberships.filter((item) => item.group.siteAssignments.some((assignment) => assignment.siteId === id)).map((item) => item.groupId)]));
@@ -102,6 +106,7 @@ export class InfrastructureAccessService {
   async visibleBuildingIds(user: AuthenticatedUser, siteId: string) {
     const buildings = await this.prisma.building.findMany({ where: { siteId }, select: { id: true, rooms: { select: { id: true } } } });
     if (user.roles.includes('ADMIN')) return buildings.map((building) => building.id);
+    if (!this.policy.canReadScoped(user)) return [];
     const roomIds = new Set(await this.visibleRoomIds(user, siteId)); const groups = await this.groupIds(user, siteId) as string[];
     const rules = await this.prisma.infrastructurePermission.findMany({ where: { OR: [{ scopeType: 'SITE', scopeId: siteId }, { scopeType: 'BUILDING', scopeId: { in: buildings.map((building) => building.id) } }] } });
     const siteRules = rules.filter((rule) => rule.scopeType === 'SITE');
@@ -109,7 +114,7 @@ export class InfrastructureAccessService {
   }
   async visibleUnplacedSiteIds(user: AuthenticatedUser, siteId?: string) {
     if (user.roles.includes('ADMIN')) return siteId ? [siteId] : (await this.prisma.site.findMany({ select: { id: true } })).map((item) => item.id);
-    if (!user.roles.length) return [];
+    if (!this.policy.canReadScoped(user)) return [];
     const assignments = await this.prisma.accessGroupSite.findMany({ where: { ...(siteId ? { siteId } : {}), group: { members: { some: { userId: user.id } } } }, select: { siteId: true, groupId: true } });
     const siteIds = [...new Set(assignments.map((item) => item.siteId))];
     const rules = await this.prisma.infrastructurePermission.findMany({ where: { scopeType: 'SITE', scopeId: { in: siteIds } } });
@@ -119,8 +124,13 @@ export class InfrastructureAccessService {
   async listPermissions(siteId?: string) {
     if (!siteId) return this.prisma.infrastructurePermission.findMany({ include: { group: { select: { id: true, name: true } } }, orderBy: { createdAt: 'asc' } });
     const buildings = await this.prisma.building.findMany({ where: { siteId }, select: { id: true, rooms: { select: { id: true } } } });
-    const scopeIds = [siteId, ...buildings.flatMap((building) => [building.id, ...building.rooms.map((room) => room.id)])];
-    return this.prisma.infrastructurePermission.findMany({ where: { scopeId: { in: scopeIds } }, include: { group: { select: { id: true, name: true } } }, orderBy: { createdAt: 'asc' } });
+    const buildingIds = buildings.map((building) => building.id);
+    const roomIds = buildings.flatMap((building) => building.rooms.map((room) => room.id));
+    return this.prisma.infrastructurePermission.findMany({ where: { OR: [
+      { scopeType: 'SITE', scopeId: siteId },
+      ...(buildingIds.length ? [{ scopeType: 'BUILDING', scopeId: { in: buildingIds } }] : []),
+      ...(roomIds.length ? [{ scopeType: 'ROOM', scopeId: { in: roomIds } }] : []),
+    ] }, include: { group: { select: { id: true, name: true } } }, orderBy: { createdAt: 'asc' } });
   }
   async effectiveAccess(user: AuthenticatedUser, siteId: string) {
     if (!await this.prisma.site.findUnique({ where: { id: siteId }, select: { id: true } })) throw new NotFoundException('Site não encontrado');
@@ -137,17 +147,15 @@ export class InfrastructureAccessService {
       infrastructure.buildings.push({ id: building.id, actions: actions.filter((action) => this.allowed(buildingRules.effective, action, groups)) });
       for (const room of building.rooms) { const roomRules = await this.rules(siteId, building.id, room.id); infrastructure.rooms.push({ id: room.id, actions: actions.filter((action) => this.allowed(roomRules.effective, action, groups)) }); }
     }
-    const canReadIpam = user.roles.some((role) => role === 'NETWORK_OPERATOR' || role === 'AUDITOR' || role === 'READ_ONLY');
-    const canWriteIpam = user.roles.includes('NETWORK_OPERATOR');
+    const canReadIpam = this.policy.canUseIpam(user, 'READ');
+    const canWriteIpam = this.policy.canUseIpam(user, 'CREATE');
     const assignedIpamGrants = admin || !canReadIpam ? [] : (await this.prisma.accessGroupSitePermission.findMany({ where: { siteId, assignment: { group: { members: { some: { userId: user.id } } } } }, select: { permission: true } })).map((item) => item.permission);
     const ipamGrants = admin ? ['READ', 'CREATE', 'UPDATE', 'DELETE', 'DISCOVER', 'IMPORT'] : canWriteIpam ? assignedIpamGrants : assignedIpamGrants.length ? ['READ'] : [];
-    const capabilities = {
-      administer: admin,
-      network: admin || user.roles.includes('NETWORK_OPERATOR'),
-      systems: admin || user.roles.includes('SYSTEMS_OPERATOR'),
-      audit: admin || user.roles.includes('AUDITOR'),
-      readOnly: user.roles.includes('READ_ONLY'),
-    };
+    const capabilities = this.policy.capabilities(user);
+    const roleAllowsScopedAction = (action: InfrastructureAction) => this.policy.canManagePhysical(user, action) || this.policy.canManageDevice(user, action, 'SWITCH');
+    infrastructure.site = infrastructure.site.filter(roleAllowsScopedAction);
+    infrastructure.buildings = infrastructure.buildings.map((item) => ({ ...item, actions: item.actions.filter(roleAllowsScopedAction) }));
+    infrastructure.rooms = infrastructure.rooms.map((item) => ({ ...item, actions: item.actions.filter(roleAllowsScopedAction) }));
     return { siteId, capabilities, ipamActions: [...new Set(ipamGrants)], infrastructure, tabs: { permissions: admin, assets: capabilities.network || capabilities.systems, models: capabilities.network || capabilities.systems, interfaces: capabilities.network, discovery: capabilities.network } };
   }
   private async scopeSite(dto: CreateInfrastructurePermissionDto) {

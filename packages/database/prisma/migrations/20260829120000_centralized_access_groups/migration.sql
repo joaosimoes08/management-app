@@ -105,5 +105,5 @@ CREATE TABLE "InfrastructurePermission" (
   CONSTRAINT "InfrastructurePermission_pkey" PRIMARY KEY ("id")
 );
 CREATE INDEX "InfrastructurePermission_scopeType_scopeId_idx" ON "InfrastructurePermission"("scopeType", "scopeId");
-CREATE UNIQUE INDEX "InfrastructurePermission_groupId_scopeType_scopeId_permission_key" ON "InfrastructurePermission"("groupId", "scopeType", "scopeId", "permission");
+CREATE UNIQUE INDEX "InfrastructurePermission_groupId_scopeType_scopeId_permissi_key" ON "InfrastructurePermission"("groupId", "scopeType", "scopeId", "permission");
 ALTER TABLE "InfrastructurePermission" ADD CONSTRAINT "InfrastructurePermission_groupId_fkey" FOREIGN KEY ("groupId") REFERENCES "AccessGroup"("id") ON DELETE CASCADE ON UPDATE CASCADE;

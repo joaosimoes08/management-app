@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { InfrastructureAccessService } from './infrastructure-access.service';
+import { AccessPolicyService } from '../access/access-policy.service';
 
 const user = { id: 'user', externalId: 'external', username: 'operator', roles: ['SYSTEMS_OPERATOR'] };
 const building = { id: 'building', siteId: 'site' };
@@ -18,7 +19,7 @@ function service(rules: any[], memberships = ['group']) {
     building: { findUnique: async () => building, findMany: async () => [{ ...building, rooms: [{ id: room.id }, { id: otherRoom.id }] }] },
     room: { findUnique: async ({ where }: any) => where.id === room.id ? room : otherRoom, findMany: async () => [room, otherRoom], findFirst: async ({ where }: any) => where.buildingId === building.id && where.id.in.includes(room.id) ? { id: room.id } : null },
   };
-  return new InfrastructureAccessService(prisma as never, { record: async () => undefined } as never);
+  return new InfrastructureAccessService(prisma as never, { record: async () => undefined } as never, new AccessPolicyService());
 }
 
 test('denies access when no infrastructure ACL applies', async () => {
@@ -56,4 +57,27 @@ test('admin bypasses configured infrastructure scopes', async () => {
 test('a group never grants infrastructure access without an active application role', async () => {
   const access = service([{ groupId: 'group', scopeType: 'ROOM', scopeId: room.id, permission: 'READ' }]);
   await assert.rejects(() => access.assertRoom({ ...user, roles: [] } as never, 'READ', room.id), NotFoundException);
+});
+
+test('READ_ONLY cannot mutate physical scopes even when its group grants UPDATE', async () => {
+  const access = service([{ groupId: 'group', scopeType: 'ROOM', scopeId: room.id, permission: 'UPDATE' }]);
+  const readOnly = { ...user, roles: ['READ_ONLY'] };
+  await access.assertRoom(readOnly as never, 'READ', room.id);
+  await assert.rejects(() => access.assertRoom(readOnly as never, 'UPDATE', room.id), ForbiddenException);
+});
+
+test('network operators can manage network devices but not physical scopes', async () => {
+  const access = service([{ groupId: 'group', scopeType: 'ROOM', scopeId: room.id, permission: 'CREATE' }]);
+  const network = { ...user, roles: ['NETWORK_OPERATOR'] };
+  await assert.rejects(() => access.assertRoom(network as never, 'CREATE', room.id), ForbiddenException);
+  await access.assertRoom(network as never, 'CREATE', room.id, 'DEVICE', 'SWITCH');
+  await assert.rejects(() => access.assertRoom(network as never, 'CREATE', room.id, 'DEVICE', 'SERVER'), ForbiddenException);
+});
+
+test('the legacy storage role cannot reveal assigned rooms', async () => {
+  const access = service([{ groupId: 'group', scopeType: 'ROOM', scopeId: room.id, permission: 'READ' }]);
+  const legacy = { ...user, roles: ['STORAGE_OPERATOR'] };
+  assert.deepEqual(await access.visibleRoomIds(legacy as never, 'site'), []);
+  await assert.rejects(() => access.assertSite(legacy as never, 'READ', 'site'), NotFoundException);
+  await assert.rejects(() => access.assertBuilding(legacy as never, 'READ', building.id), NotFoundException);
 });

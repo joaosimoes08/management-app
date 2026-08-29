@@ -27,9 +27,13 @@ export class UpdateUserRolesDto {
 export class CreateAccessGroupDto {
   @IsString() @MinLength(1) @MaxLength(100) name!: string;
   @IsOptional() @IsString() @MaxLength(240) description?: string;
+  @IsOptional() @IsArray() @ArrayMaxSize(500) @IsUUID('4', { each: true }) siteIds?: string[];
 }
 
-export class UpdateAccessGroupDto extends CreateAccessGroupDto {}
+export class UpdateAccessGroupDto {
+  @IsString() @MinLength(1) @MaxLength(100) name!: string;
+  @IsOptional() @IsString() @MaxLength(240) description?: string;
+}
 export class AccessGroupMemberDto { @IsUUID() userId!: string; }
 export class UpdateAccessGroupSiteDto {
   @IsArray() @ArrayMaxSize(6) @IsIn(['READ', 'CREATE', 'UPDATE', 'DELETE', 'DISCOVER', 'IMPORT'], { each: true }) permissions!: string[];

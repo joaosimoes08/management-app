@@ -9,6 +9,8 @@ import type {
   DeviceModel,
   EffectiveAccess,
   InterfaceInput,
+  InfrastructureAccessGroup,
+  InfrastructurePermission,
   IpAddress,
   PortLayout,
   Rack,
@@ -22,6 +24,22 @@ import type {
 
 export function getEffectiveAccess(siteId: string): Promise<EffectiveAccess> {
   return apiFetch<EffectiveAccess>(`/api/v1/access/effective?siteId=${siteId}`);
+}
+
+export function listInfrastructureGroups(siteId: string): Promise<InfrastructureAccessGroup[]> {
+  return apiFetch<InfrastructureAccessGroup[]>(`/api/v1/settings/access-groups?siteId=${encodeURIComponent(siteId)}`);
+}
+
+export function listInfrastructurePermissions(siteId: string): Promise<InfrastructurePermission[]> {
+  return apiFetch<InfrastructurePermission[]>(`/api/v1/infrastructure/permissions?siteId=${encodeURIComponent(siteId)}`);
+}
+
+export function createInfrastructurePermission(body: { groupId: string; scopeType: string; scopeId: string; permission: string }): Promise<InfrastructurePermission> {
+  return apiFetch<InfrastructurePermission>('/api/v1/infrastructure/permissions', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function deleteInfrastructurePermission(id: string): Promise<unknown> {
+  return apiFetch(`/api/v1/infrastructure/permissions/${id}`, { method: 'DELETE' });
 }
 
 // ── Sites and physical hierarchy ───────────────────────────────────────────

@@ -207,6 +207,13 @@ export interface CalculatorResult {
   subnets: CalculatorSubnet[];
 }
 
+export type IpamAction = 'READ' | 'CREATE' | 'UPDATE' | 'DELETE' | 'DISCOVER' | 'IMPORT';
+export interface IpamPermissionGroup {
+  id: string;
+  name: string;
+  siteAssignments: { siteId: string; permissions: { permission: IpamAction }[] }[];
+}
+
 // ── Effective access (shared endpoint with infrastructure) ─────────────────
 
 export type { Site };

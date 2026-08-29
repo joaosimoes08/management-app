@@ -35,9 +35,21 @@ export class AccessGroupService {
 
   async create(dto: CreateAccessGroupDto, actor: AuthenticatedUser) {
     await this.assertUnique(dto.name);
+    const siteIds = [...new Set(dto.siteIds ?? [])];
+    if (siteIds.length) {
+      const existingSites = await this.prisma.site.count({ where: { id: { in: siteIds } } });
+      if (existingSites !== siteIds.length) throw new NotFoundException('Um ou mais Sites não existem');
+    }
     try {
-      const item = await this.prisma.accessGroup.create({ data: { ...dto, name: dto.name.trim(), description: dto.description?.trim() || null } });
-      await this.log(actor, 'ACCESS_GROUP_CREATED', item.id);
+      const item = await this.prisma.accessGroup.create({
+        data: {
+          name: dto.name.trim(),
+          description: dto.description?.trim() || null,
+          siteAssignments: { create: siteIds.map((siteId) => ({ siteId })) },
+        },
+        include: { siteAssignments: { include: { site: true, permissions: true } } },
+      });
+      await this.log(actor, 'ACCESS_GROUP_CREATED', item.id, { siteIds });
       return item;
     } catch { throw new ConflictException('Já existe um grupo com esse nome na Organização.'); }
   }
@@ -99,8 +111,13 @@ export class AccessGroupService {
 
   async removeSite(groupId: string, siteId: string, actor: AuthenticatedUser) {
     const buildings = await this.prisma.building.findMany({ where: { siteId }, select: { id: true, rooms: { select: { id: true } } } });
-    const scopeIds = [siteId, ...buildings.flatMap((building) => [building.id, ...building.rooms.map((room) => room.id)])];
-    if (await this.prisma.infrastructurePermission.count({ where: { groupId, scopeId: { in: scopeIds } } })) throw new ConflictException({ code: 'ACCESS_GROUP_SITE_IN_USE', message: 'Remove primeiro as permissões de Infraestrutura deste Site.' });
+    const buildingIds = buildings.map((building) => building.id);
+    const roomIds = buildings.flatMap((building) => building.rooms.map((room) => room.id));
+    if (await this.prisma.infrastructurePermission.count({ where: { groupId, OR: [
+      { scopeType: 'SITE', scopeId: siteId },
+      ...(buildingIds.length ? [{ scopeType: 'BUILDING', scopeId: { in: buildingIds } }] : []),
+      ...(roomIds.length ? [{ scopeType: 'ROOM', scopeId: { in: roomIds } }] : []),
+    ] } })) throw new ConflictException({ code: 'ACCESS_GROUP_SITE_IN_USE', message: 'Remove primeiro as permissões de Infraestrutura deste Site.' });
     await this.prisma.accessGroupSite.delete({ where: { groupId_siteId: { groupId, siteId } } }).catch(() => { throw new NotFoundException('Associação do grupo ao Site não encontrada'); });
     await this.log(actor, 'ACCESS_GROUP_SITE_REMOVED', groupId, { siteId });
     return { success: true };

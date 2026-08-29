@@ -240,6 +240,15 @@ export interface EffectiveAccess {
   };
 }
 
+export interface InfrastructureAccessGroup { id: string; name: string }
+export interface InfrastructurePermission {
+  id: string;
+  scopeType: 'SITE' | 'BUILDING' | 'ROOM';
+  scopeId: string;
+  permission: InfrastructureAction;
+  group?: InfrastructureAccessGroup;
+}
+
 // ── Request payloads ───────────────────────────────────────────────────────
 
 export interface DeviceInput {

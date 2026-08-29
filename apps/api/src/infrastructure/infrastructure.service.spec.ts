@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { InfrastructureService } from './infrastructure.service';
+import { ConflictException } from '@nestjs/common';
 
 const user = { id: 'user-1', username: 'operator', roles: ['SYSTEMS_OPERATOR'] } as any;
 const visibleDeviceWhere = { OR: [{ rackId: null }, { rack: { roomId: { in: ['room-allowed'] } } }] };
@@ -14,7 +15,8 @@ function service() {
     },
   } as any;
   const access = { visibleRoomIds: async (value: any) => { calls.visibleUser = value; return ['room-allowed']; } } as any;
-  return { subject: new InfrastructureService(prisma, {} as any, access), calls };
+  const ipamAccess = { assertIp: async () => ({ subnet: { siteId: 'site-b' } }) } as any;
+  return { subject: new InfrastructureService(prisma, {} as any, access, ipamAccess), calls };
 }
 
 test('filters devices nested in model detail by visible rooms', async () => {
@@ -31,4 +33,12 @@ test('filters model device counts by visible rooms', async () => {
   await subject.listModels(user);
 
   assert.deepEqual(calls.findMany.include._count, { select: { devices: { where: visibleDeviceWhere } } });
+});
+
+test('rejects a management IP from another Site', async () => {
+  const { subject } = service();
+  await assert.rejects(
+    () => (subject as any).validateManagementIp(user, 'ip-site-b', 'site-a'),
+    ConflictException,
+  );
 });
