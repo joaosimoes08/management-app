@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Activity, AlertTriangle, ArrowUpRight, Bell, Boxes, CheckCircle2, ChevronDown, ChevronRight, CircleHelp, Clock3, ExternalLink, LayoutDashboard, Loader2, Menu, MoreHorizontal, Network, PanelLeftClose, PanelLeftOpen, Search, Settings, ShieldCheck, Sparkles, Table2, X } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
-import { useAuth } from '../lib/auth';
+import { useAuth } from '@/lib/auth';
 import { SiteSwitcher } from './site-switcher';
-import { useI18n } from '../lib/i18n';
+import { useI18n } from '@/lib/i18n';
 
 const navigation = [
   { label: 'Dashboard', key: 'nav.dashboard', href: '/', icon: LayoutDashboard },

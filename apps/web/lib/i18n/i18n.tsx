@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { useAuth } from './auth';
+import { useAuth } from '@/lib/auth';
 import { translateLegacyText } from './legacy-messages';
 
 export type AppLocale = 'pt-PT' | 'en-US';

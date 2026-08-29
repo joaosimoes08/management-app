@@ -2,9 +2,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, ChevronDown, MapPin, Plus, X } from 'lucide-react';
-import { useAuth } from '../lib/auth';
-import { useI18n } from '../lib/i18n';
-import { useSiteContext } from '../lib/site-context';
+import { useAuth } from '@/lib/auth';
+import { useI18n } from '@/lib/i18n';
+import { useSiteContext } from '@/lib/site-context';
 import { usePathname } from 'next/navigation';
 
 type Site = { id: string; name: string; code: string };

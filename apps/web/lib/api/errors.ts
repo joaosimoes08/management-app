@@ -1,0 +1,56 @@
+export type ApiErrorPayload = {
+  code?: string;
+  message?: string | string[];
+  error?: string;
+};
+
+export const localizedApiErrors: Record<string, Record<string, string>> = {
+  'pt-PT': {
+    APPLICATION_ROLE_REQUIRED: 'O utilizador tem de manter pelo menos uma role da aplicação.',
+    KEYCLOAK_ADMIN_AUTH_FAILED: 'Não foi possível autenticar o serviço administrativo no Keycloak.',
+    KEYCLOAK_ADMIN_NOT_CONFIGURED: 'A integração administrativa do Keycloak não está configurada.',
+    KEYCLOAK_ADMIN_REQUEST_FAILED: 'O Keycloak recusou a operação administrativa.',
+    LAST_ADMIN_REQUIRED: 'Não é possível remover a role do último administrador ativo.',
+    ROLE_REQUEST_INVALID: 'A seleção de roles não é válida.',
+    ROLE_ALREADY_HELD: 'Já tens uma ou mais das roles pedidas.',
+    ROLE_REQUEST_PENDING: 'Já existe um pedido de roles pendente.',
+    ROLE_REQUEST_NOT_PENDING: 'Este pedido já foi processado.',
+    SITE_NOT_EMPTY: 'Só é possível eliminar Sites vazios.',
+    TCP_PORT_REQUIRED: 'Define pelo menos uma porta para Discovery TCP.',
+    DISCOVERY_TARGET_FORBIDDEN: 'A rede pertence ou sobrepõe uma gama especial bloqueada.',
+    DISCOVERY_TARGET_NOT_ALLOWED: 'A subnet não está incluída nas redes autorizadas para Discovery.',
+    DISCOVERY_IPV6_UNSUPPORTED: 'A enumeração de subnets IPv6 ainda não é suportada.',
+    DISCOVERY_PORT_LIMIT: 'Discovery aceita no máximo 64 portas por execução.',
+    DISCOVERY_ALREADY_ACTIVE: 'Já existe uma execução ativa para esta subnet.',
+    IPAM_SCOPE_FORBIDDEN: 'Não tens permissão para esta operação neste scope IPAM.',
+    IPAM_SCOPE_SITE_MISMATCH: 'O scope não pertence ao Site do grupo.',
+    IPAM_PLACEMENT_SITE_MISMATCH: 'Site, VLAN, VRF e subnet pai têm de pertencer ao mesmo Site.',
+    SERVICE_PORT_REQUIRED: 'Services TCP/UDP exigem uma porta.',
+    DEVICE_HOST_CONFLICT: 'O equipamento já está associado a outro Host.',
+    VALIDATION_ERROR: 'Existem campos inválidos no pedido.',
+  },
+  'en-US': {
+    APPLICATION_ROLE_REQUIRED: 'The user must retain at least one application role.',
+    KEYCLOAK_ADMIN_AUTH_FAILED: 'The Keycloak administration service could not authenticate.',
+    KEYCLOAK_ADMIN_NOT_CONFIGURED: 'The Keycloak administration integration is not configured.',
+    KEYCLOAK_ADMIN_REQUEST_FAILED: 'Keycloak rejected the administrative operation.',
+    LAST_ADMIN_REQUIRED: 'The role cannot be removed from the last active administrator.',
+    ROLE_REQUEST_INVALID: 'The role selection is invalid.',
+    ROLE_ALREADY_HELD: 'You already have one or more requested roles.',
+    ROLE_REQUEST_PENDING: 'There is already a pending role request.',
+    ROLE_REQUEST_NOT_PENDING: 'This request has already been processed.',
+    SITE_NOT_EMPTY: 'Only empty Sites can be deleted.',
+    TCP_PORT_REQUIRED: 'Define at least one port for TCP Discovery.',
+    DISCOVERY_TARGET_FORBIDDEN: 'The network belongs to or overlaps a blocked special range.',
+    DISCOVERY_TARGET_NOT_ALLOWED: 'The subnet is not included in the Discovery allowlist.',
+    DISCOVERY_IPV6_UNSUPPORTED: 'IPv6 subnet enumeration is not supported yet.',
+    DISCOVERY_PORT_LIMIT: 'Discovery accepts at most 64 ports per run.',
+    DISCOVERY_ALREADY_ACTIVE: 'There is already an active run for this subnet.',
+    IPAM_SCOPE_FORBIDDEN: 'You do not have permission for this operation in this IPAM scope.',
+    IPAM_SCOPE_SITE_MISMATCH: 'The scope does not belong to the group Site.',
+    IPAM_PLACEMENT_SITE_MISMATCH: 'Site, VLAN, VRF, and parent subnet must belong to the same Site.',
+    SERVICE_PORT_REQUIRED: 'TCP/UDP Services require a port.',
+    DEVICE_HOST_CONFLICT: 'The device is already linked to another Host.',
+    VALIDATION_ERROR: 'The request contains invalid fields.',
+  },
+};

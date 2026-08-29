@@ -2,11 +2,11 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { Check, ChevronLeft, ChevronRight, Edit3, MapPin, Plus, RefreshCw, Search, ShieldCheck, Trash2, Users, X } from 'lucide-react';
-import { AppShell } from '../../components/app-shell';
+import { AppShell } from '@/components/layout/app-shell';
 import { AccessGroupsSettings } from '../../components/access-groups-settings';
-import { useToast } from '../../components/toast-provider';
-import { useAuth } from '../../lib/auth';
-import { AppLocale, useI18n } from '../../lib/i18n';
+import { useToast } from '@/components/ui/toast';
+import { useAuth } from '@/lib/auth';
+import { AppLocale, useI18n } from '@/lib/i18n';
 
 const applicationRoles = ['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'AUDITOR', 'READ_ONLY'] as const;
 type ApplicationRole = typeof applicationRoles[number];

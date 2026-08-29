@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, MapPin, ShieldCheck, Sparkles } from 'lucide-react';
-import { useAuth } from '../../lib/auth';
-import { AppLocale, useI18n } from '../../lib/i18n';
+import { useAuth } from '@/lib/auth';
+import { AppLocale, useI18n } from '@/lib/i18n';
 
 type SetupStatus = { setupCompleted: boolean; organizationName?: string | null; organizationCode?: string | null; locale?: AppLocale; siteCount: number; hasSite: boolean };
 type SetupForm = { organizationName: string; organizationCode: string; timezone: string; locale: AppLocale; siteName: string; siteCode: string; address: string; city: string; region: string; country: string; buildingName: string; roomName: string; rackName: string };

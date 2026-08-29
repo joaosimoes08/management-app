@@ -2,8 +2,8 @@
 
 import { AlertTriangle, LogIn, RefreshCw, ShieldCheck } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { useAuth } from '../lib/auth';
-import { useI18n } from '../lib/i18n';
+import { useAuth } from '@/lib/auth';
+import { useI18n } from '@/lib/i18n';
 
 function AuthVisual() {
   return <div className="auth-visual" aria-hidden="true">

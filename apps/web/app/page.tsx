@@ -18,8 +18,8 @@ import {
   Sparkles,
   TerminalSquare,
 } from 'lucide-react';
-import { useAuth } from '../lib/auth';
-import { AppShell } from '../components/app-shell';
+import { useAuth } from '@/lib/auth';
+import { AppShell } from '@/components/layout/app-shell';
 
 const systems = [
   { name: 'PostgreSQL', detail: 'Base de dados principal', status: 'Operacional', tone: 'green', icon: Database },

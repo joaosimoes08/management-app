@@ -2,8 +2,8 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { Activity, ArrowUpRight, BookOpen, Check, ChevronDown, ExternalLink, FileText, Link as LinkIcon, Loader2, MessageCircle, Network, Plus, Search, Server, ShieldCheck, Trash2, X } from 'lucide-react';
-import { useAuth } from '../../lib/auth';
-import { AppShell } from '../../components/app-shell';
+import { useAuth } from '@/lib/auth';
+import { AppShell } from '@/components/layout/app-shell';
 
 type ApplicationLink = {
   id: string;

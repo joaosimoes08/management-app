@@ -33,7 +33,7 @@ function objectKeys(variableName, source) {
   return keys;
 }
 
-const i18n = sourceFile('apps/web/lib/i18n.tsx');
+const i18n = sourceFile('apps/web/lib/i18n/i18n.tsx');
 let localeKeys = {};
 function visitMessages(node) {
   if (ts.isVariableDeclaration(node) && node.name.getText(i18n) === 'messages' && ts.isObjectLiteralExpression(node.initializer)) {
@@ -52,7 +52,7 @@ const enKeys = localeKeys['en-US'] ?? new Set();
 const missingEnglish = [...ptKeys].filter((key) => !enKeys.has(key));
 const missingPortuguese = [...enKeys].filter((key) => !ptKeys.has(key));
 
-const legacySource = sourceFile('apps/web/lib/legacy-messages.ts', ts.ScriptKind.TS);
+const legacySource = sourceFile('apps/web/lib/i18n/legacy-messages.ts', ts.ScriptKind.TS);
 const legacyKeys = objectKeys('enUS', legacySource);
 const portuguese = /[áàãâéêíóôõúçÁÀÃÂÉÊÍÓÔÕÚÇ]|\b(Não|Sem|Criar|Editar|Eliminar|Guardar|Cancelar|Pesquisar|Definições|Descoberta|Infraestrutura|Equipamento|Bastidor|Sala|Edifício|Porta|permitidas|Aplicações|Auditoria|Ajuda|Anterior|Seguinte|Nome|Descrição|Estado|Operacional|disponível|associad|resultados|execução|utilizador|serviço|serviços|Últim|Novo|Nova|Voltar|Abrir|Fechar|Selecion|Carregar|Configura|Imagem|Modelo|Localização|Organização|Membros|Permissões|Ativa|Verificar|Ordem|Ainda|Apenas|Todos|Todas|livres|ocupados|manual|observado|Origem|Notas|Sistema operativo|Portas|Página|Nenhuma|Reordenar|Remover)\b/i;
 const uncovered = [];

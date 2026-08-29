@@ -2,9 +2,9 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { Calculator, Check, ChevronRight, Edit3, Network, Plus, RefreshCw, Search, Server, Trash2, X } from 'lucide-react';
-import { AppShell } from '../../components/app-shell';
-import { useAuth } from '../../lib/auth';
-import { useToast } from '../../components/toast-provider';
+import { AppShell } from '@/components/layout/app-shell';
+import { useAuth } from '@/lib/auth';
+import { useToast } from '@/components/ui/toast';
 import { CentralIpamPermissions } from '../../components/ipam-permissions';
 
 const tabs = [['map','Mapa'],['subnets','Subnets'],['vrfs','VRFs'],['nat','NAT'],['calculator','Calculadora'],['imports','RIPE']];

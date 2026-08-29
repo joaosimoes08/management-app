@@ -2,9 +2,9 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Boxes, Check, ChevronLeft, ChevronRight, Edit3, Filter, HardDrive, Layers, MapPinned, Plus, Search, Server, Upload, X, ZoomOut } from 'lucide-react';
-import { AppShell } from './app-shell';
-import { useAuth } from '../lib/auth';
-import { useToast } from './toast-provider';
+import { AppShell } from '@/components/layout/app-shell';
+import { useAuth } from '@/lib/auth';
+import { useToast } from '@/components/ui/toast';
 import { EquipmentTypeIcon } from './equipment-type-icon';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';

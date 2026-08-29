@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Check, Clock3, RefreshCw, ShieldCheck, X } from 'lucide-react';
-import { AppShell } from '../../components/app-shell';
-import { useToast } from '../../components/toast-provider';
-import { useAuth } from '../../lib/auth';
-import { useI18n } from '../../lib/i18n';
+import { AppShell } from '@/components/layout/app-shell';
+import { useToast } from '@/components/ui/toast';
+import { useAuth } from '@/lib/auth';
+import { useI18n } from '@/lib/i18n';
 
 const requestableRoles = ['NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'AUDITOR'] as const;
 type RequestableRole = typeof requestableRoles[number];

@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Activity, RefreshCw, ShieldCheck } from 'lucide-react';
-import { AppShell } from '../../components/app-shell';
-import { useAuth } from '../../lib/auth';
-import { useI18n } from '../../lib/i18n';
+import { AppShell } from '@/components/layout/app-shell';
+import { useAuth } from '@/lib/auth';
+import { useI18n } from '@/lib/i18n';
 
 type AuditEvent = { id: string; action: string; entityType?: string | null; entityId?: string | null; createdAt: string; user?: { username: string; displayName?: string | null } | null };
 export default function AuditPage() {

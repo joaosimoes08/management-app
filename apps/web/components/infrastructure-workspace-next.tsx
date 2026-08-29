@@ -3,8 +3,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Boxes, Check, ChevronLeft, ChevronRight, Edit3, GripVertical, HardDrive, Layers, MapPinned, Plus, Search, Server, Trash2, Upload, X } from 'lucide-react';
-import { AppShell } from './app-shell';
-import { useAuth } from '../lib/auth';
+import { AppShell } from '@/components/layout/app-shell';
+import { useAuth } from '@/lib/auth';
 import { EquipmentTypeIcon } from './equipment-type-icon';
 import {
   AssetUploadModal,

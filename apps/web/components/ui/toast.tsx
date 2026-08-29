@@ -2,7 +2,7 @@
 
 import { AlertTriangle, CheckCircle2, Info, X, XCircle } from 'lucide-react';
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
-import { useI18n } from '../lib/i18n';
+import { useI18n } from '@/lib/i18n';
 
 export type ToastKind = 'error' | 'warning' | 'success';
 

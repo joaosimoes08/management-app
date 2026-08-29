@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight, Edit3, Plus, Search, Trash2, X } from 'lucide-react';
-import { useAuth } from '../lib/auth';
+import { useAuth } from '@/lib/auth';
 
 type IpRecord = { id: string; address: string; hostname?: string | null; state: string; macAddress?: string | null; source?: string | null; lastSeenAt?: string | null; host?: { name: string; _count?: { services: number } } | null; subnet?: { cidr: string; vlan?: { vlanId: number; name: string } | null } | null };
 type Page = { items: IpRecord[]; page: number; pageSize: number; total: number; totalPages: number };
