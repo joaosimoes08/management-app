@@ -15,7 +15,17 @@ import type {
   Vlan,
   VlanInput,
   ServiceInput,
+  IpamAction,
+  IpamPermissionGroup,
 } from './types';
+
+export function listPermissionGroups(siteId?: string): Promise<IpamPermissionGroup[]> {
+  return apiFetch<IpamPermissionGroup[]>(`/api/v1/settings/access-groups${siteId ? `?siteId=${encodeURIComponent(siteId)}` : ''}`);
+}
+
+export function updateGroupSitePermissions(groupId: string, siteId: string, permissions: IpamAction[]): Promise<unknown> {
+  return apiFetch(`/api/v1/settings/access-groups/${groupId}/sites/${siteId}`, { method: 'PUT', body: JSON.stringify({ permissions }) });
+}
 
 export { listSites };
 

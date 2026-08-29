@@ -1,24 +1,19 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@simoes/database';
 import { AuthenticatedUser } from '../auth/auth.service';
+import { AccessPolicyService, IpamAction } from '../access/access-policy.service';
 
-export type IpamAction = 'READ' | 'CREATE' | 'UPDATE' | 'DELETE' | 'DISCOVER' | 'IMPORT';
+export type { IpamAction } from '../access/access-policy.service';
 type Context = { siteId?: string | null; vrfId?: string | null; vlanId?: string | null; subnetId?: string | null };
 type SiteGrant = { siteId: string; permission: string };
 
 @Injectable()
 export class IpamAccessService {
-  constructor(private readonly prisma: PrismaClient) {}
-
-  private hasCapability(user: AuthenticatedUser, action: IpamAction) {
-    if (user.roles.includes('ADMIN')) return true;
-    if (action === 'READ') return user.roles.some((role) => role === 'NETWORK_OPERATOR' || role === 'AUDITOR' || role === 'READ_ONLY');
-    return user.roles.includes('NETWORK_OPERATOR');
-  }
+  constructor(private readonly prisma: PrismaClient, private readonly policy: AccessPolicyService) {}
 
   private async grants(user: AuthenticatedUser): Promise<SiteGrant[] | null> {
     if (user.roles.includes('ADMIN')) return null;
-    if (!user.roles.length) return [];
+    if (!this.policy.hasApplicationRole(user)) return [];
     const memberships = await this.prisma.accessGroupMember.findMany({
       where: { userId: user.id },
       include: { group: { include: { siteAssignments: { include: { permissions: true } } } } },
@@ -36,8 +31,8 @@ export class IpamAccessService {
   async assertContext(user: AuthenticatedUser, action: IpamAction, context: Context) {
     const grants = await this.grants(user);
     if (!grants) return;
-    if (this.hasCapability(user, action) && context.siteId && this.siteIds(grants, action).includes(context.siteId)) return;
-    const visible = this.hasCapability(user, 'READ') && Boolean(context.siteId && this.siteIds(grants, 'READ').includes(context.siteId));
+    if (this.policy.canUseIpam(user, action) && context.siteId && this.siteIds(grants, action).includes(context.siteId)) return;
+    const visible = this.policy.canUseIpam(user, 'READ') && Boolean(context.siteId && this.siteIds(grants, 'READ').includes(context.siteId));
     if (!visible) throw new NotFoundException({ code: 'IPAM_RESOURCE_NOT_FOUND', message: 'Recurso IPAM não encontrado.' });
     throw new ForbiddenException({ code: 'IPAM_SCOPE_FORBIDDEN', message: 'Não tens permissão para esta operação no Site IPAM.' });
   }
@@ -90,7 +85,7 @@ export class IpamAccessService {
   async whereFor(user: AuthenticatedUser, action: IpamAction, resource: 'site' | 'vrf' | 'vlan' | 'subnet' | 'ip' | 'host' | 'nat'): Promise<any> {
     const grants = await this.grants(user); if (!grants) return {};
     if (resource === 'site') return { id: { in: [...new Set(grants.map((grant) => grant.siteId))] } };
-    const siteIds = this.hasCapability(user, action) ? this.siteIds(grants, action) : [];
+    const siteIds = this.policy.canUseIpam(user, action) ? this.siteIds(grants, action) : [];
     if (resource === 'vrf' || resource === 'vlan' || resource === 'subnet' || resource === 'nat') return { siteId: { in: siteIds } };
     if (resource === 'ip') return { subnet: { siteId: { in: siteIds } } };
     return { ipAddresses: { some: { subnet: { siteId: { in: siteIds } } } } };

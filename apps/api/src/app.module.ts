@@ -12,6 +12,7 @@ import { SetupModule } from './setup/setup.module';
 import { IpamModule } from './ipam/ipam.module';
 import { InfrastructureModule } from './infrastructure/infrastructure.module';
 import { SettingsModule } from './settings/settings.module';
+import { AccessModule } from './access/access.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { SettingsModule } from './settings/settings.module';
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
     DatabaseModule,
     AuthModule,
+    AccessModule,
     AuditModule,
     HealthModule,
     ApplicationLinksModule,

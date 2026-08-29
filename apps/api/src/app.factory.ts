@@ -18,7 +18,7 @@ export async function configureApp(app: NestFastifyApplication, options: Configu
     .filter(Boolean);
   app.enableCors({
     origin: configuredCorsOrigins,
-    methods: ['GET', 'HEAD', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept-Language', 'X-Test-User'],
     credentials: true,
   });

@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Boxes, HardDrive, Layers, MapPinned, Server, X } from 'lucide-react';
+import { Boxes, HardDrive, KeyRound, Layers, MapPinned, Server, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { AppShell } from '@/components/layout/app-shell';
 import { useAuth } from '@/lib/auth';
+import { useSiteContext } from '@/lib/site-context';
 import { apiFetch } from '@/lib/api/client';
 import type { Device, DeviceInterface, DeviceModel, IpAddress, PortLayout, Rack, RackPlacementPlan, RoomWithBuilding } from './types';
 import type { BuildingForm, DeviceForm, ModelForm, RackForm } from './forms';
@@ -28,7 +29,6 @@ import {
   listDeviceModels,
   listDevices,
   listInterfaces,
-  listSites,
   listVlansForSite,
   placeDevice as apiPlaceDevice,
   previewDevicePlacement,
@@ -47,6 +47,7 @@ import { PortLayoutEditor } from './components/models/port-layout-editor';
 import { AssetList } from './components/assets/asset-list';
 import { AssetUploadModal } from './components/assets/asset-upload-modal';
 import { EntityEditor } from './components/editors/entity-editor';
+import { InfrastructurePermissions } from './components/infrastructure-permissions';
 
 const EMPTY_IPS: IpAddress[] = [];
 
@@ -57,10 +58,10 @@ const emptyInterfaceForm: InterfaceFormState = { id: '', name: '', portKey: '', 
 export function InfrastructureWorkspace() {
   const queryClient = useQueryClient();
   const { hasRole } = useAuth();
+  const { siteId, activeSite } = useSiteContext();
   const roleCanEdit = hasRole('ADMIN') || hasRole('NETWORK_OPERATOR') || hasRole('SYSTEMS_OPERATOR');
 
   const [tab, setTab] = useState('racks');
-  const [siteId, setSiteId] = useState('');
   const [buildingId, setBuildingId] = useState('');
   const [roomId, setRoomId] = useState('');
   const [rackId, setRackId] = useState('');
@@ -91,9 +92,8 @@ export function InfrastructureWorkspace() {
 
   // ── Server state (React Query) ───────────────────────────────────────────
 
-  const { data: sitesData } = useQuery({ queryKey: ['infrastructure', 'sites'], queryFn: listSites });
   const { data: accessData, error: accessError, isFetching: fetchingAccess } = useQuery({
-    queryKey: ['infrastructure', 'access', siteId],
+    queryKey: ['access', 'effective', siteId],
     queryFn: () => getEffectiveAccess(siteId),
     enabled: Boolean(siteId),
   });
@@ -147,7 +147,6 @@ export function InfrastructureWorkspace() {
   const queryError = [accessError, locationsError, racksError, modelsError, assetsError, vlansError, devicesError].find(Boolean);
   const errorMessage = queryError instanceof Error ? queryError.message : '';
 
-  const sites = sitesData?.items ?? [];
   const locations = locationsData ?? [];
   const racks = racksData ?? [];
   const models = modelsData ?? [];
@@ -156,32 +155,12 @@ export function InfrastructureWorkspace() {
   const devices = useMemo(() => (devicesData?.items ?? []).filter((item) => item.status !== 'RETIRED'), [devicesData]);
   const interfaces = interfacesData ?? [];
 
-  // ── Bootstrap: pick the initial site from URL, workspace context or storage.
-
   useEffect(() => {
-    const list = sitesData?.items ?? [];
-    if (!list.length) return;
-    const query = new URLSearchParams(location.search);
-    const storedContext = readInfrastructureContext();
-    const wanted = query.get('siteId') || storedContext?.siteId || localStorage.getItem('cociber.siteId');
-    const id = wanted && list.some((site) => site.id === wanted) ? wanted : list.length === 1 ? list[0].id : '';
-    setSiteId(id);
-    if (id) writeInfrastructureContext(storedContext?.siteId === id ? { ...storedContext, siteId: id } : { siteId: id, buildingId: '', roomId: '' });
-  }, [sitesData]);
-
-  // Cross-feature site switching (SiteSwitcher dispatches this event).
-  useEffect(() => {
-    const change = (event: Event) => {
-      const id = (event as CustomEvent<{ siteId: string }>).detail.siteId;
-      setSiteId(id);
-      setBuildingId('');
-      setRoomId('');
-      setRackId('');
-      setDevice(null);
-    };
-    window.addEventListener('cociber:site-change', change);
-    return () => window.removeEventListener('cociber:site-change', change);
-  }, []);
+    setBuildingId('');
+    setRoomId('');
+    setRackId('');
+    setDevice(null);
+  }, [siteId]);
 
   // ── URL/context restoration after racks and locations arrive.
 
@@ -530,11 +509,13 @@ export function InfrastructureWorkspace() {
 
   const canDeleteRack = hasRole('ADMIN') || hasRole('SYSTEMS_OPERATOR');
   const modalForEditor = modal === 'room' || modal === 'building' ? '' : modal;
-  const siteName = sites.find((item) => item.id === siteId)?.name ?? 'Site';
+  const siteName = activeSite?.name ?? 'Site';
   const buildingName = buildings.find((item) => item.id === buildingId)?.name;
   const roomName = rooms.find((item) => item.id === roomId)?.name;
   const tabName = ({ racks: 'Bastidores', devices: 'Equipamentos', models: 'Modelos', interfaces: 'Interfaces', assets: 'Assets', permissions: 'Permissões' } as Record<string, string>)[tab] ?? tab;
-  const visibleTabs: [string, string, LucideIcon][] = [['racks', 'Bastidores', MapPinned], ['devices', 'Equipamentos', Server], ...(effective?.tabs?.models ? [['models', 'Modelos', Boxes] as [string, string, LucideIcon]] : []), ...(effective?.tabs?.interfaces ? [['interfaces', 'Interfaces', Layers] as [string, string, LucideIcon]] : []), ...(effective?.tabs?.assets ? [['assets', 'Assets', HardDrive] as [string, string, LucideIcon]] : [])];
+  const visibleTabs: [string, string, LucideIcon][] = [['racks', 'Bastidores', MapPinned], ['devices', 'Equipamentos', Server], ...(effective?.tabs?.models ? [['models', 'Modelos', Boxes] as [string, string, LucideIcon]] : []), ...(effective?.tabs?.interfaces ? [['interfaces', 'Interfaces', Layers] as [string, string, LucideIcon]] : []), ...(effective?.tabs?.assets ? [['assets', 'Assets', HardDrive] as [string, string, LucideIcon]] : []), ...(effective?.tabs?.permissions ? [['permissions', 'Permissões', KeyRound] as [string, string, LucideIcon]] : [])];
+
+  if (tab === 'permissions' && effective?.tabs?.permissions) return <AppShell section="Infraestrutura" context={[siteName, 'Permissões']}><main className="module-page infrastructure-workspace"><header className="workspace-head"><div><span className="section-kicker">MAPA FÍSICO</span><h1>Infraestrutura</h1><p>Site → edifício → sala → bastidor → equipamento → interfaces.</p></div></header><nav className="infra-menu">{visibleTabs.map(([key, label, Icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => selectTab(key)}><Icon size={15} /><span>{label}</span></button>)}</nav><InfrastructurePermissions siteId={siteId} buildings={buildings} /></main></AppShell>;
 
   return <AppShell section="Infraestrutura" context={[siteName, ...(buildingName ? [buildingName] : []), ...(roomName ? [roomName] : []), tabName]} search={{ value: search, onChange: setSearch, placeholder: `Pesquisar em ${tabName.toLowerCase()}…` }}><main className="module-page infrastructure-workspace"><header className="workspace-head"><div><span className="section-kicker">MAPA FÍSICO</span><h1>Infraestrutura</h1><p>Site → edifício → sala → bastidor → equipamento → interfaces.</p></div></header>{(error || errorMessage) && <div className="ipam-alert error"><X size={15} />{error || errorMessage}</div>}<section className="infra-context-bar"><label><MapPinned size={15} /> Edifício<select value={buildingId} onChange={(event) => chooseBuilding(event.target.value)}><option value="">Seleciona um edifício</option>{buildings.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}{canCreateBuilding && <option value="__new__">Criar novo Edifício</option>}</select></label><label><MapPinned size={15} /> Sala<select value={roomId} onChange={(event) => chooseRoom(event.target.value)}><option value="">Seleciona uma sala</option>{rooms.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}{canCreateRoom && <option value="__new__">Criar nova Sala</option>}</select></label><span>{busy ? 'A carregar…' : `${racks.length} bastidores · ${devices.length} equipamentos ativos`}</span></section><nav className="infra-menu">{visibleTabs.map(([key, label, Icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => selectTab(key)}><Icon size={15} /><span>{label}</span></button>)}</nav>{tab === 'racks' && <RackWorkspace rooms={rooms} roomId={roomId} buildingId={buildingId} racks={roomRacks} selected={selectedRack} setRack={(rack: Rack) => { if (rack.room) setRoomId(rack.room.id); setRackId(rack.id); history.replaceState({}, '', `/infraestrutura?siteId=${siteId}&buildingId=${rack.room?.building?.id ?? buildingId}&roomId=${rack.room?.id ?? roomId}&rackId=${rack.id}`); }} onOut={() => setRackId('')} onDevice={openDevice} onEdit={(rack: RackEditDraft) => { setEditingId(rack.id ?? ''); setRackForm({ name: rack.name ?? '', units: String(rack.units ?? 42), roomId: rack.room?.id ?? rack.roomId ?? roomId, modelId: rack.modelId ?? rack.model?.id ?? '', frontAssetId: rack.frontAssetId ?? rack.frontAsset?.id ?? '' }); setModal('rack'); }} onDelete={canDeleteRack && scopeActions.includes('DELETE') ? deleteRack : undefined} deletingRackId={deletingRackId} canEdit={canEdit} onPreviewPlacement={previewPlacement} onPlaceDevice={placeDevice} onEditDevice={editDevice} />} {tab === 'devices' && <DeviceList devices={devices} search={search} onSelect={openDevice} onEdit={editDevice} onNew={newDevice} canEdit={canEdit} />} {tab === 'models' && effective?.tabs?.models && <ModelList models={visibleModels} onEdit={(model) => { setEditingId(model.id); setModelForm({ manufacturer: model.manufacturer, model: model.model, type: model.type ?? 'OTHER', supportsNetworkPorts: !!model.supportsNetworkPorts, networkPortCount: String(model.networkPortCount ?? ''), frontAssetId: model.frontAssetId ?? model.frontAsset?.id ?? '' }); setModal('model'); }} onLayout={openLayout} canEdit={roleCanEdit} />} {tab === 'assets' && effective?.tabs?.assets && <AssetList assets={visibleAssets} onDelete={deleteAsset} canEdit={roleCanEdit} canDelete={roleCanEdit} />} {tab === 'interfaces' && effective?.tabs?.interfaces && <InterfaceWorkspace devices={devices} selected={device} interfaces={visibleInterfaces} selectedInterface={selectedInterface} onDevice={openDevice} onInterface={editInterface} onGenerate={generateInterfaces} onEditDevice={() => device && editDevice(device)} />}<EntityEditor modal={modalForEditor} close={() => setModal('')} editingId={editingId} form={{ rack: rackForm, device: deviceForm, model: modelForm }} setForm={{ rack: setRackForm, device: setDeviceForm, model: setModelForm }} rooms={rooms} racks={racks} models={models} assets={assets} ips={EMPTY_IPS} save={save} />{modal === 'interface' && <InterfaceEditor modal={modal} close={() => setModal('')} form={{ interface: interfaceForm }} setForm={{ interface: setInterfaceForm }} vlans={vlans} save={save} />}<BuildingModal modal={modal === 'building'} close={() => setModal('')} buildingForm={buildingForm} setBuildingForm={setBuildingForm} createBuilding={createBuilding} /><RoomModal modal={modal === 'room'} close={() => setModal('')} roomForm={roomForm} setRoomForm={setRoomForm} buildings={buildings} createRoom={createRoom} /><AssetUploadModal modal={modal === 'asset-upload'} close={() => setModal('')} file={pendingUpload} name={assetName} setName={setAssetName} modelId={uploadModelId} setModelId={setUploadModelId} models={models} choose={chooseUpload} submit={submitUpload} busy={uploading} /><PortLayoutEditor modal={modal === 'layout'} close={() => setModal('')} layoutModel={layoutModel} layout={layout} setLayout={setLayout} assets={assets} assetId={layoutAssetId} setAssetId={setLayoutAssetId} detect={detectLayout} confirm={confirmLayout} saving={layoutSaving} error={layoutError} />  </main></AppShell>;
 }
