@@ -20,10 +20,19 @@ O `AuthGuard` valida assinatura JWT via JWKS, issuer, audience/azp e a identidad
 ADMIN
 NETWORK_OPERATOR
 SYSTEMS_OPERATOR
-STORAGE_OPERATOR
 AUDITOR
 READ_ONLY
 ```
+
+As roles definem capacidades; os grupos definem os Sites e scopes onde essas capacidades podem ser usadas. `STORAGE_OPERATOR` deixou de ser atribuível e permanece apenas no enum histórico da base de dados para permitir identificar e reassociar utilizadores antigos sem promoção automática.
+
+- `ADMIN` administra toda a plataforma e ignora os scopes dos grupos.
+- `NETWORK_OPERATOR` opera IPAM, Discovery, interfaces e equipamentos de rede nos Sites atribuídos.
+- `SYSTEMS_OPERATOR` opera a hierarquia física, bastidores e equipamentos nos scopes atribuídos.
+- `AUDITOR` lê os recursos atribuídos e consulta Auditoria.
+- `READ_ONLY` apenas lê os recursos atribuídos.
+
+Para não administradores, uma associação a um Site torna-o selecionável, mas não concede por si só acesso a dados. IPAM exige ações na associação Grupo–Site; Infraestrutura exige uma ACL aplicável em `SITE`, `BUILDING` ou `ROOM`. Matrizes mais específicas substituem integralmente a matriz herdada.
 
 A lista técnica está em `apps/api/src/auth/roles.ts`. Para adicionar uma role:
 

@@ -1,4 +1,4 @@
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength } from 'class-validator';
 import { APPLICATION_ROLES, ApplicationRole } from '../auth/roles';
 
 export class UpdateOrganizationSettingsDto {
@@ -22,4 +22,15 @@ export class UpdateAuditPolicyDto {
 
 export class UpdateUserRolesDto {
   @IsArray() @ArrayMaxSize(APPLICATION_ROLES.length) @IsIn(APPLICATION_ROLES, { each: true }) roles!: ApplicationRole[];
+}
+
+export class CreateAccessGroupDto {
+  @IsString() @MinLength(1) @MaxLength(100) name!: string;
+  @IsOptional() @IsString() @MaxLength(240) description?: string;
+}
+
+export class UpdateAccessGroupDto extends CreateAccessGroupDto {}
+export class AccessGroupMemberDto { @IsUUID() userId!: string; }
+export class UpdateAccessGroupSiteDto {
+  @IsArray() @ArrayMaxSize(6) @IsIn(['READ', 'CREATE', 'UPDATE', 'DELETE', 'DISCOVER', 'IMPORT'], { each: true }) permissions!: string[];
 }

@@ -2,7 +2,6 @@ export const APPLICATION_ROLES = [
   'ADMIN',
   'NETWORK_OPERATOR',
   'SYSTEMS_OPERATOR',
-  'STORAGE_OPERATOR',
   'AUDITOR',
   'READ_ONLY',
 ] as const;

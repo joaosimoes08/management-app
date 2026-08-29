@@ -1,0 +1,2 @@
+-- Reserved migration timestamp. The centralized access migration performs the
+-- required renames after the target tables exist.

@@ -1,7 +1,7 @@
 'use client';
 
 import { ArrowUpRight, Boxes, CheckCircle2, CircleHelp, Construction, ExternalLink, Network, Search, Settings, ShieldCheck } from 'lucide-react';
-import { AppShell } from './app-shell';
+import { AppShell } from '@/components/layout/app-shell';
 
 const icons = { infrastructure: Boxes, discovery: Search, settings: Settings, help: CircleHelp };
 export function ModulePage({ kind, title, eyebrow, description, children }: { kind: keyof typeof icons; title: string; eyebrow: string; description: string; children?: React.ReactNode }) {

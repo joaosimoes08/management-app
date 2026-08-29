@@ -1,4 +1,4 @@
-import { InfrastructureWorkspace } from '../../components/infrastructure-workspace-next';
+import { InfrastructureWorkspace } from '@/features/infrastructure/infrastructure-workspace';
 
 export default function InfrastructurePage() {
   return <InfrastructureWorkspace />;

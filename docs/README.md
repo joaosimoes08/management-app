@@ -6,6 +6,7 @@ Esta pasta documenta a fundação atual da plataforma SIMOES Management App.
 
 - [Estado atual](status.md)
 - [Arquitetura](architecture.md)
+- [Refatoração do frontend](frontend-refactor.md)
 - [Arranque e paragem](setup.md)
 - [Autenticação e autorização](security.md)
 - [API e endpoints](api.md)

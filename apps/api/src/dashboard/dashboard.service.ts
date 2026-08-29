@@ -2,6 +2,8 @@ import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { PrismaClient } from '@simoes/database';
 import { Queue } from 'bullmq';
 import { AuthenticatedUser } from '../auth/auth.service';
+import { InfrastructureAccessService } from '../infrastructure/infrastructure-access.service';
+import { IpamAccessService } from '../ipam/ipam-access.service';
 
 export type TopbarAlert = {
   id: string;
@@ -23,7 +25,11 @@ export type GlobalSearchResult = {
 @Injectable()
 export class DashboardService implements OnModuleDestroy {
   private readonly discoveryQueue = new Queue('discovery', { connection: this.redisConnection() });
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly ipamAccess: IpamAccessService,
+    private readonly infrastructureAccess: InfrastructureAccessService,
+  ) {}
   async onModuleDestroy() { await this.discoveryQueue.disconnect(); }
 
   private redisConnection() {
@@ -32,15 +38,26 @@ export class DashboardService implements OnModuleDestroy {
   }
 
   async summary(user?: AuthenticatedUser) {
+    if (!user) return { counts: { sites: 0, devices: 0, vlans: 0, subnets: 0, ips: 0, occupiedIps: 0, freeIps: 0, applications: 0 }, recentAudit: [] };
+    const [siteWhere, vlanWhere, subnetWhere, ipWhere, roomIds, unplacedSiteIds] = await Promise.all([
+      this.ipamAccess.whereFor(user, 'READ', 'site'),
+      this.ipamAccess.whereFor(user, 'READ', 'vlan'),
+      this.ipamAccess.whereFor(user, 'READ', 'subnet'),
+      this.ipamAccess.whereFor(user, 'READ', 'ip'),
+      this.infrastructureAccess.visibleRoomIds(user),
+      this.infrastructureAccess.visibleUnplacedSiteIds(user),
+    ]);
+    const deviceWhere = { OR: [{ rack: { roomId: { in: roomIds } } }, { rackId: null, siteId: { in: unplacedSiteIds } }] };
+    const applicationWhere = { isActive: true, OR: [{ roles: { none: {} } }, { roles: { some: { role: { in: user.roles } } } }] };
     const [sites, devices, vlans, subnets, ips, occupiedIps, freeIps, applications, recentAudit] = await Promise.all([
-      this.prisma.site.count(),
-      this.prisma.device.count(),
-      this.prisma.vlan.count(),
-      this.prisma.subnet.count(),
-      this.prisma.ipAddress.count(),
-      this.prisma.ipAddress.count({ where: { state: 'OCCUPIED' } }),
-      this.prisma.ipAddress.count({ where: { state: 'FREE' } }),
-      this.prisma.applicationLink.count({ where: { isActive: true } }),
+      this.prisma.site.count({ where: siteWhere }),
+      this.prisma.device.count({ where: deviceWhere }),
+      this.prisma.vlan.count({ where: vlanWhere }),
+      this.prisma.subnet.count({ where: subnetWhere }),
+      this.prisma.ipAddress.count({ where: ipWhere }),
+      this.prisma.ipAddress.count({ where: { AND: [ipWhere, { state: 'OCCUPIED' }] } }),
+      this.prisma.ipAddress.count({ where: { AND: [ipWhere, { state: 'FREE' }] } }),
+      this.prisma.applicationLink.count({ where: applicationWhere }),
       user && !user.roles.some((role) => role === 'ADMIN' || role === 'AUDITOR') ? Promise.resolve([]) : this.prisma.auditLog.findMany({
         take: 6,
         orderBy: { createdAt: 'desc' },
@@ -66,12 +83,20 @@ export class DashboardService implements OnModuleDestroy {
     if (query.length < 2) return { items: [] as GlobalSearchResult[] };
     const limit = Math.min(Math.max(Number(limitText) || 8, 1), 20);
     const contains = { contains: query, mode: 'insensitive' as const };
+    const [siteWhere, vlanWhere, subnetWhere, ipWhere, roomIds, unplacedSiteIds] = await Promise.all([
+      this.ipamAccess.whereFor(user, 'READ', 'site'),
+      this.ipamAccess.whereFor(user, 'READ', 'vlan'),
+      this.ipamAccess.whereFor(user, 'READ', 'subnet'),
+      this.ipamAccess.whereFor(user, 'READ', 'ip'),
+      this.infrastructureAccess.visibleRoomIds(user),
+      this.infrastructureAccess.visibleUnplacedSiteIds(user),
+    ]);
     const [sites, devices, vlans, subnets, ips, applications] = await Promise.all([
-      this.prisma.site.findMany({ where: { OR: [{ name: contains }, { code: contains }, { city: contains }] }, select: { id: true, name: true, code: true }, orderBy: { name: 'asc' }, take: limit }),
-      this.prisma.device.findMany({ where: { OR: [{ name: contains }, { hostname: contains }, { managementIp: contains }, { serialNumber: contains }, { assetTag: contains }] }, select: { id: true, name: true, hostname: true, managementIp: true, siteId: true, site: { select: { name: true } } }, orderBy: { name: 'asc' }, take: limit }),
-      this.prisma.vlan.findMany({ where: { OR: [{ name: contains }, ...(/^\d+$/.test(query) ? [{ vlanId: Number(query) }] : [])] }, select: { id: true, vlanId: true, name: true, siteId: true, site: { select: { name: true } } }, orderBy: { vlanId: 'asc' }, take: limit }),
-      this.prisma.subnet.findMany({ where: { OR: [{ cidr: contains }, { purpose: contains }, { gateway: contains }] }, select: { id: true, cidr: true, purpose: true, siteId: true, site: { select: { name: true } } }, orderBy: { cidr: 'asc' }, take: limit }),
-      this.prisma.ipAddress.findMany({ where: { OR: [{ address: contains }, { hostname: contains }, { macAddress: contains }] }, select: { id: true, address: true, hostname: true, subnetId: true, subnet: { select: { cidr: true, siteId: true } } }, orderBy: { address: 'asc' }, take: limit }),
+      this.prisma.site.findMany({ where: { AND: [siteWhere, { OR: [{ name: contains }, { code: contains }, { city: contains }] }] }, select: { id: true, name: true, code: true }, orderBy: { name: 'asc' }, take: limit }),
+      this.prisma.device.findMany({ where: { AND: [{ OR: [{ rack: { roomId: { in: roomIds } } }, { rackId: null, siteId: { in: unplacedSiteIds } }] }, { OR: [{ name: contains }, { hostname: contains }, { managementIp: contains }, { serialNumber: contains }, { assetTag: contains }] }] }, select: { id: true, name: true, hostname: true, managementIp: true, siteId: true, site: { select: { name: true } } }, orderBy: { name: 'asc' }, take: limit }),
+      this.prisma.vlan.findMany({ where: { AND: [vlanWhere, { OR: [{ name: contains }, ...(/^\d+$/.test(query) ? [{ vlanId: Number(query) }] : [])] }] }, select: { id: true, vlanId: true, name: true, siteId: true, site: { select: { name: true } } }, orderBy: { vlanId: 'asc' }, take: limit }),
+      this.prisma.subnet.findMany({ where: { AND: [subnetWhere, { OR: [{ cidr: contains }, { purpose: contains }, { gateway: contains }] }] }, select: { id: true, cidr: true, purpose: true, siteId: true, site: { select: { name: true } } }, orderBy: { cidr: 'asc' }, take: limit }),
+      this.prisma.ipAddress.findMany({ where: { AND: [ipWhere, { OR: [{ address: contains }, { hostname: contains }, { macAddress: contains }] }] }, select: { id: true, address: true, hostname: true, subnetId: true, subnet: { select: { cidr: true, siteId: true } } }, orderBy: { address: 'asc' }, take: limit }),
       this.prisma.applicationLink.findMany({ where: { isActive: true, AND: [{ OR: [{ name: contains }, { description: contains }, { category: contains }] }, { OR: [{ roles: { none: {} } }, { roles: { some: { role: { in: user.roles } } } }] }] }, select: { id: true, name: true, category: true, url: true }, orderBy: [{ category: 'asc' }, { sortOrder: 'asc' }], take: limit }),
     ]);
 
@@ -88,16 +113,18 @@ export class DashboardService implements OnModuleDestroy {
 
   async topbarState(user?: AuthenticatedUser) {
     const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const canDiscover = Boolean(user?.roles.some((role) => role === 'ADMIN' || role === 'NETWORK_OPERATOR'));
+    const subnetWhere = user && canDiscover ? await this.ipamAccess.whereFor(user, 'READ', 'subnet') : { id: { in: [] } };
     const [failedJobs, pendingResults, processes, redis, settings, pendingRoleRequests, notifications] = await Promise.all([
       this.prisma.discoveryJob.findMany({
-        where: { status: 'FAILED', createdAt: { gte: cutoff } },
+        where: { status: 'FAILED', createdAt: { gte: cutoff }, subnet: subnetWhere },
         include: { subnet: { select: { cidr: true, site: { select: { name: true } } } } },
         orderBy: { createdAt: 'desc' },
         take: 5,
       }),
-      this.prisma.discoveryResult.count({ where: { status: 'PENDING' } }),
+      this.prisma.discoveryResult.count({ where: { status: 'PENDING', job: { subnet: subnetWhere } } }),
       this.prisma.discoveryJob.findMany({
-        where: { status: { in: ['PENDING', 'RUNNING'] } },
+        where: { status: { in: ['PENDING', 'RUNNING'] }, subnet: subnetWhere },
         include: { subnet: { select: { cidr: true } } },
         orderBy: { createdAt: 'desc' },
         take: 5,

@@ -4,7 +4,12 @@ import { DashboardService } from './dashboard.service';
 
 function serviceWith(prisma: Record<string, unknown>, queue: Record<string, unknown> = {}) {
   const service = Object.create(DashboardService.prototype) as DashboardService;
-  Object.assign(service as object, { prisma, discoveryQueue: queue });
+  Object.assign(service as object, {
+    prisma,
+    discoveryQueue: queue,
+    ipamAccess: { whereFor: async () => ({}) },
+    infrastructureAccess: { visibleRoomIds: async () => [], visibleUnplacedSiteIds: async () => [] },
+  });
   return service;
 }
 

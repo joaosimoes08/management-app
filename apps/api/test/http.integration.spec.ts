@@ -22,6 +22,7 @@ const ids = {
   legacy: '10000000-0000-4000-8000-000000000003',
   auditor: '10000000-0000-4000-8000-000000000004',
   readonly: '10000000-0000-4000-8000-000000000005',
+  systems: '10000000-0000-4000-8000-000000000006',
   siteA: '20000000-0000-4000-8000-000000000001',
   siteB: '20000000-0000-4000-8000-000000000002',
   vlanA: '30000000-0000-4000-8000-000000000001',
@@ -34,6 +35,9 @@ const ids = {
   discoveryResult: '70000000-0000-4000-8000-000000000001',
   groupRead: '80000000-0000-4000-8000-000000000001',
   groupWrite: '80000000-0000-4000-8000-000000000002',
+  buildingA: '90000000-0000-4000-8000-000000000001',
+  roomA: '91000000-0000-4000-8000-000000000001',
+  roomSibling: '91000000-0000-4000-8000-000000000002',
 };
 
 class HeaderAuthGuard implements CanActivate {
@@ -61,7 +65,7 @@ const request = (method: string, url: string, persona?: string, payload?: unknow
 
 async function resetDatabase() {
   await prisma.$executeRawUnsafe(`TRUNCATE TABLE
-    "Notification", "RoleRequest", "ApplicationLinkRole", "ApplicationLink", "RipeImport", "IpamPermission", "IpamGroupMember", "IpamGroup",
+    "Notification", "RoleRequest", "ApplicationLinkRole", "ApplicationLink", "RipeImport", "InfrastructurePermission", "AccessGroupSitePermission", "AccessGroupSite", "AccessGroupMember", "AccessGroup",
     "DiscoveryResult", "DiscoveryJob", "DiscoverySchedule", "Service", "IpAddress", "InterfaceVlan", "DeviceInterface",
     "Host", "Device", "DeviceModel", "AssetFile", "Rack", "RackModel", "Room", "Building", "NatRule", "Subnet", "Vrf",
     "Vlan", "Site", "AuditLog", "UserRole", "User", "SystemSettings" RESTART IDENTITY CASCADE`);
@@ -72,9 +76,12 @@ async function resetDatabase() {
     [ids.legacy, 'qa-network-legacy', 'NETWORK_OPERATOR'],
     [ids.auditor, 'qa-auditor', 'AUDITOR'],
     [ids.readonly, 'qa-readonly', 'READ_ONLY'],
+    [ids.systems, 'qa-systems-scoped', 'SYSTEMS_OPERATOR'],
   ] as const;
   for (const [id, username, role] of personas) await prisma.user.create({ data: { id, externalId: `http-${username}`, username, roles: { create: { role } } } });
   await prisma.site.createMany({ data: [{ id: ids.siteA, name: 'HTTP Site A', code: 'HTTP-A' }, { id: ids.siteB, name: 'HTTP Site B', code: 'HTTP-B' }] });
+  await prisma.building.create({ data: { id: ids.buildingA, name: 'HTTP Building A', siteId: ids.siteA } });
+  await prisma.room.createMany({ data: [{ id: ids.roomA, name: 'HTTP Room A', buildingId: ids.buildingA }, { id: ids.roomSibling, name: 'HTTP Room Sibling', buildingId: ids.buildingA }] });
   await prisma.vlan.createMany({ data: [{ id: ids.vlanA, vlanId: 2501, name: 'HTTP VLAN A', siteId: ids.siteA }, { id: ids.vlanB, vlanId: 2502, name: 'HTTP VLAN B', siteId: ids.siteB }] });
   await prisma.subnet.createMany({ data: [
     { id: ids.subnetA, cidr: '10.250.1.0/24', version: 4, siteId: ids.siteA, vlanId: ids.vlanA },
@@ -92,17 +99,19 @@ async function resetDatabase() {
   await prisma.service.create({ data: { hostId: ids.hostManual, name: 'Manual HTTP', protocol: 'TCP', port: 80, status: 'ACTIVE', notes: 'preserve-service', source: 'MANUAL' } });
   await prisma.discoveryJob.create({ data: { id: ids.discoveryJob, name: 'HTTP idempotency', subnetId: ids.subnetA, methods: ['ICMP', 'TCP'], tcpPorts: [22, 443], status: 'COMPLETED' } });
   await prisma.discoveryResult.create({ data: { id: ids.discoveryResult, jobId: ids.discoveryJob, address: '10.250.1.55', hostname: 'observed.example', icmpReachable: true, responseMs: 4, openPorts: [22, 443] } });
-  await prisma.ipamGroup.createMany({ data: [
-    { id: ids.groupRead, name: 'HTTP Scoped Read', siteId: ids.siteA },
-    { id: ids.groupWrite, name: 'HTTP Scoped Write', siteId: ids.siteA },
+  await prisma.accessGroup.createMany({ data: [
+    { id: ids.groupRead, name: 'HTTP Scoped Read' },
+    { id: ids.groupWrite, name: 'HTTP Scoped Write' },
   ] });
-  await prisma.ipamGroupMember.createMany({ data: [{ groupId: ids.groupRead, userId: ids.scoped }, { groupId: ids.groupWrite, userId: ids.scoped }] });
-  await prisma.ipamPermission.createMany({ data: [
-    { groupId: ids.groupRead, scopeType: 'SITE', scopeId: ids.siteA, permission: 'READ' },
-    { groupId: ids.groupWrite, scopeType: 'SUBNET', scopeId: ids.subnetA, permission: 'CREATE' },
-    { groupId: ids.groupWrite, scopeType: 'SUBNET', scopeId: ids.subnetA, permission: 'UPDATE' },
-    { groupId: ids.groupWrite, scopeType: 'SUBNET', scopeId: ids.subnetA, permission: 'DISCOVER' },
+  await prisma.accessGroupMember.createMany({ data: [{ groupId: ids.groupRead, userId: ids.scoped }, { groupId: ids.groupRead, userId: ids.readonly }, { groupId: ids.groupRead, userId: ids.systems }, { groupId: ids.groupWrite, userId: ids.scoped }] });
+  await prisma.accessGroupSite.createMany({ data: [{ groupId: ids.groupRead, siteId: ids.siteA }, { groupId: ids.groupWrite, siteId: ids.siteA }] });
+  await prisma.accessGroupSitePermission.createMany({ data: [
+    { groupId: ids.groupRead, siteId: ids.siteA, permission: 'READ' },
+    { groupId: ids.groupWrite, siteId: ids.siteA, permission: 'CREATE' },
+    { groupId: ids.groupWrite, siteId: ids.siteA, permission: 'UPDATE' },
+    { groupId: ids.groupWrite, siteId: ids.siteA, permission: 'DISCOVER' },
   ] });
+  await prisma.infrastructurePermission.create({ data: { groupId: ids.groupRead, scopeType: 'ROOM', scopeId: ids.roomA, permission: 'READ' } });
 }
 
 before(async () => {
@@ -136,15 +145,27 @@ test('enforces authentication and persona-level RBAC over HTTP', async () => {
   assert.equal((await request('POST', '/api/v1/ip-addresses', 'qa-auditor', { address: '10.250.1.21', subnetId: ids.subnetA })).statusCode, 403);
 });
 
-test('applies scoped visibility, inherited reads, group union, and legacy fallback', async () => {
+test('applies scoped visibility, inherited reads, group union, and fail-closed access', async () => {
   const visible = await request('GET', '/api/v1/sites?pageSize=20', 'qa-network-scoped');
   assert.equal(visible.statusCode, 200);
   assert.deepEqual(json(visible).items.map((site: { id: string }) => site.id), [ids.siteA]);
   assert.equal((await request('GET', `/api/v1/subnets/${ids.subnetA}`, 'qa-network-scoped')).statusCode, 200);
   assert.equal((await request('GET', `/api/v1/subnets/${ids.subnetB}`, 'qa-network-scoped')).statusCode, 404);
   assert.equal((await request('PATCH', `/api/v1/subnets/${ids.subnetA}`, 'qa-network-scoped', { purpose: 'Scoped update' })).statusCode, 200);
-  assert.equal((await request('PATCH', `/api/v1/subnets/${ids.subnetB}`, 'qa-network-scoped', { purpose: 'Denied update' })).statusCode, 403);
-  assert.equal((await request('PATCH', `/api/v1/subnets/${ids.subnetB}`, 'qa-network-legacy', { purpose: 'Legacy update' })).statusCode, 200);
+  assert.equal((await request('PATCH', `/api/v1/subnets/${ids.subnetB}`, 'qa-network-scoped', { purpose: 'Denied update' })).statusCode, 404);
+  assert.equal((await request('PATCH', `/api/v1/subnets/${ids.subnetB}`, 'qa-network-legacy', { purpose: 'Denied without group' })).statusCode, 404);
+});
+
+test('applies room replacement ACLs without exposing sibling rooms', async () => {
+  const buildings = await request('GET', `/api/v1/sites/${ids.siteA}/buildings`, 'qa-systems-scoped');
+  assert.equal(buildings.statusCode, 200);
+  assert.deepEqual(json(buildings)[0].rooms.map((room: { id: string }) => room.id), [ids.roomA]);
+  const effective = await request('GET', `/api/v1/access/effective?siteId=${ids.siteA}`, 'qa-systems-scoped');
+  assert.equal(effective.statusCode, 200);
+  assert.deepEqual(json(effective).infrastructure.rooms.map((room: { id: string }) => room.id), [ids.roomA]);
+  assert.equal((await request('POST', `/api/v1/buildings/${ids.buildingA}/rooms`, 'qa-systems-scoped', { name: 'Denied room' })).statusCode, 403);
+  assert.equal((await request('POST', '/api/v1/racks', 'qa-systems-scoped', { name: 'Denied rack', roomId: ids.roomA })).statusCode, 403);
+  assert.equal((await request('POST', '/api/v1/racks', 'qa-systems-scoped', { name: 'Hidden rack', roomId: ids.roomSibling })).statusCode, 404);
 });
 
 test('requires access to every subnet before mutating a multi-subnet Host', async () => {
@@ -175,7 +196,7 @@ test('allows self-service role requests but reserves decisions for ADMIN', async
   const roleRequest = json(submitted) as { id: string; status: string };
   assert.equal(roleRequest.status, 'PENDING');
 
-  const duplicate = await request('POST', '/api/v1/settings/role-requests', 'qa-readonly', { roles: ['STORAGE_OPERATOR'] });
+  const duplicate = await request('POST', '/api/v1/settings/role-requests', 'qa-readonly', { roles: ['SYSTEMS_OPERATOR'] });
   assert.equal(duplicate.statusCode, 409);
   assert.equal(json(duplicate).code, 'ROLE_REQUEST_PENDING');
   assert.equal((await request('PATCH', `/api/v1/settings/role-requests/${roleRequest.id}`, 'qa-readonly', { decision: 'APPROVE' })).statusCode, 403);

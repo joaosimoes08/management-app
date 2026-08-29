@@ -1,5 +1,17 @@
 # Estado atual
 
+## Refatoração do frontend — arquitetura feature/domain
+
+- `apps/web` reorganizado por domínio de negócio: `features/{infrastructure,ipam,settings,dashboard,audit,discovery,portal,setup,profile}` com componentes, tipos e API tipados por domínio; `app/` reduzido a wrappers de routing.
+- God components divididos: `infrastructure-workspace-next.tsx` (560 linhas) em 17 componentes coesos; `app/ipam/page.tsx` em orquestrador + subcomponentes; `app-shell.tsx` em sidebar/header/user-menu/global-search.
+- Ficheiro legado `infrastructure-workspace.tsx` e `PermissionsView` morto eliminados; nome temporário `-next` removido.
+- `@ts-nocheck`: 0 (antes 4); `any`: 0 (antes ~158). Alias `@/*` adicionado.
+- Transporte HTTP separado da autenticação (`lib/api/client.ts`); `useAuth()` já não expõe `apiFetch`.
+- React Query adotado para server-state em todos os domínios, com query keys por domínio e invalidação.
+- ESLint 9 + scripts `typecheck`/`lint`; gates de typecheck e lint do frontend no CI.
+- Rotas, contratos, autenticação, traduções e UI preservados; validado com typecheck, lint, build (14 rotas) e `i18n:check`.
+- Detalhes em [frontend-refactor.md](frontend-refactor.md).
+
 ## Concluído
 
 - Monorepo npm com `apps/api` e `packages/database`.

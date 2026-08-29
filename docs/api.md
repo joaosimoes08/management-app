@@ -13,7 +13,9 @@ A API usa versionamento por URI: `/api/v1/...`.
 - `GET /api/v1/ip-addresses/:id`, `POST /api/v1/ip-addresses/:id/check`
 - CRUD `/api/v1/vrfs` e `/api/v1/nat-rules`
 - `POST /api/v1/ipam/calculator`
-- `GET/POST /api/v1/ipam/groups`, CRUD `/api/v1/ipam/permissions`
+- CRUD de grupos centralizados em `/api/v1/settings/access-groups` e membros em `/api/v1/settings/access-groups/:id/members`
+- Grupos globais e associações a Sites em `/api/v1/settings/access-groups`; ações IPAM são configuradas na associação Grupo–Site e ACLs físicas em `/api/v1/infrastructure/permissions`
+- `GET /api/v1/access/effective?siteId=...` — capacidades da role, ações IPAM, ACLs físicas efetivas e tabs disponíveis; a autorização continua a ser validada em cada endpoint.
 - `POST /api/v1/ipam/ripe/preview`, `POST /api/v1/ipam/ripe/import`, `GET /api/v1/ipam/ripe/imports`
 
 O scanning automático começa desligado e usa intervalo fixo de 12 horas. IPv6 usa capacidade teórica e checks apenas de endereços conhecidos.
@@ -28,7 +30,7 @@ O scanning automático começa desligado e usa intervalo fixo de 12 horas. IPv6 
 
 ### Dashboard
 
-`GET /api/v1/dashboard/summary` devolve contagens reais do inventário (`sites`, `devices`, `vlans`, `subnets`, `ips`) e os últimos eventos de auditoria. A ausência de dados devolve zeros e uma lista vazia; não cria informação fictícia.
+`GET /api/v1/dashboard/summary` devolve apenas contagens do inventário visível ao utilizador (`sites`, `devices`, `vlans`, `subnets`, `ips`) e, para `ADMIN`/`AUDITOR`, os últimos eventos de auditoria.
 
 ### Setup inicial
 
@@ -106,9 +108,9 @@ As escritas de infraestrutura e definições são auditadas e protegidas por rol
 Obter um access token no endpoint OIDC do realm `COCiber` e chamar `/api/v1/auth/me` com o header Bearer. O exemplo PowerShell completo está no README principal e pode ser executado com o utilizador local `joao`.
 ## Catálogo físico e discovery periódico
 
-- `GET/POST /api/v1/assets` — consulta e upload manual de SVG, PNG ou WebP; apenas ADMIN pode criar.
+- `GET/POST /api/v1/assets` — consulta e upload manual de SVG, PNG ou WebP; requer `ADMIN`, `NETWORK_OPERATOR` ou `SYSTEMS_OPERATOR`.
 - `GET /api/v1/assets/:id/file` — serve o ficheiro do asset.
-- `DELETE /api/v1/assets/:id` — remove assets não associados; apenas ADMIN.
+- `DELETE /api/v1/assets/:id` — remove assets não associados; requer `ADMIN`, `NETWORK_OPERATOR` ou `SYSTEMS_OPERATOR`.
 - `GET/POST/PATCH/DELETE /api/v1/rack-models` — catálogo histórico de modelos de bastidor; já não pode ser associado a bastidores operacionais.
 - `GET/POST/PATCH /api/v1/racks` — consulta e gestão de bastidores associados a salas. `POST` e `PATCH` aceitam apenas `name` e `roomId`; a capacidade é sempre 42U e a imagem/modelo são fixos pela aplicação.
 - `GET /api/v1/interfaces?deviceId=` — interfaces de um equipamento, incluindo VLANs permitidas e IPs.

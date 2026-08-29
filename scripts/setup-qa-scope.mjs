@@ -43,20 +43,16 @@ if (!site) throw new Error('QA-PILOT Site not found. Run npm run pilot:seed firs
 const subnets = await api(adminToken, `/subnets?siteId=${encodeURIComponent(site.id)}&search=${encodeURIComponent('10.254.250.0/30')}`);
 const subnet = subnets.items.find((item) => item.cidr === '10.254.250.0/30');
 if (!subnet) throw new Error('QA pilot subnet not found.');
-const users = await api(adminToken, '/ipam/users?search=qa-network-scoped');
+const users = await api(adminToken, '/settings/access-group-users?search=qa-network-scoped');
 const scopedUser = users.find((item) => item.username === 'qa-network-scoped');
 if (!scopedUser) throw new Error('Scoped user was not synchronized.');
 
-let groups = await api(adminToken, `/ipam/groups?siteId=${encodeURIComponent(site.id)}`);
+let groups = await api(adminToken, '/settings/access-groups');
 let group = groups.find((item) => item.name === 'QA-NETWORK-SCOPED');
-if (!group) group = await api(adminToken, '/ipam/groups', { method: 'POST', body: JSON.stringify({ name: 'QA-NETWORK-SCOPED', description: 'Persistent pilot scope limited to the QA subnet.', siteId: site.id }) });
-groups = await api(adminToken, `/ipam/groups?siteId=${encodeURIComponent(site.id)}`);
+if (!group) group = await api(adminToken, '/settings/access-groups', { method: 'POST', body: JSON.stringify({ name: 'QA-NETWORK-SCOPED', description: 'Persistent pilot scope limited to the QA Site.' }) });
+await api(adminToken, `/settings/access-groups/${group.id}/sites/${site.id}`, { method: 'PUT', body: JSON.stringify({ permissions: ['READ', 'CREATE', 'UPDATE', 'DISCOVER'] }) });
+groups = await api(adminToken, '/settings/access-groups');
 group = groups.find((item) => item.id === group.id);
-if (!group.members.some((member) => member.userId === scopedUser.id)) await api(adminToken, `/ipam/groups/${group.id}/members`, { method: 'POST', body: JSON.stringify({ userId: scopedUser.id }) });
-for (const permission of ['READ', 'CREATE', 'UPDATE', 'DISCOVER']) {
-  if (!group.permissions.some((item) => item.scopeType === 'SUBNET' && item.scopeId === subnet.id && item.permission === permission)) {
-    await api(adminToken, '/ipam/permissions', { method: 'POST', body: JSON.stringify({ groupId: group.id, scopeType: 'SUBNET', scopeId: subnet.id, permission }) });
-  }
-}
+if (!group.members.some((member) => member.userId === scopedUser.id)) await api(adminToken, `/settings/access-groups/${group.id}/members`, { method: 'POST', body: JSON.stringify({ userId: scopedUser.id }) });
 
-console.log('Synchronized 5 QA identities and configured QA-NETWORK-SCOPED on one pilot subnet.');
+console.log('Synchronized 5 QA identities and configured QA-NETWORK-SCOPED on one pilot Site.');

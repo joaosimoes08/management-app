@@ -25,6 +25,7 @@ export class AuthService {
     // Keycloak can expose the same role through multiple mappings. Keep the
     // persisted role set unique because UserRole uses (userId, role) as its key.
     const roles = [...new Set(input.roles.filter(isApplicationRole))];
+    const persistedRoles = [...roles, ...(input.roles.includes('STORAGE_OPERATOR') ? ['STORAGE_OPERATOR' as const] : [])];
     const userByExternalId = await this.prisma.user.findUnique({ where: { externalId: input.externalId } });
     const userByUsername = userByExternalId
       ? null
@@ -58,12 +59,12 @@ export class AuthService {
       await tx.userRole.deleteMany({
         where: {
           userId: user.id,
-          ...(roles.length ? { role: { notIn: roles } } : {}),
+          ...(persistedRoles.length ? { role: { notIn: persistedRoles } } : {}),
         },
       });
-      if (roles.length) {
+      if (persistedRoles.length) {
         await tx.userRole.createMany({
-          data: roles.map((role) => ({ userId: user.id, role })),
+          data: persistedRoles.map((role) => ({ userId: user.id, role })),
           skipDuplicates: true,
         });
       }

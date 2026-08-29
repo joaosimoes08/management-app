@@ -94,20 +94,6 @@ export class CreateNatRuleDto {
   @IsOptional() @IsString() @MaxLength(500) description?: string;
 }
 export class UpdateNatRuleDto extends CreateNatRuleDto {}
-export class CreateIpamGroupDto {
-  @IsString() @MinLength(1) @MaxLength(100) name!: string;
-  @IsOptional() @IsString() @MaxLength(240) description?: string;
-  @IsOptional() @IsString() siteId?: string;
-}
-export class UpdateIpamGroupDto extends CreateIpamGroupDto {}
-export class IpamGroupMemberDto { @IsUUID() userId!: string; }
-export class CreateIpamPermissionDto {
-  @IsString() groupId!: string;
-  @IsIn(['SITE', 'VRF', 'VLAN', 'SUBNET']) scopeType!: string;
-  @IsString() scopeId!: string;
-  @IsIn(['READ', 'CREATE', 'UPDATE', 'DELETE', 'DISCOVER', 'IMPORT']) permission!: string;
-}
-export class UpdateIpamPermissionDto extends CreateIpamPermissionDto {}
 export class RipePreviewDto {
   @IsString() @MinLength(2) @MaxLength(160) query!: string;
   @IsOptional() @IsIn(['asn', 'organisation', 'prefix']) queryType?: string;

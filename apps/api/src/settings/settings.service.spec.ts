@@ -8,7 +8,7 @@ function createService() {
   let settings: any = { id: 'settings', organizationName: 'Org', organizationCode: 'ORG', timezone: 'Europe/Lisbon', locale: 'pt-PT', discoveryDefaultMethods: ['ICMP', 'TCP'], discoveryDefaultTcpPorts: [22, 80, 443, 3389], discoveryDefaultReverseDns: true, discoveryDefaultIntervalHours: 12, discoveryAllowedCidrs: ['10.0.0.0/8'], auditRetentionDays: 90, lastAuditCleanupAt: null, lastAuditCleanupDeletedCount: null };
   const prisma = { systemSettings: { findFirst: async () => settings, create: async () => settings, update: async ({ data }: any) => (settings = { ...settings, ...data }) }, site: { findMany: async () => [] }, auditLog: { count: async () => 0, findFirst: async () => null } };
   const records: any[] = []; const audit = { record: async (entry: any) => { records.push(entry); } };
-  return { service: new SettingsService(prisma as never, audit as never), records, settings: () => settings };
+  return { service: new SettingsService(prisma as never, audit as never, {} as never), records, settings: () => settings };
 }
 
 test('organization settings persist the global locale', async () => {
