@@ -4,15 +4,14 @@ import ts from 'typescript';
 
 const root = process.cwd();
 const operationalFiles = [
-  'apps/web/app/page.tsx',
-  'apps/web/app/descoberta/page.tsx',
-  'apps/web/app/portal/page.tsx',
-  'apps/web/app/auditoria/page.tsx',
+  'apps/web/features/dashboard/dashboard-page.tsx',
+  'apps/web/features/discovery/discovery-page.tsx',
+  'apps/web/features/portal/portal-page.tsx',
+  'apps/web/features/audit/audit-page.tsx',
+  'apps/web/features/infrastructure/infrastructure-workspace.tsx',
+  'apps/web/features/ipam/ipam-page.tsx',
   'apps/web/app/ajuda/page.tsx',
   'apps/web/app/ajuda/[topic]/page.tsx',
-  'apps/web/app/ipam/page.tsx',
-  'apps/web/components/infrastructure-workspace.tsx',
-  'apps/web/components/infrastructure-workspace-next.tsx',
 ];
 
 function sourceFile(relative, kind = ts.ScriptKind.TSX) {
