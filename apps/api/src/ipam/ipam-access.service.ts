@@ -65,7 +65,19 @@ export class IpamAccessService {
     const host = await this.prisma.host.findUnique({ where: { id: hostId }, include: { ipAddresses: { include: { subnet: { select: { id: true, siteId: true, vlanId: true, vrfId: true } } } } } });
     if (!host) throw new NotFoundException({ code: 'HOST_NOT_FOUND', message: 'Host não encontrado.' });
     if (!host.ipAddresses.length) await this.assertContext(user, action, {});
-    for (const ip of host.ipAddresses) await this.assertContext(user, action, { ...ip.subnet, subnetId: ip.subnet.id });
+    const contexts = host.ipAddresses.map((ip) => ({ ...ip.subnet, subnetId: ip.subnet.id }));
+    let visible = false;
+    for (const context of contexts) {
+      try { await this.assertContext(user, 'READ', context); visible = true; } catch (error) {
+        if (!(error instanceof NotFoundException)) throw error;
+      }
+    }
+    for (const context of contexts) {
+      try { await this.assertContext(user, action, context); } catch (error) {
+        if (action !== 'READ' && visible && error instanceof NotFoundException) throw new ForbiddenException({ code: 'IPAM_SCOPE_FORBIDDEN', message: 'Não tens permissão para operar em todas as subnets deste Host.' });
+        throw error;
+      }
+    }
     return host;
   }
   async assertSubnetPlacement(user: AuthenticatedUser, action: IpamAction, placement: { siteId?: string | null; vlanId?: string | null; vrfId?: string | null; parentSubnetId?: string | null }) {

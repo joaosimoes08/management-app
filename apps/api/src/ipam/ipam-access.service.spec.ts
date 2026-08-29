@@ -67,3 +67,15 @@ test('the legacy storage role does not activate a group assignment', async () =>
   const legacy = { ...user, roles: ['STORAGE_OPERATOR'] };
   assert.deepEqual(await access.whereFor(legacy as never, 'READ', 'site'), { id: { in: [] } });
 });
+
+test('returns forbidden when mutating a visible Host spanning an inaccessible subnet', async () => {
+  const prisma = {
+    accessGroupMember: { findMany: async () => [{ group: { siteAssignments: [{ siteId: 'site-a', permissions: [{ permission: 'READ' }, { permission: 'UPDATE' }] }] } }] },
+    host: { findUnique: async () => ({ id: 'host-multi', ipAddresses: [
+      { subnet: { id: 'subnet-a', siteId: 'site-a', vlanId: null, vrfId: null } },
+      { subnet: { id: 'subnet-b', siteId: 'site-b', vlanId: null, vrfId: null } },
+    ] }) },
+  };
+  const access = new IpamAccessService(prisma as never, new AccessPolicyService());
+  await assert.rejects(() => access.assertHost(user as never, 'UPDATE', 'host-multi'), ForbiddenException);
+});
