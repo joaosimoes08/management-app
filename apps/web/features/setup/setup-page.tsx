@@ -1,12 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, Check, MapPin, ShieldCheck, Sparkles } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { AppLocale, useI18n } from '@/lib/i18n';
-import { apiFetch } from '@/lib/api/client';
+import { completeSetup, createSetupOrganization, createSetupSite, getSetupStatus, type SetupStatus } from './api';
 
-type SetupStatus = { setupCompleted: boolean; organizationName?: string | null; organizationCode?: string | null; locale?: AppLocale; siteCount: number; hasSite: boolean };
 type SetupForm = { organizationName: string; organizationCode: string; timezone: string; locale: AppLocale; siteName: string; siteCode: string; address: string; city: string; region: string; country: string; buildingName: string; roomName: string; rackName: string };
 
 const initialForm: SetupForm = { organizationName: '', organizationCode: '', timezone: 'Europe/Lisbon', locale: 'pt-PT', siteName: '', siteCode: '', address: '', city: '', region: '', country: 'Portugal', buildingName: '', roomName: '', rackName: '' };
@@ -14,38 +14,42 @@ const initialForm: SetupForm = { organizationName: '', organizationCode: '', tim
 export default function SetupPage() {
   const { hasRole } = useAuth();
   const { t, setLocale } = useI18n();
+  const queryClient = useQueryClient();
   const [step, setStep] = useState(0);
   const [form, setForm] = useState(initialForm);
-  const [status, setStatus] = useState<SetupStatus | null>(null);
-  const [busy, setBusy] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const { data: status, isPending: busy } = useQuery({ queryKey: ['setup', 'status'], queryFn: getSetupStatus });
+
   useEffect(() => {
-    void apiFetch<SetupStatus>('/api/v1/setup/status').then((current) => {
-      setStatus(current);
-      if (current.setupCompleted) window.location.replace('/');
-      if (current.locale) setLocale(current.locale);
-      setForm((value) => ({ ...value, organizationName: current.organizationName ?? '', organizationCode: current.organizationCode ?? '', locale: current.locale ?? value.locale }));
-    }).catch((reason) => setError(reason instanceof Error ? reason.message : 'Não foi possível carregar o setup.')).finally(() => setBusy(false));
-  }, [apiFetch]);
+    if (!status) return;
+    if (status.setupCompleted) window.location.replace('/');
+    if (status.locale) setLocale(status.locale);
+    setForm((value) => ({ ...value, organizationName: status.organizationName ?? '', organizationCode: status.organizationCode ?? '', locale: status.locale ?? value.locale }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
 
   const update = (field: keyof SetupForm, value: string) => setForm((current) => ({ ...current, [field]: value }));
   const saveOrganization = async () => {
     setSaving(true); setError(null);
-    try { await apiFetch('/api/v1/setup/organization', { method: 'POST', body: JSON.stringify({ name: form.organizationName, code: form.organizationCode || undefined, timezone: form.timezone, locale: form.locale }) }); setStep(2); }
+    try { await createSetupOrganization({ name: form.organizationName, code: form.organizationCode || undefined, timezone: form.timezone, locale: form.locale }); setStep(2); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Não foi possível guardar a organização.'); }
     finally { setSaving(false); }
   };
   const saveSite = async () => {
     setSaving(true); setError(null);
-    try { await apiFetch('/api/v1/setup/site', { method: 'POST', body: JSON.stringify({ name: form.siteName, code: form.siteCode, address: form.address || undefined, city: form.city || undefined, region: form.region || undefined, country: form.country || undefined, buildingName: form.buildingName || undefined, roomName: form.roomName || undefined, rackName: form.rackName || undefined }) }); setStatus((value) => value ? { ...value, hasSite: true, siteCount: value.siteCount + 1 } : value); setStep(3); }
+    try {
+      await createSetupSite({ name: form.siteName, code: form.siteCode, address: form.address || undefined, city: form.city || undefined, region: form.region || undefined, country: form.country || undefined, buildingName: form.buildingName || undefined, roomName: form.roomName || undefined, rackName: form.rackName || undefined });
+      queryClient.setQueryData<SetupStatus>(['setup', 'status'], (value) => (value ? { ...value, hasSite: true, siteCount: value.siteCount + 1 } : value));
+      setStep(3);
+    }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Não foi possível criar o site.'); }
     finally { setSaving(false); }
   };
   const complete = async () => {
     setSaving(true); setError(null);
-    try { await apiFetch('/api/v1/setup/complete', { method: 'POST' }); window.location.replace('/'); }
+    try { await completeSetup(); window.location.replace('/'); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Não foi possível concluir o setup.'); setSaving(false); }
   };
 

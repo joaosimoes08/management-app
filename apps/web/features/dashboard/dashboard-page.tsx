@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   Activity,
   ArrowUpRight,
@@ -21,7 +22,7 @@ import {
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
 import { AppShell } from '@/components/layout/app-shell';
-import { apiFetch } from '@/lib/api/client';
+import { getDashboardSummary } from './api';
 
 const systems = [
   { name: 'PostgreSQL', detail: 'Base de dados principal', status: 'Operacional', tone: 'green', icon: Database },
@@ -30,10 +31,6 @@ const systems = [
   { name: 'API NestJS', detail: 'v1 · localhost:3001', status: 'Operacional', tone: 'green', icon: TerminalSquare },
 ];
 
-type DashboardSummary = {
-  counts: { sites: number; devices: number; vlans: number; subnets: number; ips: number; occupiedIps: number; freeIps: number; applications: number };
-  recentAudit: { id: string; action: string; entityType?: string | null; username: string; createdAt: string }[];
-};
 
 const activity = [
   { title: 'João iniciou sessão', meta: 'há 4 min · ADMIN', icon: ShieldCheck, tone: 'dark' },
@@ -58,22 +55,23 @@ function MetricCard({ label, value, change, icon: Icon, className = '' }: { labe
 }
 
 export default function DashboardPage() {
-  const [apiOnline, setApiOnline] = useState<boolean | null>(null);
   const { user, profile, hasRole } = useAuth();
-  const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const { data: summary = null, refetch: refetchSummary } = useQuery({ queryKey: ['dashboard', 'summary'], queryFn: getDashboardSummary });
+  const { data: healthResponse } = useQuery({
+    queryKey: ['dashboard', 'health'],
+    queryFn: async () => {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+      const response = await fetch(`${apiUrl}/api/v1/health`, { cache: 'no-store' });
+      return response.ok;
+    },
+    staleTime: 30_000,
+  });
+  const apiOnline: boolean | null = typeof healthResponse === 'boolean' ? healthResponse : null;
   const displayName = profile?.firstName || user?.username || 'Utilizador';
   const canNetworkChange = hasRole('ADMIN') || hasRole('NETWORK_OPERATOR');
   const canViewAudit = hasRole('ADMIN') || hasRole('AUDITOR');
 
-  useEffect(() => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
-    fetch(`${apiUrl}/api/v1/health`, { cache: 'no-store' })
-      .then((response) => setApiOnline(response.ok))
-      .catch(() => setApiOnline(false));
-  }, []);
-
-  const refreshDashboard = useCallback(() => { void apiFetch<DashboardSummary>('/api/v1/dashboard/summary').then(setSummary).catch(() => setSummary(null)); }, [apiFetch]);
-  useEffect(() => { refreshDashboard(); }, [refreshDashboard]);
+  const refreshDashboard = () => { void refetchSummary(); };
 
   const counts = summary?.counts;
   const recentAudit = summary?.recentAudit ?? [];
