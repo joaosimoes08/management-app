@@ -275,17 +275,20 @@ O IPAM é isolado por `siteId` para VLANs, VRFs, subnets, IPs e Hosts. Um Host c
 - A tab de permissões IPAM usa os seletores Grupo/Site, checkboxes incluindo `FULL CONTROL`, edição e remoção de regras, e atualiza as “Regras atuais” por Site.
 - “Todos os sites” só deve aparecer em páginas agregadas quando existem vários Sites acessíveis.
 
-### 7.4 Estado Git e validação
+### 7.4 Estado pós-implementação e validação
 
-O trabalho está na branch `joao/feature/access-control-rebuild`, no PR [#7](https://github.com/joaosimoes08/management-app/pull/7). O último commit é `6a91e26` (`fix: return forbidden for partial host access`).
+O PR #7 foi integrado em `main`. As funcionalidades de grupos, roles, permissões por Site e ACLs de Infraestrutura estão implementadas e operacionais.
 
-Validação mais recente:
+Validação concluída:
 
-- Testes da API: **58/58 passaram**.
+- Testes unitários da API: **58/58 passaram**.
+- Testes HTTP: **8/8 passaram**, incluindo autenticação/RBAC, visibilidade por Site, herança e substituição de ACLs, isolamento de subnets, bypass de `ADMIN`, auditoria e Discovery idempotente.
 - Build da API: concluído com sucesso.
-- `npm run test:http`: requer uma `DATABASE_URL` isolada cujo nome termine em `_test`; sem essa configuração o comando termina antes de executar os testes. No CI, o teste que falhava (esperava `403`, recebia `404`) foi corrigido.
+- Migrações Prisma: aplicadas; o schema e o histórico de migrações estão sincronizados.
+- Migração de grupos: grupos, membros e associações existentes foram preservados, incluindo `Jacintos` associado a `LX`.
+- Correção validada: uma mutação num Host visível com uma subnet inacessível devolve `403`, enquanto recursos fora do scope continuam a devolver `404`.
 
-Antes de fazer merge, repetir os testes HTTP numa base isolada e validar manualmente com `ADMIN`, `READ_ONLY`/Lara, `NETWORK_OPERATOR`, `SYSTEMS_OPERATOR` e `AUDITOR`. Não executar `prisma migrate reset` numa base com dados sem autorização explícita.
+O `context.md` deve ser atualizado a partir deste estado consolidado. Não repetir `prisma migrate reset` numa base com dados; novas alterações ao schema devem usar uma migração aditiva/corretiva.
 - Nginx ou Caddy como reverse proxy TLS.
 - Prometheus e Grafana, se for necessário monitorizar a própria plataforma.
 - MinIO, caso seja necessário guardar ficheiros, exports ou snapshots localmente.
