@@ -2,7 +2,7 @@
 
 import type { KeycloakProfile } from 'keycloak-js';
 import { createContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { apiFetch as apiFetchClient, setApiTokenProvider, setApiUnauthorizedHandler } from '@/lib/api/client';
+import { setApiTokenProvider, setApiUnauthorizedHandler } from '@/lib/api/client';
 import { keycloak, initializeKeycloak } from './keycloak';
 import type { ApiUser, AuthContextValue } from './types';
 
@@ -115,10 +115,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(() => keycloak.logout({ redirectUri: window.location.origin }), []);
   const retry = useCallback(() => window.location.reload(), []);
   const hasRole = useCallback((role: string) => user?.roles.includes(role) ?? false, [user]);
-  // Temporary passthrough so pre-existing consumers keep working while they
-  // migrate to domain API functions; removed once no consumer remains.
-  const apiFetch = apiFetchClient;
 
-  const value = useMemo(() => ({ keycloak, user, profile, token, loading, authError, authenticated, login, logout, retry, hasRole, apiFetch }), [user, profile, token, loading, authError, authenticated, login, logout, retry, hasRole, apiFetch]);
+  const value = useMemo(() => ({ keycloak, user, profile, token, loading, authError, authenticated, login, logout, retry, hasRole }), [user, profile, token, loading, authError, authenticated, login, logout, retry, hasRole]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

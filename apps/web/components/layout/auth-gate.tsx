@@ -4,6 +4,7 @@ import { AlertTriangle, LogIn, RefreshCw, ShieldCheck } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
+import { apiFetch } from '@/lib/api/client';
 
 function AuthVisual() {
   return <div className="auth-visual" aria-hidden="true">
@@ -24,7 +25,7 @@ function AuthLayout({ children, error = false }: { children: React.ReactNode; er
 }
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
-  const { loading, authError, authenticated, login, retry, apiFetch } = useAuth();
+  const { loading, authError, authenticated, login, retry } = useAuth();
   const { locale } = useI18n();
   const [checkingSetup, setCheckingSetup] = useState(false);
   const [setupError, setSetupError] = useState<string | null>(null);

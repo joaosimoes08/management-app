@@ -22,7 +22,7 @@ export interface SubnetsViewProps {
 }
 
 /** Subnet list of the site, or the selected subnet with its IP table. */
-export function SubnetsView({ selected, items, usage, ips, search, setSearch, openSubnet, openHost, canEdit, siteId, newSubnet, editIp, newIp, createHost }: SubnetsViewProps) {
+export function SubnetsView({ selected, items, usage, ips, search, setSearch, openSubnet, openHost, canEdit, newSubnet, editIp, newIp, createHost }: SubnetsViewProps) {
   if (!selected) return <section className="ipam-card">
     <div className="panel-heading"><h2>Subnets do Site</h2>{canEdit && <button className="primary-button" onClick={newSubnet}><Plus size={14} /> Nova subnet</button>}</div>
     {items.map((subnet) => <button className="subnet-list-row" key={subnet.id} onClick={() => openSubnet(subnet.id)}><Network size={17} /><span><strong>{subnet.cidr}</strong><small>IPv{subnet.version} · {subnet.vlan?.name || 'Sem VLAN'} · {subnet._count?.ips ?? 0} IPs</small></span><ChevronRight size={16} /></button>)}

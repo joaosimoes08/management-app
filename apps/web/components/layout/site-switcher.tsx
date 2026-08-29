@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, ChevronDown, MapPin, Plus, X } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
+import { apiFetch } from '@/lib/api/client';
 import { useI18n } from '@/lib/i18n';
 import { useSiteContext } from '@/lib/site-context';
 import { usePathname } from 'next/navigation';
@@ -13,7 +14,7 @@ type SiteForm = { name: string; code: string; address: string; city: string; reg
 const emptyForm: SiteForm = { name: '', code: '', address: '', city: '', region: '', country: 'Portugal', buildingName: '', roomName: '', rackName: '' };
 
 export function SiteSwitcher() {
-  const { apiFetch, hasRole } = useAuth();
+  const { hasRole } = useAuth();
   const pathname = usePathname();
   const { t } = useI18n();
   const { sites, siteId, activeSite: selected, activateSite, reloadSites } = useSiteContext();
@@ -49,11 +50,11 @@ export function SiteSwitcher() {
         {hasRole('ADMIN') && <><div className="site-switcher-divider"/><button className="site-create-trigger" role="menuitem" onClick={() => { setOpen(false); setCreating(true); }}><span className="site-option-mark"><Plus size={14}/></span><span><strong>{t('shell.createSite')}</strong><small>{t('shell.addLocation')}</small></span></button></>}
       </div>}
     </div>
-    {creating && <SiteWalkthrough apiFetch={apiFetch} onClose={() => setCreating(false)} onCreated={() => { void reloadSites(); }} onActivate={activate}/>}
+    {creating && <SiteWalkthrough onClose={() => setCreating(false)} onCreated={() => { void reloadSites(); }} onActivate={activate}/>}
   </>;
 }
 
-function SiteWalkthrough({ apiFetch, onClose, onCreated, onActivate }: { apiFetch: <T = any>(path: string, init?: RequestInit) => Promise<T>; onClose: () => void; onCreated: (site: Site) => void; onActivate: (siteId: string) => void }) {
+function SiteWalkthrough({ onClose, onCreated, onActivate }: { onClose: () => void; onCreated: (site: Site) => void; onActivate: (siteId: string) => void }) {
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<SiteForm>(emptyForm);
   const [created, setCreated] = useState<Site | null>(null);

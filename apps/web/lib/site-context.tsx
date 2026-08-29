@@ -3,13 +3,14 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from './auth';
+import { apiFetch } from '@/lib/api/client';
 
 export type ActiveSite = { id: string; name: string; code: string };
 type SiteContextValue = { sites: ActiveSite[]; siteId: string; activeSite?: ActiveSite; loading: boolean; activateSite: (siteId: string) => void; reloadSites: () => Promise<void> };
 const SiteContext = createContext<SiteContextValue | null>(null);
 
 export function SiteProvider({ children }: { children: React.ReactNode }) {
-  const { apiFetch, authenticated } = useAuth(); const router = useRouter(); const pathname = usePathname();
+  const { authenticated } = useAuth(); const router = useRouter(); const pathname = usePathname();
   const [sites, setSites] = useState<ActiveSite[]>([]); const [siteId, setSiteId] = useState(''); const [loading, setLoading] = useState(true);
   const updateUrl = useCallback((nextSiteId: string) => {
     const url = new URL(window.location.href);

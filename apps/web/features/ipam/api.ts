@@ -9,7 +9,6 @@ import type {
   IpAddressInput,
   IpAddressRow,
   NetworkMapVlan,
-  Site,
   Subnet,
   SubnetInput,
   SubnetUsage,

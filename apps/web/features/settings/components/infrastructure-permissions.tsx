@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Plus, ShieldCheck } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { apiFetch } from '@/lib/api/client';
 import type { BuildingWithRooms } from '@/features/infrastructure/types';
 
@@ -42,7 +42,7 @@ export function InfrastructurePermissions({ siteId, buildings }: { siteId: strin
     }
   };
 
-  useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [siteId]);
+  useEffect(() => { void load(); }, [siteId]);
   useEffect(() => { setDraft((current) => ({ ...current, groupId: '', scopeType: 'SITE', scopeId: siteId })); }, [siteId]);
 
   const mutate = async (path: string, method: string, body?: unknown) => {

@@ -7,6 +7,7 @@ import { AccessGroupsSettings } from './components/access-groups-settings';
 import { useToast } from '@/components/ui/toast';
 import { useAuth } from '@/lib/auth';
 import { AppLocale, useI18n } from '@/lib/i18n';
+import { apiFetch } from '@/lib/api/client';
 
 const applicationRoles = ['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'AUDITOR', 'READ_ONLY'] as const;
 type ApplicationRole = typeof applicationRoles[number];
@@ -23,7 +24,7 @@ const emptySite: SiteForm = { id: '', name: '', code: '', address: '', city: '',
 function Modal({ title, children, close }: { title: string; children: React.ReactNode; close: () => void }) { return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && close()}><section className="modal-card" role="dialog" aria-modal="true"><div className="modal-heading"><h2>{title}</h2><button className="icon-button subtle" onClick={close} aria-label="Fechar"><X size={16}/></button></div>{children}</section></div>; }
 
 export default function SettingsPage() {
-  const { apiFetch, hasRole, logout } = useAuth(); const { success, error: toastError } = useToast(); const { t, locale, setLocale, formatDate } = useI18n();
+  const { hasRole, logout } = useAuth(); const { success, error: toastError } = useToast(); const { t, locale, setLocale, formatDate } = useI18n();
   const admin = hasRole('ADMIN'); const auditor = hasRole('AUDITOR');
   const tabs = useMemo<[Tab, string][]>(() => admin ? [['organization', t('settings.organization')], ['sites', t('settings.sites')], ['groups', 'Grupos'], ['users', t('settings.users')], ['discovery', t('settings.discovery')], ['audit', t('settings.audit')]] : auditor ? [['audit', t('settings.audit')]] : [], [admin, auditor, t, locale]);
   const [tab, setTab] = useState<Tab>('organization'); const [org, setOrg] = useState<Organization | null>(null); const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [error, setError] = useState('');

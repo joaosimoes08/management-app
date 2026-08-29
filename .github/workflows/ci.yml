@@ -59,6 +59,10 @@ jobs:
         run: npx prisma migrate deploy --schema packages/database/prisma/schema.prisma
       - name: Check translations
         run: npm run i18n:check
+      - name: Frontend typecheck
+        run: npm run typecheck --workspace=@simoes/web
+      - name: Frontend lint
+        run: npm run lint --workspace=@simoes/web
       - name: Unit tests
         run: npm test --workspace=@simoes/api
       - name: HTTP integration tests

@@ -6,6 +6,7 @@ import { AppShell } from '@/components/layout/app-shell';
 import { useToast } from '@/components/ui/toast';
 import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
+import { apiFetch } from '@/lib/api/client';
 
 const requestableRoles = ['NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'AUDITOR'] as const;
 type RequestableRole = typeof requestableRoles[number];
@@ -13,7 +14,7 @@ type RoleRequest = { id: string; requestedRoles: string[]; status: string; creat
 type RoleResponse = { eligibleRoles: string[]; currentRoles: string[]; pendingRequest?: RoleRequest | null; history: RoleRequest[] };
 
 export default function ProfilePage() {
-  const { apiFetch, user, profile } = useAuth();
+  const { user, profile } = useAuth();
   const { t, formatDate } = useI18n();
   const { success, error: toastError } = useToast();
   const [tab, setTab] = useState<'profile' | 'roles'>('profile');

@@ -18,8 +18,10 @@ import {
   Sparkles,
   TerminalSquare,
 } from 'lucide-react';
+import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
 import { AppShell } from '@/components/layout/app-shell';
+import { apiFetch } from '@/lib/api/client';
 
 const systems = [
   { name: 'PostgreSQL', detail: 'Base de dados principal', status: 'Operacional', tone: 'green', icon: Database },
@@ -57,7 +59,7 @@ function MetricCard({ label, value, change, icon: Icon, className = '' }: { labe
 
 export default function DashboardPage() {
   const [apiOnline, setApiOnline] = useState<boolean | null>(null);
-  const { user, profile, apiFetch, hasRole } = useAuth();
+  const { user, profile, hasRole } = useAuth();
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const displayName = profile?.firstName || user?.username || 'Utilizador';
   const canNetworkChange = hasRole('ADMIN') || hasRole('NETWORK_OPERATOR');
@@ -113,7 +115,7 @@ export default function DashboardPage() {
 
             <section className="bottom-grid">
               <article className="panel activity-panel"><div className="panel-heading"><div><span className="section-kicker">REGISTO</span><h2>Atividade recente</h2></div>{canViewAudit && <button className="text-button" onClick={() => { window.location.href = '/auditoria'; }}>Ver auditoria <ArrowUpRight size={14} /></button>}</div><div className="activity-list">{recentAudit.length ? recentAudit.map((entry) => <div className="activity-row" key={entry.id}><span className="activity-icon dark"><ShieldCheck size={16} /></span><span><strong>{entry.username} · {entry.action}</strong><small>{entry.entityType ?? 'Operação'} · {new Date(entry.createdAt).toLocaleString('pt-PT')}</small></span><ArrowUpRight size={15} className="muted-icon" /></div>) : <div className="no-data">Ainda não existem ações registadas.</div>}</div></article>
-              <article className="panel quick-panel"><div className="panel-heading"><div><span className="section-kicker">ATALHOS</span><h2>Acesso rápido</h2></div></div><div className="quick-grid">{canNetworkChange && <a href="/infraestrutura?action=new"><Server size={18} /><span>Adicionar equipamento</span><ExternalLink size={14} /></a>}<a href="/ipam"><Network size={18} /><span>Explorar IPAM</span><ExternalLink size={14} /></a>{canNetworkChange && <a href="/descoberta?action=new"><Search size={18} /><span>Nova descoberta</span><ExternalLink size={14} /></a>}<a href="/ajuda"><BookOpen size={18} /><span>Abrir documentação</span><ExternalLink size={14} /></a></div></article>
+              <article className="panel quick-panel"><div className="panel-heading"><div><span className="section-kicker">ATALHOS</span><h2>Acesso rápido</h2></div></div><div className="quick-grid">{canNetworkChange && <a href="/infraestrutura?action=new"><Server size={18} /><span>Adicionar equipamento</span><ExternalLink size={14} /></a>}<a href="/ipam"><Network size={18} /><span>Explorar IPAM</span><ExternalLink size={14} /></a>{canNetworkChange && <a href="/descoberta?action=new"><Search size={18} /><span>Nova descoberta</span><ExternalLink size={14} /></a>}<Link href="/ajuda"><BookOpen size={18} /><span>Abrir documentação</span><ExternalLink size={14} /></Link></div></article>
             </section>
 
             <footer className="dashboard-footer"><span>COCiber Management Platform · Ambiente local</span><span className="footer-status"><i className={apiOnline === false ? 'offline' : ''} /> {apiOnline === false ? 'API indisponível' : apiOnline === true ? 'API ligada' : 'A verificar API'} · v0.1.0</span></footer>

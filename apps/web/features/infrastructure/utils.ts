@@ -1,4 +1,4 @@
-import type { AssetFile, Device, DeviceInterface, DeviceModel, PortLayout, PortLayoutPort, Vlan } from './types';
+import type { AssetFile, Device, DeviceInterface, DeviceModel, PortLayoutPort, Vlan } from './types';
 
 export const FIXED_RACK_IMAGE = '/assets/rack-empty-42u.png';
 export const RACK_UNITS = 42;

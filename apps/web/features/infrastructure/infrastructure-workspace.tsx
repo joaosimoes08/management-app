@@ -2,12 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Boxes, HardDrive, Layers, MapPinned, Server, Upload, X } from 'lucide-react';
+import { Boxes, HardDrive, Layers, MapPinned, Server, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { AppShell } from '@/components/layout/app-shell';
 import { useAuth } from '@/lib/auth';
 import { apiFetch } from '@/lib/api/client';
-import type { Device, DeviceInterface, DeviceModel, IpAddress, PortLayout, Rack, RackPlacementPlan, RoomWithBuilding, Vlan } from './types';
+import type { Device, DeviceInterface, DeviceModel, IpAddress, PortLayout, Rack, RackPlacementPlan, RoomWithBuilding } from './types';
 import type { BuildingForm, DeviceForm, ModelForm, RackForm } from './forms';
 import type { RackEditDraft } from './types';
 import type { InterfaceFormState } from './components/models/interface-editor';
@@ -34,10 +34,6 @@ import {
   previewDevicePlacement,
   saveDeviceModelPortLayout,
   setDeviceModelFrontAsset,
-  updateDevice,
-  updateInterface,
-  updateRack,
-  createRack,
 } from './api';
 import { naturalInterfaceCompare, readInfrastructureContext, writeInfrastructureContext } from './utils';
 import { BuildingModal } from './components/sites/building-modal';
@@ -171,7 +167,6 @@ export function InfrastructureWorkspace() {
     const id = wanted && list.some((site) => site.id === wanted) ? wanted : list.length === 1 ? list[0].id : '';
     setSiteId(id);
     if (id) writeInfrastructureContext(storedContext?.siteId === id ? { ...storedContext, siteId: id } : { siteId: id, buildingId: '', roomId: '' });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sitesData]);
 
   // Cross-feature site switching (SiteSwitcher dispatches this event).
@@ -227,7 +222,6 @@ export function InfrastructureWorkspace() {
         });
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [siteId, locationsData, racksData, devicesData, canUseInterfaces]);
 
   useEffect(() => {

@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronRight, Loader2, Search } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '@/lib/auth';
 import { apiFetch } from '@/lib/api/client';
 
 type SearchResult = { id: string; type: string; title: string; detail: string; href: string };

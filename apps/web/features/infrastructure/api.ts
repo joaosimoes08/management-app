@@ -14,9 +14,7 @@ import type {
   Rack,
   RackPlacementPlan,
   Room,
-  Site,
   SiteListResponse,
-  Vlan,
   VlanListResponse,
 } from './types';
 

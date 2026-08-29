@@ -1,6 +1,5 @@
 'use client';
 
-import { Check } from 'lucide-react';
 import { Modal } from '@/components/ui/modal';
 import { EQUIPMENT_TYPES } from '../../utils';
 import type { DeviceForm, ModelForm, RackForm } from '../../forms';

@@ -3,7 +3,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { ChevronLeft, ChevronRight, Search } from 'lucide-react';
 import { Modal } from '@/components/ui/modal';
-import type { DeviceInterface, InterfaceInput, Vlan } from '../../types';
+import type { InterfaceInput, Vlan } from '../../types';
 
 export type InterfaceFormState = Omit<InterfaceInput, 'speedMbps'> & {
   id: string;
@@ -52,6 +52,7 @@ export function InterfaceEditor({ modal, close, form, setForm, vlans, save }: In
       allowedVlanIds: mode === 'TRUNK' ? (form.interface.allowedVlanIds ?? []).filter(Boolean) : [],
       speedMbps: form.interface.speedMbps ? Number(form.interface.speedMbps) : null,
     };
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { id, device: _device, ...payload } = data as InterfaceFormState & { device?: unknown };
     void save(`/api/v1/interfaces/${id}`, payload, 'PATCH');
   };

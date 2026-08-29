@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, MapPin, ShieldCheck, Sparkles } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { AppLocale, useI18n } from '@/lib/i18n';
+import { apiFetch } from '@/lib/api/client';
 
 type SetupStatus = { setupCompleted: boolean; organizationName?: string | null; organizationCode?: string | null; locale?: AppLocale; siteCount: number; hasSite: boolean };
 type SetupForm = { organizationName: string; organizationCode: string; timezone: string; locale: AppLocale; siteName: string; siteCode: string; address: string; city: string; region: string; country: string; buildingName: string; roomName: string; rackName: string };
@@ -11,7 +12,7 @@ type SetupForm = { organizationName: string; organizationCode: string; timezone:
 const initialForm: SetupForm = { organizationName: '', organizationCode: '', timezone: 'Europe/Lisbon', locale: 'pt-PT', siteName: '', siteCode: '', address: '', city: '', region: '', country: 'Portugal', buildingName: '', roomName: '', rackName: '' };
 
 export default function SetupPage() {
-  const { apiFetch, hasRole } = useAuth();
+  const { hasRole } = useAuth();
   const { t, setLocale } = useI18n();
   const [step, setStep] = useState(0);
   const [form, setForm] = useState(initialForm);

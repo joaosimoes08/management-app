@@ -3,12 +3,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Activity, RefreshCw, ShieldCheck } from 'lucide-react';
 import { AppShell } from '@/components/layout/app-shell';
-import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
+import { apiFetch } from '@/lib/api/client';
 
 type AuditEvent = { id: string; action: string; entityType?: string | null; entityId?: string | null; createdAt: string; user?: { username: string; displayName?: string | null } | null };
 export default function AuditPage() {
-  const { apiFetch } = useAuth(); const [events, setEvents] = useState<AuditEvent[]>([]); const [error, setError] = useState(''); const [search, setSearch] = useState('');
+  const [events, setEvents] = useState<AuditEvent[]>([]); const [error, setError] = useState(''); const [search, setSearch] = useState('');
   const { formatDate } = useI18n();
   const load = useCallback(() => { setError(''); void apiFetch<AuditEvent[]>('/api/v1/audit/events?limit=100').then(setEvents).catch((reason) => setError(reason instanceof Error ? reason.message : 'Não foi possível carregar a auditoria.')); }, [apiFetch]);
   useEffect(() => { load(); }, [load]);

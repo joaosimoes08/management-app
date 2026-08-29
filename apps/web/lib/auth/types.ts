@@ -19,7 +19,6 @@ export type AuthContextValue = {
   logout: () => Promise<void>;
   retry: () => void;
   hasRole: (role: string) => boolean;
-  apiFetch: <T = unknown>(path: string, init?: RequestInit) => Promise<T>;
 };
 
 export type { KeycloakProfile, KeycloakTokenParsed };

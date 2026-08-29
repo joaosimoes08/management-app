@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { Activity, ArrowUpRight, BookOpen, Check, ChevronDown, ExternalLink, FileText, Link as LinkIcon, Loader2, MessageCircle, Network, Plus, Search, Server, ShieldCheck, Trash2, X } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { AppShell } from '@/components/layout/app-shell';
+import { apiFetch } from '@/lib/api/client';
 
 type ApplicationLink = {
   id: string;
@@ -27,7 +28,7 @@ const icons = { Activity, BookOpen, FileText, LinkIcon, MessageCircle, Network, 
 const resolveIcon = (name: string) => icons[name as keyof typeof icons] ?? LinkIcon;
 
 export default function PortalPage() {
-  const { apiFetch, hasRole } = useAuth();
+  const { hasRole } = useAuth();
   const admin = hasRole('ADMIN');
   const [links, setLinks] = useState<ApplicationLink[]>([]);
   const [form, setForm] = useState<LinkForm>(emptyForm);
