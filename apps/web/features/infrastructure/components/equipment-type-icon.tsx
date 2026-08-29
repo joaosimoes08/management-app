@@ -1,9 +1,9 @@
-import firewallIcon from '../icons/firewall.webp';
-import otherIcon from '../icons/other.webp';
-import routerIcon from '../icons/router.webp';
-import serverIcon from '../icons/server.webp';
-import storageIcon from '../icons/storage.webp';
-import switchIcon from '../icons/switch.webp';
+import firewallIcon from '../../../icons/firewall.webp';
+import otherIcon from '../../../icons/other.webp';
+import routerIcon from '../../../icons/router.webp';
+import serverIcon from '../../../icons/server.webp';
+import storageIcon from '../../../icons/storage.webp';
+import switchIcon from '../../../icons/switch.webp';
 
 const icons = {
   FIREWALL: firewallIcon,
