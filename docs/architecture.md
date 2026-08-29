@@ -25,9 +25,13 @@ Processo local
     └── DatabaseModule   PrismaClient partilhado
 ```
 
+## Organização frontend
+
+O frontend (`apps/web`) está organizado por domínio de negócio: `app/` contém apenas routing, layouts e composição; `features/` agrupa o código de cada domínio (infrastructure, ipam, settings, dashboard, audit, discovery, portal, setup, profile) com os seus componentes, tipos e chamadas API tipadas; `components/{ui,layout}` mantém o que é genuinamente partilhado (shell, modais, toasts); `lib/{auth,api,i18n,query}` concentra a infraestrutura transversal. O transporte HTTP (`lib/api/client.ts`) está separado da autenticação (`lib/auth/`), e o server-state usa React Query com query keys por domínio. Detalhes completos em [frontend-refactor.md](frontend-refactor.md).
+
 ## Shell frontend e workspace IPAM
 
-Todas as áreas autenticadas usam `apps/web/components/app-shell.tsx`. O sidebar é ancorado ao viewport, guarda o estado aberto/recolhido no browser, expande por hover sem reflow e transforma-se num drawer em ecrãs pequenos. O conteúdo usa a largura restante da janela.
+Todas as áreas autenticadas usam `apps/web/components/layout/app-shell.tsx` (composto por `app-sidebar`, `app-header`, `user-menu` e `global-search`). O sidebar é ancorado ao viewport, guarda o estado aberto/recolhido no browser, expande por hover sem reflow e transforma-se num drawer em ecrãs pequenos. O conteúdo usa a largura restante da janela.
 
 O IPAM é uma workspace contextual: a árvore seleciona Site, VLAN ou Subnet e a área principal apresenta Resumo, IPs, Hosts e serviços, Discovery ou Detalhes. As chamadas continuam a usar os endpoints IPAM existentes; a seleção é refletida na URL para permitir links partilháveis e refresh sem perder o contexto.
 

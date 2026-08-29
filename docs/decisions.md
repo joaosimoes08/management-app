@@ -59,3 +59,13 @@ A existência de portas é uma propriedade explícita do modelo (`supportsNetwor
 - Edifício, Sala, Bastidor e Equipamento não são selecionados implicitamente; o estado vazio é parte do fluxo operacional.
 - O zoom de equipamento fica na mesma rota e no mesmo palco do rack, fecha por clique exterior/Escape e só abre a ficha completa por ação explícita.
 - O aspect ratio do template é o contrato entre a imagem mapeada e as coordenadas normalizadas dos hotspots.
+
+## Arquitetura feature/domain do frontend
+
+- O frontend organiza-se por domínio de negócio (`features/infrastructure`, `features/ipam`, `features/settings`, …); `app/` contém apenas routing, layouts e composição. Código de domínio não volta para pastas globais.
+- Componentes partilhados existem em `components/{ui,layout}` apenas quando a responsabilidade é genuinamente transversal (modal, toast, shell); um componente não é global só porque vários ficheiros o importam.
+- O transporte HTTP (`lib/api/client.ts`) está separado da autenticação (`lib/auth/`): o `AuthProvider` registra apenas um token provider e um handler de 401; `useAuth()` não é um service locator.
+- Os tipos de domínio derivam dos contratos reais do backend (DTOs/serviços/Prisma) e vivem junto da feature que os possui; o envelope de paginação tipado espelha o backend (`items/page/pageSize/total/totalPages`).
+- React Query é a ferramenta para server-state (fetch, cache, refetch, invalidação) com query keys por domínio; estado de UI local (formulários, modais, tabs) permanece em `useState`.
+- Type-safety é requisito: sem `@ts-nocheck`, sem `any`, sem `@ts-ignore`; erros de tipo resolvem-se com tipos concretos, não com supressões.
+- Não foi introduzido um route group `(authenticated)`: o layout raiz já protege todas as rotas via `AuthGate` e um grupo duplicaria essa responsabilidade sem alterar URLs.
