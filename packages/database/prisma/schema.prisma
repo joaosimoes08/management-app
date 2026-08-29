@@ -78,7 +78,7 @@ model User {
   displayName String?
   email String?
   roles UserRole[]
-  ipamGroupMemberships IpamGroupMember[]
+  accessGroupMemberships AccessGroupMember[]
   auditLogs AuditLog[]
   roleRequests RoleRequest[]
   reviewedRoleRequests RoleRequest[] @relation("RoleRequestReviewer")
@@ -149,7 +149,7 @@ model Site {
   devices Device[]
   vrfs Vrf[]
   natRules NatRule[]
-  ipamGroups IpamGroup[]
+  accessGroupSites AccessGroupSite[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -504,34 +504,54 @@ model NatRule {
   @@index([deviceId, vrfId])
 }
 
-model IpamGroup {
+model AccessGroup {
   id String @id @default(uuid()) @db.Uuid
-  name String
+  name String @unique
   description String?
-  siteId String? @db.Uuid
-  site Site? @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  members IpamGroupMember[]
-  permissions IpamPermission[]
+  members AccessGroupMember[]
+  siteAssignments AccessGroupSite[]
+  infrastructurePermissions InfrastructurePermission[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  @@unique([siteId, name])
 }
 
-model IpamGroupMember {
+model AccessGroupMember {
   groupId String @db.Uuid
   userId String @db.Uuid
-  group IpamGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  group AccessGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@id([groupId, userId])
 }
 
-model IpamPermission {
+model AccessGroupSite {
+  groupId String @db.Uuid
+  siteId String @db.Uuid
+  group AccessGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  permissions AccessGroupSitePermission[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@id([groupId, siteId])
+  @@index([siteId])
+}
+
+model AccessGroupSitePermission {
+  groupId String @db.Uuid
+  siteId String @db.Uuid
+  permission String
+  assignment AccessGroupSite @relation(fields: [groupId, siteId], references: [groupId, siteId], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  @@id([groupId, siteId, permission])
+  @@index([siteId, permission])
+}
+
+model InfrastructurePermission {
   id String @id @default(uuid()) @db.Uuid
   groupId String @db.Uuid
   scopeType String
   scopeId String @db.Uuid
   permission String
-  group IpamGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  group AccessGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
   @@unique([groupId, scopeType, scopeId, permission])
   @@index([scopeType, scopeId])

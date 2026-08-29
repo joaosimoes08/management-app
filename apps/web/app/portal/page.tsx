@@ -22,7 +22,7 @@ type ApplicationLink = {
 
 type LinkForm = { id?: string; name: string; url: string; icon: string; description: string; category: string; sortOrder: string; isActive: boolean; checkAvailability: boolean; roles: string };
 const emptyForm: LinkForm = { name: '', url: '', icon: 'LinkIcon', description: '', category: 'Operações', sortOrder: '0', isActive: true, checkAvailability: false, roles: '' };
-const roleOptions = ['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'STORAGE_OPERATOR', 'AUDITOR', 'READ_ONLY'];
+const roleOptions = ['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'AUDITOR', 'READ_ONLY'];
 const icons = { Activity, BookOpen, FileText, LinkIcon, MessageCircle, Network, Server, ShieldCheck };
 const resolveIcon = (name: string) => icons[name as keyof typeof icons] ?? LinkIcon;
 

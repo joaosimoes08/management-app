@@ -9,7 +9,7 @@ import { DiscoveryPolicyError, normalizeAllowedCidrs } from '../discovery/discov
 
 @Injectable()
 export class SettingsService {
-  constructor(private readonly prisma: PrismaClient, private readonly audit: AuditService, private readonly keycloak?: KeycloakAdminService) {}
+  constructor(private readonly prisma: PrismaClient, private readonly audit: AuditService, private readonly keycloak: KeycloakAdminService) {}
 
   async users(search?: string, page?: string, pageSize?: string) {
     if (!this.keycloak) throw new Error('Keycloak service unavailable');
@@ -19,10 +19,13 @@ export class SettingsService {
     const byExternal = new Map(users.map((item) => [item.id, item.externalId]));
     return { ...result, items: result.items.map((item) => { const request = pending.find((entry) => byExternal.get(entry.userId) === item.externalId); return { ...item, pendingRoleRequest: request ? { id: request.id, requestedRoles: Array.isArray(request.roles) ? request.roles : [], status: request.status, createdAt: request.createdAt } : null }; }) };
   }
+  async legacyRoleAssignments() {
+    return this.prisma.userRole.findMany({ where: { role: 'STORAGE_OPERATOR' }, select: { userId: true, role: true, user: { select: { externalId: true, username: true, displayName: true, email: true } } }, orderBy: { user: { username: 'asc' } } });
+  }
   private async getSettings() { return (await this.prisma.systemSettings.findFirst()) ?? this.prisma.systemSettings.create({ data: {} }); }
   private stringArray(value: unknown, fallback: string[]) { return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : fallback; }
   private numberArray(value: unknown, fallback: number[]) { return Array.isArray(value) ? value.filter((item): item is number => typeof item === 'number') : fallback; }
-  async organization() { const settings = await this.getSettings(); const sites = await this.prisma.site.findMany({ orderBy: { name: 'asc' }, include: { _count: { select: { vlans: true, subnets: true, buildings: true, devices: true } } } }); return { settings, sites }; }
+  async organization(user: AuthenticatedUser) { const settings = await this.getSettings(); const sites = user.roles.includes('ADMIN') ? await this.prisma.site.findMany({ orderBy: { name: 'asc' }, include: { _count: { select: { vlans: true, subnets: true, buildings: true, devices: true } } } }) : []; return { settings, sites }; }
   async updateOrganization(body: UpdateOrganizationSettingsDto, user: AuthenticatedUser) { const current = await this.getSettings(); const updated = await this.prisma.systemSettings.update({ where: { id: current.id }, data: { organizationName: body.name?.trim() || current.organizationName, organizationCode: body.code?.trim().toUpperCase() || current.organizationCode, timezone: body.timezone || current.timezone, locale: body.locale || current.locale } }); await this.audit.record({ userId: user.id, action: 'ORGANIZATION_SETTINGS_UPDATED', entityType: 'SystemSettings', entityId: updated.id, metadata: body }); return updated; }
   async discovery() { const settings = await this.getSettings(); return { methods: this.stringArray(settings.discoveryDefaultMethods, ['ICMP', 'TCP']), tcpPorts: this.numberArray(settings.discoveryDefaultTcpPorts, [22, 80, 443, 3389]), reverseDns: settings.discoveryDefaultReverseDns, intervalHours: settings.discoveryDefaultIntervalHours, allowedCidrs: normalizeAllowedCidrs(settings.discoveryAllowedCidrs) }; }
   async updateDiscovery(body: UpdateDiscoveryDefaultsDto, user: AuthenticatedUser) { const methods = [...new Set(body.methods)]; const tcpPorts = [...new Set(body.tcpPorts)].sort((a, b) => a - b); if (methods.includes('TCP') && !tcpPorts.length) throw new BadRequestException({ code: 'TCP_PORT_REQUIRED', message: 'Define pelo menos uma porta para Discovery TCP.' }); let allowedCidrs: string[]; try { allowedCidrs = normalizeAllowedCidrs(body.allowedCidrs); } catch (error) { if (error instanceof DiscoveryPolicyError) throw new BadRequestException({ code: error.code, message: error.message }); throw error; } const current = await this.getSettings(); await this.prisma.systemSettings.update({ where: { id: current.id }, data: { discoveryDefaultMethods: methods, discoveryDefaultTcpPorts: tcpPorts, discoveryDefaultReverseDns: body.reverseDns, discoveryDefaultIntervalHours: body.intervalHours, discoveryAllowedCidrs: allowedCidrs } }); await this.audit.record({ userId: user.id, action: 'DISCOVERY_DEFAULTS_UPDATED', entityType: 'SystemSettings', entityId: current.id, metadata: { ...body, methods, tcpPorts, allowedCidrs } }); return this.discovery(); }

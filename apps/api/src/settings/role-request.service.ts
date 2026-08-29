@@ -5,7 +5,7 @@ import { ApplicationRole } from '../auth/roles';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { KeycloakAdminService } from './keycloak-admin.service';
 
-export const SELF_REQUEST_ROLES = ['NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'STORAGE_OPERATOR', 'AUDITOR'] as const;
+export const SELF_REQUEST_ROLES = ['NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'AUDITOR'] as const;
 export type SelfRequestRole = (typeof SELF_REQUEST_ROLES)[number];
 
 @Injectable()

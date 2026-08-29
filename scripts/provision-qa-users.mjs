@@ -53,7 +53,7 @@ async function request(path, init = {}) {
   return text ? JSON.parse(text) : undefined;
 }
 
-const applicationRoles = ['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'STORAGE_OPERATOR', 'AUDITOR', 'READ_ONLY'];
+const applicationRoles = ['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'AUDITOR', 'READ_ONLY'];
 const roleEntries = await Promise.all(applicationRoles.map((name) => request(`/roles/${encodeURIComponent(name)}`)));
 const roleMap = new Map(roleEntries.map((role) => [role.name, role]));
 

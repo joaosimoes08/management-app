@@ -6,7 +6,7 @@ import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { IpamAccessService } from './ipam-access.service';
 import { assertDiscoveryAllowed, DiscoveryPolicyError } from '../discovery/discovery-policy';
-import { CalculatorDto, CreateIpamGroupDto, CreateNatRuleDto, CreateSubnetDto, CreateVrfDto, UpdateIpamGroupDto, UpdateIpamPermissionDto, UpdateNatRuleDto, UpdateSubnetDto, UpdateSubnetScanDto, UpdateVrfDto } from './dto';
+import { CalculatorDto, CreateNatRuleDto, CreateSubnetDto, CreateVrfDto, UpdateNatRuleDto, UpdateSubnetDto, UpdateSubnetScanDto, UpdateVrfDto } from './dto';
 import * as net from 'node:net';
 
 function normalizeIpv4(address: string) { const parts = address.split('.').map(Number); if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) throw new BadRequestException('IPv4 inválido'); return parts.join('.'); }
@@ -113,17 +113,6 @@ export class IpamAdvancedService implements OnModuleDestroy {
     }
     throw new BadRequestException('Escolhe uma netmask destino maior que a máscara da rede base.');
   }
-  async listIpamGroups(siteId?: string) { return this.prisma.ipamGroup.findMany({ where: siteId ? { siteId } : {}, include: { members: { include: { user: { select: { id: true, username: true, displayName: true } } } }, permissions: true }, orderBy: { name: 'asc' } }); }
-  async createIpamGroup(dto: CreateIpamGroupDto, user: AuthenticatedUser) { const item = await this.prisma.ipamGroup.create({ data: dto }); await this.log(user, 'IPAM_GROUP_CREATED', 'IpamGroup', item.id); return item; }
-  async updateIpamGroup(id: string, dto: UpdateIpamGroupDto, user: AuthenticatedUser) { const item = await this.prisma.ipamGroup.update({ where: { id }, data: dto }).catch(() => { throw new NotFoundException('Grupo IPAM não encontrado'); }); await this.log(user, 'IPAM_GROUP_UPDATED', 'IpamGroup', id); return item; }
-  async deleteIpamGroup(id: string, user: AuthenticatedUser) { await this.prisma.ipamGroup.delete({ where: { id } }).catch(() => { throw new NotFoundException('Grupo IPAM não encontrado'); }); await this.log(user, 'IPAM_GROUP_DELETED', 'IpamGroup', id); return { success: true }; }
-  async listIpamUsers(search?: string) { return this.prisma.user.findMany({ where: search ? { OR: [{ username: { contains: search, mode: 'insensitive' } }, { displayName: { contains: search, mode: 'insensitive' } }, { email: { contains: search, mode: 'insensitive' } }] } : {}, select: { id: true, username: true, displayName: true, email: true }, orderBy: { username: 'asc' }, take: 100 }); }
-  async addIpamGroupMember(groupId: string, userId: string, actor: AuthenticatedUser) { const [group, member] = await Promise.all([this.prisma.ipamGroup.findUnique({ where: { id: groupId } }), this.prisma.user.findUnique({ where: { id: userId } })]); if (!group || !member) throw new NotFoundException('Grupo ou utilizador não encontrado'); const item = await this.prisma.ipamGroupMember.upsert({ where: { groupId_userId: { groupId, userId } }, create: { groupId, userId }, update: {} }); await this.log(actor, 'IPAM_GROUP_MEMBER_ADDED', 'IpamGroup', groupId, { userId }); return item; }
-  async removeIpamGroupMember(groupId: string, userId: string, actor: AuthenticatedUser) { await this.prisma.ipamGroupMember.delete({ where: { groupId_userId: { groupId, userId } } }).catch(() => { throw new NotFoundException('Membro do grupo não encontrado'); }); await this.log(actor, 'IPAM_GROUP_MEMBER_REMOVED', 'IpamGroup', groupId, { userId }); return { success: true }; }
-  private async validatePermissionScope(dto: { groupId: string; scopeType: string; scopeId: string }) { const group = await this.prisma.ipamGroup.findUnique({ where: { id: dto.groupId } }); if (!group) throw new NotFoundException('Grupo IPAM não encontrado'); let siteId: string | null | undefined; if (dto.scopeType === 'SITE') siteId = (await this.prisma.site.findUnique({ where: { id: dto.scopeId }, select: { id: true } }))?.id; if (dto.scopeType === 'VRF') siteId = (await this.prisma.vrf.findUnique({ where: { id: dto.scopeId }, select: { siteId: true } }))?.siteId; if (dto.scopeType === 'VLAN') siteId = (await this.prisma.vlan.findUnique({ where: { id: dto.scopeId }, select: { siteId: true } }))?.siteId; if (dto.scopeType === 'SUBNET') siteId = (await this.prisma.subnet.findUnique({ where: { id: dto.scopeId }, select: { siteId: true } }))?.siteId; if (siteId === undefined) throw new NotFoundException('Scope IPAM não encontrado'); if (group.siteId && group.siteId !== siteId) throw new BadRequestException({ code: 'IPAM_SCOPE_SITE_MISMATCH', message: 'O scope não pertence ao Site do grupo.' }); }
-  async createIpamPermission(dto: { groupId: string; scopeType: string; scopeId: string; permission: string }, user: AuthenticatedUser) { await this.validatePermissionScope(dto); const item = await this.prisma.ipamPermission.create({ data: dto }); await this.log(user, 'IPAM_PERMISSION_CREATED', 'IpamPermission', item.id); return item; }
-  async updateIpamPermission(id: string, dto: UpdateIpamPermissionDto, user: AuthenticatedUser) { await this.validatePermissionScope(dto); const item = await this.prisma.ipamPermission.update({ where: { id }, data: dto }).catch(() => { throw new NotFoundException('Permissão não encontrada'); }); await this.log(user, 'IPAM_PERMISSION_UPDATED', 'IpamPermission', id); return item; }
-  async deleteIpamPermission(id: string, user: AuthenticatedUser) { await this.prisma.ipamPermission.delete({ where: { id } }).catch(() => { throw new NotFoundException('Permissão não encontrada'); }); await this.log(user, 'IPAM_PERMISSION_DELETED', 'IpamPermission', id); return { success: true }; }
   async ripePreview(dto: { query: string; queryType?: string }, user: AuthenticatedUser) {
     const query = dto.query.trim();
     const queryType = dto.queryType ?? (query.toUpperCase().startsWith('AS') ? 'asn' : net.isIP(query.split('/')[0]) ? 'prefix' : 'organisation');
@@ -142,10 +131,11 @@ export class IpamAdvancedService implements OnModuleDestroy {
       return { id: item.id, query, queryType, prefixes: unique, status: item.status };
     } catch (error) { throw new BadRequestException(error instanceof Error ? `Consulta RIPE falhou: ${error.message}` : 'Consulta RIPE falhou'); } finally { clearTimeout(timer); }
   }
-  async listRipeImports() { return this.prisma.ripeImport.findMany({ orderBy: { createdAt: 'desc' }, take: 50 }); }
-  async getRipeImport(id: string) { const item = await this.prisma.ripeImport.findUnique({ where: { id } }); if (!item) throw new NotFoundException('Importação RIPE não encontrada'); return item; }
+  async listRipeImports(user: AuthenticatedUser) { return this.prisma.ripeImport.findMany({ where: user.roles.includes('ADMIN') ? {} : { createdBy: user.id }, orderBy: { createdAt: 'desc' }, take: 50 }); }
+  async getRipeImport(id: string, user: AuthenticatedUser) { const item = await this.prisma.ripeImport.findFirst({ where: { id, ...(user.roles.includes('ADMIN') ? {} : { createdBy: user.id }) } }); if (!item) throw new NotFoundException('Importação RIPE não encontrada'); return item; }
   async importRipe(dto: { importId: string; prefixes: string[]; siteId: string; vrfId?: string; vlanId?: string; purpose?: string; environment?: string }, user: AuthenticatedUser) {
-    const preview = await this.getRipeImport(dto.importId); const available = new Set((preview.result as any)?.prefixes ?? []); const selected = [...new Set(dto.prefixes)].filter((prefix) => available.has(prefix));
+    await this.access.assertSite(user, 'IMPORT', dto.siteId);
+    const preview = await this.getRipeImport(dto.importId, user); const available = new Set((preview.result as any)?.prefixes ?? []); const selected = [...new Set(dto.prefixes)].filter((prefix) => available.has(prefix));
     if (!selected.length) throw new BadRequestException('Seleciona prefixos presentes na pré-visualização');
     const created: any[] = []; const skipped: any[] = [];
     for (const cidr of selected) { try { created.push(await this.createSubnet({ cidr, siteId: dto.siteId, vrfId: dto.vrfId, vlanId: dto.vlanId, purpose: dto.purpose, environment: dto.environment }, user)); } catch (error) { skipped.push({ cidr, reason: error instanceof Error ? error.message : 'Não importado' }); } }

@@ -7,7 +7,7 @@ import { useToast } from '../../components/toast-provider';
 import { useAuth } from '../../lib/auth';
 import { useI18n } from '../../lib/i18n';
 
-const requestableRoles = ['NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'STORAGE_OPERATOR', 'AUDITOR'] as const;
+const requestableRoles = ['NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'AUDITOR'] as const;
 type RequestableRole = typeof requestableRoles[number];
 type RoleRequest = { id: string; requestedRoles: string[]; status: string; createdAt: string; decidedAt?: string | null };
 type RoleResponse = { eligibleRoles: string[]; currentRoles: string[]; pendingRequest?: RoleRequest | null; history: RoleRequest[] };

@@ -1,4 +1,4 @@
-import { ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
+import { ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, Min, MinLength } from 'class-validator';
 
 const deviceTypes = ['SWITCH', 'ROUTER', 'FIREWALL', 'SERVER', 'STORAGE', 'OTHER'];
 const statuses = ['ACTIVE', 'INACTIVE', 'MAINTENANCE', 'RETIRED', 'UNKNOWN'];
@@ -117,6 +117,14 @@ export class CreateRoomDto {
   @IsString() @MinLength(1) name!: string;
 }
 export class UpdateRoomDto extends CreateRoomDto {}
+
+export class CreateInfrastructurePermissionDto {
+  @IsUUID() groupId!: string;
+  @IsIn(['SITE', 'BUILDING', 'ROOM']) scopeType!: string;
+  @IsUUID() scopeId!: string;
+  @IsIn(['READ', 'CREATE', 'UPDATE', 'DELETE']) permission!: string;
+}
+export class UpdateInfrastructurePermissionDto extends CreateInfrastructurePermissionDto {}
 
 export class CreateAssetDto {
   @IsString() @MinLength(1) filename!: string;

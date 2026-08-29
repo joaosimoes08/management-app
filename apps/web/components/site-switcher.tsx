@@ -1,9 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, ChevronDown, MapPin, Plus, X } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 import { useI18n } from '../lib/i18n';
+import { useSiteContext } from '../lib/site-context';
+import { usePathname } from 'next/navigation';
 
 type Site = { id: string; name: string; code: string };
 type SiteForm = { name: string; code: string; address: string; city: string; region: string; country: string; buildingName: string; roomName: string; rackName: string };
@@ -12,29 +14,14 @@ const emptyForm: SiteForm = { name: '', code: '', address: '', city: '', region:
 
 export function SiteSwitcher() {
   const { apiFetch, hasRole } = useAuth();
+  const pathname = usePathname();
   const { t } = useI18n();
+  const { sites, siteId, activeSite: selected, activateSite, reloadSites } = useSiteContext();
   const rootRef = useRef<HTMLDivElement>(null);
-  const [sites, setSites] = useState<Site[]>([]);
-  const [siteId, setSiteId] = useState('');
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
+  const supportsAggregate = ['/', '/portal', '/auditoria', '/definicoes', '/ajuda', '/perfil'].some((path) => pathname === path || (path !== '/' && pathname.startsWith(`${path}/`)));
 
-  const loadSites = useCallback(async () => {
-    const result = await apiFetch<{ items: Site[] }>('/api/v1/sites?pageSize=100');
-    const list = result.items ?? [];
-    setSites(list);
-    const querySite = new URLSearchParams(window.location.search).get('siteId');
-    const storedSite = window.localStorage.getItem('cociber.siteId');
-    const next = querySite && list.some((site) => site.id === querySite)
-      ? querySite
-      : storedSite && list.some((site) => site.id === storedSite)
-        ? storedSite
-        : list.length === 1 ? list[0].id : '';
-    setSiteId(next);
-    if (next) window.localStorage.setItem('cociber.siteId', next);
-  }, [apiFetch]);
-
-  useEffect(() => { void loadSites(); }, [loadSites]);
   useEffect(() => {
     if (!open) return;
     const close = (event: MouseEvent) => { if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false); };
@@ -46,16 +33,9 @@ export function SiteSwitcher() {
 
   const activate = (nextSiteId: string) => {
     setOpen(false);
-    setSiteId(nextSiteId);
-    if (nextSiteId) window.localStorage.setItem('cociber.siteId', nextSiteId);
-    else window.localStorage.removeItem('cociber.siteId');
-    const url = new URL(window.location.href);
-    if (nextSiteId) url.searchParams.set('siteId', nextSiteId); else url.searchParams.delete('siteId');
-    url.searchParams.delete('buildingId'); url.searchParams.delete('roomId'); url.searchParams.delete('rackId');
-    window.location.assign(`${url.pathname}${url.search}`);
+    activateSite(nextSiteId);
   };
 
-  const selected = sites.find((site) => site.id === siteId);
   return <>
     <div className="site-switcher-root" ref={rootRef} onMouseLeave={() => setOpen(false)}>
       <button className="workspace-switcher" type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-haspopup="menu">
@@ -64,12 +44,12 @@ export function SiteSwitcher() {
         <ChevronDown size={15} />
       </button>
       {open && <div className="site-switcher-menu" role="menu" aria-label="Selecionar Site">
-        <button className={!siteId ? 'active' : ''} role="menuitemradio" aria-checked={!siteId} onClick={() => activate('')}><span className="site-option-mark">T</span><span><strong>{t('shell.allSites')}</strong><small>{t('shell.globalView')}</small></span>{!siteId && <Check size={14} />}</button>
+        {sites.length > 1 && supportsAggregate && <button className={!siteId ? 'active' : ''} role="menuitemradio" aria-checked={!siteId} onClick={() => activate('')}><span className="site-option-mark">T</span><span><strong>{t('shell.allSites')}</strong><small>{t('shell.globalView')}</small></span>{!siteId && <Check size={14} />}</button>}
         {sites.map((site) => <button className={site.id === siteId ? 'active' : ''} role="menuitemradio" aria-checked={site.id === siteId} key={site.id} onClick={() => activate(site.id)}><span className="site-option-mark">{site.code.charAt(0)}</span><span><strong>{site.name}</strong><small>{site.code}</small></span>{site.id === siteId && <Check size={14} />}</button>)}
         {hasRole('ADMIN') && <><div className="site-switcher-divider"/><button className="site-create-trigger" role="menuitem" onClick={() => { setOpen(false); setCreating(true); }}><span className="site-option-mark"><Plus size={14}/></span><span><strong>{t('shell.createSite')}</strong><small>{t('shell.addLocation')}</small></span></button></>}
       </div>}
     </div>
-    {creating && <SiteWalkthrough apiFetch={apiFetch} onClose={() => setCreating(false)} onCreated={(site) => { setSites((current) => [...current, site].sort((a, b) => a.name.localeCompare(b.name))); setSiteId(site.id); }} onActivate={activate}/>}
+    {creating && <SiteWalkthrough apiFetch={apiFetch} onClose={() => setCreating(false)} onCreated={() => { void reloadSites(); }} onActivate={activate}/>}
   </>;
 }
 
