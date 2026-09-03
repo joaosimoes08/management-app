@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronRight, Edit3, Plus, Server, Trash2 } from 'lucide-react';
+import { ChevronRight, Edit3, Link2Off, Plus, Server, Trash2 } from 'lucide-react';
 import type { NetworkMapVlan, Vlan } from '../types';
 import { Empty } from './ipam-modal';
 
@@ -12,11 +12,12 @@ export interface NetworkMapProps {
   edit: (vlan: Vlan) => void;
   remove: (vlan: NetworkMapVlan) => void;
   associate: (vlan: NetworkMapVlan) => void;
+  detachSubnet: (vlan: NetworkMapVlan) => void;
   openSubnet: (subnetId: string) => void;
 }
 
 /** VLAN map of the active site: subnet and associated device ports per VLAN. */
-export function NetworkMap({ vlans, canEdit, newVlan, newSubnet, edit, remove, associate, openSubnet }: NetworkMapProps) {
+export function NetworkMap({ vlans, canEdit, newVlan, newSubnet, edit, remove, associate, detachSubnet, openSubnet }: NetworkMapProps) {
   return <section className="ipam-card">
     <div className="panel-heading"><div><span className="section-kicker">SITE → VLAN → SUBNET</span><h2>Mapa de rede</h2><p className="panel-description">As ações da VLAN ficam no cabeçalho do cartão.</p></div>{canEdit && <button className="primary-button" onClick={newVlan}><Plus size={14} /> Nova VLAN</button>}</div>
     {!vlans.length
@@ -32,7 +33,7 @@ export function NetworkMap({ vlans, canEdit, newVlan, newSubnet, edit, remove, a
         <span className="vlan-status">{vlan.subnet ? 'Configurada' : 'Sem subnet'}</span>
         <div className="vlan-subnet"><span>Subnet principal</span>
           {vlan.subnet
-            ? <button className="link-button" onClick={() => openSubnet(vlan.subnet!.id)}>{vlan.subnet.cidr} · {vlan.subnet.ipCount} IPs <ChevronRight size={14} /></button>
+            ? <div className="vlan-subnet-actions"><button className="link-button" onClick={() => openSubnet(vlan.subnet!.id)}>{vlan.subnet.cidr} · {vlan.subnet.ipCount} IPs <ChevronRight size={14} /></button>{canEdit && <button className="secondary-button danger" aria-label={`Desassociar ${vlan.subnet.cidr} da VLAN ${vlan.vlanId}`} onClick={() => detachSubnet(vlan)}><Link2Off size={13} /> Desassociar</button>}</div>
             : canEdit
               ? <button className="secondary-button" onClick={() => newSubnet(vlan.id)}><Plus size={14} /> Criar subnet</button>
               : <em>Sem subnet configurada</em>}

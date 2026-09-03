@@ -38,6 +38,7 @@ import { CentralIpamPermissions } from './components/central-permissions';
 const tabs: [string, string][] = [['map', 'Mapa'], ['subnets', 'Subnets'], ['vrfs', 'VRFs'], ['nat', 'NAT'], ['calculator', 'Calculadora'], ['imports', 'RIPE']];
 
 type VlanFormState = Omit<VlanInput, 'vlanId'> & { id: string; vlanId: string | number };
+type SubnetFormState = Omit<SubnetInput, 'vlanId' | 'gateway' | 'purpose'> & { id: string; vlanId: string; gateway: string; purpose: string };
 type HostFormState = {
   id?: string;
   address?: string;
@@ -52,7 +53,7 @@ type HostFormState = {
 };
 
 const blankVlan: VlanFormState = { id: '', vlanId: '', name: '', description: '' };
-const blankSubnet: SubnetInput = { cidr: '', version: 4, vlanId: '', gateway: '', purpose: '' };
+const blankSubnet: SubnetFormState = { id: '', cidr: '', version: 4, vlanId: '', gateway: '', purpose: '' };
 const blankHost: HostFormState = { id: '', address: '', hostname: '', description: '' };
 
 export default function IpamPage() {
@@ -70,7 +71,7 @@ export default function IpamPage() {
   const [error, setError] = useState('');
   const [origin, setOrigin] = useState<{ deviceId: string; interfaceId: string } | null>(null);
   const [vlan, setVlan] = useState<VlanFormState>(blankVlan);
-  const [subnet, setSubnet] = useState<SubnetInput>(blankSubnet);
+  const [subnet, setSubnet] = useState<SubnetFormState>(blankSubnet);
   const [host, setHost] = useState<HostFormState>(blankHost);
   const [currentVlan, setCurrentVlan] = useState<NetworkMapVlan | null>(null);
   const [calc, setCalc] = useState<CalculatorInput>({ address: '', basePrefix: '24', newPrefix: '27', operation: 'split' });
@@ -176,10 +177,12 @@ export default function IpamPage() {
       success(operation, method === 'DELETE' ? `O ${resource} foi eliminado.` : method === 'PATCH' ? 'As alterações foram guardadas.' : `O ${resource} foi criado com sucesso.`);
       await invalidateIpam();
       if (after) await after();
+      return true;
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : 'Operação falhou.';
       setError(message);
       toastError(operation, message);
+      return false;
     }
   };
 
@@ -192,6 +195,26 @@ export default function IpamPage() {
   const openNewSubnet = (vlanId = '') => {
     setSubnet({ ...blankSubnet, vlanId });
     setModal('subnet');
+  };
+
+  const editSubnet = (item: Subnet) => {
+    setSubnet({ id: item.id, cidr: item.cidr, version: item.version, vlanId: item.vlanId ?? '', gateway: item.gateway ?? '', purpose: item.purpose ?? '' });
+    setModal('subnet');
+  };
+
+  const removeSubnet = async (item: Pick<Subnet, 'id' | 'cidr'>) => {
+    if (!confirm(`Eliminar a subnet ${item.cidr}? Os endereços IP e dados de discovery associados também serão eliminados.`)) return;
+    const removed = await save(`/api/v1/subnets/${item.id}`, {}, 'DELETE');
+    if (removed && selectedSubnetId === item.id) {
+      setSelectedSubnetId('');
+      setHostDetailId('');
+      updateUrl({ subnetId: undefined, vlanId: undefined, hostId: undefined });
+    }
+  };
+
+  const detachSubnet = async (item: NetworkMapVlan) => {
+    if (!item.subnet || !confirm(`Desassociar a subnet ${item.subnet.cidr} da VLAN ${item.vlanId}? A subnet não será eliminada.`)) return;
+    await save(`/api/v1/subnets/${item.subnet.id}`, { vlanId: null }, 'PATCH');
   };
 
   const calculate = async (event: React.FormEvent) => {
@@ -221,9 +244,9 @@ export default function IpamPage() {
       {!siteId
         ? <Empty title="Escolhe um Site para começar" text="O mapa mostra as VLANs e subnets do Site selecionado." />
         : tab === 'map'
-          ? <NetworkMap vlans={visibleVlans} canEdit={canEdit} edit={(item) => { setVlan({ id: item.id, vlanId: item.vlanId, name: item.name, description: item.description ?? '' }); setModal('vlan'); }} remove={(item) => remove(`/api/v1/vlans/${item.id}`, `Eliminar VLAN ${item.vlanId} — ${item.name}?`)} associate={(item) => { setCurrentVlan(item); setModal('association'); }} openSubnet={openSubnet} newVlan={() => { setVlan({ ...blankVlan }); setModal('vlan'); }} newSubnet={openNewSubnet} />
+          ? <NetworkMap vlans={visibleVlans} canEdit={canEdit} edit={(item) => { setVlan({ id: item.id, vlanId: item.vlanId, name: item.name, description: item.description ?? '' }); setModal('vlan'); }} remove={(item) => remove(`/api/v1/vlans/${item.id}`, `Eliminar VLAN ${item.vlanId} — ${item.name}?`)} associate={(item) => { setCurrentVlan(item); setModal('association'); }} detachSubnet={(item) => void detachSubnet(item)} openSubnet={openSubnet} newVlan={() => { setVlan({ ...blankVlan }); setModal('vlan'); }} newSubnet={openNewSubnet} />
             : tab === 'subnets'
-              ? <SubnetsView selected={selected ?? null} items={visibleSubnets} usage={usage ?? null} ips={ips} search={search} setSearch={setSearch} openSubnet={openSubnet} openHost={openHost} canEdit={canEdit} siteId={siteId} newSubnet={() => openNewSubnet()} editIp={(ip) => { setHost({ id: ip.id, address: ip.address, hostname: ip.hostname ?? '', description: ip.notes ?? '' }); setModal('ip'); }} newIp={() => { setHost({ ...blankHost }); setModal('ip'); }} createHost={(ip) => { setHost({ name: ip.hostname || `host-${ip.address.replace(/[:.]/g, '-')}`, hostname: ip.hostname ?? '', operatingSystem: '', macAddress: ip.macAddress ?? '', notes: ip.notes ?? '', status: 'UNKNOWN', ipAddressId: ip.id }); setModal('create-host'); }} />
+              ? <SubnetsView selected={selected ?? null} items={visibleSubnets} usage={usage ?? null} ips={ips} search={search} setSearch={setSearch} openSubnet={openSubnet} openHost={openHost} canEdit={canEdit} siteId={siteId} newSubnet={() => openNewSubnet()} editSubnet={editSubnet} removeSubnet={(item) => void removeSubnet(item)} editIp={(ip) => { setHost({ id: ip.id, address: ip.address, hostname: ip.hostname ?? '', description: ip.notes ?? '' }); setModal('ip'); }} newIp={() => { setHost({ ...blankHost }); setModal('ip'); }} createHost={(ip) => { setHost({ name: ip.hostname || `host-${ip.address.replace(/[:.]/g, '-')}`, hostname: ip.hostname ?? '', operatingSystem: '', macAddress: ip.macAddress ?? '', notes: ip.notes ?? '', status: 'UNKNOWN', ipAddressId: ip.id }); setModal('create-host'); }} />
                 : tab === 'permissions' && effective?.tabs?.permissions
                   ? <CentralIpamPermissions siteId={siteId} />
                   : tab === 'calculator'
@@ -233,7 +256,7 @@ export default function IpamPage() {
 
       {modal === 'vlan' && <IpamModal title={vlan.id ? 'Editar VLAN' : 'Criar VLAN'} close={() => setModal('')}><form className="modal-form" onSubmit={(event) => { event.preventDefault(); void save(vlan.id ? `/api/v1/vlans/${vlan.id}` : '/api/v1/vlans', { vlanId: Number(vlan.vlanId), name: vlan.name, description: vlan.description, siteId }, vlan.id ? 'PATCH' : 'POST'); }}><label>VLAN ID<input required type="number" min="1" max="4094" value={vlan.vlanId} onChange={(event) => setVlan({ ...vlan, vlanId: event.target.value })} /></label><label>Nome<input required value={vlan.name} onChange={(event) => setVlan({ ...vlan, name: event.target.value })} /></label><label>Descrição<input value={vlan.description || ''} onChange={(event) => setVlan({ ...vlan, description: event.target.value })} /></label><button className="primary-button">Guardar</button></form></IpamModal>}
 
-      {modal === 'subnet' && <IpamModal title="Criar subnet" close={() => setModal('')}><form className="modal-form" onSubmit={(event) => { event.preventDefault(); void save('/api/v1/subnets', { ...subnet, siteId, version: Number(subnet.version), vlanId: subnet.vlanId || undefined, gateway: subnet.gateway || undefined }); }}><label>CIDR<input required placeholder="10.10.10.0/24 ou 2001:db8::/64" value={subnet.cidr} onChange={(event) => setSubnet({ ...subnet, cidr: event.target.value })} /></label><label>Versão<select value={subnet.version} onChange={(event) => setSubnet({ ...subnet, version: Number(event.target.value) })}><option value="4">IPv4</option><option value="6">IPv6</option></select></label><label>VLAN<select value={subnet.vlanId} onChange={(event) => setSubnet({ ...subnet, vlanId: event.target.value })}><option value="">Sem VLAN por agora</option>{vlans.map((item) => <option key={item.id} value={item.id}>VLAN {item.vlanId} · {item.name}</option>)}</select></label><label>Gateway<input value={subnet.gateway} onChange={(event) => setSubnet({ ...subnet, gateway: event.target.value })} /></label><label>Finalidade<input value={subnet.purpose} onChange={(event) => setSubnet({ ...subnet, purpose: event.target.value })} /></label><button className="primary-button">Criar subnet</button></form></IpamModal>}
+      {modal === 'subnet' && <IpamModal title={subnet.id ? 'Editar subnet' : 'Criar subnet'} close={() => setModal('')}><form className="modal-form" onSubmit={(event) => { event.preventDefault(); const editing = Boolean(subnet.id); void save(editing ? `/api/v1/subnets/${subnet.id}` : '/api/v1/subnets', { cidr: subnet.cidr, siteId, version: Number(subnet.version), vlanId: subnet.vlanId || (editing ? null : undefined), gateway: subnet.gateway || (editing ? null : undefined), purpose: subnet.purpose || (editing ? null : undefined) }, editing ? 'PATCH' : 'POST'); }}><label>CIDR<input required placeholder="10.10.10.0/24 ou 2001:db8::/64" value={subnet.cidr} onChange={(event) => setSubnet({ ...subnet, cidr: event.target.value })} /></label><label>Versão<select value={subnet.version} onChange={(event) => setSubnet({ ...subnet, version: Number(event.target.value) })}><option value="4">IPv4</option><option value="6">IPv6</option></select></label><label>VLAN<select value={subnet.vlanId} onChange={(event) => setSubnet({ ...subnet, vlanId: event.target.value })}><option value="">Sem VLAN por agora</option>{vlans.map((item) => <option key={item.id} value={item.id}>VLAN {item.vlanId} · {item.name}</option>)}</select></label><label>Gateway<input value={subnet.gateway} onChange={(event) => setSubnet({ ...subnet, gateway: event.target.value })} /></label><label>Finalidade<input value={subnet.purpose} onChange={(event) => setSubnet({ ...subnet, purpose: event.target.value })} /></label><button className="primary-button">{subnet.id ? 'Guardar alterações' : 'Criar subnet'}</button></form></IpamModal>}
 
       {modal === 'association' && <IpamModal title={`Interfaces associadas à VLAN ${currentVlan?.vlanId}`} close={() => setModal('')}><div className="modal-form associated-interfaces">{currentVlan?.devices?.map((device) => <div className="associated-device" key={device.id}><div className="associated-device-heading"><Server size={16} /><strong>{device.name}</strong><small>{device.hostname || device.type || 'Equipamento'}</small></div>{device.interfaces?.map((item) => <div className="associated-port" key={item.id}><span>{item.name}</span><small>{item.relation} · {item.mode || 'sem modo'}</small></div>)}</div>)}{!currentVlan?.devices?.length && <Empty title="Sem interfaces associadas" text="Esta VLAN ainda não está associada a portas de equipamentos." />}</div></IpamModal>}
 
