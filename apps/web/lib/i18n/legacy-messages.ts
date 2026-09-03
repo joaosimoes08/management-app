@@ -115,6 +115,7 @@ const enUS: LegacyDictionary = {
   'Editar IP': 'Edit IP',
   'Editar layout do modelo': 'Edit model layout',
   'Editar modelo': 'Edit model',
+  'Editar subnet': 'Edit subnet',
   'Editar VLAN': 'Edit VLAN',
   'Edifício': 'Building',
   'Eliminar': 'Delete',
