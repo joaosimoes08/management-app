@@ -53,8 +53,10 @@ jobs:
       - run: npm ci
       - name: Generate Prisma client
         run: npx prisma generate --schema packages/database/prisma/schema.prisma
-      - name: Build database package
-        run: npm run build --workspace=@simoes/database
+      - name: Build shared packages
+        run: |
+          npm run build --workspace=@simoes/database
+          npm run build --workspace=@simoes/snmp-core
       - name: Apply migrations to isolated PostgreSQL
         run: npx prisma migrate deploy --schema packages/database/prisma/schema.prisma
       - name: Check translations
@@ -64,7 +66,10 @@ jobs:
       - name: Frontend lint
         run: npm run lint --workspace=@simoes/web
       - name: Unit tests
-        run: npm test --workspace=@simoes/api
+        run: |
+          npm test --workspace=@simoes/snmp-core
+          npm test --workspace=@simoes/api
+          npm test --workspace=@simoes/snmp
       - name: HTTP integration tests
         run: npm run test:http
       - name: Build API and web

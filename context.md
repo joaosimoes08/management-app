@@ -470,7 +470,25 @@ A aplicação será considerada funcional quando:
 11. As aplicações internas puderem ser acedidas a partir do portal.
 12. A plataforma puder ser instalada e atualizada de forma reprodutível através de containers e documentação técnica.
 
-## 11. Princípios de desenvolvimento
+## 11. Estado atual — componente SNMP
+
+O SNMP foi preparado como componente autónomo em `apps/snmp`, separado da API e executável num container próprio. A API funciona como control plane e publica no BullMQ apenas contratos versionados com UUIDs; polling, traps e SET são executados no data plane SNMP.
+
+Um agente executado diretamente no host publica no PostgreSQL as interfaces IPv4 reais do sistema operativo. Um ADMIN pode selecionar em `Definições → SNMP` escuta em todas as interfaces ou em vários IPs do host; a configuração é auditada e o agente reconcilia os bindings Docker UDP/162 em até 30 segundos. As interfaces internas do namespace do container não são apresentadas. O receiver permanece não-root no container e escuta em UDP/1162 através do ingress publicado pelo Docker.
+
+Funcionalidades implementadas:
+
+- Credenciais exclusivas por equipamento e finalidade (`READ`, `WRITE`, `TRAP`), cifradas por envelope AES-256-GCM com keyring montado como Docker secret.
+- SNMPv2c e SNMPv3 `authPriv`, com SHA-256/AES-128 por defeito e SHA-1 apenas por compatibilidade explícita.
+- Polling manual e agendado, com leitura de system/IF-MIB/IF-X-MIB, snapshots separados do inventário manual e divergências para revisão.
+- Receiver de traps/informs em UDP/1162 interno, publicado como UDP/162, com autorização, associação ao equipamento, retenção de 90 dias, recuperação após falha de Redis e normalização dos eventos standard.
+- Templates SET para estado administrativo da porta e `sysName`/`sysLocation`, protegidos por `ADMIN`, credencial de escrita, preflight e verificação posterior.
+- Health/readiness, métricas, locks por equipamento, logging com redaction e UI SNMP por equipamento.
+- Migração validada de raiz, imagem Docker construída e arrancada sem root, e integração controlada validada para GET/SET/traps/informs SNMPv2c e SNMPv3.
+
+`SNMP_SET_ENABLED` permanece `false`. Não deve ser ativado antes de testes com equipamentos/simuladores controlados e revisão de segurança. A próxima etapa funcional é validar polling e traps em laboratório e, depois, acrescentar BRIDGE-MIB/Q-BRIDGE-MIB e perfis por fabricante.
+
+## 12. Princípios de desenvolvimento
 
 - Desenvolver primeiro o modelo de dados e os contratos da API.
 - Manter separadas a informação manual, descoberta e sincronizada.
@@ -483,7 +501,7 @@ A aplicação será considerada funcional quando:
 - Manter a interface simples para operações frequentes e detalhada para investigação.
 - Não transformar a aplicação num substituto integral de Zabbix, Ansible, BookStack ou Zammad.
 
-## 12. Clarificação do objetivo operacional
+## 13. Clarificação do objetivo operacional
 
 O objetivo principal da aplicação é ser um mapa operacional moderno da infraestrutura do Centro, permitindo navegar pelas relações físicas e lógicas e não apenas consultar estatísticas.
 
@@ -501,7 +519,7 @@ O dashboard deve ser um ponto de entrada operacional e apresentar dados reais do
 
 O portal de aplicações internas é um catálogo de atalhos para BookStack, Zabbix, Zammad, Rocket.Chat e Ansible. Cada ligação deve abrir num novo separador; a gestão dinâmica por administradores é opcional e não deve desviar o foco dos fluxos de infraestrutura.
 
-## 13. Onboarding inicial multi-organização
+## 14. Onboarding inicial multi-organização
 
 Na primeira execução, a aplicação não deve assumir que existe um site ou uma organização pré-definida. Depois do login, um utilizador com a role `ADMIN` deve passar por um walkthrough inicial que:
 
@@ -512,7 +530,7 @@ Na primeira execução, a aplicação não deve assumir que existe um site ou um
 
 O estado deste setup deve ser persistido em `SystemSettings`, auditado e reabrível por um administrador. Não devem ser criados equipamentos, VLANs, subnets ou outros dados fictícios durante o onboarding. A configuração física e o inventário detalhado serão preenchidos nos módulos seguintes.
 
-## 14. Regras da Fase 4 — IPAM e discovery
+## 15. Regras da Fase 4 — IPAM e discovery
 
 O IPAM é a primeira funcionalidade operacional central. Os dados oficiais devem seguir a relação `Site → VLAN → Subnet → IP → Host`, permitindo mais tarde navegar da porta de um switch para a VLAN e respetivos hosts.
 
@@ -526,7 +544,7 @@ O IPAM é a primeira funcionalidade operacional central. Os dados oficiais devem
 - A descoberta tem limite inicial de 4096 hosts por execução e é processada por workers BullMQ; retries, métricas e agendamento ficam para o próximo incremento.
 - SNMP, interfaces de switch e agentes deverão enriquecer estas relações sem substituir o registo manual.
 
-## 15. Estado atual e backlog imediato
+## 16. Estado atual e backlog imediato
 
 ### Implementado na Fase 4 inicial
 
@@ -710,11 +728,11 @@ Limitações: a UI ainda precisa de completar drawers de edição de IPs, config
 - O zoom de equipamento é um overlay no palco do rack, com o rack desfocado atrás, fecho por clique exterior/Escape e ligação explícita para a ficha completa.
 - Os hotspots usam um frame com o mesmo aspect ratio de `imageWidth`/`imageHeight` do `portLayout`, preservando as coordenadas confirmadas.
 
-## 16. Estado consolidado e roadmap — 25 de agosto de 2026
+## 17. Estado consolidado e roadmap — 25 de agosto de 2026
 
 Esta secção é a referência atual para planeamento. As listas cronológicas anteriores documentam a evolução do projeto, mas podem descrever como pendentes funcionalidades que já receberam uma primeira implementação.
 
-### 16.1 Resultado já entregue
+### 17.1 Resultado já entregue
 
 - Base técnica: monorepo npm, Next.js, NestJS, PostgreSQL/Prisma, Redis/BullMQ, Keycloak, Swagger, validação global, rate limiting, headers de segurança e auditoria.
 - Acesso: login OIDC, refresh/logout, roles da aplicação, sincronização do utilizador autenticado e onboarding inicial de organização/Site.
@@ -724,7 +742,7 @@ Esta secção é a referência atual para planeamento. As listas cronológicas a
 - Rede manual: modelos com portas, editor visual de hotspots, geração aditiva de interfaces e configuração ACCESS/TRUNK/ROUTED com VLAN access, native e allowed.
 - Portal e operação: links internos por role, dashboard com dados reais, pesquisa global, página de auditoria, ajuda e definições.
 
-### 16.2 Incremento em validação antes de ser considerado concluído
+### 17.2 Incremento em validação antes de ser considerado concluído
 
 - Nova área de Definições para organização, Sites, utilizadores/roles do Keycloak, defaults de Discovery e política de retenção da auditoria.
 - Idioma persistido por organização (`pt-PT`/`en-US`) e infraestrutura inicial de traduções no frontend.
@@ -734,11 +752,11 @@ Esta secção é a referência atual para planeamento. As listas cronológicas a
 
 Critério para fechar este incremento: migração aplicada num ambiente limpo e num ambiente com dados, testes e builds verdes, provisionamento Keycloak validado, e teste manual com ADMIN/AUDITOR/READ_ONLY incluindo perda e recuperação temporária de Redis/Keycloak.
 
-### 16.3 Problema prioritário atual
+### 17.3 Problema prioritário atual
 
 A plataforma já permite documentar os elementos separadamente, mas o percurso operacional principal ainda não está completamente fechado numa experiência única. Um operador deve conseguir partir de uma porta, abrir a VLAN, ver subnets e IPs, identificar o Host/Service e regressar ao equipamento sem perder o contexto. A próxima entrega deve otimizar este resultado, em vez de acrescentar domínios novos.
 
-### 16.4 Roadmap Now / Next / Later
+### 17.4 Roadmap Now / Next / Later
 
 #### Now — estabilizar e fechar o núcleo manual
 
@@ -764,14 +782,14 @@ A plataforma já permite documentar os elementos separadamente, mas o percurso o
 4. Integrações contextuais com Zabbix, Ansible, BookStack e Zammad a partir das fichas dos ativos.
 5. Exports, backups/restauro testados, observabilidade da própria plataforma, CI/CD, testes de carga e hardening de produção.
 
-### 16.5 Fora de âmbito por agora
+### 17.5 Fora de âmbito por agora
 
 - Execução arbitrária de comandos, configuração automática de switches ou escrita SNMP.
 - Substituir Zabbix, Ansible, BookStack ou Zammad.
 - Agentes, NetApp e gráficos históricos avançados antes de o fluxo manual e o piloto estarem validados.
 - Drag-and-drop horizontal livre dentro do rack ou vista traseira antes de existir evidência operacional que justifique a complexidade.
 
-### 16.6 Métrica de produto recomendada
+### 17.6 Métrica de produto recomendada
 
 **North Star:** percentagem de ativos ativos com localização física, IP de gestão e relações de rede suficientes para navegar do equipamento até ao Host/Service associado.
 
@@ -786,11 +804,11 @@ Métricas de apoio:
 
 Os valores de referência devem ser recolhidos no piloto. Não devem ser inventados targets antes de existir uma baseline real.
 
-## 17. Incremento operacional e hardening — 25 de agosto de 2026
+## 18. Incremento operacional e hardening — 25 de agosto de 2026
 
-Esta secção substitui o estado de “Now” da secção 16 para o código atual.
+Esta secção substitui o estado de “Now” da secção 17 para o código atual.
 
-### 17.1 Entregue no backend e na base de dados
+### 18.1 Entregue no backend e na base de dados
 
 - A migração `20260825120000_operational_core_hardening` acrescenta allowlist de Discovery, campos manuais/observados de Host e Service, relação única Device↔Host e garantia PostgreSQL de apenas um job `PENDING`/`RUNNING` por subnet.
 - `Host` tem detalhe, filtros, criação/edição, retirada lógica (`RETIRED`) e associação/desassociação explícita de IPs e Device. `Service` tem CRUD auditado e validação de protocolo/porta.
@@ -802,7 +820,7 @@ Esta secção substitui o estado de “Now” da secção 16 para o código atua
 - Respostas de erro da API são normalizadas como `{ code, message, details? }`; detalhes operacionais de Discovery permanecem nos logs e a base/API guarda apenas um código sanitizado.
 - Alterações de roles Keycloak adicionam antes de remover, protegem o último ADMIN, verificam o resultado, compensam falhas, terminam sessões e auditam o diff preservando roles herdadas.
 
-### 17.2 Entregue no frontend
+### 18.2 Entregue no frontend
 
 - O percurso visual é `porta → VLAN → subnet → IP → Host → Service`. O popover da porta apresenta VLAN access/native/allowed e respetivas subnets clicáveis.
 - O contexto usa `siteId`, `vlanId`, `subnetId`, `hostId`, `fromDeviceId` e `fromInterfaceId`; existe ação explícita para regressar à porta e a infraestrutura restaura Device/interface da URL.
@@ -810,13 +828,30 @@ Esta secção substitui o estado de “Now” da secção 16 para o código atua
 - A tab IPAM “Permissões” permite gerir grupos, membros sincronizados e a matriz de scopes/ações.
 - Definições permite editar a allowlist de Discovery e mostra o estado sondado de PostgreSQL, Redis/BullMQ e Keycloak. A infraestrutura global de idioma e as traduções de shell, autenticação, setup e Definições estão ativas em `pt-PT` e `en-US`; os módulos operacionais ainda contêm alguns textos legados em português que devem ser migrados para chaves antes do piloto bilingue.
 
-### 17.3 Validação executada
+### 18.3 Validação executada
 
 - Prisma válido; builds de API e web verdes; testes unitários verdes.
 - Migrações aplicadas com sucesso sobre a base local com inventário e, sequencialmente, sobre uma base PostgreSQL temporária vazia. A base temporária foi removida após a validação.
 - Client `simoes-settings-admin` provisionado no Keycloak real com service account limitada a `manage-users`.
 - Smoke de saúde confirmou API e PostgreSQL operacionais. O smoke manual completo com ADMIN, NETWORK_OPERATOR scoped/legacy, AUDITOR e READ_ONLY depende de contas de ensaio autenticáveis e continua como gate de piloto.
 
-### 17.4 Próximo gate
+### 18.4 Próximo gate
 
 Antes do piloto: concluir a extração dos textos legados dos módulos operacionais para o catálogo `pt-PT`/`en-US`, executar a matriz manual com as cinco personas e acrescentar testes HTTP de integração Nest/Fastify sobre PostgreSQL isolado ao pipeline CI.
+
+## 19. Discovery e onboarding SNMP — 30 de agosto de 2026
+
+- Discovery passa a separar a descoberta ativa ICMP/TCP da descoberta passiva SNMP.
+- Um equipamento ainda não inventariado só pode enviar traps através de um pré-registo de 24 horas, limitado a Site, IP exato e credencial TRAP autenticada.
+- Apenas ADMIN introduz credenciais; ADMIN e NETWORK_OPERATOR scoped podem converter um candidato num equipamento sem ver o segredo.
+- A aceitação cria um equipamento por localizar, associa ou cria o endereço na subnet mais específica do Site e transfere a credencial TRAP sem a duplicar.
+- A criação manual de equipamentos pode configurar polling com READ e uma identidade TRAP distinta. WRITE continua fora do onboarding e SET permanece desativado.
+- Modelo e imagem passam a ser opcionais; quando não há asset aplicável, a UI usa o ícone genérico do tipo.
+
+O próximo gate permanece a validação laboratorial com equipamentos reais. BRIDGE-MIB, Q-BRIDGE-MIB, MAC/VLAN e perfis de fabricante continuam na segunda etapa.
+
+### 19.1 Autoteste local de traps
+
+- O receiver mantém a associação normal por IP exato. Em desenvolvimento, pode ser ativado um fallback específico para o NAT/hairpin do Docker Desktop através de `SNMP_SELF_TEST_ENABLED` e uma allowlist exata em `SNMP_SELF_TEST_PROXY_SOURCES`.
+- O fallback aceita apenas SNMPv3 autenticado, exige um único pré-registo compatível e confirma que o IP esperado é uma interface recente publicada pelo agente do host. O endereço realmente observado pelo container é preservado no evento e o modo permanece desligado por defeito.
+- O Docker Desktop pode apresentar a origem local como um IPv4 traduzido não determinístico. A aceitação dessas origens exige `SNMP_SELF_TEST_ALLOW_TRANSLATED_SOURCE=true`, adicional a `SNMP_SELF_TEST_ENABLED`; é exclusiva de desenvolvimento e os eventos ficam marcados como `SELF_TEST`.

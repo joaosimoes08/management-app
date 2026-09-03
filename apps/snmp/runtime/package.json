@@ -1,0 +1,10 @@
+{
+  "name": "simoes-snmp-runtime",
+  "private": true,
+  "dependencies": {
+    "@prisma/client": "6.19.3",
+    "bullmq": "5.81.4",
+    "ioredis": "5.11.1",
+    "net-snmp": "3.26.3"
+  }
+}

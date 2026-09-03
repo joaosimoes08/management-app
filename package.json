@@ -3,7 +3,7 @@
   "private": true,
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {
-    "build": "npm run build --workspace=@simoes/database && npm run build --workspace=@simoes/api && npm run build --workspace=@simoes/web",
+    "build": "npm run build --workspace=@simoes/database && npm run build --workspace=@simoes/snmp-core && npm run build --workspace=@simoes/api && npm run build --workspace=@simoes/snmp && npm run build --workspace=@simoes/web",
     "start:dev": "dotenv -e .env -o -- npm run build --workspace=@simoes/database && dotenv -e .env -o -- npm run start:dev --workspace=@simoes/api",
     "worker:dev": "dotenv -e .env -o -- npm run worker:dev --workspace=@simoes/api",
     "web:dev": "npm run dev --workspace=@simoes/web",
@@ -19,7 +19,11 @@
     "qa:scope": "node scripts/setup-qa-scope.mjs",
     "pilot:seed": "dotenv -e .env -o -- node scripts/seed-pilot.mjs",
     "pilot:baseline": "dotenv -e .env -o -- node scripts/pilot-baseline.mjs",
-    "i18n:check": "node scripts/check-i18n.mjs"
+    "i18n:check": "node scripts/check-i18n.mjs",
+    "snmp:keyring": "node scripts/generate-snmp-keyring.mjs",
+    "snmp:host-agent": "dotenv -e .env -o -- npm run host-agent --workspace=@simoes/snmp",
+    "snmp:test-trap": "docker compose --profile snmp exec -T snmp node apps/snmp/dist/send-test-trap.js",
+    "snmp:test-trap:host": "dotenv -e .env -o -- node apps/snmp/dist/send-test-trap.js --external"
   },
   "devDependencies": {
     "dotenv-cli": "^8.0.0"

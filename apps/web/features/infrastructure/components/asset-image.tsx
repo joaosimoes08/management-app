@@ -1,17 +1,18 @@
 'use client';
 
 import { useAuth } from '@/lib/auth';
-import { useEffect, useState, type ImgHTMLAttributes } from 'react';
+import { useEffect, useState, type ImgHTMLAttributes, type ReactNode } from 'react';
 import { assetFileUrl } from '../utils';
 import type { AssetFile } from '../types';
 
 type AssetImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> & {
   asset?: AssetFile | null;
   alt: string;
+  fallback?: ReactNode;
 };
 
 /** Renders an authenticated asset image as an object URL (assets require a Bearer token). */
-export function AssetImage({ asset, alt, className, loading = 'lazy', ...props }: AssetImageProps) {
+export function AssetImage({ asset, alt, className, loading = 'lazy', fallback, ...props }: AssetImageProps) {
   const { token } = useAuth();
   const [src, setSrc] = useState('');
 
@@ -41,5 +42,5 @@ export function AssetImage({ asset, alt, className, loading = 'lazy', ...props }
 
   return src
     ? <img src={src} alt={alt} className={className} loading={loading} {...props} />
-    : <span className="asset-image-placeholder" aria-label={alt}>Imagem indisponível</span>;
+    : fallback ?? <span className="asset-image-placeholder" aria-label={alt}>Imagem indisponível</span>;
 }

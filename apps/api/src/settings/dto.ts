@@ -20,6 +20,11 @@ export class UpdateAuditPolicyDto {
   @IsInt() @Min(1) @Max(3650) retentionDays!: number;
 }
 
+export class UpdateSnmpListenerDto {
+  @IsBoolean() listenAll!: boolean;
+  @IsArray() @ArrayMaxSize(64) @IsUUID('4', { each: true }) interfaceIds!: string[];
+}
+
 export class UpdateUserRolesDto {
   @IsArray() @ArrayMaxSize(APPLICATION_ROLES.length) @IsIn(APPLICATION_ROLES, { each: true }) roles!: ApplicationRole[];
 }
