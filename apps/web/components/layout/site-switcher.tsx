@@ -17,7 +17,7 @@ export function SiteSwitcher() {
   const { hasRole } = useAuth();
   const pathname = usePathname();
   const { t } = useI18n();
-  const { sites, siteId, activeSite: selected, activateSite, reloadSites } = useSiteContext();
+  const { sites, siteId, activeSite, activateSite, reloadSites } = useSiteContext();
   const rootRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -40,8 +40,8 @@ export function SiteSwitcher() {
   return <>
     <div className="site-switcher-root" ref={rootRef} onMouseLeave={() => setOpen(false)}>
       <button className="workspace-switcher" type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-haspopup="menu">
-        <span className="workspace-avatar" aria-hidden="true">{selected?.name.trim().charAt(0).toUpperCase() || 'T'}</span>
-        <span className="workspace-switcher-copy"><small>{t('shell.activeSite')}</small><strong>{selected?.name ?? t('shell.allSites')}</strong></span>
+        <span className="workspace-avatar" key={`avatar-${siteId || 'all-sites'}`} aria-hidden="true">{activeSite?.name.trim().charAt(0).toUpperCase() || 'T'}</span>
+        <span className="workspace-switcher-copy" key={siteId || 'all-sites'}><small>{t('shell.activeSite')}</small><strong>{activeSite?.name ?? t('shell.allSites')}</strong></span>
         <ChevronDown size={15} />
       </button>
       {open && <div className="site-switcher-menu" role="menu" aria-label="Selecionar Site">
