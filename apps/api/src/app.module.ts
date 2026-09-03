@@ -12,6 +12,7 @@ import { SetupModule } from './setup/setup.module';
 import { IpamModule } from './ipam/ipam.module';
 import { InfrastructureModule } from './infrastructure/infrastructure.module';
 import { SettingsModule } from './settings/settings.module';
+import { SnmpModule } from './snmp/snmp.module';
 import { AccessModule } from './access/access.module';
 
 @Module({
@@ -29,6 +30,7 @@ import { AccessModule } from './access/access.module';
     IpamModule,
     InfrastructureModule,
     SettingsModule,
+    SnmpModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Req } fr
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { Roles } from '../auth/roles.decorator';
-import { AccessGroupMemberDto, CreateAccessGroupDto, UpdateAccessGroupDto, UpdateAccessGroupSiteDto, UpdateAuditPolicyDto, UpdateDiscoveryDefaultsDto, UpdateOrganizationSettingsDto, UpdateUserRolesDto } from './dto';
+import { AccessGroupMemberDto, CreateAccessGroupDto, UpdateAccessGroupDto, UpdateAccessGroupSiteDto, UpdateAuditPolicyDto, UpdateDiscoveryDefaultsDto, UpdateOrganizationSettingsDto, UpdateSnmpListenerDto, UpdateUserRolesDto } from './dto';
 import { KeycloakAdminService } from './keycloak-admin.service';
 import { SettingsService } from './settings.service';
 import { CreateRoleRequestDto, DecideRoleRequestDto } from './role-request.dto';
@@ -16,6 +16,8 @@ export class SettingsController {
   @Patch('organization') @Roles('ADMIN') updateOrganization(@Body() body: UpdateOrganizationSettingsDto, @Req() req: { user: AuthenticatedUser }) { return this.service.updateOrganization(body, req.user); }
   @Get('discovery') discovery() { return this.service.discovery(); }
   @Patch('discovery') @Roles('ADMIN') updateDiscovery(@Body() body: UpdateDiscoveryDefaultsDto, @Req() req: { user: AuthenticatedUser }) { return this.service.updateDiscovery(body, req.user); }
+  @Get('snmp-listeners') @Roles('ADMIN') snmpListeners() { return this.service.snmpListeners(); }
+  @Patch('snmp-listeners') @Roles('ADMIN') updateSnmpListeners(@Body() body: UpdateSnmpListenerDto, @Req() req: { user: AuthenticatedUser }) { return this.service.updateSnmpListeners(body, req.user); }
   @Get('audit-policy') @Roles('ADMIN', 'AUDITOR') auditPolicy() { return this.service.auditPolicy(); }
   @Patch('audit-policy') @Roles('ADMIN') updateAuditPolicy(@Body() body: UpdateAuditPolicyDto, @Req() req: { user: AuthenticatedUser }) { return this.service.updateAuditPolicy(body, req.user); }
   @Get('users') @Roles('ADMIN') users(@Query('search') search?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) { return this.service.users(search, page, pageSize); }

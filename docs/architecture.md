@@ -5,7 +5,11 @@ Docker Compose
 ├── postgres       PostgreSQL da aplicação
 ├── keycloak-db    PostgreSQL dedicado do Keycloak
 ├── keycloak       IAM, realm COCiber e utilizadores locais
-└── redis          Filas, locks e cache futuros
+├── redis          Filas, locks e cache
+└── snmp           Receiver UDP, polling e SET controlado
+```
+
+Um agente local do host complementa o Compose: enumera os IPs que os equipamentos conseguem alcançar e gere os bindings `IP-do-host:162/udp → snmp:1162/udp`. As interfaces internas do container não são apresentadas nas Definições.
 
 ## IPAM avançado
 
@@ -13,6 +17,7 @@ O IPAM mantém `Site → VRF/VLAN → Subnet → IP → Host → Service`. `Subn
 
 Checks manuais e agendados usam BullMQ. Só resultados com ICMP respondido ou uma porta TCP aberta são operacionais; reverse DNS é best effort e apenas para esses candidatos. NAT é documental, e os grupos IPAM preparam scopes para futura integração LDAP/Keycloak.
 
+```text
 Processo local
 └── NestJS API + Prisma
     ├── AuthModule       OIDC/JWKS, roles e sincronização de utilizadores
@@ -46,6 +51,32 @@ Site → VLAN → Subnet → IP → Host/Serviço
 ```
 
 O discovery é iniciado pela API contra uma subnet selecionada, com ICMP, TCP e reverse DNS opcional. A API publica o trabalho na fila BullMQ `discovery`; o processo `worker:dev` consome a fila, executa o scan e persiste os resultados.
+
+## Fluxo SNMP
+
+```text
+Frontend → API → SnmpJob/PostgreSQL → fila snmp → apps/snmp → equipamento
+                                                  ↑
+equipamento → trap/inform UDP → receiver → SnmpTrapEvent
+```
+
+```text
+Definições → PostgreSQL ← agente do host → Docker binding UDP/162
+                                              ↓
+                                     receiver SNMP UDP/1162
+```
+
+Antes de um equipamento ainda desconhecido poder enviar traps, um ADMIN cria um pré-registo com Site, IP e credencial TRAP. Uma trap autenticada transforma esse pré-registo num candidato na tab SNMP de Discovery. A aceitação cria o equipamento, associa o IPAM e transfere a credencial para o equipamento; inscrições expiradas ou canceladas são removidas sem conservar o segredo.
+
+```text
+ADMIN → pré-registo (24h) → receiver autentica IP + identidade
+                                  ↓
+                         candidato Discovery SNMP
+                                  ↓ aceitar
+               Device + IpAddress + credencial TRAP
+```
+
+`apps/snmp` não expõe API funcional. Disponibiliza apenas health/readiness e métricas. O contrato BullMQ contém apenas `schemaVersion` e `recordId`; toda a autorização e configuração são relidas do PostgreSQL. Observações SNMP são separadas do inventário manual e originam divergências pendentes.
 
 O inventário físico usa `Device`, `DeviceModel`, `DeviceInterface`, `Rack` e `InterfaceVlan`. A relação `InterfaceVlan` mantém as VLANs permitidas de uma interface sem duplicar VLANs ou subnets.
 

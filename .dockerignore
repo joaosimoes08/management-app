@@ -1,0 +1,16 @@
+.git
+.env
+.env.*
+!.env.example
+node_modules
+**/dist
+**/.next
+packages/database/generated
+data
+apps/api/data
+secrets
+coverage
+*.log
+transfer
+.DS_Store
+**/.DS_Store

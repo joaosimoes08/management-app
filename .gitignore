@@ -27,6 +27,7 @@ AGENTS.md
 tmp/
 temp/
 uploads/
+.runtime/
 
 # Local IDE and OS files
 .idea/
@@ -36,3 +37,4 @@ Thumbs.db
 
 # Private transfer bundle and local-only configuration
 transfer/
+secrets/

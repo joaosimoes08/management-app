@@ -26,6 +26,38 @@ export interface DiscoveryResult {
   responseMs?: number | null;
   openPorts?: number[] | null;
   status: string;
+  deviceId?: string | null;
+  device?: { id: string; name: string; type: string } | null;
+}
+
+export type SnmpOnboardingVersion = 'V2C' | 'V3';
+export interface SnmpPreRegistration {
+  id: string;
+  sourceAddress: string;
+  siteId: string;
+  site?: { id: string; name: string; code: string };
+  version: SnmpOnboardingVersion;
+  username?: string | null;
+  status: 'WAITING' | 'DISCOVERED';
+  expiresAt: string;
+  firstSeenAt?: string | null;
+  lastSeenAt?: string | null;
+  trapCount: number;
+  latestTrapOid?: string | null;
+  createdAt: string;
+}
+
+export interface SnmpPreRegistrationInput {
+  sourceAddress: string;
+  siteId: string;
+  version: SnmpOnboardingVersion;
+  username?: string;
+  community?: string;
+  authKey?: string;
+  privKey?: string;
+  authProtocol?: string;
+  privProtocol?: string;
+  compatibilitySha1?: boolean;
 }
 
 export interface DiscoverySubnet {
@@ -71,4 +103,26 @@ export function listDiscoveryResults(jobId: string): Promise<DiscoveryResult[]> 
 
 export function reviewDiscoveryResult(resultId: string, status: 'APPROVED' | 'IGNORED'): Promise<unknown> {
   return apiFetch(`/api/v1/discovery/results/${resultId}/review`, { method: 'POST', body: JSON.stringify({ status }) });
+}
+
+export interface DiscoveryAcceptInput { name: string; type: string; hostname?: string; modelId?: string; frontAssetId?: string }
+/** Credentials entered before a discovered host becomes a device. Secrets are write-only. */
+export function listSnmpPreRegistrations(siteId: string): Promise<{ items: SnmpPreRegistration[] }> {
+  return apiFetch<SnmpPreRegistration[]>(`/api/v1/snmp/discovery/enrollments?siteId=${encodeURIComponent(siteId)}`).then((items) => ({ items }));
+}
+
+export function createSnmpPreRegistration(body: SnmpPreRegistrationInput): Promise<SnmpPreRegistration> {
+  return apiFetch<SnmpPreRegistration>('/api/v1/snmp/discovery/enrollments', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function rotateSnmpPreRegistration(id: string): Promise<SnmpPreRegistration> {
+  return apiFetch<SnmpPreRegistration>(`/api/v1/snmp/discovery/enrollments/${id}/renew`, { method: 'POST' });
+}
+
+export function cancelSnmpPreRegistration(id: string): Promise<unknown> {
+  return apiFetch(`/api/v1/snmp/discovery/enrollments/${id}`, { method: 'DELETE' });
+}
+
+export function acceptSnmpPreRegistration(id: string, body: DiscoveryAcceptInput): Promise<{ id: string }> {
+  return apiFetch<{ id: string }>(`/api/v1/snmp/discovery/enrollments/${id}/accept`, { method: 'POST', body: JSON.stringify(body) });
 }

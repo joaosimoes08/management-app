@@ -22,7 +22,12 @@ export async function configureApp(app: NestFastifyApplication, options: Configu
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept-Language', 'X-Test-User'],
     credentials: true,
   });
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }));
+  app.useGlobalPipes(new ValidationPipe({
+    whitelist: true,
+    transform: true,
+    forbidNonWhitelisted: true,
+    validationError: { target: false, value: false },
+  }));
   app.useGlobalFilters(new ApiExceptionFilter());
   if (options.swagger !== false) {
     const swaggerConfig = new DocumentBuilder()

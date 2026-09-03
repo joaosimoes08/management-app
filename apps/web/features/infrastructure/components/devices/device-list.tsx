@@ -2,6 +2,7 @@
 
 import { Edit3, Plus, Server } from 'lucide-react';
 import { EquipmentTypeIcon } from '../equipment-type-icon';
+import { AssetImage } from '../asset-image';
 import type { Device } from '../../types';
 
 export interface DeviceListProps {
@@ -11,14 +12,15 @@ export interface DeviceListProps {
   onEdit: (device: Device) => void;
   onNew: () => void;
   canEdit: boolean;
+  selectedId?: string;
 }
 
 /** Active device inventory of the site. */
-export function DeviceList({ devices, search, onSelect, onEdit, onNew, canEdit }: DeviceListProps) {
+export function DeviceList({ devices, search, onSelect, onEdit, onNew, canEdit, selectedId }: DeviceListProps) {
   return <section className="ipam-card">
     <div className="panel-heading"><div><span className="section-kicker">INVENTÁRIO OPERACIONAL</span><h2>Equipamentos ativos</h2></div>{canEdit && <button className="primary-button" onClick={onNew}><Plus size={14} /> Adicionar equipamento</button>}</div>
-    {devices.map((device) => <div className="host-row infra-device-row" key={device.id} onClick={() => onSelect(device)}>
-      <span className="host-icon equipment-type-icon-frame"><EquipmentTypeIcon type={device.type} /></span>
+    {devices.map((device) => <div className={`host-row infra-device-row ${selectedId === device.id ? 'selected' : ''}`} key={device.id} onClick={() => onSelect(device)} aria-current={selectedId === device.id ? 'true' : undefined}>
+      <span className="host-icon equipment-type-icon-frame">{device.frontAsset ?? device.model?.frontAsset ? <AssetImage asset={device.frontAsset ?? device.model?.frontAsset} alt={`${device.name} — imagem frontal`} className="catalog-icon" fallback={<EquipmentTypeIcon type={device.type} />} /> : <EquipmentTypeIcon type={device.type} />}</span>
       <span><strong>{device.name}</strong><small>{device.type} · {device.model ? `${device.model.manufacturer} ${device.model.model}` : 'Sem modelo'} · {device.managementIp || 'Sem IP de gestão'} · {device.rack ? `${device.rack.name} / ${device.rackUnitStart ?? '?'}U` : 'Por localizar'}</small></span>
       <em className="status-active">{device.status}</em>
       {canEdit && <button className="icon-button subtle" onClick={(event) => { event.stopPropagation(); onEdit(device); }}><Edit3 size={14} /></button>}

@@ -72,8 +72,57 @@ services:
     volumes:
       - ./infra/keycloak/realm-cociber.json:/opt/keycloak/data/import/realm-cociber.json:ro
 
+  snmp:
+    profiles: ["snmp"]
+    build:
+      context: .
+      dockerfile: apps/snmp/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${SNMP_DATABASE_URL:-postgresql://${POSTGRES_USER:-simoes}:${POSTGRES_PASSWORD:-change-me-local}@postgres:5432/${POSTGRES_DB:-simoes}}
+      REDIS_URL: redis://redis:6379
+      SNMP_KEYRING_FILE: /run/secrets/snmp_keyring
+      SNMP_INSTANCE_ID: ${SNMP_INSTANCE_ID:-snmp-01}
+      SNMP_LISTENER_MODE: container-ingress
+      SNMP_ROLE: ${SNMP_ROLE:-all}
+      SNMP_TRAP_PORT: 1162
+      SNMP_HEALTH_PORT: 3002
+      SNMP_ENGINE_ID: ${SNMP_ENGINE_ID:-8000b983800102030405060708090a0b}
+      SNMP_WORKER_CONCURRENCY: ${SNMP_WORKER_CONCURRENCY:-4}
+      SNMP_TRAP_RATE_LIMIT: ${SNMP_TRAP_RATE_LIMIT:-120}
+      SNMP_TRAP_SOURCE_LIMIT: ${SNMP_TRAP_SOURCE_LIMIT:-10000}
+      SNMP_SELF_TEST_ENABLED: ${SNMP_SELF_TEST_ENABLED:-false}
+      SNMP_SELF_TEST_PROXY_SOURCES: ${SNMP_SELF_TEST_PROXY_SOURCES:-}
+      SNMP_SELF_TEST_ALLOW_TRANSLATED_SOURCE: ${SNMP_SELF_TEST_ALLOW_TRANSLATED_SOURCE:-false}
+      SNMP_SET_ENABLED: ${SNMP_SET_ENABLED:-false}
+    ports:
+      - "${SNMP_HEALTH_HOST_PORT:-3002}:3002"
+    secrets:
+      - snmp_keyring
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3002/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
 
 volumes:
   postgres_data:
   redis_data:
   keycloak_postgres_data:
+
+secrets:
+  snmp_keyring:
+    file: ${SNMP_KEYRING_HOST_FILE:-./secrets/snmp-keyring.json}

@@ -29,6 +29,24 @@ export interface DeviceForm {
   status: string;
   frontAssetId: string;
   notes?: string;
+  snmpEnabled?: boolean;
+  snmpVersion?: 'V2C' | 'V3';
+  snmpReadUsername?: string;
+  snmpReadCommunity?: string;
+  snmpReadAuthKey?: string;
+  snmpReadPrivKey?: string;
+  snmpTrapEnabled?: boolean;
+  snmpTrapUsername?: string;
+  snmpTrapCommunity?: string;
+  snmpTrapAuthKey?: string;
+  snmpTrapPrivKey?: string;
+  snmpAuthProtocol?: 'SHA1' | 'SHA256' | 'SHA384' | 'SHA512';
+  snmpPrivProtocol?: 'AES128' | 'AES256';
+  snmpCompatibilitySha1?: boolean;
+  snmpPort?: string;
+  snmpIntervalMinutes?: string;
+  snmpTimeoutMs?: string;
+  snmpRetries?: string;
 }
 
 export interface ModelForm {

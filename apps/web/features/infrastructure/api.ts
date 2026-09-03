@@ -131,8 +131,16 @@ export function deleteAsset(id: string): Promise<unknown> {
 
 // ── Devices ────────────────────────────────────────────────────────────────
 
-export function listDevices(siteId: string, search: string): Promise<DeviceListResponse> {
-  return apiFetch<DeviceListResponse>(`/api/v1/devices?siteId=${siteId}&search=${encodeURIComponent(search)}&pageSize=100`);
+export function listDevices(siteId: string, search: string, page = 1): Promise<DeviceListResponse> {
+  return apiFetch<DeviceListResponse>(`/api/v1/devices?siteId=${siteId}&search=${encodeURIComponent(search)}&page=${page}&pageSize=100`);
+}
+
+export async function listAllDevices(siteId: string, search: string): Promise<DeviceListResponse> {
+  const first = await listDevices(siteId, search);
+  if (first.totalPages <= 1) return first;
+  const items = [...first.items];
+  for (let page = 2; page <= first.totalPages; page++) items.push(...(await listDevices(siteId, search, page)).items);
+  return { ...first, items, page: 1, pageSize: items.length };
 }
 
 export function getDevice(id: string): Promise<Device> {
@@ -141,6 +149,10 @@ export function getDevice(id: string): Promise<Device> {
 
 export function createDevice(body: DeviceInput): Promise<Device> {
   return apiFetch<Device>('/api/v1/devices', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function createSnmpOnboardedDevice(body: Record<string, unknown>): Promise<Device> {
+  return apiFetch<Device>('/api/v1/snmp/onboarding/devices', { method: 'POST', body: JSON.stringify(body) });
 }
 
 export function updateDevice(id: string, body: Partial<DeviceInput>): Promise<Device> {
