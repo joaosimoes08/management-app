@@ -28,6 +28,7 @@ tmp/
 temp/
 uploads/
 .runtime/
+backups/
 
 # Local IDE and OS files
 .idea/

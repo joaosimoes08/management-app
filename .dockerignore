@@ -1,12 +1,14 @@
 .git
 .env
 .env.*
-!.env.example
+**/.env
+**/.env.*
 node_modules
 **/dist
 **/.next
 packages/database/generated
 data
+backups
 apps/api/data
 secrets
 coverage

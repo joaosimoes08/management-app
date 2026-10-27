@@ -10,7 +10,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-simoes}
       PGDATA: /var/lib/postgresql/data
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       # PostgreSQL 18 stores the cluster below a major-version directory.
       # Mount the parent directory so upgrades do not cross a volume boundary.
@@ -41,7 +41,7 @@ services:
     image: redis:8-alpine
     restart: unless-stopped
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     command: ["redis-server", "--appendonly", "yes"]
@@ -64,19 +64,81 @@ services:
       KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak-local-password}
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USERNAME:-kc-admin}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-change-me-keycloak-admin}
-      KC_HOSTNAME: http://localhost:8080
+      KC_HOSTNAME: ${KEYCLOAK_HOSTNAME:-http://localhost:8080}
       KC_HTTP_ENABLED: "true"
     command: ["start-dev", "--import-realm"]
     ports:
-      - "${KEYCLOAK_PORT:-8080}:8080"
+      - "${KEYCLOAK_HOST:-127.0.0.1}:${KEYCLOAK_PORT:-8080}:8080"
     volumes:
-      - ./infra/keycloak/realm-cociber.json:/opt/keycloak/data/import/realm-cociber.json:ro
+      - ./deploy/realm-cociber.json:/opt/keycloak/data/import/realm-cociber.json:ro
+
+  api:
+    image: ${DOCKERHUB_NAMESPACE:-joaosimoes08}/mgmt-app-api:${APP_IMAGE_TAG:-beta-joao-feature-operational-dashboard-topology}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+    environment:
+      NODE_ENV: production
+      API_PORT: 3001
+      DATABASE_URL: postgresql://${POSTGRES_USER:-simoes}:${POSTGRES_PASSWORD:-change-me-local}@postgres:5432/${POSTGRES_DB:-simoes}
+      REDIS_URL: redis://redis:6379
+      AUTH_DISABLED: ${AUTH_DISABLED:-false}
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-http://localhost:8080/realms/COCiber}
+      OIDC_BACKCHANNEL_URL: ${OIDC_BACKCHANNEL_URL:-http://keycloak:8080/realms/COCiber}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:-simoes-api}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      KEYCLOAK_ADMIN_URL: http://keycloak:8080
+      KEYCLOAK_ADMIN_REALM: ${KEYCLOAK_ADMIN_REALM:-COCiber}
+      KEYCLOAK_ADMIN_CLIENT_ID: ${KEYCLOAK_ADMIN_CLIENT_ID:-simoes-settings-admin}
+      KEYCLOAK_ADMIN_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET:-change-me-settings-admin-secret}
+      ASSET_STORAGE_PATH: /app/data/assets
+      SNMP_KEYRING_FILE: /run/secrets/snmp_keyring
+      SNMP_SET_ENABLED: ${SNMP_SET_ENABLED:-false}
+    ports:
+      - "${API_HOST:-127.0.0.1}:${API_PORT_HOST:-3001}:3001"
+    volumes:
+      - api_assets:/app/data/assets
+    secrets:
+      - snmp_keyring
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 45s
+
+  web:
+    image: ${DOCKERHUB_NAMESPACE:-joaosimoes08}/mgmt-app-web:${APP_IMAGE_TAG:-beta-joao-feature-operational-dashboard-topology}
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+      NEXT_PUBLIC_KEYCLOAK_URL: ${NEXT_PUBLIC_KEYCLOAK_URL:-http://localhost:8080}
+      NEXT_PUBLIC_KEYCLOAK_REALM: ${NEXT_PUBLIC_KEYCLOAK_REALM:-COCiber}
+      NEXT_PUBLIC_KEYCLOAK_CLIENT_ID: ${NEXT_PUBLIC_KEYCLOAK_CLIENT_ID:-simoes-web}
+      NEXT_PUBLIC_BOOKSTACK_URL: ${NEXT_PUBLIC_BOOKSTACK_URL:-}
+      NEXT_PUBLIC_ZABBIX_URL: ${NEXT_PUBLIC_ZABBIX_URL:-}
+      NEXT_PUBLIC_ZAMMAD_URL: ${NEXT_PUBLIC_ZAMMAD_URL:-}
+      NEXT_PUBLIC_ROCKETCHAT_URL: ${NEXT_PUBLIC_ROCKETCHAT_URL:-}
+      NEXT_PUBLIC_ANSIBLE_URL: ${NEXT_PUBLIC_ANSIBLE_URL:-}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${WEB_HOST:-127.0.0.1}:${WEB_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
 
   snmp:
-    profiles: ["snmp"]
-    build:
-      context: .
-      dockerfile: apps/snmp/Dockerfile
+    image: ${DOCKERHUB_NAMESPACE:-joaosimoes08}/mgmt-app-snmp:${APP_IMAGE_TAG:-beta-joao-feature-operational-dashboard-topology}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -101,7 +163,8 @@ services:
       SNMP_SELF_TEST_ALLOW_TRANSLATED_SOURCE: ${SNMP_SELF_TEST_ALLOW_TRANSLATED_SOURCE:-false}
       SNMP_SET_ENABLED: ${SNMP_SET_ENABLED:-false}
     ports:
-      - "${SNMP_HEALTH_HOST_PORT:-3002}:3002"
+      - "127.0.0.1:${SNMP_HEALTH_HOST_PORT:-3002}:3002"
+      - "${SNMP_TRAP_HOST_PORT:-162}:1162/udp"
     secrets:
       - snmp_keyring
     read_only: true
@@ -122,6 +185,7 @@ volumes:
   postgres_data:
   redis_data:
   keycloak_postgres_data:
+  api_assets:
 
 secrets:
   snmp_keyring:
