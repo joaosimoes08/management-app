@@ -70,7 +70,7 @@ services:
     ports:
       - "${KEYCLOAK_HOST:-127.0.0.1}:${KEYCLOAK_PORT:-8080}:8080"
     volumes:
-      - ./infra/keycloak/realm-cociber.json:/opt/keycloak/data/import/realm-cociber.json:ro
+      - ./deploy/realm-cociber.json:/opt/keycloak/data/import/realm-cociber.json:ro
 
   api:
     image: ${DOCKERHUB_NAMESPACE:-joaosimoes08}/mgmt-app-api:${APP_IMAGE_TAG:-beta-joao-feature-operational-dashboard-topology}

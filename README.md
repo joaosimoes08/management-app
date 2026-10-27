@@ -10,20 +10,20 @@ O Compose inicia a interface web, a API, PostgreSQL, Redis, Keycloak e o serviç
 
 - Docker Engine com o plugin Docker Compose v2.
 - Pelo menos 4 GB de memória disponível para Docker.
-- Node.js 22+ e npm, apenas para criar o cofre SNMP local a partir do checkout do projeto.
+- Node.js 22+ para gerar o cofre SNMP local.
 
 ### Preparar a configuração
 
-Na pasta de deploy, obtenha o `docker-compose.yml`, `.env.example` e `infra/keycloak/realm-cociber.json` do projeto e execute:
+Obtenha os ficheiros `docker-compose.yml`, `.env.example` e a pasta `deploy/` deste repositório para uma pasta de deploy. A pasta `deploy/` contém o realm Keycloak e um gerador autónomo do cofre SNMP; não é necessário descarregar o código-fonte ou instalar dependências npm. Execute:
 
 ```sh
 cp .env.example .env
-npm run snmp:keyring
+node deploy/generate-snmp-keyring.mjs
 ```
 
 O Compose descarrega as imagens publicadas em Docker Hub: `joaosimoes08/mgmt-app-api`, `joaosimoes08/mgmt-app-web` e `joaosimoes08/mgmt-app-snmp`. A tag publicada para esta beta é `beta-joao-feature-operational-dashboard-topology`. `DOCKERHUB_NAMESPACE` seleciona a conta/organização e `APP_IMAGE_TAG` seleciona a mesma versão para os três serviços; ambos podem ser alterados em `.env` para usar outra publicação compatível. A instalação não precisa do código-fonte nem compila imagens localmente.
 
-Edite `.env` e substitua as palavras-passe de exemplo por valores privados e fortes, em especial `POSTGRES_PASSWORD`, `KEYCLOAK_DB_PASSWORD` e `KEYCLOAK_ADMIN_PASSWORD`. Atualize também o segredo do cliente `simoes-settings-admin` em `KEYCLOAK_ADMIN_CLIENT_SECRET` e no campo `secret` correspondente em `infra/keycloak/realm-cociber.json`; os dois valores têm de coincidir. Para criar o cofre SNMP execute `npm run snmp:keyring` a partir do checkout do projeto. Não publique `.env` nem `secrets/snmp-keyring.json`.
+Edite `.env` e substitua as palavras-passe de exemplo por valores privados e fortes, em especial `POSTGRES_PASSWORD`, `KEYCLOAK_DB_PASSWORD` e `KEYCLOAK_ADMIN_PASSWORD`. Atualize também o segredo do cliente `simoes-settings-admin` em `KEYCLOAK_ADMIN_CLIENT_SECRET` e no campo `secret` correspondente em `deploy/realm-cociber.json`; os dois valores têm de coincidir. O cofre SNMP é criado localmente em `secrets/snmp-keyring.json` e não deve ser partilhado nem publicado.
 
 As portas web, API e Keycloak ficam ligadas a `127.0.0.1` por omissão. Para uma beta usada por funcionários, coloque um proxy reverso com TLS à frente da aplicação e exponha apenas esse proxy na rede/VPN. Configure `WEB_HOST`, `API_HOST` e `KEYCLOAK_HOST` como `127.0.0.1` para manter os serviços limitados ao próprio host; o proxy pode encaminhar para as portas 3000, 3001 e 8080. Não exponha PostgreSQL nem Redis à rede.
 
@@ -31,7 +31,7 @@ Cada instalação escolhe o seu próprio hostname e termina TLS no proxy reverso
 
 - `CORS_ORIGINS` em `.env` para a origem pública da interface;
 - `OIDC_ISSUER_URL` com o endereço público do realm; mantenha `OIDC_BACKCHANNEL_URL=http://keycloak:8080/realms/COCiber` para comunicação interna entre containers;
-- os `redirectUris`, `webOrigins` e URLs de logout do cliente `simoes-web` em `infra/keycloak/realm-cociber.json`, incluindo o hostname escolhido. O ficheiro é importado apenas na inicialização de uma base Keycloak vazia.
+- os `redirectUris`, `webOrigins` e URLs de logout do cliente `simoes-web` em `deploy/realm-cociber.json`, incluindo o hostname escolhido. O ficheiro é importado apenas na inicialização de uma base Keycloak vazia.
 
 `NEXT_PUBLIC_API_URL` e `NEXT_PUBLIC_KEYCLOAK_URL` devem ser acessíveis pelo navegador dos utilizadores; use os URLs HTTPS do proxy quando o hostname for público. Ajuste `CORS_ORIGINS` para a origem web correspondente. Os URLs específicos do cliente são públicos e são servidos pelo container web em runtime.
 
