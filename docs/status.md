@@ -79,14 +79,14 @@
 
 ## Roadmap atual
 
-O detalhe histórico desta página não é uma lista de trabalho por fazer. O roadmap de referência está em [`context.md`](../context.md), secções 20.6 e 21. A branch `joao/feature/operational-dashboard-topology` contém implementação não commitada no working tree; não a descrever como integrada ou apenas proposta.
+O detalhe histórico desta página não é uma lista de trabalho por fazer. O roadmap de referência está em [`context.md`](../context.md), secções 20.6 e 21. A branch `joao/feature/operational-dashboard-topology` contém a implementação commitada, publicada no PR #10 e ainda não integrada.
 
 | Ordem | Trabalho e estado | Dependência / motivo |
 |---|---|---|
-| 1 | ✅ Corrigir os três bloqueios P2: perda de atualizações SSE entre instâncias após falha de Redis Pub/Sub; incremento das revisões dos mapas ao atualizar uma ligação isolada; contagens corretas de qualidade quando uma entidade tem vários findings. | Correções presentes no working tree da branch, ainda não integradas. |
+| 1 | ✅ Corrigir os três bloqueios P2: perda de atualizações SSE entre instâncias após falha de Redis Pub/Sub; incremento das revisões dos mapas ao atualizar uma ligação isolada; contagens corretas de qualidade quando uma entidade tem vários findings. | Correções commitadas na branch e ainda não integradas. |
 | 2 | ✅ Validar automaticamente as correções e o incremento. | API: 74 testes passaram; web: 5 ficheiros/13 testes passaram; typecheck passou; lint sem erros e com 21 avisos preexistentes; build API, verificação i18n e build integral do monorepo passaram. |
 | 3 | ⬜ Concluir browser/manual acceptance do centro operacional, dashboard, mapas e qualidade do inventário. | Continua por verificar; o Safari não disponibiliza um endpoint de runtime anexável para esta sessão. |
-| 4 | ✅ Rever o diff; ⬜ preparar PR de rascunho para revisão da equipa. | A revisão do diff e as verificações automatizadas passaram; a preparação do PR não depende da aceitação manual. A branch continua sem integração em `main`. |
+| 4 | ✅ Abrir o PR #10 para revisão da equipa. | O diff e as verificações automatizadas passaram; a aceitação manual continua pendente antes de merge/piloto. A branch ainda não está integrada em `main`. |
 | 5 | ⬜ Validar SNMP em laboratório com equipamento real. | Gate de laboratório independente, ainda não verificado; necessário antes de confiar em perfis e relações observadas. |
 | 6 | Desenvolver LLDP/BRIDGE-MIB/Q-BRIDGE-MIB, MAC/VLAN e reconciliação com aprovação. | Depende da validação SNMP; observações têm de conservar fonte, confiança, timestamp e auditoria. |
 | 7 | Expandir pesquisa operacional, regras/notificações e integrações contextuais conforme evidência do piloto. | Prioridade e canais devem ser confirmados com operadores; não substituir Zabbix nem criar notificações ruidosas. |
