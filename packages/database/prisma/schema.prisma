@@ -130,20 +130,61 @@ enum SnmpWriteStatus {
   NEEDS_ATTENTION
 }
 
+enum OperationalAlertSeverity {
+  CRITICAL
+  HIGH
+  WARNING
+  INFO
+}
+
+enum OperationalAlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  SNOOZED
+  RESOLVED
+}
+
+enum TopologyMapType {
+  PHYSICAL
+  NETWORK
+  VLAN_SUBNET
+}
+
+enum DeviceConnectionType {
+  PHYSICAL
+  LOGICAL
+}
+
+enum InventoryFindingStatus {
+  OPEN
+  ACKNOWLEDGED
+  SNOOZED
+  RESOLVED
+}
+
 model User {
-  id                     String              @id @default(uuid()) @db.Uuid
-  externalId             String              @unique
-  username               String              @unique
+  id                     String                      @id @default(uuid()) @db.Uuid
+  externalId             String                      @unique
+  username               String                      @unique
   displayName            String?
   email                  String?
   roles                  UserRole[]
   accessGroupMemberships AccessGroupMember[]
   auditLogs              AuditLog[]
   roleRequests           RoleRequest[]
-  reviewedRoleRequests   RoleRequest[]       @relation("RoleRequestReviewer")
+  reviewedRoleRequests   RoleRequest[]               @relation("RoleRequestReviewer")
   notifications          Notification[]
-  createdAt              DateTime            @default(now())
-  updatedAt              DateTime            @updatedAt
+  alertStates            OperationalAlertUserState[]
+  acknowledgedAlerts     OperationalAlert[]          @relation("AlertAcknowledgedBy")
+  resolvedAlerts         OperationalAlert[]          @relation("AlertResolvedBy")
+  dashboardLayouts       DashboardLayout[]           @relation("DashboardLayoutUpdatedBy")
+  dashboardPreferences   UserDashboardPreference[]
+  topologyMaps           TopologyMap[]               @relation("TopologyMapCreatedBy")
+  deviceConnections      DeviceConnection[]          @relation("DeviceConnectionCreatedBy")
+  assignedFindings       InventoryFinding[]          @relation("FindingAssignee")
+  acknowledgedFindings   InventoryFinding[]          @relation("FindingAcknowledgedBy")
+  createdAt              DateTime                    @default(now())
+  updatedAt              DateTime                    @updatedAt
 }
 
 model RoleRequest {
@@ -202,23 +243,29 @@ model AuditLog {
 }
 
 model Site {
-  id               String            @id @default(uuid()) @db.Uuid
-  name             String
-  code             String            @unique
-  address          String?
-  city             String?
-  region           String?
-  country          String?
-  buildings        Building[]
-  subnets          Subnet[]
-  vlans            Vlan[]
-  devices          Device[]
-  vrfs             Vrf[]
-  natRules         NatRule[]
-  accessGroupSites AccessGroupSite[]
-  snmpTrapEnrollments SnmpTrapEnrollment[]
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  id                   String                    @id @default(uuid()) @db.Uuid
+  name                 String
+  code                 String                    @unique
+  address              String?
+  city                 String?
+  region               String?
+  country              String?
+  buildings            Building[]
+  subnets              Subnet[]
+  vlans                Vlan[]
+  devices              Device[]
+  vrfs                 Vrf[]
+  natRules             NatRule[]
+  accessGroupSites     AccessGroupSite[]
+  snmpTrapEnrollments  SnmpTrapEnrollment[]
+  operationalAlerts    OperationalAlert[]
+  dashboardLayouts     DashboardLayout[]
+  dashboardPreferences UserDashboardPreference[]
+  topologyMaps         TopologyMap[]
+  deviceConnections    DeviceConnection[]
+  inventoryFindings    InventoryFinding[]
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt
 }
 
 model SystemSettings {
@@ -372,12 +419,15 @@ model Device {
   snmpTraps         SnmpTrapEvent[]
   snmpDrifts        SnmpDrift[]
   snmpWriteRequests SnmpWriteRequest[]
+  topologyNodes     TopologyMapNode[]
+  sourceConnections DeviceConnection[] @relation("ConnectionSourceDevice")
+  targetConnections DeviceConnection[] @relation("ConnectionTargetDevice")
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
 
+  @@unique([siteId, managementIp])
   @@index([type, status])
   @@index([siteId])
-  @@unique([siteId, managementIp])
 }
 
 model Host {
@@ -423,30 +473,208 @@ model Service {
 }
 
 model DeviceInterface {
-  id               String                     @id @default(uuid()) @db.Uuid
-  name             String
-  portKey          String?
-  interfaceType    String?
-  description      String?
-  adminUp          Boolean?
-  operUp           Boolean?
-  speedMbps        Int?
-  mode             String?
-  nativeVlanId     String?                    @db.Uuid
-  accessVlanId     String?                    @db.Uuid
-  macAddress       String?
-  source           SourceType                 @default(MANUAL)
-  lastSeenAt       DateTime?
-  deviceId         String                     @db.Uuid
-  device           Device                     @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  nativeVlan       Vlan?                      @relation("NativeVlan", fields: [nativeVlanId], references: [id], onDelete: SetNull)
-  accessVlan       Vlan?                      @relation("AccessVlan", fields: [accessVlanId], references: [id], onDelete: SetNull)
-  allowedVlans     InterfaceVlan[]
-  ipAddresses      IpAddress[]
-  snmpObservations SnmpInterfaceObservation[]
-  snmpDrifts       SnmpDrift[]
+  id                String                     @id @default(uuid()) @db.Uuid
+  name              String
+  portKey           String?
+  interfaceType     String?
+  description       String?
+  adminUp           Boolean?
+  operUp            Boolean?
+  speedMbps         Int?
+  mode              String?
+  nativeVlanId      String?                    @db.Uuid
+  accessVlanId      String?                    @db.Uuid
+  macAddress        String?
+  source            SourceType                 @default(MANUAL)
+  lastSeenAt        DateTime?
+  deviceId          String                     @db.Uuid
+  device            Device                     @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  nativeVlan        Vlan?                      @relation("NativeVlan", fields: [nativeVlanId], references: [id], onDelete: SetNull)
+  accessVlan        Vlan?                      @relation("AccessVlan", fields: [accessVlanId], references: [id], onDelete: SetNull)
+  allowedVlans      InterfaceVlan[]
+  ipAddresses       IpAddress[]
+  snmpObservations  SnmpInterfaceObservation[]
+  snmpDrifts        SnmpDrift[]
+  sourceConnections DeviceConnection[]         @relation("ConnectionSourceInterface")
+  targetConnections DeviceConnection[]         @relation("ConnectionTargetInterface")
 
   @@unique([deviceId, name])
+}
+
+model OperationalAlert {
+  id               String                      @id @default(uuid()) @db.Uuid
+  dedupKey         String                      @unique
+  source           String
+  severity         OperationalAlertSeverity
+  status           OperationalAlertStatus      @default(OPEN)
+  siteId           String?                     @db.Uuid
+  entityType       String?
+  entityId         String?
+  title            String
+  detail           String
+  actionHref       String?
+  occurrenceCount  Int                         @default(1)
+  firstOccurredAt  DateTime                    @default(now())
+  lastOccurredAt   DateTime                    @default(now())
+  acknowledgedById String?                     @db.Uuid
+  acknowledgedAt   DateTime?
+  snoozedUntil     DateTime?
+  snoozeReason     String?
+  resolvedById     String?                     @db.Uuid
+  resolvedAt       DateTime?
+  resolutionReason String?
+  createdAt        DateTime                    @default(now())
+  updatedAt        DateTime                    @updatedAt
+  site             Site?                       @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  acknowledgedBy   User?                       @relation("AlertAcknowledgedBy", fields: [acknowledgedById], references: [id], onDelete: SetNull)
+  resolvedBy       User?                       @relation("AlertResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+  userStates       OperationalAlertUserState[]
+
+  @@index([siteId, status, severity, lastOccurredAt])
+  @@index([source, status, lastOccurredAt])
+  @@index([entityType, entityId])
+}
+
+model OperationalAlertUserState {
+  alertId String           @db.Uuid
+  userId  String           @db.Uuid
+  readAt  DateTime?
+  alert   OperationalAlert @relation(fields: [alertId], references: [id], onDelete: Cascade)
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([alertId, userId])
+  @@index([userId, readAt])
+}
+
+model DashboardLayout {
+  id          String   @id @default(uuid()) @db.Uuid
+  siteId      String   @db.Uuid
+  role        RoleName
+  config      Json
+  revision    Int      @default(0)
+  updatedById String?  @db.Uuid
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  site        Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  updatedBy   User?    @relation("DashboardLayoutUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@unique([siteId, role])
+}
+
+model UserDashboardPreference {
+  userId       String   @db.Uuid
+  siteId       String   @db.Uuid
+  selectedRole RoleName
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  site         Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@id([userId, siteId])
+}
+
+model TopologyMap {
+  id          String                  @id @default(uuid()) @db.Uuid
+  siteId      String                  @db.Uuid
+  name        String
+  description String?
+  type        TopologyMapType
+  viewport    Json?
+  filters     Json?
+  revision    Int                     @default(0)
+  createdById String?                 @db.Uuid
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+  site        Site                    @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  createdBy   User?                   @relation("TopologyMapCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  nodes       TopologyMapNode[]
+  connections TopologyMapConnection[]
+
+  @@unique([siteId, name])
+  @@index([siteId, type])
+}
+
+model TopologyMapNode {
+  mapId     String      @db.Uuid
+  deviceId  String      @db.Uuid
+  x         Float
+  y         Float
+  width     Float?
+  height    Float?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  map       TopologyMap @relation(fields: [mapId], references: [id], onDelete: Cascade)
+  device    Device      @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@id([mapId, deviceId])
+  @@index([deviceId])
+}
+
+model DeviceConnection {
+  id                String                  @id @default(uuid()) @db.Uuid
+  siteId            String                  @db.Uuid
+  type              DeviceConnectionType
+  label             String?
+  notes             String?
+  sourceDeviceId    String                  @db.Uuid
+  sourceInterfaceId String?                 @db.Uuid
+  targetDeviceId    String                  @db.Uuid
+  targetInterfaceId String?                 @db.Uuid
+  createdById       String?                 @db.Uuid
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+  site              Site                    @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  sourceDevice      Device                  @relation("ConnectionSourceDevice", fields: [sourceDeviceId], references: [id], onDelete: Cascade)
+  sourceInterface   DeviceInterface?        @relation("ConnectionSourceInterface", fields: [sourceInterfaceId], references: [id], onDelete: SetNull)
+  targetDevice      Device                  @relation("ConnectionTargetDevice", fields: [targetDeviceId], references: [id], onDelete: Cascade)
+  targetInterface   DeviceInterface?        @relation("ConnectionTargetInterface", fields: [targetInterfaceId], references: [id], onDelete: SetNull)
+  createdBy         User?                   @relation("DeviceConnectionCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  maps              TopologyMapConnection[]
+
+  @@index([siteId, type])
+  @@index([sourceDeviceId])
+  @@index([targetDeviceId])
+}
+
+model TopologyMapConnection {
+  mapId        String           @db.Uuid
+  connectionId String           @db.Uuid
+  map          TopologyMap      @relation(fields: [mapId], references: [id], onDelete: Cascade)
+  connection   DeviceConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@id([mapId, connectionId])
+  @@index([connectionId])
+}
+
+model InventoryFinding {
+  id               String                   @id @default(uuid()) @db.Uuid
+  dedupKey         String                   @unique
+  siteId           String?                  @db.Uuid
+  rule             String
+  severity         OperationalAlertSeverity
+  status           InventoryFindingStatus   @default(OPEN)
+  entityType       String
+  entityId         String
+  title            String
+  detail           String
+  metadata         Json?
+  occurrenceCount  Int                      @default(1)
+  firstDetectedAt  DateTime                 @default(now())
+  lastDetectedAt   DateTime                 @default(now())
+  assignedToId     String?                  @db.Uuid
+  acknowledgedById String?                  @db.Uuid
+  acknowledgedAt   DateTime?
+  snoozedUntil     DateTime?
+  snoozeReason     String?
+  resolvedAt       DateTime?
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+  site             Site?                    @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  assignedTo       User?                    @relation("FindingAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  acknowledgedBy   User?                    @relation("FindingAcknowledgedBy", fields: [acknowledgedById], references: [id], onDelete: SetNull)
+
+  @@index([siteId, status, severity, lastDetectedAt])
+  @@index([assignedToId, status])
+  @@index([entityType, entityId])
 }
 
 model SnmpDeviceConfig {
@@ -522,33 +750,33 @@ model SnmpCredential {
 }
 
 model SnmpTrapEnrollment {
-  id             String                    @id @default(uuid()) @db.Uuid
-  siteId         String                    @db.Uuid
-  sourceAddress  String
-  version        SnmpVersion
-  username       String?
-  authProtocol   String?
-  privProtocol   String?
-  ciphertext     Bytes
-  iv             Bytes
-  authTag        Bytes
-  wrappedDek     Bytes
-  wrapIv         Bytes
-  wrapAuthTag    Bytes
-  keyId          String
-  status         SnmpTrapEnrollmentStatus  @default(WAITING)
-  expiresAt      DateTime
-  firstSeenAt    DateTime?
-  lastSeenAt     DateTime?
-  trapCount      Int                       @default(0)
-  latestTrapOid  String?
-  site           Site                      @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  events         SnmpTrapEvent[]
-  createdAt      DateTime                  @default(now())
-  updatedAt      DateTime                  @updatedAt
+  id            String                   @id @default(uuid()) @db.Uuid
+  siteId        String                   @db.Uuid
+  sourceAddress String
+  version       SnmpVersion
+  username      String?
+  authProtocol  String?
+  privProtocol  String?
+  ciphertext    Bytes
+  iv            Bytes
+  authTag       Bytes
+  wrappedDek    Bytes
+  wrapIv        Bytes
+  wrapAuthTag   Bytes
+  keyId         String
+  status        SnmpTrapEnrollmentStatus @default(WAITING)
+  expiresAt     DateTime
+  firstSeenAt   DateTime?
+  lastSeenAt    DateTime?
+  trapCount     Int                      @default(0)
+  latestTrapOid String?
+  site          Site                     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  events        SnmpTrapEvent[]
+  createdAt     DateTime                 @default(now())
+  updatedAt     DateTime                 @updatedAt
 
-  @@index([siteId, status, expiresAt])
   @@unique([siteId, sourceAddress])
+  @@index([siteId, status, expiresAt])
 }
 
 model SnmpJob {
@@ -614,10 +842,10 @@ model SnmpInterfaceObservation {
 }
 
 model SnmpTrapEvent {
-  id            String         @id @default(uuid()) @db.Uuid
-  deviceId      String?        @db.Uuid
-  credentialId  String?        @db.Uuid
-  enrollmentId  String?        @db.Uuid
+  id            String              @id @default(uuid()) @db.Uuid
+  deviceId      String?             @db.Uuid
+  credentialId  String?             @db.Uuid
+  enrollmentId  String?             @db.Uuid
   sourceAddress String
   sourcePort    Int
   version       SnmpVersion
@@ -628,16 +856,16 @@ model SnmpTrapEvent {
   trapOid       String?
   uptimeTicks   String?
   varbinds      Json
-  status        SnmpTrapStatus @default(PENDING)
+  status        SnmpTrapStatus      @default(PENDING)
   category      String?
   severity      String?
-  dedupKey      String?        @unique
+  dedupKey      String?             @unique
   errorCode     String?
-  receivedAt    DateTime       @default(now())
+  receivedAt    DateTime            @default(now())
   processedAt   DateTime?
   expiresAt     DateTime
-  device        Device?        @relation(fields: [deviceId], references: [id], onDelete: SetNull)
-  credential    SnmpCredential? @relation(fields: [credentialId], references: [id], onDelete: SetNull)
+  device        Device?             @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  credential    SnmpCredential?     @relation(fields: [credentialId], references: [id], onDelete: SetNull)
   enrollment    SnmpTrapEnrollment? @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
 
   @@index([deviceId, receivedAt])

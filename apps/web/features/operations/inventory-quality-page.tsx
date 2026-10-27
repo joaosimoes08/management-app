@@ -1,0 +1,16 @@
+'use client';
+import { useCallback, useEffect, useState } from 'react';
+import { Check, Clock3, RefreshCw } from 'lucide-react';
+import { AppShell } from '@/components/layout/app-shell';
+import { useAuth } from '@/lib/auth';
+import { useSiteContext } from '@/lib/site-context';
+import { acknowledgeInventoryFinding, assignInventoryFinding, getInventoryQualityAssignees, getInventoryQualityItems, snoozeInventoryFinding, type InventoryFinding } from './api';
+
+export function InventoryQualityPage() {
+  const { siteId } = useSiteContext(); const { hasRole } = useAuth(); const [items, setItems] = useState<InventoryFinding[]>([]); const [assignees, setAssignees] = useState<Array<{ id: string; username: string; displayName?: string | null }>>([]); const [error, setError] = useState('');
+  const canAct = hasRole('ADMIN') || hasRole('NETWORK_OPERATOR') || hasRole('SYSTEMS_OPERATOR');
+  const load = useCallback(async () => { if (!siteId) return; try { const [findings, people] = await Promise.all([getInventoryQualityItems(siteId), getInventoryQualityAssignees(siteId)]); setItems(findings.items); setAssignees(people); setError(''); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Não foi possível carregar a fila.'); } }, [siteId]);
+  useEffect(() => { void load(); }, [load]);
+  const act = async (action: Promise<unknown>) => { try { await action; await load(); } catch (cause) { setError(cause instanceof Error ? cause.message : 'A operação falhou.'); } };
+  return <AppShell section="Qualidade do inventário" actions={<button className="topbar-action secondary-button" onClick={() => void load()}><RefreshCw size={14} /> Atualizar</button>}><main className="module-page"><header className="workspace-head"><div><span className="section-kicker">QUALIDADE</span><h1>Fila do inventário</h1><p>Problemas detetados automaticamente, com reconhecimento, snooze e responsável.</p></div></header>{error && <div className="ipam-alert error">{error}</div>}<section className="ipam-card"><div className="activity-list">{items.map((finding) => <div className="activity-row" key={finding.id}><span className={`status-pill ${finding.severity === 'CRITICAL' || finding.severity === 'HIGH' ? 'orange' : 'blue'}`}>{finding.severity}</span><span><strong>{finding.title}</strong><small>{finding.detail} · {finding.status} · {new Date(finding.lastDetectedAt).toLocaleString('pt-PT')}</small></span>{canAct && <span className="button-row"><select aria-label={`Responsável por ${finding.title}`} value={finding.assignedTo?.id ?? ''} onChange={(event) => void act(assignInventoryFinding(finding.id, event.target.value))}><option value="">Sem responsável</option>{assignees.map((person) => <option value={person.id} key={person.id}>{person.displayName || person.username}</option>)}</select><button className="secondary-button" onClick={() => void act(acknowledgeInventoryFinding(finding.id))}><Check size={13} /> Reconhecer</button><button className="secondary-button" onClick={() => void act(snoozeInventoryFinding(finding.id))}><Clock3 size={13} /> Adiar 24h</button></span>}</div>)}{!items.length && <div className="no-data">Sem findings ativos neste Site.</div>}</div></section></main></AppShell>;
+}

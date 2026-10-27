@@ -10,7 +10,11 @@ export async function runAuditRetentionCleanup(prisma: PrismaClient, now = new D
     const result = await prisma.auditLog.deleteMany({ where: { id: { in: batch.map((entry) => entry.id) } } }); deleted += result.count;
     if (batch.length < 1000) break;
   }
+  const [alerts, findings] = await Promise.all([
+    prisma.operationalAlert.deleteMany({ where: { status: 'RESOLVED', resolvedAt: { lt: cutoff } } }),
+    prisma.inventoryFinding.deleteMany({ where: { status: 'RESOLVED', resolvedAt: { lt: cutoff } } }),
+  ]);
   await prisma.systemSettings.update({ where: { id: settings.id }, data: { lastAuditCleanupAt: now, lastAuditCleanupDeletedCount: deleted } });
   await prisma.auditLog.create({ data: { action: 'AUDIT_RETENTION_CLEANUP', entityType: 'SystemSettings', entityId: settings.id, metadata: { deleted, retentionDays: settings.auditRetentionDays, cutoff: cutoff.toISOString() } } });
-  return { deleted, cutoff };
+  return { deleted, resolvedAlertsDeleted: alerts.count, resolvedFindingsDeleted: findings.count, cutoff };
 }

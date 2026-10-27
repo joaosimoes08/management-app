@@ -544,7 +544,7 @@ O IPAM é a primeira funcionalidade operacional central. Os dados oficiais devem
 - A descoberta tem limite inicial de 4096 hosts por execução e é processada por workers BullMQ; retries, métricas e agendamento ficam para o próximo incremento.
 - SNMP, interfaces de switch e agentes deverão enriquecer estas relações sem substituir o registo manual.
 
-## 16. Estado atual e backlog imediato
+## 16. Registo histórico — estado e backlog
 
 ### Implementado na Fase 4 inicial
 
@@ -728,9 +728,9 @@ Limitações: a UI ainda precisa de completar drawers de edição de IPs, config
 - O zoom de equipamento é um overlay no palco do rack, com o rack desfocado atrás, fecho por clique exterior/Escape e ligação explícita para a ficha completa.
 - Os hotspots usam um frame com o mesmo aspect ratio de `imageWidth`/`imageHeight` do `portLayout`, preservando as coordenadas confirmadas.
 
-## 17. Estado consolidado e roadmap — 25 de agosto de 2026
+## 17. Estado consolidado e roadmap histórico — 25 de agosto de 2026
 
-Esta secção é a referência atual para planeamento. As listas cronológicas anteriores documentam a evolução do projeto, mas podem descrever como pendentes funcionalidades que já receberam uma primeira implementação.
+Esta secção regista o estado e as prioridades em 25 de agosto de 2026. Para o estado e prioridades atuais, prevalecem as secções 20 e 21; algumas tarefas aqui descritas foram entretanto concluídas ou substituídas.
 
 ### 17.1 Resultado já entregue
 
@@ -752,7 +752,7 @@ Esta secção é a referência atual para planeamento. As listas cronológicas a
 
 Critério para fechar este incremento: migração aplicada num ambiente limpo e num ambiente com dados, testes e builds verdes, provisionamento Keycloak validado, e teste manual com ADMIN/AUDITOR/READ_ONLY incluindo perda e recuperação temporária de Redis/Keycloak.
 
-### 17.3 Problema prioritário atual
+### 17.3 Problema prioritário à data
 
 A plataforma já permite documentar os elementos separadamente, mas o percurso operacional principal ainda não está completamente fechado numa experiência única. Um operador deve conseguir partir de uma porta, abrir a VLAN, ver subnets e IPs, identificar o Host/Service e regressar ao equipamento sem perder o contexto. A próxima entrega deve otimizar este resultado, em vez de acrescentar domínios novos.
 
@@ -806,7 +806,7 @@ Os valores de referência devem ser recolhidos no piloto. Não devem ser inventa
 
 ## 18. Incremento operacional e hardening — 25 de agosto de 2026
 
-Esta secção substitui o estado de “Now” da secção 17 para o código atual.
+Esta secção regista a implementação de 25 de agosto e substituiu então o estado de “Now” da secção 17. As prioridades atuais estão na secção 20.6.
 
 ### 18.1 Entregue no backend e na base de dados
 
@@ -826,18 +826,22 @@ Esta secção substitui o estado de “Now” da secção 17 para o código atua
 - O contexto usa `siteId`, `vlanId`, `subnetId`, `hostId`, `fromDeviceId` e `fromInterfaceId`; existe ação explícita para regressar à porta e a infraestrutura restaura Device/interface da URL.
 - IPs sem Host oferecem “Criar/associar Host”. A ficha lateral do Host mostra estados manual/observado, origem, último avistamento, SO, MAC, notas, IPs, Sites, VLANs, subnets, Device/localização, interfaces e Services.
 - A tab IPAM “Permissões” permite gerir grupos, membros sincronizados e a matriz de scopes/ações.
-- Definições permite editar a allowlist de Discovery e mostra o estado sondado de PostgreSQL, Redis/BullMQ e Keycloak. A infraestrutura global de idioma e as traduções de shell, autenticação, setup e Definições estão ativas em `pt-PT` e `en-US`; os módulos operacionais ainda contêm alguns textos legados em português que devem ser migrados para chaves antes do piloto bilingue.
+- Definições permite editar a allowlist de Discovery e mostra o estado sondado de PostgreSQL, Redis/BullMQ e Keycloak. A infraestrutura global de idioma e as traduções da aplicação estão ativas em `pt-PT` e `en-US`, incluindo os módulos operacionais.
 
 ### 18.3 Validação executada
 
 - Prisma válido; builds de API e web verdes; testes unitários verdes.
 - Migrações aplicadas com sucesso sobre a base local com inventário e, sequencialmente, sobre uma base PostgreSQL temporária vazia. A base temporária foi removida após a validação.
 - Client `simoes-settings-admin` provisionado no Keycloak real com service account limitada a `manage-users`.
-- Smoke de saúde confirmou API e PostgreSQL operacionais. O smoke manual completo com ADMIN, NETWORK_OPERATOR scoped/legacy, AUDITOR e READ_ONLY depende de contas de ensaio autenticáveis e continua como gate de piloto.
+- Smoke de saúde confirmou API e PostgreSQL operacionais. A matriz manual com ADMIN, NETWORK_OPERATOR scoped/legacy, AUDITOR e READ_ONLY foi concluída posteriormente e está registada na secção 18.4.
 
-### 18.4 Próximo gate
+### 18.4 Gate concluído — 19 de outubro de 2026
 
-Antes do piloto: concluir a extração dos textos legados dos módulos operacionais para o catálogo `pt-PT`/`en-US`, executar a matriz manual com as cinco personas e acrescentar testes HTTP de integração Nest/Fastify sobre PostgreSQL isolado ao pipeline CI.
+- A matriz manual de permissões foi executada com ADMIN, NETWORK_OPERATOR scoped/legacy, AUDITOR e READ_ONLY.
+- Foram acrescentados testes HTTP de integração Nest/Fastify para os fluxos prioritários; a cobertura deve continuar a crescer com cada nova funcionalidade.
+- A tradução dos módulos operacionais para `pt-PT` e `en-US` foi concluída.
+
+Estes pontos deixam de bloquear o planeamento funcional. A validação laboratorial SNMP com equipamentos reais permanece um gate próprio do componente SNMP.
 
 ## 19. Discovery e onboarding SNMP — 30 de agosto de 2026
 
@@ -855,3 +859,105 @@ O próximo gate permanece a validação laboratorial com equipamentos reais. BRI
 - O receiver mantém a associação normal por IP exato. Em desenvolvimento, pode ser ativado um fallback específico para o NAT/hairpin do Docker Desktop através de `SNMP_SELF_TEST_ENABLED` e uma allowlist exata em `SNMP_SELF_TEST_PROXY_SOURCES`.
 - O fallback aceita apenas SNMPv3 autenticado, exige um único pré-registo compatível e confirma que o IP esperado é uma interface recente publicada pelo agente do host. O endereço realmente observado pelo container é preservado no evento e o modo permanece desligado por defeito.
 - O Docker Desktop pode apresentar a origem local como um IPv4 traduzido não determinístico. A aceitação dessas origens exige `SNMP_SELF_TEST_ALLOW_TRANSLATED_SOURCE=true`, adicional a `SNMP_SELF_TEST_ENABLED`; é exclusiva de desenvolvimento e os eventos ficam marcados como `SELF_TEST`.
+
+## 20. Roadmap funcional recomendado — 19 de outubro de 2026
+
+Esta secção regista o plano antes do incremento da secção 21. O trabalho Now aí previsto foi implementado na branch `joao/feature/operational-dashboard-topology`; o estado atual e as prioridades restantes constam abaixo e na secção 21. Os gates de permissões, testes HTTP iniciais e traduções já não são tratados como funcionalidades pendentes.
+
+### 20.1 Problema de produto que motivou o plano
+
+A plataforma já centraliza inventário, IPAM, discovery, bastidores, relações de rede, auditoria e SNMP. O próximo ganho operacional não vem de adicionar mais um domínio isolado, mas de tornar a informação existente acionável: mostrar o que requer atenção, explicar o impacto e permitir navegar visualmente entre os elementos afetados.
+
+### 20.2 Plano Now original — substituído pela implementação da secção 21
+
+Os itens abaixo registam o âmbito planeado em 19 de outubro. A secção 21 descreve o que foi implementado; a validação manual continua pendente.
+
+1. **Dashboard operacional com alertas em tempo real.** Evoluir os alertas atuais para um centro operacional alimentado por Discovery, SNMP, divergências, serviços internos e qualidade do inventário. Usar SSE para atualização server→browser, com fallback para polling, e suportar severidade, deduplicação, reconhecimento, resolução, silenciamento temporário, filtro por Site e histórico. Cada alerta deve indicar impacto e abrir diretamente a entidade/ação relevante. Não pretende substituir o Zabbix.
+   - Métrica: alertas críticos aparecem na interface em menos de 10 segundos e 100% têm origem, Site, entidade afetada e ação recomendada.
+   - Primeira entrega: Redis indisponível, Discovery falhado/pendente, traps SNMP relevantes, polling falhado, divergências pendentes e ativos sem dados essenciais.
+
+2. **Dashboard configurável por role e Site.** Substituir estados estáticos por widgets reais de saúde, capacidade e trabalho pendente. Permitir escolher Site, intervalo temporal e widgets visíveis; ADMIN, NETWORK_OPERATOR, SYSTEMS_OPERATOR e AUDITOR devem receber visões coerentes com as respetivas permissões.
+   - Métrica: um operador identifica as três ações prioritárias do seu Site sem sair do dashboard.
+   - Widgets iniciais: alertas ativos, jobs em execução/falhados, resultados por rever, divergências SNMP, ativos sem localização/IP/modelo e alterações recentes.
+
+3. **Mapa lógico de dispositivos — v1.** Criar uma vista por Site que represente equipamentos e relações já conhecidas, com filtros por tipo, estado, VLAN e localização. O mapa deve abrir a ficha do equipamento e permitir alternar entre camadas lógica e física sem perder contexto.
+   - Métrica: localizar um equipamento e navegar para as suas interfaces/VLANs em até três interações.
+   - Escopo v1: posições manuais persistidas, agrupamento por sala/rack, ligações documentadas e relações VLAN/subnet; não inferir ligações que a base de dados não conhece.
+
+4. **Fila de qualidade do inventário.** Transformar inconsistências em tarefas operacionais: equipamentos sem localização, modelo ou IP de gestão; interfaces sem modo/VLAN; IPs duplicados; observações desatualizadas; divergências SNMP não revistas.
+   - Métrica: cada problema tem entidade, motivo, prioridade, responsável opcional e ação de correção; evolução semanal da dívida de inventário fica mensurável.
+
+### 20.3 Next — topologia observada e automação controlada
+
+1. **Topologia de rede enriquecida por SNMP.** Adicionar LLDP, BRIDGE-MIB e Q-BRIDGE-MIB, tabelas MAC/VLAN e perfis por fabricante. Distinguir sempre ligações documentadas, observadas e confirmadas pelo operador.
+   - Métrica: pesquisar um IP ou MAC e chegar ao switch/porta física com confiança e timestamp visíveis.
+
+2. **Reconciliação e aprovação em lote.** Apresentar diferenças entre inventário manual e estado observado, permitindo aceitar, rejeitar ou adiar alterações por entidade e em lote, com preview e auditoria.
+   - Métrica: nenhuma observação automática sobrescreve dados oficiais sem política ou aprovação explícita.
+
+3. **Mapas guardados e modos de visualização.** Permitir guardar layouts por Site, sala ou serviço; aplicar filtros e escolher vistas física, L2/VLAN, IP e dependências de serviço. Exportação de imagem/PDF só entra depois de a interação principal estar validada.
+
+4. **Regras de alerta e notificações.** Permitir regras por Site, severidade e tipo de evento, com janelas de manutenção e canais internos. Integrações externas devem começar por webhook/Rocket.Chat ou Zammad e só depois email/SMS, conforme necessidade operacional validada.
+
+5. **Pesquisa operacional expandida.** A pesquisa global deve incluir Host, Service, interface, MAC, rack, eventos e alertas, permitindo partir de IP/hostname/MAC e chegar ao contexto físico e lógico completo.
+
+### 20.4 Later — observabilidade integrada e sistemas
+
+1. Agente Linux e depois Windows para identidade, OS, recursos, discos, heartbeat, serviços, software e VMs.
+2. Integração Zabbix para disponibilidade, métricas e deep links, evitando duplicar o motor de monitorização.
+3. Integração NetApp pela API oficial e representação de capacidade, volumes, snapshots, estado e licenciamento.
+4. Correlação de eventos e dependências para relacionar falhas de equipamento, interfaces, serviços e aplicações afetadas.
+5. Ligações físicas completas, patch panels, cablagem e vista traseira dos bastidores.
+
+### 20.5 Fora de âmbito imediato
+
+- Motor próprio de métricas históricas equivalente ao Zabbix.
+- Configuração automática de switches ou SNMP SET em produção.
+- Topologia inferida apresentada como verdade sem confiança, fonte e confirmação.
+- Mapas 3D, animações decorativas ou personalização avançada antes de validar o mapa 2D operacional.
+- Alertas sem ação associada ou notificações externas sem deduplicação e controlo de ruído.
+
+### 20.6 Prioridades restantes e dependências
+
+1. **✅ Corrigir os três bloqueios P2 confirmados na revisão de QA/diff.** (a) A falha Redis Pub/Sub já encerra o stream SSE afetado e permite o fallback de polling. (b) A atualização isolada de uma ligação incrementa agora as revisões dos mapas associados. (c) O resumo calcula entidades inválidas pelos dispositivos distintos com findings, sem sobrecontagem por entidade. As três correções estão no commit da branch referido na secção 21.
+2. **✅ Executar e registar as verificações automatizadas.** API: 74 testes passaram; web: 5 ficheiros e 13 testes passaram; typecheck passou; lint terminou sem erros, com 21 avisos preexistentes. Build da API, verificação i18n e build integral do monorepo passaram. As verificações direcionadas cobrem os três casos P2. Estes resultados foram reportados para esta atualização documental; não foram reexecutados aqui.
+3. **⬜ Concluir browser/manual acceptance do incremento (secção 21.3).** Verificar alertas e reconhecimento, fallback sem Redis, dashboards por workspace/role, mapas e resolução de findings. Continua pendente; o Safari não disponibiliza um endpoint de runtime anexável nesta sessão. Os testes automatizados não substituem estes fluxos manuais.
+4. **✅ Rever o diff e abrir o PR #10 para revisão da equipa.** O PR está aberto e pronto para revisão; a aceitação manual permanece pendente antes de merge/piloto. A branch ainda não está integrada em `main`.
+5. **Validar SNMP em laboratório com equipamento real.** Gate independente do centro operacional; pré-requisito para confiar em perfis e relações observadas por fabricante.
+6. **Só depois da validação SNMP enriquecer topologia observada e reconciliação.** Implementar LLDP/BRIDGE-MIB/Q-BRIDGE-MIB, tabelas MAC/VLAN e aprovação de diferenças com fonte, confiança, timestamp e auditoria. Não converter observações em dados oficiais sem política ou aprovação.
+7. **Priorizar pesquisa operacional, regras/notificações e integrações contextuais com evidência do piloto.** Evoluções posteriores; a secção 20.3 mantém requisitos propostos, não os apresenta como trabalho já entregue.
+8. **Manter agentes, LDAP/LDAPS, NetApp, integrações Zabbix/Ansible/BookStack/Zammad e hardening de produção no horizonte posterior.** Validar necessidade e requisitos de credenciais/segurança antes de iniciar cada integração.
+
+As correções P2, verificações automatizadas e revisão final do diff estão concluídas; o PR #10 está aberto e pronto para revisão enquanto a aceitação manual permanece pendente. Browser/manual acceptance, recuperação real com Redis multi-instância e edições concorrentes reais na base de dados continuam por verificar antes de merge/piloto. A validação SNMP é um gate independente e tem de ocorrer antes de confiar em perfis observados ou enriquecer a topologia observada. O que depende do resultado do piloto permanece uma recomendação, não um compromisso de prazo.
+
+## 21. Incremento centro operacional e topologia — 19 de outubro de 2026
+
+Estado: implementação commitada na branch `joao/feature/operational-dashboard-topology` e publicada no PR #10, aberto para revisão. Correções P2, verificações automatizadas e revisão final do diff concluídas; browser/manual acceptance permanece pendente antes de merge/piloto.
+
+### 21.1 Implementado
+
+- Alertas operacionais persistentes com deduplicação, reabertura, reconhecimento, snooze, resolução, leitura individual, filtros e retenção de estados resolvidos.
+- Reconciliação de Redis/BullMQ, Discovery, polling/traps SNMP, divergências e findings de qualidade; PostgreSQL é a fonte de verdade e Redis Pub/Sub apenas transporta eventos.
+- Stream SSE autenticado por bearer token, snapshots, heartbeat e fallback de polling a cada 30 segundos.
+- Dashboard por Site e role, preferência de workspace, layouts partilhados com revisão otimista e grelha configurável de 12 colunas alimentada por dados reais e scoped.
+- Mapas nomeados `PHYSICAL`, `NETWORK` e `VLAN_SUBNET` com React Flow, posições persistidas, ligações documentadas, endpoints opcionais por interface e conflitos `409` por revisão.
+- Fila atribuível de qualidade do inventário com reconciliação diária e após mutações relevantes, auto-resolução/reabertura e promoção de findings altos/críticos a alertas.
+- Scopes aplicados a listagens, SSE, resumos, mutações e payloads de topologia; AUDITOR e READ_ONLY permanecem apenas de leitura.
+
+### 21.2 Validação automatizada registada durante o incremento
+
+- Migração aditiva validada sobre a base local existente e sobre uma base PostgreSQL vazia com as 27 migrações.
+- Testes unitários da API, testes HTTP Nest/Fastify, testes Vitest, typecheck, lint, verificação i18n e build integral executados durante o incremento.
+- Os testes HTTP cobrem personas ADMIN, NETWORK_OPERATOR scoped/legacy, SYSTEMS_OPERATOR, AUDITOR e READ_ONLY, incluindo isolamento por Site, interfaces de ligações e conflitos de revisão.
+
+O registo original acima descreve verificações executadas durante o incremento. Na revisão posterior, os três bloqueios P2 foram corrigidos: a falha de Pub/Sub termina o stream afetado para permitir polling; atualizar uma ligação incrementa as revisões dos mapas associados; e as contagens de qualidade usam entidades distintas. Verificações reportadas para esta atualização: 74 testes API passaram; web passou em 5 ficheiros/13 testes; typecheck passou; lint sem erros, com 21 avisos preexistentes; build API, verificação i18n e build integral do monorepo passaram. As verificações documentadas não foram reexecutadas nesta atualização documental.
+
+### 21.3 Browser/manual e laboratório ainda por verificar
+
+- Confirmar alerta visível em menos de 10 segundos e propagação do reconhecimento entre dois utilizadores.
+- Verificar em execução real a recuperação multi-instância com Redis após interrupção e confirmar polling sem perda do alerta persistido; por verificar. A aceitação no browser está bloqueada porque o Safari não disponibiliza um endpoint de runtime anexável nesta sessão.
+- Alternar workspaces de um utilizador multi-role e editar um layout autorizado.
+- Criar mapas dos três tipos, arrastar equipamentos, recarregar posições, editar/remover ligações e verificar edições concorrentes reais na base de dados; permanece por verificar.
+- Corrigir um problema de inventário e confirmar auto-resolução do finding e do alerta associado.
+
+As correções P2, checks automatizados e revisão final do diff estão concluídos, mas não substituem os fluxos manuais ainda por verificar. O PR #10 está aberto e pronto para revisão; browser/manual acceptance, recuperação real com Redis multi-instância e edições concorrentes reais na base de dados continuam gates antes de merge/piloto. A validação física de SNMP com equipamento real também não foi feita e continua independente; é necessária antes de confiar em perfis observados ou enriquecer a topologia observada. LLDP/BRIDGE-MIB/Q-BRIDGE-MIB, inferência automática de ligações e escrita SNMP continuam fora deste incremento.

@@ -14,6 +14,9 @@ import { InfrastructureModule } from './infrastructure/infrastructure.module';
 import { SettingsModule } from './settings/settings.module';
 import { SnmpModule } from './snmp/snmp.module';
 import { AccessModule } from './access/access.module';
+import { OperationsModule } from './operations/operations.module';
+import { InventoryQualityModule } from './inventory-quality/inventory-quality.module';
+import { TopologyModule } from './topology/topology.module';
 
 @Module({
   imports: [
@@ -31,6 +34,9 @@ import { AccessModule } from './access/access.module';
     InfrastructureModule,
     SettingsModule,
     SnmpModule,
+    OperationsModule,
+    InventoryQualityModule,
+    TopologyModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

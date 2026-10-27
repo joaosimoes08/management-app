@@ -44,8 +44,13 @@ const ids = {
   roomA: '91000000-0000-4000-8000-000000000001',
   roomSibling: '91000000-0000-4000-8000-000000000002',
   rackA: '91500000-0000-4000-8000-000000000001',
+  rackSibling: '91500000-0000-4000-8000-000000000002',
   deviceA: '92000000-0000-4000-8000-000000000001',
+  deviceA2: '92000000-0000-4000-8000-000000000003',
   deviceB: '92000000-0000-4000-8000-000000000002',
+  deviceSibling: '92000000-0000-4000-8000-000000000004',
+  interfaceA: '92500000-0000-4000-8000-000000000001',
+  interfaceA2: '92500000-0000-4000-8000-000000000002',
   enrollmentA: '93000000-0000-4000-8000-000000000001',
   enrollmentB: '93000000-0000-4000-8000-000000000002',
   enrollmentCandidate: '93000000-0000-4000-8000-000000000003',
@@ -98,9 +103,16 @@ async function resetDatabase() {
   await prisma.building.create({ data: { id: ids.buildingA, name: 'HTTP Building A', siteId: ids.siteA } });
   await prisma.room.createMany({ data: [{ id: ids.roomA, name: 'HTTP Room A', buildingId: ids.buildingA }, { id: ids.roomSibling, name: 'HTTP Room Sibling', buildingId: ids.buildingA }] });
   await prisma.rack.create({ data: { id: ids.rackA, name: 'HTTP Rack A', roomId: ids.roomA } });
+  await prisma.rack.create({ data: { id: ids.rackSibling, name: 'HTTP Rack Hidden', roomId: ids.roomSibling } });
   await prisma.device.createMany({ data: [
     { id: ids.deviceA, name: 'HTTP Switch A', type: 'SWITCH', managementIp: '10.250.1.2', siteId: ids.siteA, rackId: ids.rackA },
+    { id: ids.deviceA2, name: 'HTTP Switch A2', type: 'SWITCH', managementIp: '10.250.1.3', siteId: ids.siteA, rackId: ids.rackA },
+    { id: ids.deviceSibling, name: 'HTTP Hidden Switch', type: 'SWITCH', managementIp: '10.250.1.4', siteId: ids.siteA, rackId: ids.rackSibling },
     { id: ids.deviceB, name: 'HTTP Switch B', type: 'SWITCH', managementIp: '10.250.2.2', siteId: ids.siteB },
+  ] });
+  await prisma.deviceInterface.createMany({ data: [
+    { id: ids.interfaceA, deviceId: ids.deviceA, name: 'Gi1/0/1', mode: 'TRUNK' },
+    { id: ids.interfaceA2, deviceId: ids.deviceA2, name: 'Gi1/0/1', mode: 'TRUNK' },
   ] });
   const enrollmentEnvelope = encryptCredential({ community: 'http-trap-site-a' }, testKeyring);
   await prisma.snmpTrapEnrollment.createMany({ data: [
@@ -114,6 +126,7 @@ async function resetDatabase() {
     { enrollmentId: ids.enrollmentRace, sourceAddress: '10.250.1.82', sourcePort: 50162, version: 'V2C', authIdentity: 'redacted-race', pduType: 'TrapV2', varbinds: [], status: 'DISCOVERED', expiresAt: new Date(Date.now() + 60_000) },
   ] });
   await prisma.vlan.createMany({ data: [{ id: ids.vlanA, vlanId: 2501, name: 'HTTP VLAN A', siteId: ids.siteA }, { id: ids.vlanB, vlanId: 2502, name: 'HTTP VLAN B', siteId: ids.siteB }] });
+  await prisma.interfaceVlan.create({ data: { interfaceId: ids.interfaceA, vlanId: ids.vlanA, tagged: true } });
   await prisma.subnet.createMany({ data: [
     { id: ids.subnetA, cidr: '10.250.1.0/24', version: 4, siteId: ids.siteA, vlanId: ids.vlanA },
     { id: ids.subnetB, cidr: '10.250.2.0/24', version: 4, siteId: ids.siteB, vlanId: ids.vlanB },
@@ -375,4 +388,67 @@ test('approves Discovery idempotently without duplicating inventory or audit', a
   assert.deepEqual(host.services.map((service) => service.port).sort((a, b) => Number(a) - Number(b)), [22, 80, 443]);
   assert.equal(host.services.find((service) => service.port === 80)?.notes, 'preserve-service');
   assert.equal(await prisma.auditLog.count({ where: { action: 'DISCOVERY_RESULT_APPROVED', entityId: ids.discoveryResult } }), 1);
+});
+
+test('enforces scoped operations, dashboard, topology and quality workflows', async () => {
+  const alertA = await prisma.operationalAlert.create({ data: { dedupKey: 'http:site-a', source: 'HTTP_TEST', severity: 'HIGH', siteId: ids.siteA, title: 'Site A alert', detail: 'Visible in Site A' } });
+  await prisma.operationalAlert.create({ data: { dedupKey: 'http:hidden-device', source: 'HTTP_TEST', severity: 'HIGH', siteId: ids.siteA, entityType: 'Device', entityId: ids.deviceSibling, title: 'Hidden device alert', detail: 'Must stay inside the sibling room scope' } });
+  await prisma.operationalAlert.create({ data: { dedupKey: 'http:site-b', source: 'HTTP_TEST', severity: 'CRITICAL', siteId: ids.siteB, title: 'Site B alert', detail: 'Hidden from Site A' } });
+  const scopedAlerts = await request('GET', '/api/v1/operations/alerts', 'qa-network-scoped');
+  assert.equal(scopedAlerts.statusCode, 200);
+  assert.ok(json(scopedAlerts).items.some((item: { id: string }) => item.id === alertA.id));
+  assert.equal(json(scopedAlerts).items.some((item: { title: string }) => item.title === 'Site B alert'), false);
+  assert.equal((await request('PATCH', `/api/v1/operations/alerts/${alertA.id}/acknowledge`, 'qa-auditor')).statusCode, 403);
+  assert.equal((await request('PATCH', `/api/v1/operations/alerts/${alertA.id}/acknowledge`, 'qa-network-legacy')).statusCode, 404);
+  assert.equal((await request('PATCH', `/api/v1/operations/alerts/${alertA.id}/acknowledge`, 'qa-network-scoped')).statusCode, 200);
+  assert.equal((await request('GET', '/api/v1/operations/alerts', 'qa-readonly')).statusCode, 200);
+  const readonlyAlerts = await request('GET', '/api/v1/operations/alerts', 'qa-readonly');
+  assert.equal(json(readonlyAlerts).items.some((item: { title: string }) => item.title === 'Hidden device alert'), false);
+
+  const workspaces = await request('GET', `/api/v1/dashboard/workspaces?siteId=${ids.siteA}`, 'qa-network-scoped');
+  assert.equal(workspaces.statusCode, 200);
+  assert.deepEqual(json(workspaces).items.map((item: { role: string }) => item.role), ['NETWORK_OPERATOR']);
+  const layout = await request('GET', `/api/v1/dashboard/layout?siteId=${ids.siteA}&role=NETWORK_OPERATOR`, 'qa-network-scoped');
+  assert.equal(layout.statusCode, 200, layout.body);
+  const layoutBody = json(layout);
+  assert.equal((await request('PUT', '/api/v1/dashboard/layout', 'qa-network-scoped', { ...layoutBody, widgets: layoutBody.widgets.slice(0, 2) })).statusCode, 200);
+  assert.equal((await request('PUT', '/api/v1/dashboard/layout', 'qa-network-scoped', { ...layoutBody, role: 'SYSTEMS_OPERATOR' })).statusCode, 403);
+
+  const mapResponse = await request('POST', '/api/v1/topology/maps', 'qa-network-scoped', { siteId: ids.siteA, name: 'HTTP Network Map', type: 'NETWORK' });
+  assert.equal(mapResponse.statusCode, 201, mapResponse.body);
+  const map = json(mapResponse);
+  const mapList = await request('GET', `/api/v1/topology/maps?siteId=${ids.siteA}&type=NETWORK&search=HTTP&page=1&pageSize=10`, 'qa-network-scoped');
+  assert.equal(mapList.statusCode, 200);
+  assert.equal(json(mapList).total, 1);
+  assert.equal(json(mapList).items[0].id, map.id);
+  assert.equal((await request('PUT', `/api/v1/topology/maps/${map.id}/nodes`, 'qa-network-scoped', { revision: map.revision, nodes: [{ deviceId: ids.deviceA, x: 10, y: 20 }, { deviceId: ids.deviceA2, x: 200, y: 20 }] })).statusCode, 200);
+  const refreshedMap = await request('GET', `/api/v1/topology/maps/${map.id}`, 'qa-readonly');
+  assert.equal(refreshedMap.statusCode, 200);
+  assert.deepEqual(json(refreshedMap).nodes.map((node: { deviceId: string }) => node.deviceId).sort(), [ids.deviceA, ids.deviceA2].sort());
+  const mapRevision = json(refreshedMap).revision;
+  const connection = await request('POST', `/api/v1/topology/maps/${map.id}/connections`, 'qa-network-scoped', { revision: mapRevision, sourceDeviceId: ids.deviceA, targetDeviceId: ids.deviceA2, sourceInterfaceId: ids.interfaceA, targetInterfaceId: ids.interfaceA2, type: 'PHYSICAL', label: 'Uplink' });
+  assert.equal(connection.statusCode, 201, connection.body);
+  assert.equal((await request('PUT', `/api/v1/topology/maps/${map.id}/nodes`, 'qa-network-scoped', { revision: mapRevision, nodes: [] })).statusCode, 409);
+  const latestMap = await request('GET', `/api/v1/topology/maps/${map.id}`, 'qa-network-scoped');
+  assert.equal(json(latestMap).connections[0].sourceInterfaceId, ids.interfaceA);
+  assert.equal((await request('POST', `/api/v1/topology/maps/${map.id}/connections`, 'qa-network-scoped', { revision: json(latestMap).revision, sourceDeviceId: ids.deviceA2, targetDeviceId: ids.deviceA, sourceInterfaceId: ids.interfaceA })).statusCode, 404);
+  assert.equal((await request('PUT', `/api/v1/topology/maps/${map.id}/nodes`, 'qa-network-scoped', { revision: json(latestMap).revision, nodes: [{ deviceId: ids.deviceB, x: 0, y: 0 }] })).statusCode, 404);
+  const vlanMapResponse = await request('POST', '/api/v1/topology/maps', 'qa-network-scoped', { siteId: ids.siteA, name: 'HTTP VLAN Map', type: 'VLAN_SUBNET', filters: { vlanIds: [ids.vlanA] } });
+  assert.equal(vlanMapResponse.statusCode, 201, vlanMapResponse.body);
+  const vlanMap = json(vlanMapResponse);
+  assert.equal((await request('PUT', `/api/v1/topology/maps/${vlanMap.id}/nodes`, 'qa-network-scoped', { revision: vlanMap.revision, nodes: [{ deviceId: ids.deviceA, x: 10, y: 20 }, { deviceId: ids.deviceA2, x: 200, y: 20 }] })).statusCode, 200);
+  const filteredVlanMap = await request('GET', `/api/v1/topology/maps/${vlanMap.id}`, 'qa-network-scoped');
+  assert.deepEqual(json(filteredVlanMap).nodes.map((node: { deviceId: string }) => node.deviceId), [ids.deviceA]);
+  assert.equal(json(filteredVlanMap).nodes[0].networkContext.vlans[0].vlanId, 2501);
+  assert.equal((await request('POST', '/api/v1/topology/maps', 'qa-readonly', { siteId: ids.siteA, name: 'Denied', type: 'NETWORK' })).statusCode, 403);
+
+  const reconciled = await request('POST', '/api/v1/inventory-quality/reconcile', 'qa-admin', { siteId: ids.siteA });
+  assert.equal(reconciled.statusCode, 201, reconciled.body);
+  const findings = await request('GET', `/api/v1/inventory-quality/findings?siteId=${ids.siteA}`, 'qa-auditor');
+  assert.equal(findings.statusCode, 200);
+  assert.ok(json(findings).items.length > 0);
+  assert.equal(findings.body.includes('HTTP Hidden Switch'), false);
+  const findingId = json(findings).items[0].id;
+  assert.equal((await request('PATCH', `/api/v1/inventory-quality/findings/${findingId}/acknowledge`, 'qa-auditor')).statusCode, 403);
+  assert.equal((await request('PATCH', `/api/v1/inventory-quality/findings/${findingId}/assign`, 'qa-network-scoped', { userId: ids.scoped })).statusCode, 200);
 });
