@@ -45,7 +45,7 @@
 - Walkthrough inicial para organização, primeiro site e localização física opcional.
 - Proteção do dashboard até o setup estar concluído.
 
-## Fase 3 concluída / Fase 4 em curso
+## Registo histórico — Fase 3 concluída / Fase 4 em curso
 
 - Aplicação Next.js criada em `apps/web`.
 - Dashboard operacional responsivo criado com dados reais.
@@ -77,22 +77,24 @@
 - Discovery separado do inventário oficial, com aprovação/ignorância de resultados pendentes.
 - Filtros de IP aceitam pesquisa por endereço, hostname ou MAC; a API suporta também filtro por `source`.
 
-## Próximos passos da Fase 4
+## Roadmap atual
 
-- Agendamento, retries, métricas e histórico avançado do worker BullMQ.
-- Suporte IPv6.
-- Navegação VLAN → hosts/IPs com pesquisa operacional.
-- Modelo visual de switches, interfaces e configuração de portas.
+O detalhe histórico desta página não é uma lista de trabalho por fazer. O roadmap de referência está em [`context.md`](../context.md), secções 20.6 e 21. A branch `joao/feature/operational-dashboard-topology` contém implementação não commitada no working tree; não a descrever como integrada ou apenas proposta.
 
-## Ainda não implementado
+| Ordem | Trabalho e estado | Dependência / motivo |
+|---|---|---|
+| 1 | ✅ Corrigir os três bloqueios P2: perda de atualizações SSE entre instâncias após falha de Redis Pub/Sub; incremento das revisões dos mapas ao atualizar uma ligação isolada; contagens corretas de qualidade quando uma entidade tem vários findings. | Correções presentes no working tree da branch, ainda não integradas. |
+| 2 | ✅ Validar automaticamente as correções e o incremento. | API: 74 testes passaram; web: 5 ficheiros/13 testes passaram; typecheck passou; lint sem erros e com 21 avisos preexistentes; build API, verificação i18n e build integral do monorepo passaram. |
+| 3 | ⬜ Concluir browser/manual acceptance do centro operacional, dashboard, mapas e qualidade do inventário. | Continua por verificar; o Safari não disponibiliza um endpoint de runtime anexável para esta sessão. |
+| 4 | ✅ Rever o diff; ⬜ preparar PR de rascunho para revisão da equipa. | A revisão do diff e as verificações automatizadas passaram; a preparação do PR não depende da aceitação manual. A branch continua sem integração em `main`. |
+| 5 | ⬜ Validar SNMP em laboratório com equipamento real. | Gate de laboratório independente, ainda não verificado; necessário antes de confiar em perfis e relações observadas. |
+| 6 | Desenvolver LLDP/BRIDGE-MIB/Q-BRIDGE-MIB, MAC/VLAN e reconciliação com aprovação. | Depende da validação SNMP; observações têm de conservar fonte, confiança, timestamp e auditoria. |
+| 7 | Expandir pesquisa operacional, regras/notificações e integrações contextuais conforme evidência do piloto. | Prioridade e canais devem ser confirmados com operadores; não substituir Zabbix nem criar notificações ruidosas. |
+| 8 | Considerar LDAP/LDAPS, agentes, NetApp e hardening de produção. | Horizonte posterior, sujeito a requisitos de segurança, credenciais e necessidade operacional. |
 
-- LDAP/LDAPS.
-- Gestão administrativa de utilizadores e permissões.
-- SNMP, agentes, NetApp e integrações externas.
-- Bastidores visuais e posicionamento de equipamentos.
-- Gestão visual avançada de hosts/serviços e relações com equipamentos.
+Gates ainda por verificar antes de merge/piloto: browser/manual acceptance, recuperação com Redis multi-instância ativo e edições concorrentes reais na base de dados. A validação SNMP física é necessária antes de confiar em perfis de fabricante ou enriquecer a topologia observada. IPv6 é suportado no IPAM e nas operações CIDR; enumeração/scanning de prefixos IPv6 continua deliberadamente fora do Discovery ativo.
 
-## Incremento atual — menus e infraestrutura
+## Registo histórico — menus e infraestrutura
 
 ### Implementado
 
@@ -227,7 +229,7 @@ Correção de fluxo aplicada:
 - A API expõe `GET/PATCH /api/v1/device-models/:id/port-layout` e `POST /api/v1/device-models/:id/port-layout/generate`.
 - Pendentes: editor visual completo de coordenadas por modelo e cobertura visual dos restantes modelos do catálogo.
 
-## Incremento atual — editor visual e gestão operacional
+## Registo histórico — editor visual e gestão operacional
 
 - Estado: funcional em API/frontend; requer validação visual com imagens reais carregadas pelo administrador.
 - Bastidores: figuras sem container, detalhe ampliado, área útil opcional e overlays por U.

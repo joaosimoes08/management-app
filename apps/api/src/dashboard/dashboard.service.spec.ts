@@ -2,13 +2,14 @@ import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { DashboardService } from './dashboard.service';
 
-function serviceWith(prisma: Record<string, unknown>, queue: Record<string, unknown> = {}) {
+function serviceWith(prisma: Record<string, unknown>, queue: Record<string, unknown> = {}, operations: Record<string, unknown> = { list: async () => ({ items: [] }) }) {
   const service = Object.create(DashboardService.prototype) as DashboardService;
   Object.assign(service as object, {
     prisma,
     discoveryQueue: queue,
     ipamAccess: { whereFor: async () => ({}) },
     infrastructureAccess: { visibleRoomIds: async () => [], visibleUnplacedSiteIds: async () => [] },
+    operations,
   });
   return service;
 }
@@ -44,29 +45,19 @@ test('global search caps the limit and applies application roles', async () => {
   assert.deepEqual(result.items[0], { id: 'app-1', type: 'APPLICATION', title: 'Monitorização', detail: 'Aplicação · Operações', href: 'https://monitor.example' });
 });
 
-test('topbar state degrades when Redis is unavailable and derives current alerts', async () => {
-  let failedCutoff: Date | undefined;
+test('topbar state degrades when Redis is unavailable and adapts persisted alerts', async () => {
   const now = new Date();
   const service = serviceWith({
     discoveryJob: {
-      findMany: async (args: { where: { status: unknown; createdAt?: { gte: Date } } }) => {
-        if (args.where.createdAt) {
-          failedCutoff = args.where.createdAt.gte;
-          return [{ id: 'failed-1', status: 'FAILED', createdAt: now, completedAt: now, errorMessage: 'Timeout', subnet: { cidr: '10.0.0.0/24', site: { name: 'Lisboa' } } }];
-        }
-        return [{ id: 'running-1', name: 'Discovery core', status: 'RUNNING', subnet: { cidr: '10.1.0.0/24' } }];
-      },
+      findMany: async () => [{ id: 'running-1', name: 'Discovery core', status: 'RUNNING', subnet: { cidr: '10.1.0.0/24' } }],
     },
-    discoveryResult: { count: async () => 3 },
     systemSettings: { findFirst: async () => ({ setupCompleted: true, setupCompletedAt: now }) },
-  }, { getJobCounts: async () => { throw new Error('Redis offline'); } });
+    roleRequest: { count: async () => 0 }, notification: { findMany: async () => [] },
+  }, { getJobCounts: async () => { throw new Error('Redis offline'); } }, { list: async () => ({ items: [{ id: 'alert-1', severity: 'WARNING', title: 'Discovery falhou', detail: 'Timeout', actionHref: '/descoberta', lastOccurredAt: now }] }) });
 
-  const result = await service.topbarState();
+  const result = await service.topbarState({ id: 'user', externalId: 'external', username: 'admin', roles: ['ADMIN'] });
   assert.equal(result.environment.state, 'DEGRADED');
   assert.equal(result.environment.services.find((item) => item.key === 'redis')?.state, 'UNAVAILABLE');
-  assert.ok(result.alerts.some((item) => item.id === 'redis-unavailable'));
-  assert.ok(result.alerts.some((item) => item.id === 'discovery-failed-failed-1'));
-  assert.ok(result.alerts.some((item) => item.id === 'discovery-pending-review'));
+  assert.ok(result.alerts.some((item) => item.id === 'alert-1'));
   assert.deepEqual(result.processes[0], { id: 'running-1', label: 'Discovery core', detail: '10.1.0.0/24', state: 'RUNNING', href: '/descoberta?jobId=running-1' });
-  assert.ok(failedCutoff && failedCutoff.getTime() <= Date.now() - 23 * 60 * 60 * 1000);
 });

@@ -13,7 +13,9 @@ test('audit cleanup deletes only events older than the retention boundary and re
       deleteMany: async (args: any) => { const ids = args.where.id.in; return { count: ids.length }; },
       create: async (args: any) => { cleanupMetadata = args.data.metadata; },
     },
+    operationalAlert: { deleteMany: async () => ({ count: 2 }) },
+    inventoryFinding: { deleteMany: async () => ({ count: 3 }) },
   };
   const result = await runAuditRetentionCleanup(prisma as never, now);
-  assert.equal(result.deleted, 1); assert.equal(result.cutoff.toISOString(), boundary.toISOString()); assert.equal(settingsUpdate.lastAuditCleanupDeletedCount, 1); assert.deepEqual(cleanupMetadata, { deleted: 1, retentionDays: 90, cutoff: boundary.toISOString() });
+  assert.equal(result.deleted, 1); assert.equal(result.resolvedAlertsDeleted, 2); assert.equal(result.resolvedFindingsDeleted, 3); assert.equal(result.cutoff.toISOString(), boundary.toISOString()); assert.equal(settingsUpdate.lastAuditCleanupDeletedCount, 1); assert.deepEqual(cleanupMetadata, { deleted: 1, retentionDays: 90, cutoff: boundary.toISOString() });
 });

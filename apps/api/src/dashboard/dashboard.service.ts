@@ -1,9 +1,12 @@
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, OnModuleDestroy } from '@nestjs/common';
 import { PrismaClient } from '@simoes/database';
 import { Queue } from 'bullmq';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { InfrastructureAccessService } from '../infrastructure/infrastructure-access.service';
 import { IpamAccessService } from '../ipam/ipam-access.service';
+import { DashboardRoleDto, SaveDashboardLayoutDto, SaveDashboardPreferenceDto } from './dto';
+import { OperationsService } from '../operations/operations.service';
+import { InventoryQualityService } from '../inventory-quality/inventory-quality.service';
 
 export type TopbarAlert = {
   id: string;
@@ -29,6 +32,8 @@ export class DashboardService implements OnModuleDestroy {
     private readonly prisma: PrismaClient,
     private readonly ipamAccess: IpamAccessService,
     private readonly infrastructureAccess: InfrastructureAccessService,
+    private readonly operations: OperationsService,
+    private readonly quality: InventoryQualityService,
   ) {}
   async onModuleDestroy() { await this.discoveryQueue.disconnect(); }
 
@@ -112,17 +117,9 @@ export class DashboardService implements OnModuleDestroy {
   }
 
   async topbarState(user?: AuthenticatedUser) {
-    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const canDiscover = Boolean(user?.roles.some((role) => role === 'ADMIN' || role === 'NETWORK_OPERATOR'));
     const subnetWhere = user && canDiscover ? await this.ipamAccess.whereFor(user, 'READ', 'subnet') : { id: { in: [] } };
-    const [failedJobs, pendingResults, processes, redis, settings, pendingRoleRequests, notifications] = await Promise.all([
-      this.prisma.discoveryJob.findMany({
-        where: { status: 'FAILED', createdAt: { gte: cutoff }, subnet: subnetWhere },
-        include: { subnet: { select: { cidr: true, site: { select: { name: true } } } } },
-        orderBy: { createdAt: 'desc' },
-        take: 5,
-      }),
-      this.prisma.discoveryResult.count({ where: { status: 'PENDING', job: { subnet: subnetWhere } } }),
+    const [processes, redis, settings, pendingRoleRequests, notifications, operationalAlerts] = await Promise.all([
       this.prisma.discoveryJob.findMany({
         where: { status: { in: ['PENDING', 'RUNNING'] }, subnet: subnetWhere },
         include: { subnet: { select: { cidr: true } } },
@@ -133,12 +130,10 @@ export class DashboardService implements OnModuleDestroy {
       this.prisma.systemSettings.findFirst({ select: { setupCompleted: true, setupCompletedAt: true } }),
       user?.roles.includes('ADMIN') ? this.prisma.roleRequest.count({ where: { status: { in: ['PENDING', 'PROCESSING'] } } }) : Promise.resolve(0),
       user ? this.prisma.notification.findMany({ where: { userId: user.id, readAt: null }, orderBy: { createdAt: 'desc' }, take: 20 }) : Promise.resolve([]),
+      user ? this.operations.list(user, { pageSize: '8' }) : Promise.resolve({ items: [] }),
     ]);
 
-    const alerts: TopbarAlert[] = [];
-    if (!redis.available) alerts.push({ id: 'redis-unavailable', severity: 'CRITICAL', title: 'Fila de discovery indisponível', detail: 'Não foi possível contactar o Redis/BullMQ.', href: '/definicoes?tab=system', occurredAt: new Date().toISOString() });
-    alerts.push(...failedJobs.map((job) => ({ id: `discovery-failed-${job.id}`, severity: 'WARNING' as const, title: `Discovery falhou em ${job.subnet.cidr}`, detail: job.errorMessage || `Site ${job.subnet.site?.name ?? 'não definido'}`, href: `/descoberta?jobId=${job.id}`, occurredAt: (job.completedAt ?? job.createdAt).toISOString() })));
-    if (pendingResults > 0) alerts.push({ id: 'discovery-pending-review', severity: 'INFO', title: `${pendingResults} resultado${pendingResults === 1 ? '' : 's'} por rever`, detail: 'Existem resultados de discovery à espera de aprovação.', href: '/descoberta', occurredAt: new Date().toISOString() });
+    const alerts: TopbarAlert[] = operationalAlerts.items.map((alert) => ({ id: alert.id, severity: alert.severity === 'HIGH' ? 'CRITICAL' : alert.severity, title: alert.title, detail: alert.detail, href: alert.actionHref ?? '/', occurredAt: alert.lastOccurredAt.toISOString() }));
     if (pendingRoleRequests > 0) alerts.push({ id: 'role-requests-pending', severity: 'INFO', title: `${pendingRoleRequests} pedido${pendingRoleRequests === 1 ? '' : 's'} de role${pendingRoleRequests === 1 ? '' : 's'} por rever`, detail: 'Existem pedidos de acesso à espera de decisão.', href: '/definicoes?tab=users', occurredAt: new Date().toISOString() });
     alerts.push(...notifications.map((notification) => ({ id: `notification-${notification.id}`, severity: 'INFO' as const, title: notification.title, detail: notification.message, href: '/perfil?tab=roles', occurredAt: notification.createdAt.toISOString() })));
 
@@ -163,5 +158,86 @@ export class DashboardService implements OnModuleDestroy {
   async readNotifications(user: AuthenticatedUser) {
     const result = await this.prisma.notification.updateMany({ where: { userId: user.id, readAt: null }, data: { readAt: new Date() } });
     return { updated: result.count };
+  }
+
+  private readonly widgetIds = new Set(['active-alerts', 'running-processes', 'discovery-review', 'snmp-drifts', 'quality-queue', 'service-health', 'inventory-summary', 'recent-changes', 'quick-actions']);
+  private defaultWidgets(role: DashboardRoleDto) {
+    const base = ['active-alerts', 'service-health', 'inventory-summary', 'recent-changes'];
+    const operational = ['running-processes', 'discovery-review', 'snmp-drifts', 'quality-queue', 'quick-actions'];
+    return [...base, ...(['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR'].includes(role) ? operational : [])].map((id, index) => ({ id, x: (index % 2) * 6, y: Math.floor(index / 2) * 4, w: 6, h: 4, visible: true }));
+  }
+  private roles(user: AuthenticatedUser) { return user.roles.filter((role) => Object.values(DashboardRoleDto).includes(role as DashboardRoleDto)) as DashboardRoleDto[]; }
+  private async assertWorkspace(user: AuthenticatedUser, siteId: string, role: DashboardRoleDto) {
+    if (!siteId || !role) throw new BadRequestException('siteId e role são obrigatórios');
+    if (!this.roles(user).includes(role) && !user.roles.includes('ADMIN')) throw new ForbiddenException('Workspace não atribuído');
+    await this.infrastructureAccess.assertSite(user, 'READ', siteId);
+  }
+  private async assertOperationalWorkspace(user: AuthenticatedUser, siteId: string) {
+    if (user.roles.includes('ADMIN')) return;
+    const effective = await this.infrastructureAccess.effectiveAccess(user, siteId);
+    const infrastructureActions = [effective.infrastructure.site, ...effective.infrastructure.buildings.map((item) => item.actions), ...effective.infrastructure.rooms.map((item) => item.actions)].flat();
+    if (!effective.ipamActions.some((action) => ['CREATE', 'UPDATE', 'DELETE'].includes(action)) && !infrastructureActions.some((action) => ['CREATE', 'UPDATE', 'DELETE'].includes(action))) throw new ForbiddenException('O Site não tem permissão operacional para editar este layout');
+  }
+  async workspaces(user: AuthenticatedUser, requestedSiteId?: string) {
+    const sites = await this.prisma.site.findMany({ where: requestedSiteId ? { id: requestedSiteId } : {}, select: { id: true, name: true, code: true }, orderBy: { name: 'asc' } });
+    const visible = (await Promise.all(sites.map(async (site) => { try { await this.infrastructureAccess.assertSite(user, 'READ', site.id); return site; } catch { return null; } }))).filter((site): site is NonNullable<typeof site> => Boolean(site));
+    const roles = user.roles.includes('ADMIN') ? Object.values(DashboardRoleDto) : this.roles(user);
+    const preferences = await this.prisma.userDashboardPreference.findMany({ where: { userId: user.id, siteId: { in: visible.map((site) => site.id) } } });
+    return { items: visible.flatMap((site) => roles.map((role) => ({ id: `${site.id}:${role}`, siteId: site.id, siteName: site.name, siteCode: site.code, role, selected: preferences.some((item) => item.siteId === site.id && item.selectedRole === role) }))) };
+  }
+  async layout(user: AuthenticatedUser, siteId: string, role: DashboardRoleDto) {
+    await this.assertWorkspace(user, siteId, role);
+    const existing = await this.prisma.dashboardLayout.findUnique({ where: { siteId_role: { siteId, role } } });
+    if (existing) return { siteId, role, revision: existing.revision, ...(existing.config as { widgets: unknown[] }) };
+    const widgets = this.defaultWidgets(role);
+    const created = await this.prisma.dashboardLayout.create({ data: { siteId, role, config: { widgets }, updatedById: user.id } }).catch(async () => this.prisma.dashboardLayout.findUniqueOrThrow({ where: { siteId_role: { siteId, role } } }));
+    return { siteId, role, revision: created.revision, ...(created.config as { widgets: unknown[] }) };
+  }
+  async saveLayout(user: AuthenticatedUser, dto: SaveDashboardLayoutDto) {
+    await this.assertWorkspace(user, dto.siteId, dto.role);
+    if (!user.roles.includes('ADMIN') && !user.roles.includes(dto.role as 'NETWORK_OPERATOR' | 'SYSTEMS_OPERATOR')) throw new ForbiddenException('Só podes editar o layout da tua role');
+    await this.assertOperationalWorkspace(user, dto.siteId);
+    if (!dto.widgets.length || dto.widgets.some((widget) => !this.widgetIds.has(widget.id))) throw new BadRequestException('O layout contém widgets inválidos');
+    if (new Set(dto.widgets.map((widget) => widget.id)).size !== dto.widgets.length) throw new BadRequestException('O layout contém widgets duplicados');
+    if (dto.widgets.some((widget) => widget.x + widget.w > 12)) throw new BadRequestException('Um widget ultrapassa as 12 colunas do dashboard');
+    const current = await this.prisma.dashboardLayout.findUnique({ where: { siteId_role: { siteId: dto.siteId, role: dto.role } } });
+    const config = { widgets: dto.widgets.map(({ id, x, y, w, h, visible }) => ({ id, x, y, w, h, visible: visible ?? true })) };
+    let saved;
+    if (current) {
+      const updated = await this.prisma.dashboardLayout.updateMany({ where: { id: current.id, revision: dto.revision ?? current.revision }, data: { config, updatedById: user.id, revision: { increment: 1 } } });
+      if (updated.count !== 1) throw new ConflictException({ code: 'DASHBOARD_LAYOUT_REVISION_CONFLICT', message: 'O layout foi alterado por outro utilizador.' });
+      saved = await this.prisma.dashboardLayout.findUniqueOrThrow({ where: { id: current.id } });
+    } else {
+      saved = await this.prisma.dashboardLayout.create({ data: { siteId: dto.siteId, role: dto.role, config, updatedById: user.id } }).catch(() => { throw new ConflictException({ code: 'DASHBOARD_LAYOUT_REVISION_CONFLICT', message: 'O layout foi criado por outro utilizador.' }); });
+    }
+    return { siteId: dto.siteId, role: dto.role, revision: saved.revision, widgets: config.widgets };
+  }
+  async savePreference(user: AuthenticatedUser, dto: SaveDashboardPreferenceDto) {
+    await this.assertWorkspace(user, dto.siteId, dto.role);
+    return this.prisma.userDashboardPreference.upsert({ where: { userId_siteId: { userId: user.id, siteId: dto.siteId } }, create: { userId: user.id, siteId: dto.siteId, selectedRole: dto.role }, update: { selectedRole: dto.role } });
+  }
+  async operationalSummary(user: AuthenticatedUser, siteId: string, role: DashboardRoleDto) {
+    await this.assertWorkspace(user, siteId, role);
+    const [roomIds, unplacedSiteIds, vlanAccess, subnetAccess, ipAccess] = await Promise.all([
+      this.infrastructureAccess.visibleRoomIds(user, siteId), this.infrastructureAccess.visibleUnplacedSiteIds(user, siteId),
+      this.ipamAccess.whereFor(user, 'READ', 'vlan'), this.ipamAccess.whereFor(user, 'READ', 'subnet'), this.ipamAccess.whereFor(user, 'READ', 'ip'),
+    ]);
+    const deviceAccess = { OR: [{ rack: { roomId: { in: roomIds } } }, { rackId: null, siteId: { in: unplacedSiteIds } }] };
+    const subnetWhere = { AND: [subnetAccess, { siteId }] };
+    const [alerts, quality, processes, drifts, devices, vlans, subnets, ips, topbar] = await Promise.all([
+      this.operations.summary(user, siteId), this.quality.summary(user, siteId),
+      this.prisma.discoveryJob.findMany({ where: { subnet: subnetWhere, status: { in: ['PENDING', 'RUNNING', 'FAILED'] } }, include: { subnet: { select: { cidr: true } } }, orderBy: { createdAt: 'desc' }, take: 20 }),
+      this.prisma.snmpDrift.count({ where: { device: deviceAccess, status: 'PENDING' } }),
+      this.prisma.device.count({ where: deviceAccess }),
+      this.prisma.vlan.count({ where: { AND: [vlanAccess, { siteId }] } }), this.prisma.subnet.count({ where: subnetWhere }),
+      this.prisma.ipAddress.count({ where: { AND: [ipAccess, { subnet: { siteId } }] } }), this.topbarState(user),
+    ]);
+    return {
+      siteId, role, alerts, quality,
+      discovery: processes.filter((item) => item.status === 'FAILED').length,
+      drifts, inventory: { sites: 1, devices, vlans, subnets, ips }, services: topbar.environment.services,
+      processes: processes.filter((item) => item.status === 'PENDING' || item.status === 'RUNNING').map((item) => ({ id: item.id, label: item.name, detail: item.subnet.cidr, state: item.status, href: `/descoberta?jobId=${item.id}` })),
+      updatedAt: new Date().toISOString(),
+    };
   }
 }

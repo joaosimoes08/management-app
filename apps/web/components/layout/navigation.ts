@@ -1,4 +1,4 @@
-import { Boxes, ExternalLink, LayoutDashboard, Network, RadioTower, Search, Settings, Table2, CircleHelp } from 'lucide-react';
+import { Boxes, ClipboardCheck, ExternalLink, LayoutDashboard, Network, RadioTower, Search, Settings, Table2, CircleHelp, Share2 } from 'lucide-react';
 
 export interface NavigationItem {
   label: string;
@@ -15,6 +15,8 @@ export interface NavigationItem {
 export const navigation: NavigationItem[] = [
   { label: 'Dashboard', key: 'nav.dashboard', href: '/', icon: LayoutDashboard },
   { label: 'Infraestrutura', key: 'nav.infrastructure', href: '/infraestrutura', icon: Boxes },
+  { label: 'Topologia', key: 'nav.topology', href: '/topology', icon: Share2 },
+  { label: 'Qualidade', key: 'nav.quality', href: '/qualidade-inventario', icon: ClipboardCheck },
   { label: 'Portal interno', key: 'nav.portal', href: '/portal', icon: ExternalLink },
   { label: 'IPAM', key: 'nav.ipam', href: '/ipam', icon: Network, ipam: true },
   { label: 'Descoberta', key: 'nav.discovery', href: '/descoberta', icon: Search, discovery: true },
