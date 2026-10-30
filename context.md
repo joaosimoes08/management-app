@@ -964,7 +964,7 @@ As correções P2, checks automatizados e revisão final do diff estão concluí
 
 ## 22. Pesquisa global de ativos — 30 de outubro de 2026
 
-Estado: implementada na branch `joao/feature/global-asset-search`; PR pendente.
+Estado: implementada na branch `joao/feature/global-asset-search`; PR #12 aberto.
 
 - A pesquisa global inclui interfaces por nome, port key, descrição e MAC; Hosts por nome, hostname observado, sistema operativo e MAC; e Services por nome, protocolo, versão e porta.
 - Os resultados respeitam os scopes IPAM e de infraestrutura aplicados aos inventários.
