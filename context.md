@@ -649,7 +649,7 @@ Estado: base de dados e API implementadas; UI operacional inicial.
 - Subnets suportam IPv4/IPv6, VRF opcional, subnet pai, gateway, validação de sobreposição e uma subnet principal por VLAN.
 - IPs guardam estado manual e observado, última verificação, ICMP/TCP, latência, portas abertas e reverse DNS quando disponível.
 - Foram adicionados CRUD de VRFs, NAT documental e grupos/permissões IPAM por Site, VRF, VLAN e Subnet.
-- A calculadora suporta resumo, contains, overlap e split IPv4 sem enumerar prefixos IPv6 grandes.
+- A calculadora suporta resumo, contains e overlap em IPv4/IPv6; a interface divide subnets IPv4 sem enumerar prefixos IPv6 grandes.
 - Scanning por subnet é opt-in, usa BullMQ/Redis e intervalo de 12 horas; IPv6 só deve ser verificado para endereços explicitamente conhecidos.
 - Importação RIPEstat é manual, com preview, seleção de prefixos, confirmação e histórico persistido em `RipeImport`.
 - `/ipam` tem tabs para Mapa, Subnets, IPs, VRFs, NAT, Calculadora, Permissões, Discovery e Importações.

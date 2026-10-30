@@ -74,7 +74,7 @@ export default function IpamPage() {
   const [subnet, setSubnet] = useState<SubnetFormState>(blankSubnet);
   const [host, setHost] = useState<HostFormState>(blankHost);
   const [currentVlan, setCurrentVlan] = useState<NetworkMapVlan | null>(null);
-  const [calc, setCalc] = useState<CalculatorInput>({ address: '', basePrefix: '24', newPrefix: '27', operation: 'split' });
+  const [calc, setCalc] = useState<CalculatorInput>({ address: '', basePrefix: '24', newPrefix: '27', operation: 'split', cidr: '', containsAddress: '', cidrsText: '' });
   const [calcResult, setCalcResult] = useState<CalculatorResult | null>(null);
 
   // ── Server state (React Query) ───────────────────────────────────────────
@@ -220,7 +220,15 @@ export default function IpamPage() {
   const calculate = async (event: React.FormEvent) => {
     event.preventDefault();
     try {
-      setCalcResult(await calculateSubnets({ ...calc, operation: 'split', newPrefix: Number(calc.newPrefix) }));
+      const operation = calc.operation ?? 'split';
+      const request = operation === 'split'
+        ? { address: calc.address, basePrefix: calc.basePrefix, operation, newPrefix: Number(calc.newPrefix) }
+        : operation === 'summary'
+          ? { operation, cidr: calc.cidr ?? '' }
+          : operation === 'contains'
+            ? { operation, cidr: calc.cidr ?? '', address: calc.containsAddress ?? '' }
+            : { operation, cidr: calc.cidr ?? '', cidrs: (calc.cidrsText ?? '').split(/[\n,;]+/).map((cidr) => cidr.trim()).filter(Boolean) };
+      setCalcResult(await calculateSubnets(request));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Não foi possível calcular as subnets.');
     }

@@ -180,13 +180,18 @@ export interface NetworkMapVlan {
   status?: string;
 }
 
-// ── Calculator (POST /ipam/calculator with operation "split") ──────────────
+// ── Calculator (POST /ipam/calculator) ─────────────────────────────────────
+
+export type CalculatorOperation = 'summary' | 'split' | 'contains' | 'overlap';
 
 export interface CalculatorInput {
   address: string;
   basePrefix: string;
   newPrefix: string;
-  operation?: string;
+  operation?: CalculatorOperation;
+  cidr?: string;
+  containsAddress?: string;
+  cidrsText?: string;
 }
 
 export interface CalculatorSubnet {
@@ -200,12 +205,17 @@ export interface CalculatorSubnet {
   usableIps: number;
 }
 
-export interface CalculatorResult {
+export interface CalculatorSplitResult {
   parent: string;
   newPrefix: number;
   subnetCount: number;
   subnets: CalculatorSubnet[];
 }
+
+export type CalculatorResult = CalculatorSplitResult
+  | { version: 4 | 6; prefix: number; network: string; cidr: string; broadcast?: string; firstUsable: string; lastUsable: string; total?: number | string | null }
+  | { cidr: string; address?: string; contains: boolean }
+  | { cidr: string; overlaps: string[] };
 
 export type IpamAction = 'READ' | 'CREATE' | 'UPDATE' | 'DELETE' | 'DISCOVER' | 'IMPORT';
 export interface IpamPermissionGroup {
