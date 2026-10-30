@@ -100,17 +100,36 @@ export function TopologyPage() {
   const handleNodesChange = (changes: NodeChange[]) => { const next = applyNodeChanges(changes, nodes); onNodesChange(changes); if (changes.some((change) => change.type === 'position' && change.position)) persist(next); };
 
   return <AppShell section="Topologia" context={['Infraestrutura']}>
-    <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: 20, minHeight: 'calc(100vh - 150px)' }}>
-      <aside>
-        <h1>Topologia</h1>
-        <div style={{ display: 'grid', gap: 8, marginBottom: 16 }}><input aria-label="Nome do mapa" value={name} onChange={(event) => setName(event.target.value)} placeholder="Novo mapa" /><select aria-label="Tipo do mapa" value={mapType} onChange={(event) => setMapType(event.target.value as TopologyMapType)}>{types.map((type) => <option key={type}>{type}</option>)}</select>{mapType === 'VLAN_SUBNET' && <select multiple aria-label="VLANs do mapa" value={selectedVlanIds} onChange={(event) => setSelectedVlanIds([...event.target.selectedOptions].map((option) => option.value))}>{vlans.data?.items.map((vlan) => <option key={vlan.id} value={vlan.id}>VLAN {vlan.vlanId} · {vlan.name}</option>)}</select>}<button disabled={!name.trim() || !siteId || create.isPending} onClick={() => create.mutate()}>Criar mapa</button></div>
-        <ul>{mapOptions.map((map) => <li key={map.id}><button onClick={() => setSelected(map.id)} aria-current={selected === map.id}>{map.name} ({map.type})</button></li>)}</ul>
-        {current && <div style={{ display: 'grid', gap: 8, marginTop: 20 }}><strong>Adicionar equipamento</strong><select value={deviceId} onChange={(event) => setDeviceId(event.target.value)}><option value="">Seleciona…</option>{devices.data?.items.filter((device) => !current.nodes.some((node) => node.deviceId === device.id)).map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}</select><button disabled={!deviceId} onClick={() => void addDevice()}>Adicionar ao mapa</button></div>}
-        {selectedConnection && <div style={{ display: 'grid', gap: 8, marginTop: 20 }}><strong>Ligação selecionada</strong><input value={edgeLabel} onChange={(event) => setEdgeLabel(event.target.value)} placeholder="Etiqueta" /><select value={edgeType} onChange={(event) => setEdgeType(event.target.value as 'PHYSICAL' | 'LOGICAL')}><option value="PHYSICAL">Física</option><option value="LOGICAL">Lógica</option></select><button onClick={() => void saveConnection()}>Guardar ligação</button><button onClick={() => void removeConnection()}>Remover do mapa</button></div>}
-        {selected && <button onClick={() => remove.mutate()} disabled={remove.isPending} style={{ marginTop: 20 }}>Eliminar mapa</button>}
-        {warning && <p role="alert">{warning}</p>}
-      </aside>
-      <section style={{ minHeight: 600, border: '1px solid #d1d5db', borderRadius: 8 }}><ReactFlow nodes={nodes} edges={edges} onNodesChange={handleNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onEdgeClick={(_event, edge) => setSelectedEdgeId(edge.id)} fitView><Background /><MiniMap /><Controls /></ReactFlow></section>
-    </div>
+    <main className="module-page topology-page">
+      <header className="module-hero"><span className="section-kicker">INFRAESTRUTURA</span><h1>Topologia</h1><p>Cria mapas e organiza ligações entre equipamentos do Site selecionado.</p></header>
+      <div className="topology-layout">
+        <aside className="topology-sidebar">
+          <section className="ipam-card topology-card">
+            <div className="panel-heading"><div><span className="section-kicker">NOVO MAPA</span><h2>Criar mapa</h2></div></div>
+            <div className="topology-form">
+              <label>Nome do mapa<input aria-label="Nome do mapa" value={name} onChange={(event) => setName(event.target.value)} placeholder="Ex.: Rede principal" /></label>
+              <label>Tipo do mapa<select aria-label="Tipo do mapa" value={mapType} onChange={(event) => setMapType(event.target.value as TopologyMapType)}>{types.map((type) => <option key={type}>{type}</option>)}</select></label>
+              {mapType === 'VLAN_SUBNET' && <label>VLANs associadas<select multiple aria-label="VLANs do mapa" value={selectedVlanIds} onChange={(event) => setSelectedVlanIds([...event.target.selectedOptions].map((option) => option.value))}>{vlans.data?.items.map((vlan) => <option key={vlan.id} value={vlan.id}>VLAN {vlan.vlanId} · {vlan.name}</option>)}</select><small>Usa Ctrl ou Command para selecionar várias VLANs.</small></label>}
+              <button className="primary-button topology-create" disabled={!name.trim() || !siteId || create.isPending} onClick={() => create.mutate()}>{create.isPending ? 'A criar…' : 'Criar mapa'}</button>
+            </div>
+          </section>
+          <section className="ipam-card topology-card">
+            <div className="panel-heading"><div><span className="section-kicker">MAPAS DO SITE</span><h2>Mapas existentes</h2></div><span className="topology-count">{mapOptions.length}</span></div>
+            {maps.isLoading ? <p className="topology-hint">A carregar mapas…</p> : maps.isError ? <p className="topology-hint" role="alert">Não foi possível carregar os mapas.</p> : mapOptions.length ? <ul className="topology-map-list">{mapOptions.map((map) => <li key={map.id}><button className={selected === map.id ? 'selected' : ''} onClick={() => setSelected(map.id)} aria-current={selected === map.id ? 'page' : undefined}><span>{map.name}</span><small>{map.type.replace('_', ' ')}</small></button></li>)}</ul> : <p className="topology-hint">Ainda não existem mapas neste Site.</p>}
+          </section>
+          {current && <section className="ipam-card topology-card">
+            <div className="panel-heading"><div><span className="section-kicker">EQUIPAMENTOS</span><h2>Adicionar equipamento</h2></div></div>
+            <div className="topology-form"><label htmlFor="topology-device">Equipamento<select id="topology-device" value={deviceId} onChange={(event) => setDeviceId(event.target.value)}><option value="">Seleciona…</option>{devices.data?.items.filter((device) => !current.nodes.some((node) => node.deviceId === device.id)).map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}</select></label><button className="secondary-button" disabled={!deviceId} onClick={() => void addDevice()}>Adicionar ao mapa</button></div>
+          </section>}
+          {selectedConnection && <section className="ipam-card topology-card">
+            <div className="panel-heading"><div><span className="section-kicker">LIGAÇÃO</span><h2>Ligação selecionada</h2></div></div>
+            <div className="topology-form"><label>Etiqueta<input value={edgeLabel} onChange={(event) => setEdgeLabel(event.target.value)} placeholder="Etiqueta" /></label><label>Tipo<select value={edgeType} onChange={(event) => setEdgeType(event.target.value as 'PHYSICAL' | 'LOGICAL')}><option value="PHYSICAL">Física</option><option value="LOGICAL">Lógica</option></select></label><button className="primary-button" onClick={() => void saveConnection()}>Guardar ligação</button><button className="secondary-button danger" onClick={() => void removeConnection()}>Remover do mapa</button></div>
+          </section>}
+          {selected && <button className="secondary-button danger topology-delete" onClick={() => remove.mutate()} disabled={remove.isPending}>{remove.isPending ? 'A eliminar…' : 'Eliminar mapa'}</button>}
+          {warning && <p className="ipam-alert error" role="alert">{warning}</p>}
+        </aside>
+        <section className="topology-canvas panel" aria-label="Área do mapa de topologia"><ReactFlow nodes={nodes} edges={edges} onNodesChange={handleNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onEdgeClick={(_event, edge) => setSelectedEdgeId(edge.id)} fitView><Background /><MiniMap /><Controls /></ReactFlow>{!selected && !maps.isLoading && <div className="topology-canvas-empty"><strong>Seleciona ou cria um mapa</strong><span>O teu mapa de topologia aparece aqui.</span></div>}</section>
+      </div>
+    </main>
   </AppShell>;
 }
