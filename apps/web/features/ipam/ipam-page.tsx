@@ -76,6 +76,7 @@ export default function IpamPage() {
   const [currentVlan, setCurrentVlan] = useState<NetworkMapVlan | null>(null);
   const [calc, setCalc] = useState<CalculatorInput>({ address: '', basePrefix: '24', newPrefix: '27', operation: 'split', cidr: '', containsAddress: '', cidrsText: '' });
   const [calcResult, setCalcResult] = useState<CalculatorResult | null>(null);
+  const [calcPending, setCalcPending] = useState(false);
 
   // ── Server state (React Query) ───────────────────────────────────────────
 
@@ -219,6 +220,9 @@ export default function IpamPage() {
 
   const calculate = async (event: React.FormEvent) => {
     event.preventDefault();
+    setCalcResult(null);
+    setError('');
+    setCalcPending(true);
     try {
       const operation = calc.operation ?? 'split';
       const request = operation === 'split'
@@ -231,6 +235,8 @@ export default function IpamPage() {
       setCalcResult(await calculateSubnets(request));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Não foi possível calcular as subnets.');
+    } finally {
+      setCalcPending(false);
     }
   };
 
@@ -258,7 +264,7 @@ export default function IpamPage() {
                 : tab === 'permissions' && effective?.tabs?.permissions
                   ? <CentralIpamPermissions siteId={siteId} />
                   : tab === 'calculator'
-                  ? <CalculatorView calc={calc} setCalc={setCalc} result={calcResult} onSubmit={calculate} />
+                  ? <CalculatorView calc={calc} setCalc={setCalc} result={calcResult} clearResult={() => setCalcResult(null)} pending={calcPending} onSubmit={calculate} />
                   : <Empty title={tabLabel} text="Esta área do IPAM está preparada para a próxima configuração." />}
       {hostDetail && <HostPanel host={hostDetail} canEdit={canEdit} close={closeHost} reload={() => openHost(hostDetail.id)} success={success} toastError={toastError} />}
 
