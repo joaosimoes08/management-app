@@ -7,7 +7,7 @@ function serviceWith(prisma: Record<string, unknown>, queue: Record<string, unkn
   Object.assign(service as object, {
     prisma,
     discoveryQueue: queue,
-    ipamAccess: { whereFor: async () => ({}) },
+    ipamAccess: { whereFor: async (_user: unknown, _action: unknown, resource: string) => ({ resource }) },
     infrastructureAccess: { visibleRoomIds: async () => [], visibleUnplacedSiteIds: async () => [] },
     operations,
   });
@@ -27,6 +27,9 @@ test('global search caps the limit and applies application roles', async () => {
   const service = serviceWith({
     site: empty,
     device: empty,
+    deviceInterface: empty,
+    host: empty,
+    service: empty,
     vlan: empty,
     subnet: empty,
     ipAddress: empty,
@@ -43,6 +46,31 @@ test('global search caps the limit and applies application roles', async () => {
   assert.equal(applicationTake, 20);
   assert.match(JSON.stringify(applicationWhere), /NETWORK_OPERATOR/);
   assert.deepEqual(result.items[0], { id: 'app-1', type: 'APPLICATION', title: 'Monitorização', detail: 'Aplicação · Operações', href: 'https://monitor.example' });
+});
+
+test('global search includes scoped interfaces, hosts and services with deep links', async () => {
+  const empty = { findMany: async () => [] };
+  const service = serviceWith({
+    site: empty,
+    device: empty,
+    vlan: empty,
+    subnet: empty,
+    ipAddress: empty,
+    applicationLink: empty,
+    deviceInterface: { findMany: async () => [{ id: 'if-1', name: 'Gi1/0/1', portKey: '1', macAddress: 'aa:bb', device: { id: 'dev-1', name: 'sw-core', siteId: 'site-1', site: { name: 'Core' } } }] },
+    host: { findMany: async (args: { where: unknown }) => {
+      assert.match(JSON.stringify(args.where), /host/);
+      return [{ id: 'host-1', name: 'app-server', hostname: 'srv-1', observedHostname: null, macAddress: null, ipAddresses: [{ subnet: { siteId: 'site-1', site: { name: 'Core' } } }], device: null }];
+    } },
+    service: { findMany: async () => [{ id: 'service-1', name: 'HTTPS', protocol: 'TCP', port: 443, host: { id: 'host-1', name: 'app-server', ipAddresses: [{ subnet: { siteId: 'site-1' } }], device: null } }] },
+  });
+
+  const result = await service.search('srv', '20', { id: 'user', externalId: 'external', username: 'operator', roles: ['NETWORK_OPERATOR'] });
+  assert.deepEqual(result.items.filter((item) => ['INTERFACE', 'HOST', 'SERVICE'].includes(item.type)), [
+    { id: 'if-1', type: 'INTERFACE', title: 'Gi1/0/1', detail: 'Interface · sw-core · aa:bb', href: '/infraestrutura?siteId=site-1&tab=interfaces&deviceId=dev-1' },
+    { id: 'host-1', type: 'HOST', title: 'app-server', detail: 'Host · srv-1', href: '/ipam?siteId=site-1&hostId=host-1' },
+    { id: 'service-1', type: 'SERVICE', title: 'HTTPS', detail: 'Service · app-server · TCP/443', href: '/ipam?siteId=site-1&hostId=host-1' },
+  ]);
 });
 
 test('topbar state degrades when Redis is unavailable and adapts persisted alerts', async () => {

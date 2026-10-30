@@ -12,7 +12,7 @@ export interface GlobalSearchPaletteProps {
   onClose: () => void;
 }
 
-/** Global command palette (⌘K) searching sites, devices, VLANs, subnets, IPs and apps. */
+/** Global command palette (⌘K) for inventory, network and application records. */
 export function GlobalSearchPalette({ open, onClose }: GlobalSearchPaletteProps) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -70,7 +70,7 @@ export function GlobalSearchPalette({ open, onClose }: GlobalSearchPaletteProps)
 
   if (!open) return null;
 
-  return <div className="command-backdrop" role="presentation" onMouseDown={onClose}><section className="command-palette" role="dialog" aria-modal="true" aria-label="Pesquisa global" onMouseDown={(event) => event.stopPropagation()}><div className="command-input"><Search size={18} /><input ref={inputRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar sites, equipamentos, VLANs, subnets, IPs ou aplicações…" aria-label="Pesquisa global" onKeyDown={(event) => {
+  return <div className="command-backdrop" role="presentation" onMouseDown={onClose}><section className="command-palette" role="dialog" aria-modal="true" aria-label="Pesquisa global" onMouseDown={(event) => event.stopPropagation()}><div className="command-input"><Search size={18} /><input ref={inputRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar sites, equipamentos, interfaces, hosts, services, IPs ou aplicações…" aria-label="Pesquisa global" onKeyDown={(event) => {
     if (event.key === 'ArrowDown') {
       event.preventDefault();
       setActiveIndex((index) => Math.min(index + 1, items.length - 1));

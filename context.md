@@ -925,7 +925,7 @@ Os itens abaixo registam o âmbito planeado em 19 de outubro. A secção 21 desc
 4. **✅ Rever o diff e abrir o PR #10 para revisão da equipa.** O PR está aberto e pronto para revisão; a aceitação manual permanece pendente antes de merge/piloto. A branch ainda não está integrada em `main`.
 5. **Validar SNMP em laboratório com equipamento real.** Gate independente do centro operacional; pré-requisito para confiar em perfis e relações observadas por fabricante.
 6. **Só depois da validação SNMP enriquecer topologia observada e reconciliação.** Implementar LLDP/BRIDGE-MIB/Q-BRIDGE-MIB, tabelas MAC/VLAN e aprovação de diferenças com fonte, confiança, timestamp e auditoria. Não converter observações em dados oficiais sem política ou aprovação.
-7. **Priorizar pesquisa operacional, regras/notificações e integrações contextuais com evidência do piloto.** Evoluções posteriores; a secção 20.3 mantém requisitos propostos, não os apresenta como trabalho já entregue.
+7. **Completar percursos operacionais com evidência do piloto.** A pesquisa global por Host/Service/interface/MAC foi implementada na secção 22. Regras/notificações, racks, eventos/alertas e integrações contextuais continuam por priorizar com operadores; não são assumidos como aprovados.
 8. **Manter agentes, LDAP/LDAPS, NetApp, integrações Zabbix/Ansible/BookStack/Zammad e hardening de produção no horizonte posterior.** Validar necessidade e requisitos de credenciais/segurança antes de iniciar cada integração.
 
 As correções P2, verificações automatizadas e revisão final do diff estão concluídas; o PR #10 está aberto e pronto para revisão enquanto a aceitação manual permanece pendente. Browser/manual acceptance, recuperação real com Redis multi-instância e edições concorrentes reais na base de dados continuam por verificar antes de merge/piloto. A validação SNMP é um gate independente e tem de ocorrer antes de confiar em perfis observados ou enriquecer a topologia observada. O que depende do resultado do piloto permanece uma recomendação, não um compromisso de prazo.
@@ -961,3 +961,13 @@ O registo original acima descreve verificações executadas durante o incremento
 - Corrigir um problema de inventário e confirmar auto-resolução do finding e do alerta associado.
 
 As correções P2, checks automatizados e revisão final do diff estão concluídos, mas não substituem os fluxos manuais ainda por verificar. O PR #10 está aberto e pronto para revisão; browser/manual acceptance, recuperação real com Redis multi-instância e edições concorrentes reais na base de dados continuam gates antes de merge/piloto. A validação física de SNMP com equipamento real também não foi feita e continua independente; é necessária antes de confiar em perfis observados ou enriquecer a topologia observada. LLDP/BRIDGE-MIB/Q-BRIDGE-MIB, inferência automática de ligações e escrita SNMP continuam fora deste incremento.
+
+## 22. Pesquisa global de ativos — 30 de outubro de 2026
+
+Estado: implementada na branch `joao/feature/global-asset-search`; PR pendente.
+
+- A pesquisa global inclui interfaces por nome, port key, descrição e MAC; Hosts por nome, hostname observado, sistema operativo e MAC; e Services por nome, protocolo, versão e porta.
+- Os resultados respeitam os scopes IPAM e de infraestrutura aplicados aos inventários.
+- Hosts e Services abrem a ficha do Host no IPAM; interfaces abrem o equipamento selecionado na vista de interfaces.
+- Validação registada nesta branch: 75 testes API, build API, build web e verificação i18n.
+- Eventos e alertas continuam fora da pesquisa; o gate SNMP de laboratório permanece pendente.
