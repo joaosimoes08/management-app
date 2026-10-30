@@ -19,7 +19,7 @@ export type TopbarAlert = {
 
 export type GlobalSearchResult = {
   id: string;
-  type: 'SITE' | 'DEVICE' | 'VLAN' | 'SUBNET' | 'IP' | 'APPLICATION';
+  type: 'SITE' | 'DEVICE' | 'INTERFACE' | 'HOST' | 'SERVICE' | 'VLAN' | 'SUBNET' | 'IP' | 'APPLICATION';
   title: string;
   detail: string;
   href: string;
@@ -88,17 +88,22 @@ export class DashboardService implements OnModuleDestroy {
     if (query.length < 2) return { items: [] as GlobalSearchResult[] };
     const limit = Math.min(Math.max(Number(limitText) || 8, 1), 20);
     const contains = { contains: query, mode: 'insensitive' as const };
-    const [siteWhere, vlanWhere, subnetWhere, ipWhere, roomIds, unplacedSiteIds] = await Promise.all([
+    const [siteWhere, vlanWhere, subnetWhere, ipWhere, hostWhere, roomIds, unplacedSiteIds] = await Promise.all([
       this.ipamAccess.whereFor(user, 'READ', 'site'),
       this.ipamAccess.whereFor(user, 'READ', 'vlan'),
       this.ipamAccess.whereFor(user, 'READ', 'subnet'),
       this.ipamAccess.whereFor(user, 'READ', 'ip'),
+      this.ipamAccess.whereFor(user, 'READ', 'host'),
       this.infrastructureAccess.visibleRoomIds(user),
       this.infrastructureAccess.visibleUnplacedSiteIds(user),
     ]);
-    const [sites, devices, vlans, subnets, ips, applications] = await Promise.all([
+    const visibleDeviceWhere = { OR: [{ rack: { roomId: { in: roomIds } } }, { rackId: null, siteId: { in: unplacedSiteIds } }] };
+    const [sites, devices, interfaces, hosts, services, vlans, subnets, ips, applications] = await Promise.all([
       this.prisma.site.findMany({ where: { AND: [siteWhere, { OR: [{ name: contains }, { code: contains }, { city: contains }] }] }, select: { id: true, name: true, code: true }, orderBy: { name: 'asc' }, take: limit }),
-      this.prisma.device.findMany({ where: { AND: [{ OR: [{ rack: { roomId: { in: roomIds } } }, { rackId: null, siteId: { in: unplacedSiteIds } }] }, { OR: [{ name: contains }, { hostname: contains }, { managementIp: contains }, { serialNumber: contains }, { assetTag: contains }] }] }, select: { id: true, name: true, hostname: true, managementIp: true, siteId: true, site: { select: { name: true } } }, orderBy: { name: 'asc' }, take: limit }),
+      this.prisma.device.findMany({ where: { AND: [visibleDeviceWhere, { OR: [{ name: contains }, { hostname: contains }, { managementIp: contains }, { serialNumber: contains }, { assetTag: contains }] }] }, select: { id: true, name: true, hostname: true, managementIp: true, siteId: true, site: { select: { name: true } } }, orderBy: { name: 'asc' }, take: limit }),
+      this.prisma.deviceInterface.findMany({ where: { device: visibleDeviceWhere, OR: [{ name: contains }, { portKey: contains }, { description: contains }, { macAddress: contains }] }, select: { id: true, name: true, portKey: true, macAddress: true, device: { select: { id: true, name: true, siteId: true, site: { select: { name: true } } } } }, orderBy: [{ device: { name: 'asc' } }, { name: 'asc' }], take: limit }),
+      this.prisma.host.findMany({ where: { AND: [hostWhere, { OR: [{ name: contains }, { hostname: contains }, { observedHostname: contains }, { macAddress: contains }, { operatingSystem: contains }] }] }, select: { id: true, name: true, hostname: true, observedHostname: true, macAddress: true, ipAddresses: { select: { subnet: { select: { siteId: true, site: { select: { name: true } } } } }, take: 1 }, device: { select: { siteId: true } } }, orderBy: { name: 'asc' }, take: limit }),
+      this.prisma.service.findMany({ where: { AND: [{ host: hostWhere }, { OR: [{ name: contains }, { protocol: contains }, { version: contains }, ...(/^\d+$/.test(query) ? [{ port: Number(query) }] : [])] }] }, select: { id: true, name: true, protocol: true, port: true, host: { select: { id: true, name: true, ipAddresses: { select: { subnet: { select: { siteId: true } } }, take: 1 }, device: { select: { siteId: true } } } } }, orderBy: [{ name: 'asc' }, { port: 'asc' }], take: limit }),
       this.prisma.vlan.findMany({ where: { AND: [vlanWhere, { OR: [{ name: contains }, ...(/^\d+$/.test(query) ? [{ vlanId: Number(query) }] : [])] }] }, select: { id: true, vlanId: true, name: true, siteId: true, site: { select: { name: true } } }, orderBy: { vlanId: 'asc' }, take: limit }),
       this.prisma.subnet.findMany({ where: { AND: [subnetWhere, { OR: [{ cidr: contains }, { purpose: contains }, { gateway: contains }] }] }, select: { id: true, cidr: true, purpose: true, siteId: true, site: { select: { name: true } } }, orderBy: { cidr: 'asc' }, take: limit }),
       this.prisma.ipAddress.findMany({ where: { AND: [ipWhere, { OR: [{ address: contains }, { hostname: contains }, { macAddress: contains }] }] }, select: { id: true, address: true, hostname: true, subnetId: true, subnet: { select: { cidr: true, siteId: true } } }, orderBy: { address: 'asc' }, take: limit }),
@@ -108,6 +113,9 @@ export class DashboardService implements OnModuleDestroy {
     const items: GlobalSearchResult[] = [
       ...sites.map((site) => ({ id: site.id, type: 'SITE' as const, title: site.name, detail: `Site · ${site.code}`, href: `/ipam?siteId=${site.id}` })),
       ...devices.map((device) => ({ id: device.id, type: 'DEVICE' as const, title: device.name, detail: `Equipamento · ${device.site?.name ?? device.hostname ?? device.managementIp ?? 'sem Site'}`, href: `/infraestrutura${device.siteId ? `?siteId=${device.siteId}&tab=devices` : ''}` })),
+      ...interfaces.map((item) => ({ id: item.id, type: 'INTERFACE' as const, title: item.name, detail: `Interface · ${item.device.name}${item.macAddress ? ` · ${item.macAddress}` : item.portKey ? ` · ${item.portKey}` : ''}`, href: `/infraestrutura${item.device.siteId ? `?siteId=${item.device.siteId}&tab=interfaces&deviceId=${item.device.id}` : ''}` })),
+      ...hosts.map((host) => { const siteId = host.ipAddresses[0]?.subnet.siteId ?? host.device?.siteId; return { id: host.id, type: 'HOST' as const, title: host.name, detail: `Host · ${host.hostname ?? host.observedHostname ?? host.macAddress ?? 'sem hostname'}`, href: `/ipam?${new URLSearchParams({ ...(siteId ? { siteId } : {}), hostId: host.id }).toString()}` }; }),
+      ...services.map((service) => { const siteId = service.host.ipAddresses[0]?.subnet.siteId ?? service.host.device?.siteId; return { id: service.id, type: 'SERVICE' as const, title: service.name, detail: `Service · ${service.host.name}${service.protocol || service.port ? ` · ${[service.protocol, service.port].filter(Boolean).join('/')}` : ''}`, href: `/ipam?${new URLSearchParams({ ...(siteId ? { siteId } : {}), hostId: service.host.id }).toString()}` }; }),
       ...vlans.map((vlan) => ({ id: vlan.id, type: 'VLAN' as const, title: `VLAN ${vlan.vlanId} · ${vlan.name}`, detail: vlan.site?.name ?? 'VLAN sem Site', href: `/ipam?${new URLSearchParams({ ...(vlan.siteId ? { siteId: vlan.siteId } : {}), vlanId: vlan.id }).toString()}` })),
       ...subnets.map((subnet) => ({ id: subnet.id, type: 'SUBNET' as const, title: subnet.cidr, detail: `Subnet · ${subnet.site?.name ?? subnet.purpose ?? 'sem Site'}`, href: `/ipam?${new URLSearchParams({ ...(subnet.siteId ? { siteId: subnet.siteId } : {}), subnetId: subnet.id, tab: 'subnets' }).toString()}` })),
       ...ips.map((ip) => ({ id: ip.id, type: 'IP' as const, title: ip.address, detail: `IP · ${ip.hostname ?? ip.subnet.cidr}`, href: `/ipam?${new URLSearchParams({ ...(ip.subnet.siteId ? { siteId: ip.subnet.siteId } : {}), subnetId: ip.subnetId, tab: 'subnets' }).toString()}` })),
