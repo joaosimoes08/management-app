@@ -1142,6 +1142,7 @@ html[lang='en-US'] .environment-trigger.operational::after { content:'· Setup c
   .topbar-globals { gap:5px; padding-left:0; border-left:0; }
   .environment-trigger { width:20px; min-width:20px; min-height:40px; padding:0; justify-content:center; }
   .environment-trigger span { display:none; }
+  .environment-trigger.operational::after { content:none; }
   .environment-trigger:hover,.environment-trigger[aria-expanded='true'] { background:transparent; }
   .topbar-mobile-search,.mobile-overflow { display:grid; }
   .topbar-mobile-search,.topbar-globals .icon-button { width:40px; height:40px; }
@@ -1220,4 +1221,8 @@ html[lang='en-US'] .environment-trigger.operational::after { content:'· Setup c
   .site-walkthrough-aside .setup-step { align-items:center; flex-direction:column; gap:5px; text-align:center; font-size:8px; }
   .site-walkthrough-content { min-height:0; padding:34px 20px 24px; }
   .site-walkthrough-content .form-row { grid-template-columns:1fr; }
+}
+
+@media (max-width:780px) {
+  .app-shell .topbar .environment-trigger.operational::after { content:none; }
 }
