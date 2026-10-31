@@ -11,7 +11,7 @@ import { BulkTopologyNodesDto, CreateDeviceConnectionDto, CreateTopologyConnecti
 export class TopologyService {
   constructor(private readonly prisma: PrismaClient, private readonly access: InfrastructureAccessService, private readonly ipamAccess: IpamAccessService, private readonly audit: AuditService) {}
   private db() { return this.prisma as any; }
-  private readonly mapInclude = { nodes: { include: { device: { include: { rack: { include: { room: { include: { building: true } } } } } } } }, connections: { include: { connection: true } } };
+  private readonly mapInclude = { nodes: { include: { device: { include: { rack: { include: { room: { include: { building: true } } } } } } } }, connections: { include: { connection: { include: { sourceInterface: { select: { id: true, name: true } }, targetInterface: { select: { id: true, name: true } } } } } } };
   private async map(id: string) {
     const item = await this.db().topologyMap.findUnique({ where: { id }, include: this.mapInclude });
     if (!item) throw new NotFoundException('Mapa de topologia não encontrado');
@@ -34,14 +34,19 @@ export class TopologyService {
     const result = await tx.topologyMap.updateMany({ where: { id: mapId, revision }, data: { revision: { increment: 1 } } });
     if (result.count !== 1) this.revisionConflict();
   }
-  private async validateConnectionEndpoints(siteId: string, dto: { sourceDeviceId: string; targetDeviceId: string; sourceInterfaceId?: string; targetInterfaceId?: string }) {
+  private async validateConnectionEndpoints(siteId: string, dto: { sourceDeviceId: string; targetDeviceId: string; sourceInterfaceId?: string; targetInterfaceId?: string; type?: 'PHYSICAL' | 'LOGICAL' }) {
     if (dto.sourceDeviceId === dto.targetDeviceId) throw new BadRequestException('Uma ligação requer dois equipamentos diferentes');
     const devices = await this.db().device.findMany({ where: { id: { in: [dto.sourceDeviceId, dto.targetDeviceId] } }, select: { id: true, siteId: true } });
     if (devices.length !== 2 || devices.some((device: any) => device.siteId !== siteId)) throw new NotFoundException('Os dispositivos não pertencem ao Site indicado');
     const interfaceIds = [dto.sourceInterfaceId, dto.targetInterfaceId].filter(Boolean);
+    if (dto.type !== 'LOGICAL' && (!dto.sourceInterfaceId || !dto.targetInterfaceId)) throw new BadRequestException('Uma ligação física requer uma porta nos dois equipamentos');
     if (interfaceIds.length) {
       const interfaces = await this.db().deviceInterface.findMany({ where: { id: { in: interfaceIds } }, select: { id: true, deviceId: true } });
       if ((dto.sourceInterfaceId && !interfaces.some((item: any) => item.id === dto.sourceInterfaceId && item.deviceId === dto.sourceDeviceId)) || (dto.targetInterfaceId && !interfaces.some((item: any) => item.id === dto.targetInterfaceId && item.deviceId === dto.targetDeviceId))) throw new NotFoundException('A interface não pertence ao dispositivo indicado');
+    }
+    if (dto.type !== 'LOGICAL' && interfaceIds.length) {
+      const occupied = await this.db().deviceConnection.findFirst({ where: { OR: [{ sourceInterfaceId: { in: interfaceIds } }, { targetInterfaceId: { in: interfaceIds } }] }, select: { id: true } });
+      if (occupied) throw new ConflictException('Uma das portas selecionadas já está ligada');
     }
   }
   private async assertConnectionVisible(user: AuthenticatedUser, connection: { sourceDeviceId: string; targetDeviceId: string }) {

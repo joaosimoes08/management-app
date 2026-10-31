@@ -1,5 +1,12 @@
 import { apiFetch } from '@/lib/api/client';
 import type { TopologyConnection, TopologyMap, TopologyMapType, TopologyNode } from './types';
+export async function listTopologyConnections(siteId: string): Promise<{ items: TopologyConnection[]; total: number }> {
+  const first = await apiFetch<{ items: TopologyConnection[]; total: number; pageSize: number }>(`/api/v1/topology/connections?siteId=${encodeURIComponent(siteId)}&pageSize=100`);
+  const items = [...first.items];
+  const pages = Math.ceil(first.total / first.pageSize);
+  for (let page = 2; page <= pages; page++) items.push(...(await apiFetch<{ items: TopologyConnection[] }>(`/api/v1/topology/connections?siteId=${encodeURIComponent(siteId)}&page=${page}&pageSize=100`)).items);
+  return { items, total: first.total };
+}
 export const listTopologyMaps = (siteId?: string) => apiFetch<{ items: TopologyMap[]; total: number }>(`/api/v1/topology/maps${siteId ? `?siteId=${encodeURIComponent(siteId)}&pageSize=100` : '?pageSize=100'}`);
 export const getTopologyMap = (id: string) => apiFetch<TopologyMap>(`/api/v1/topology/maps/${id}`);
 export const createTopologyMap = (body: { name: string; type: TopologyMapType; siteId: string; filters?: { vlanIds: string[] } }) => apiFetch<TopologyMap>('/api/v1/topology/maps', { method: 'POST', body: JSON.stringify(body) });
