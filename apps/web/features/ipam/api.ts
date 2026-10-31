@@ -63,7 +63,7 @@ export function searchHosts(subnetId: string, search: string): Promise<Paginated
   return apiFetch<PaginatedResponse<{ id: string }>>(`/api/v1/hosts?subnetId=${subnetId}&search=${encodeURIComponent(search)}`);
 }
 
-export function calculateSubnets(body: Omit<CalculatorInput, 'newPrefix'> & { operation: 'split'; newPrefix: number }): Promise<CalculatorResult> {
+export function calculateSubnets(body: Omit<CalculatorInput, 'newPrefix' | 'containsAddress' | 'cidrsText'> & { operation: 'split'; newPrefix: number } | { operation: 'summary'; cidr: string } | { operation: 'contains'; cidr: string; address: string } | { operation: 'overlap'; cidr: string; cidrs: string[] }): Promise<CalculatorResult> {
   return apiFetch<CalculatorResult>('/api/v1/ipam/calculator', { method: 'POST', body: JSON.stringify(body) });
 }
 
