@@ -59,8 +59,9 @@
 .topology-map-toolbar { align-items:center; }
 .topology-toolbar-spacer { flex:1; }
 .topology-map-page label { display:grid; gap:5px; min-width:0; color:#5f5b62; font-size:10px; font-weight:600; }
-.topology-map-page input,.topology-map-page select { width:100%; min-width:0; min-height:36px; padding:7px 9px; border:1px solid var(--line); border-radius:8px; color:#292629; background:#fff; font:inherit; font-weight:400; }
-.topology-map-page select:focus-visible,.topology-map-page input:focus-visible,.topology-map-page button:focus-visible { outline:2px solid #3577d4; outline-offset:2px; }
+.topology-map-page input,.topology-map-page select { width:100%; min-width:0; border:1px solid var(--line); border-radius:8px; color:#292629; background:#fff; font:11px 'DM Sans',Arial,sans-serif; font-weight:400; }
+.topology-map-page input:focus-visible,.topology-map-page select:focus-visible { outline:0; border-color:#777176; box-shadow:0 0 0 3px rgba(40,34,38,.08); }
+.topology-map-page button:focus-visible { outline:2px solid #3577d4; outline-offset:2px; }
 .topology-map-picker { width:min(420px,100%); }
 .topology-inline-form label { flex:1 1 180px; }
 .topology-inline-form label select[multiple] { min-height:84px; }
@@ -551,7 +552,9 @@ button { cursor:pointer; }
 .discovery-form input,
 .ipam-create input,
 .port-editor-row input,
-.port-editor-row select {
+.port-editor-row select,
+.topology-map-page input,
+.topology-map-page select {
   box-sizing:border-box;
   width:100%;
   height:42px;
@@ -577,7 +580,9 @@ button { cursor:pointer; }
 .discovery-form input:focus,
 .ipam-create input:focus,
 .port-editor-row input:focus,
-.port-editor-row select:focus {
+.port-editor-row select:focus,
+.topology-map-page input:focus,
+.topology-map-page select:focus {
   outline:0;
 }
 .location-flow { margin-bottom:12px; }.location-flow h2 { margin-top:5px; }.location-steps { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:16px; padding:10px 12px; color:#aaa7ab; background:#faf9f9; border-radius:9px; font-size:10px; }.location-steps span { display:flex; gap:5px; align-items:center; }.location-steps b { color:#343034; font-weight:600; }.location-steps .current { color:#111; font-weight:600; }.location-steps .done b { color:#3a9a6a; }.room-selector { margin-top:16px; }.room-selector-head { display:flex; justify-content:space-between; align-items:center; color:#5f5b62; font-size:11px; }.room-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:8px; margin-top:9px; }.room-card { display:flex; align-items:center; gap:9px; min-height:65px; padding:11px; color:#49454b; border:1px solid var(--line); border-radius:10px; background:#fff; text-align:left; }.room-card:hover,.room-card.active { border-color:#222; background:#faf9f9; }.room-card > span { flex:1; min-width:0; }.room-card strong,.room-card small { display:block; }.room-card small { margin-top:4px; color:var(--muted); font-size:9px; }.rack-room-panel { margin-bottom:12px; }.rack-room-panel h2 { margin-top:5px; }.rack-room-panel p { margin:5px 0 0; color:var(--muted); font-size:10px; }.rack-room-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:10px; margin-top:16px; }.rack-room-grid .rack-card { min-height:116px; flex-wrap:wrap; border:1px solid var(--line); }.rack-room-grid .rack-card > svg:first-child { color:#555; }.rack-room-grid .rack-card em { width:100%; margin-left:32px; }.rack-zoom-toolbar { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:12px; color:var(--muted); font-size:10px; }.rack-zoom-toolbar span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.rack-zoom-toolbar strong { color:#222; }.rack-zoom .rack-view { margin:0; }
