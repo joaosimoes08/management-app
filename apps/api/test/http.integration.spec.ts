@@ -431,7 +431,7 @@ test('enforces scoped operations, dashboard, topology and quality workflows', as
   assert.equal((await request('PUT', `/api/v1/topology/maps/${map.id}/nodes`, 'qa-network-scoped', { revision: mapRevision, nodes: [] })).statusCode, 409);
   const latestMap = await request('GET', `/api/v1/topology/maps/${map.id}`, 'qa-network-scoped');
   assert.equal(json(latestMap).connections[0].sourceInterfaceId, ids.interfaceA);
-  assert.equal((await request('POST', `/api/v1/topology/maps/${map.id}/connections`, 'qa-network-scoped', { revision: json(latestMap).revision, sourceDeviceId: ids.deviceA2, targetDeviceId: ids.deviceA, sourceInterfaceId: ids.interfaceA })).statusCode, 404);
+  assert.equal((await request('POST', `/api/v1/topology/maps/${map.id}/connections`, 'qa-network-scoped', { revision: json(latestMap).revision, sourceDeviceId: ids.deviceA2, targetDeviceId: ids.deviceA, sourceInterfaceId: ids.interfaceA, targetInterfaceId: ids.interfaceA })).statusCode, 404);
   assert.equal((await request('PUT', `/api/v1/topology/maps/${map.id}/nodes`, 'qa-network-scoped', { revision: json(latestMap).revision, nodes: [{ deviceId: ids.deviceB, x: 0, y: 0 }] })).statusCode, 404);
   const vlanMapResponse = await request('POST', '/api/v1/topology/maps', 'qa-network-scoped', { siteId: ids.siteA, name: 'HTTP VLAN Map', type: 'VLAN_SUBNET', filters: { vlanIds: [ids.vlanA] } });
   assert.equal(vlanMapResponse.statusCode, 201, vlanMapResponse.body);
