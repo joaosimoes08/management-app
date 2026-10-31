@@ -2,7 +2,21 @@ import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { UnauthorizedException } from '@nestjs/common';
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from 'jose';
-import { AuthGuard } from './auth.guard';
+import { AuthGuard, resolveJwksUrl } from './auth.guard';
+
+test('JWKS lookup uses the Docker backchannel while the issuer stays public', () => {
+  assert.equal(
+    resolveJwksUrl('http://localhost:8080/realms/COCiber', 'http://keycloak:8080/realms/COCiber').toString(),
+    'http://keycloak:8080/realms/COCiber/protocol/openid-connect/certs',
+  );
+});
+
+test('JWKS lookup defaults to the issuer and removes trailing slashes', () => {
+  assert.equal(
+    resolveJwksUrl('http://localhost:8080/realms/COCiber/', '  ').toString(),
+    'http://localhost:8080/realms/COCiber/protocol/openid-connect/certs',
+  );
+});
 
 function contextWith(token: string) {
   const request = { headers: { authorization: `Bearer ${token}` }, ip: '127.0.0.1' };
