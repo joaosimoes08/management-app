@@ -1,15 +1,16 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
-import { Edit3, Plus, Trash2, X } from 'lucide-react';
+import { Edit3, Trash2, X } from 'lucide-react';
 import {
   createService,
   deleteHost,
   deleteService,
   unlinkHostIpAddress,
   updateHost,
+  updateService,
 } from '../api';
-import type { HostDetail, ServiceInput } from '../types';
+import type { HostDetail, Service, ServiceInput } from '../types';
 type ServiceFormState = Omit<ServiceInput, 'port' | 'hostId'> & { port: string | number };
 
 const emptyService: ServiceFormState = { name: '', protocol: 'TCP', port: '', status: 'UNKNOWN', version: '', notes: '' };
@@ -36,6 +37,7 @@ type HostFormState = {
 export function HostPanel({ host, canEdit, close, reload, success, toastError }: HostPanelProps) {
   const [form, setForm] = useState<HostFormState>({ name: host.name, hostname: host.hostname ?? '', operatingSystem: host.operatingSystem ?? '', macAddress: host.macAddress ?? '', notes: host.notes ?? '', status: host.status });
   const [service, setService] = useState<ServiceFormState>(emptyService);
+  const [editingServiceId, setEditingServiceId] = useState('');
   const [editing, setEditing] = useState(false);
   useEffect(() => setForm({ name: host.name, hostname: host.hostname ?? '', operatingSystem: host.operatingSystem ?? '', macAddress: host.macAddress ?? '', notes: host.notes ?? '', status: host.status }), [host]);
 
@@ -53,10 +55,10 @@ export function HostPanel({ host, canEdit, close, reload, success, toastError }:
     event.preventDefault();
     void act('Editar Host', () => updateHost(host.id, {
       name: form.name,
-      hostname: form.hostname || undefined,
-      operatingSystem: form.operatingSystem || undefined,
-      macAddress: form.macAddress || undefined,
-      notes: form.notes || undefined,
+      hostname: form.hostname || null,
+      operatingSystem: form.operatingSystem || null,
+      macAddress: form.macAddress || null,
+      notes: form.notes || null,
       status: form.status,
     }).then(() => setEditing(false)));
   };
@@ -68,11 +70,44 @@ export function HostPanel({ host, canEdit, close, reload, success, toastError }:
       protocol: service.protocol,
       status: service.status,
       version: service.version,
-      notes: service.notes,
+      notes: service.notes || undefined,
       hostId: host.id,
       port: service.protocol === 'OTHER' || !service.port ? undefined : Number(service.port),
     }).then(() => setService(emptyService)));
   };
+
+  const beginServiceEdit = (item: Service) => {
+    setService({ name: item.name, protocol: item.protocol || 'OTHER', port: item.port ?? '', status: item.status || 'UNKNOWN', version: item.version || '', notes: item.notes || '' });
+    setEditingServiceId(item.id);
+  };
+
+  const cancelServiceEdit = () => {
+    setEditingServiceId('');
+    setService(emptyService);
+  };
+
+  const saveServiceHandler = (event: FormEvent) => {
+    event.preventDefault();
+    if (!editingServiceId) return;
+    void act('Editar Service', () => updateService(editingServiceId, {
+      name: service.name,
+      protocol: service.protocol,
+      status: service.status,
+      version: service.version || null,
+      notes: service.notes || null,
+      port: service.protocol === 'OTHER' ? null : service.port ? Number(service.port) : undefined,
+    }).then(() => cancelServiceEdit()));
+  };
+
+  const serviceForm = (onSubmit: (event: FormEvent) => void, submitLabel: string) => <form className="service-form" onSubmit={onSubmit}>
+    <label>Nome<input required placeholder="Nome do serviço" value={service.name} onChange={(event) => setService({ ...service, name: event.target.value })} /></label>
+    <label>Protocolo<select value={service.protocol} onChange={(event) => setService({ ...service, protocol: event.target.value })}><option>TCP</option><option>UDP</option><option>OTHER</option></select></label>
+    <label>Porta<input type="number" min="1" max="65535" required={service.protocol !== 'OTHER'} disabled={service.protocol === 'OTHER'} placeholder="Porta" value={service.port} onChange={(event) => setService({ ...service, port: event.target.value })} /></label>
+    <label>Estado<select value={service.status} onChange={(event) => setService({ ...service, status: event.target.value })}>{['UNKNOWN', 'OPEN', 'CLOSED', 'DEGRADED', 'DISABLED'].map((status) => <option key={status}>{status}</option>)}</select></label>
+    <label>Versão<input placeholder="Versão" value={service.version} onChange={(event) => setService({ ...service, version: event.target.value })} /></label>
+    <label>Notas<textarea placeholder="Notas" value={service.notes} onChange={(event) => setService({ ...service, notes: event.target.value })} /></label>
+    <div className="form-actions"><button type="button" className="secondary-button" onClick={cancelServiceEdit}>Cancelar</button><button className="primary-button">{submitLabel}</button></div>
+  </form>;
 
   return <aside className="host-panel" aria-label="Ficha do Host">
     <div className="host-panel-head"><div><span className="section-kicker">FICHA OPERACIONAL</span><h2>{host.name}</h2><span>{host.hostname || host.observedHostname || 'Sem hostname'}</span></div><button className="icon-button" onClick={close} aria-label="Fechar"><X size={18} /></button></div>
@@ -108,15 +143,10 @@ export function HostPanel({ host, canEdit, close, reload, success, toastError }:
       <h3>Services</h3>
       {host.services.map((item) => <article className="service-row" key={item.id}>
         <div><strong>{item.name}</strong><span>{item.protocol || 'OTHER'} {item.port ? `:${item.port}` : ''} · manual {item.status || 'UNKNOWN'} · observado {item.observedStatus || '—'}</span><small>{item.version || ''}{item.notes ? ` · ${item.notes}` : ''} · {item.source}</small></div>
-        {canEdit && <button className="icon-button subtle danger" title="Eliminar Service" onClick={() => confirm(`Eliminar ${item.name}?`) && void act('Eliminar Service', () => deleteService(item.id))}><Trash2 size={14} /></button>}
+        {canEdit && <div className="form-actions"><button className="icon-button subtle" title="Editar Service" aria-label={`Editar Service ${item.name}`} onClick={() => beginServiceEdit(item)}><Edit3 size={14} /></button><button className="icon-button subtle danger" title="Eliminar Service" onClick={() => confirm(`Eliminar ${item.name}?`) && void act('Eliminar Service', () => deleteService(item.id))}><Trash2 size={14} /></button></div>}
+        {editingServiceId === item.id && serviceForm(saveServiceHandler, 'Guardar Service')}
       </article>)}
-      {canEdit && <form className="service-form" onSubmit={createServiceHandler}>
-        <input required placeholder="Nome do serviço" value={service.name} onChange={(event) => setService({ ...service, name: event.target.value })} />
-        <select value={service.protocol} onChange={(event) => setService({ ...service, protocol: event.target.value })}><option>TCP</option><option>UDP</option><option>OTHER</option></select>
-        <input type="number" min="1" max="65535" required={service.protocol !== 'OTHER'} disabled={service.protocol === 'OTHER'} placeholder="Porta" value={service.port} onChange={(event) => setService({ ...service, port: event.target.value })} />
-        <input placeholder="Versão" value={service.version} onChange={(event) => setService({ ...service, version: event.target.value })} />
-        <button className="primary-button"><Plus size={14} /> Service</button>
-      </form>}
+      {canEdit && !editingServiceId && serviceForm(createServiceHandler, 'Criar Service')}
     </section>
   </aside>;
 }
