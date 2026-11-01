@@ -7,6 +7,7 @@ import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { InfrastructureAccessService } from '../infrastructure/infrastructure-access.service';
 import { AcceptSnmpEnrollmentDto, CreateSnmpCredentialDto, CreateSnmpTrapEnrollmentDto, CreateSnmpWritePreviewDto, ReviewSnmpDriftDto, SnmpCredentialSecretDto, SnmpOnboardingDeviceDto, UpsertSnmpConfigDto } from './dto';
+import { interfaceTrafficRates } from './metrics';
 
 @Injectable()
 export class SnmpService implements OnModuleDestroy, OnModuleInit {
@@ -69,6 +70,38 @@ export class SnmpService implements OnModuleDestroy, OnModuleInit {
       this.prisma.snmpTrapEvent.findMany({ where: { deviceId }, orderBy: { receivedAt: 'desc' }, take: 100 }),
     ]);
     return { config, credentials: credentials.map((item) => this.publicCredential(item)), latestSnapshot, jobs, drifts, traps, setEnabled: process.env.SNMP_SET_ENABLED === 'true' };
+  }
+
+  async metrics(deviceId: string, user: AuthenticatedUser, interfaceIndex?: number, days = 7) {
+    if (![1, 7, 30].includes(days)) throw new BadRequestException('O período deve ser 1, 7 ou 30 dias.');
+    if (interfaceIndex !== undefined && (!Number.isInteger(interfaceIndex) || interfaceIndex < 1)) throw new BadRequestException('O índice da interface é inválido.');
+    await this.device(deviceId, user);
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const [latest, config] = await Promise.all([this.prisma.snmpSnapshot.findFirst({
+      where: { deviceId }, include: { interfaces: { orderBy: { ifIndex: 'asc' } } }, orderBy: { observedAt: 'desc' },
+    }), this.prisma.snmpDeviceConfig.findUnique({ where: { deviceId }, select: { intervalMinutes: true } })]);
+    const selectedIndex = interfaceIndex ?? latest?.interfaces[0]?.ifIndex ?? null;
+    const snapshots = await this.prisma.snmpSnapshot.findMany({
+      where: { deviceId, observedAt: { gte: since } },
+      include: { interfaces: { where: selectedIndex === null ? { ifIndex: -1 } : { ifIndex: selectedIndex } } }, orderBy: { observedAt: 'desc' }, take: 1000,
+    });
+    snapshots.reverse();
+    const jobs = await this.prisma.snmpJob.findMany({
+      where: { deviceId, type: 'POLL', createdAt: { gte: since }, status: { in: ['COMPLETED', 'FAILED', 'BLOCKED'] } },
+      select: { id: true, status: true, errorCode: true, createdAt: true, completedAt: true },
+      orderBy: { createdAt: 'desc' }, take: 1000,
+    });
+    jobs.reverse();
+    const selectedSamples = selectedIndex === null ? [] : snapshots.flatMap((snapshot) => {
+      const item = snapshot.interfaces.find((entry) => entry.ifIndex === selectedIndex);
+      return item ? [{ observedAt: snapshot.observedAt, ifIndex: item.ifIndex, name: item.name, description: item.description, adminUp: item.adminUp, operUp: item.operUp, speedMbps: item.speedMbps, counters: item.counters }] : [];
+    });
+    return {
+      days, expectedIntervalMinutes: config?.intervalMinutes ?? null, selectedInterfaceIndex: selectedIndex,
+      interfaces: (latest?.interfaces ?? []).map(({ ifIndex, name, description }) => ({ ifIndex, name, description })),
+      availability: jobs.map((job) => ({ id: job.id, observedAt: job.completedAt ?? job.createdAt, available: job.status === 'COMPLETED' ? true : job.status === 'FAILED' ? false : null, status: job.status, errorCode: job.errorCode })),
+      interfacesHistory: interfaceTrafficRates(selectedSamples),
+    };
   }
 
   async upsertConfig(deviceId: string, dto: UpsertSnmpConfigDto, user: AuthenticatedUser) {
