@@ -11,7 +11,7 @@ import { BulkTopologyNodesDto, CreateDeviceConnectionDto, CreateTopologyConnecti
 export class TopologyService {
   constructor(private readonly prisma: PrismaClient, private readonly access: InfrastructureAccessService, private readonly ipamAccess: IpamAccessService, private readonly audit: AuditService) {}
   private db() { return this.prisma as any; }
-  private readonly mapInclude = { nodes: { include: { device: { include: { rack: { include: { room: { include: { building: true } } } } } } } }, connections: { include: { connection: true } } };
+  private readonly mapInclude = { nodes: { include: { device: { include: { rack: { include: { room: { include: { building: true } } } } } } } }, connections: { include: { connection: { include: { sourceDevice: { include: { rack: true } }, targetDevice: { include: { rack: true } }, sourceInterface: true, targetInterface: true } } } } };
   private async map(id: string) {
     const item = await this.db().topologyMap.findUnique({ where: { id }, include: this.mapInclude });
     if (!item) throw new NotFoundException('Mapa de topologia não encontrado');
@@ -164,7 +164,7 @@ export class TopologyService {
   }
   async listConnections(user: AuthenticatedUser, query: ListDeviceConnectionsQueryDto = {}) {
     const page = Math.max(Number(query.page) || 1, 1); const pageSize = Math.min(Math.max(Number(query.pageSize) || 50, 1), 100);
-    const items = await this.db().deviceConnection.findMany({ where: { ...(query.siteId ? { siteId: query.siteId } : {}), ...(query.type ? { type: query.type } : {}), ...(query.search ? { OR: [{ label: { contains: query.search, mode: 'insensitive' } }, { notes: { contains: query.search, mode: 'insensitive' } }, { sourceDevice: { name: { contains: query.search, mode: 'insensitive' } } }, { targetDevice: { name: { contains: query.search, mode: 'insensitive' } } }] } : {}) }, include: { sourceDevice: true, targetDevice: true, sourceInterface: true, targetInterface: true, maps: { select: { mapId: true } } }, orderBy: { updatedAt: 'desc' } });
+    const items = await this.db().deviceConnection.findMany({ where: { ...(query.siteId ? { siteId: query.siteId } : {}), ...(query.type ? { type: query.type } : {}), ...(query.search ? { OR: [{ label: { contains: query.search, mode: 'insensitive' } }, { notes: { contains: query.search, mode: 'insensitive' } }, { sourceDevice: { name: { contains: query.search, mode: 'insensitive' } } }, { targetDevice: { name: { contains: query.search, mode: 'insensitive' } } }] } : {}) }, include: { sourceDevice: { include: { rack: true } }, targetDevice: { include: { rack: true } }, sourceInterface: true, targetInterface: true, maps: { select: { mapId: true } } }, orderBy: { updatedAt: 'desc' } });
     const visible = await Promise.all(items.map(async (item: any) => {
       try {
         await this.authorizeMap(user, 'READ', item.siteId, 'NETWORK');
@@ -188,6 +188,9 @@ export class TopologyService {
     await this.authorizeMap(user, 'UPDATE', existing.siteId, 'NETWORK');
     await this.assertConnectionVisible(user, existing);
     const { expectedRevisions, ...data } = dto;
+    if (data.sourceInterfaceId !== undefined || data.targetInterfaceId !== undefined) {
+      await this.validateConnectionEndpoints(existing.siteId, { sourceDeviceId: existing.sourceDeviceId, targetDeviceId: existing.targetDeviceId, sourceInterfaceId: data.sourceInterfaceId ?? undefined, targetInterfaceId: data.targetInterfaceId ?? undefined });
+    }
     const item = await this.db().$transaction(async (tx: any) => {
       for (const association of existing.maps) {
         const expected = expectedRevisions?.[association.mapId] ?? association.map.revision;

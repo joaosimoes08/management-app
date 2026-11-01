@@ -65,6 +65,8 @@ export class UpdateDeviceConnectionDto {
   @IsOptional() @IsEnum(DeviceConnectionTypeDto) type?: DeviceConnectionTypeDto;
   @IsOptional() @IsString() @MaxLength(240) label?: string;
   @IsOptional() @IsString() @MaxLength(1000) notes?: string;
+  @IsOptional() @IsUUID() sourceInterfaceId?: string | null;
+  @IsOptional() @IsUUID() targetInterfaceId?: string | null;
   @IsOptional() @IsObject() expectedRevisions?: Record<string, number>;
 }
 export class AssociateTopologyConnectionDto { @IsOptional() @IsNumber() revision?: number; }
