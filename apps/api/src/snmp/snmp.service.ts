@@ -228,7 +228,7 @@ export class SnmpService implements OnModuleDestroy, OnModuleInit {
 
   async rotateCredentials(user: AuthenticatedUser) {
     const keyring = this.keyring();
-    const [credentials, enrollments] = await Promise.all([this.prisma.snmpCredential.findMany(), this.prisma.snmpTrapEnrollment.findMany()]);
+    const [credentials, enrollments, netAppIntegrations] = await Promise.all([this.prisma.snmpCredential.findMany(), this.prisma.snmpTrapEnrollment.findMany(), this.prisma.netAppIntegration.findMany()]);
     let rotated = 0;
     for (const credential of credentials) {
       if (credential.keyId === keyring.activeKeyId) continue;
@@ -242,6 +242,13 @@ export class SnmpService implements OnModuleDestroy, OnModuleInit {
       const envelope = rewrapCredential(enrollment, keyring);
       await this.prisma.snmpTrapEnrollment.update({ where: { id: enrollment.id }, data: { wrappedDek: envelope.wrappedDek, wrapIv: envelope.wrapIv, wrapAuthTag: envelope.wrapAuthTag, keyId: envelope.keyId } });
       await this.log(user, 'SNMP_TRAP_ENROLLMENT_ROTATED', 'SnmpTrapEnrollment', enrollment.id, { siteId: enrollment.siteId, previousKeyId: enrollment.keyId, keyId: envelope.keyId });
+      rotated++;
+    }
+    for (const integration of netAppIntegrations) {
+      if (integration.keyId === keyring.activeKeyId) continue;
+      const envelope = rewrapCredential(integration, keyring);
+      await this.prisma.netAppIntegration.update({ where: { id: integration.id }, data: { wrappedDek: envelope.wrappedDek, wrapIv: envelope.wrapIv, wrapAuthTag: envelope.wrapAuthTag, keyId: envelope.keyId } });
+      await this.log(user, 'NETAPP_CREDENTIAL_ROTATED', 'NetAppIntegration', integration.id, { siteId: integration.siteId, previousKeyId: integration.keyId, keyId: envelope.keyId });
       rotated++;
     }
     await this.log(user, 'SNMP_CREDENTIALS_ROTATED', 'SnmpCredential', keyring.activeKeyId, { rotated });
