@@ -177,6 +177,7 @@ model User {
   alertStates            OperationalAlertUserState[]
   acknowledgedAlerts     OperationalAlert[]          @relation("AlertAcknowledgedBy")
   resolvedAlerts         OperationalAlert[]          @relation("AlertResolvedBy")
+  createdMaintenanceWindows MaintenanceWindow[]      @relation("MaintenanceWindowCreator")
   dashboardLayouts       DashboardLayout[]           @relation("DashboardLayoutUpdatedBy")
   dashboardPreferences   UserDashboardPreference[]
   topologyMaps           TopologyMap[]               @relation("TopologyMapCreatedBy")
@@ -259,6 +260,8 @@ model Site {
   accessGroupSites     AccessGroupSite[]
   snmpTrapEnrollments  SnmpTrapEnrollment[]
   operationalAlerts    OperationalAlert[]
+  alertRules           AlertRule[]
+  maintenanceWindows   MaintenanceWindow[]
   dashboardLayouts     DashboardLayout[]
   dashboardPreferences UserDashboardPreference[]
   topologyMaps         TopologyMap[]
@@ -544,6 +547,35 @@ model OperationalAlertUserState {
 
   @@id([alertId, userId])
   @@index([userId, readAt])
+}
+
+model AlertRule {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  source      String
+  siteId      String?  @db.Uuid
+  minSeverity String   @default("WARNING")
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  site        Site?    @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@index([siteId, source, enabled])
+}
+
+model MaintenanceWindow {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  reason      String?
+  siteId      String?  @db.Uuid
+  startsAt    DateTime
+  endsAt      DateTime
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now())
+  site        Site?    @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  createdBy   User?    @relation("MaintenanceWindowCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([siteId, startsAt, endsAt])
 }
 
 model DashboardLayout {

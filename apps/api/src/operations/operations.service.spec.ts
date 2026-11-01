@@ -109,3 +109,26 @@ test('publisher disconnect and publish failure disable heartbeat Pub/Sub readine
   publisher.emit('ready');
   assert.equal(service.pubSubReady, true);
 });
+
+test('maintenance windows silence non-critical alerts but always preserve critical alerts', async () => {
+  const prisma = { alertRule: { findMany: async () => [] }, maintenanceWindow: { findMany: async () => [{ siteId: 'site' }] } };
+  const service = new OperationsService(prisma as never, {} as never, {} as never, {} as never) as any;
+  const items = [
+    { source: 'SNMP', siteId: 'site', severity: 'WARNING' },
+    { source: 'SNMP', siteId: 'site', severity: 'CRITICAL' },
+    { source: 'SNMP', siteId: 'other', severity: 'WARNING' },
+  ];
+  const result = await service.applyAlertPolicies(items);
+  assert.deepEqual(result.map((item: any) => item.severity), ['CRITICAL', 'WARNING']);
+});
+
+test('configured source and site thresholds filter lower severities while preserving critical alerts', async () => {
+  const prisma = { alertRule: { findMany: async () => [{ source: 'SNMP', siteId: 'site', minSeverity: 'HIGH' }] }, maintenanceWindow: { findMany: async () => [] } };
+  const service = new OperationsService(prisma as never, {} as never, {} as never, {} as never) as any;
+  const result = await service.applyAlertPolicies([
+    { source: 'SNMP', siteId: 'site', severity: 'WARNING' },
+    { source: 'SNMP', siteId: 'site', severity: 'HIGH' },
+    { source: 'SNMP', siteId: 'site', severity: 'CRITICAL' },
+  ]);
+  assert.deepEqual(result.map((item: any) => item.severity), ['HIGH', 'CRITICAL']);
+});
