@@ -140,6 +140,21 @@ button { cursor:pointer; }
 }
 
 .host-panel { position:fixed; z-index:70; top:0; right:0; width:min(720px,100vw); height:100vh; overflow:auto; padding:28px; color:var(--text); background:var(--surface,#fff); border-left:1px solid var(--line); box-shadow:-18px 0 45px #241b2b24; }
+.ip-panel-backdrop { position:fixed; z-index:69; inset:0; border:0; background:#17131a45; }
+.ip-address-panel { width:min(560px,100vw); }
+.ip-panel-actions { justify-content:flex-start; margin:20px 0 28px; }
+.ip-check-history { margin-top:24px; padding-top:18px; border-top:1px solid var(--line); }
+.ip-check-history .panel-heading { margin-bottom:12px; }
+.ip-check-history h3 { margin:4px 0 0; font-size:16px; }
+.ip-check-list { display:grid; gap:0; margin:0; padding:0; list-style:none; }
+.ip-check-list li { display:grid; grid-template-columns:10px minmax(0,1fr) auto; align-items:center; gap:12px; padding:12px 2px; border-bottom:1px solid #f0eeee; }
+.ip-check-dot { width:8px; height:8px; border-radius:50%; background:#b42318; }
+.ip-check-dot.reachable { background:#16834a; }
+.ip-check-list li>span:nth-child(2) { display:grid; gap:3px; }
+.ip-check-list strong { font-size:12px; }
+.ip-check-list small,.ip-check-list time,.ip-history-muted,.ip-history-pagination { color:var(--muted); font-size:11px; }
+.ip-history-pagination { display:flex; align-items:center; justify-content:center; gap:12px; padding-top:14px; }
+@media (max-width:560px) { .ip-address-panel { padding:18px; }.ip-check-list li { grid-template-columns:10px 1fr; }.ip-check-list time { grid-column:2; } }
 .host-panel-head,.permission-group-head,.host-relation,.service-row { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
 .host-panel-head h2 { margin:4px 0; font-size:25px; }.host-status-line { display:flex; flex-wrap:wrap; gap:8px; margin:20px 0; }.host-status-line span,.permission-chip { padding:7px 9px; border:1px solid var(--line); border-radius:8px; background:var(--surface-soft,#f7f6f7); font-size:11px; }
 .host-detail-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }.host-detail-grid>div { display:grid; gap:4px; padding:12px; border:1px solid var(--line); border-radius:10px; }.host-detail-grid .wide { grid-column:1/-1; }.host-detail-grid span,.host-relation span,.service-row span { color:var(--muted); font-size:11px; }.host-section { margin-top:25px; }.host-section h3 { margin-bottom:10px; }.host-relation,.service-row { padding:11px 0; border-bottom:1px solid var(--line); }.host-relation>div,.service-row>div { display:grid; gap:3px; }.service-form,.permission-add,.inline-create { display:grid; grid-template-columns:2fr 1fr 1fr 1fr auto; gap:8px; margin-top:14px; }.host-edit-form { margin-bottom:20px; }

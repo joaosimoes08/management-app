@@ -62,10 +62,14 @@ export interface IpAddressRow {
   address: string;
   state: string;
   observedState?: string | null;
+  lastCheckAt?: string | null;
+  lastCheckMethod?: string | null;
+  responseMs?: number | null;
   hostname?: string | null;
   macAddress?: string | null;
   notes?: string | null;
   subnetId: string;
+  subnet?: { cidr: string } | null;
   host?: { id: string; name: string; _count?: { services?: number } } | null;
   interface?: { id: string; name: string; device?: { name: string } | null } | null;
 }
