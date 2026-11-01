@@ -92,10 +92,7 @@ export class KeycloakAdminService {
     if (!input.groupRoleMappings || input.groupRoleMappings.some((mapping) => !mapping.groupName.trim()) || new Set(mappingKeys).size !== mappingKeys.length) throw new BadGatewayException({ code: 'DIRECTORY_GROUP_MAPPING_DUPLICATE', message: 'Cada combinação de grupo e role tem de ser única.' });
   }
   private roleConfigRepresentations(roles: KeycloakRole[], names: string[]) { return names.map((name) => roles.find((role) => role.name === name)).filter((role): role is KeycloakRole => Boolean(role)); }
-  private async reconcileDirectoryGroupRoles(mapper: KeycloakComponent, mappings: { groupName: string; appRole: string }[]) {
-    const previousRaw = this.configValue(mapper, 'app.groupRoleMappings');
-    let previous: { groupName: string; appRole: string }[] = [];
-    try { const parsed = JSON.parse(previousRaw); if (Array.isArray(parsed)) previous = parsed; } catch { /* No previously managed mappings. */ }
+  private async reconcileDirectoryGroupRoles(mapper: KeycloakComponent, mappings: { groupName: string; appRole: string }[], previous: { groupName: string; appRole: string }[]) {
     const sync = await fetch(`${this.baseUrl}/admin/realms/${encodeURIComponent(this.realm)}/user-storage/${encodeURIComponent(mapper.parentId ?? '')}/mappers/${encodeURIComponent(mapper.id ?? '')}/sync?direction=fedToKeycloak`, { method: 'POST', headers: { authorization: `Bearer ${await this.accessToken()}` } });
     if (!sync.ok) throw new BadGatewayException({ code: 'DIRECTORY_GROUP_SYNC_FAILED', message: 'Keycloak não conseguiu sincronizar os grupos do diretório. Verifica as permissões do serviço e a configuração LDAP.' });
     const groupNames = [...new Set([...previous.map((item) => item.groupName), ...mappings.map((item) => item.groupName)])];
@@ -130,6 +127,8 @@ export class KeycloakAdminService {
     const components = await this.directoryComponents();
     let provider = components.find((item) => item.name === this.directoryProviderName);
     let mapper = provider ? (await this.directoryComponents(provider.id)).find((item) => item.name === this.directoryMapperName) : undefined;
+    let previousMappings: { groupName: string; appRole: string }[] = [];
+    try { const parsed = JSON.parse(this.configValue(mapper ?? ({} as KeycloakComponent), 'app.groupRoleMappings')); if (Array.isArray(parsed)) previousMappings = parsed; } catch { /* No previously managed mappings. */ }
     if (!input.bindCredential) throw new BadGatewayException({ code: 'DIRECTORY_BIND_CREDENTIAL_REQUIRED', message: 'Volta a indicar a credencial de serviço ao guardar a configuração.' });
     const providerConfig = this.componentConfig({
       enabled: true, priority: 0, vendor: input.vendor, usernameLDAPAttribute: input.usernameLdapAttribute, rdnLDAPAttribute: input.vendor === 'ad' ? 'cn' : input.usernameLdapAttribute,
@@ -152,7 +151,7 @@ export class KeycloakAdminService {
     if (mapper?.id) { await this.request<void>(`/components/${encodeURIComponent(mapper.id)}`, { method: 'PUT', body: JSON.stringify(mapperBody) }); mapper = { ...mapper, ...mapperBody }; }
     else { mapper = await this.request<KeycloakComponent>('/components', { method: 'POST', body: JSON.stringify(mapperBody) }); if (!mapper?.id) { const refreshed = await this.directoryComponents(provider.id); mapper = refreshed.find((item) => item.name === this.directoryMapperName); } }
     if (!mapper?.id) throw new BadGatewayException({ code: 'DIRECTORY_GROUP_MAPPER_SAVE_FAILED', message: 'Keycloak não confirmou o mapeador dos grupos LDAP.' });
-    await this.reconcileDirectoryGroupRoles(mapper, input.groupRoleMappings.map((item) => ({ groupName: item.groupName.trim(), appRole: item.appRole })));
+    await this.reconcileDirectoryGroupRoles(mapper, input.groupRoleMappings.map((item) => ({ groupName: item.groupName.trim(), appRole: item.appRole })), previousMappings);
     await this.audit.record({ userId: actor.id, action: 'DIRECTORY_FEDERATION_UPDATED', entityType: 'KeycloakUserStorageProvider', entityId: provider.id, metadata: { connectionUrl: input.connectionUrl, usersDn: input.usersDn, groupsDn: input.groupsDn, groupRoleMappings: input.groupRoleMappings } });
     return this.directoryStatus(provider, mapper);
   }

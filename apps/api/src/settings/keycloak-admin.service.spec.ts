@@ -111,3 +111,34 @@ test('directory connection failures never echo bind credentials', async () => {
     });
   } finally { globalThis.fetch = previousFetch; }
 });
+
+test('directory reconciliation revokes roles removed from the saved group mapping', async () => {
+  const service = new KeycloakAdminService({ record: async () => undefined } as never);
+  (service as any).accessToken = async () => 'test-token';
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response('', { status: 200 })) as typeof fetch;
+  let directRoles = [{ id: 'admin-role', name: 'ADMIN' }];
+  const calls: { path: string; method: string }[] = [];
+  (service as any).request = async (path: string, init: RequestInit = {}) => {
+    const method = init.method ?? 'GET'; calls.push({ path, method });
+    if (path.startsWith('/groups?')) return [{ id: 'group-id', name: 'operators' }];
+    if (path === '/roles/ADMIN') return { id: 'admin-role', name: 'ADMIN' };
+    if (path.endsWith('/role-mappings/realm/available')) return [];
+    if (path.endsWith('/role-mappings/realm')) {
+      if (method === 'DELETE') { const removed = JSON.parse(String(init.body)) as { name: string }[]; directRoles = directRoles.filter((role) => !removed.some((item) => item.name === role.name)); }
+      return directRoles;
+    }
+    return undefined;
+  };
+  try {
+    // The component already contains the newly saved empty mapping list. Reconciliation
+    // must use the pre-update mapping snapshot passed separately.
+    await (service as any).reconcileDirectoryGroupRoles(
+      { id: 'mapper-id', parentId: 'provider-id', name: 'mapper', providerId: 'group-ldap-mapper', providerType: 'org.keycloak.storage.ldap.mappers.LDAPStorageMapper', config: { 'app.groupRoleMappings': ['[]'] } },
+      [],
+      [{ groupName: 'operators', appRole: 'ADMIN' }],
+    );
+  } finally { globalThis.fetch = previousFetch; }
+  assert.deepEqual(directRoles, []);
+  assert.ok(calls.some((call) => call.method === 'DELETE' && call.path.endsWith('/role-mappings/realm')));
+});
