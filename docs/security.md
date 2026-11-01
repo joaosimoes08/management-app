@@ -72,6 +72,14 @@ As verificações de disponibilidade do portal fazem pedidos HTTP a URLs configu
 - Aceitar um candidato transfere o mesmo envelope para uma credencial TRAP do equipamento numa transação; o segredo não é duplicado nem devolvido ao frontend.
 - Apenas ADMIN introduz ou elimina segredos de pré-registo. NETWORK_OPERATOR pode aceitar um candidato dentro do seu scope, sem acesso ao segredo.
 
+## Segurança NetApp ONTAP
+
+- A credencial ONTAP é cifrada com o keyring externo SNMP_KEYRING_FILE e não é devolvida pela API.
+- A configuração e os snapshots são associados a um único Site e as leituras/alterações são auditadas.
+- O cliente ONTAP faz apenas pedidos REST GET, valida origem e paginação, bloqueia redirects e aplica timeout; não implementa operações de escrita.
+- Falhas de refresh atualizam o estado da tentativa sem substituir o último snapshot válido.
+- O utilizador ONTAP configurado deve ser read-only. As permissões mínimas exatas e a compatibilidade de API dependem da versão e configuração do equipamento e ainda não foram validadas ao vivo; o projeto não tinha hardware ONTAP nem credenciais de teste disponíveis.
+
 ### Ameaças principais
 
 | Ameaça | Risco | Controlo |
