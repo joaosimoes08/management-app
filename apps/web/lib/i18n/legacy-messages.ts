@@ -421,6 +421,7 @@ const enUS: LegacyDictionary = {
   'As ações da VLAN ficam no cabeçalho do cartão.': 'VLAN actions are available in the card header.',
   'Configurada': 'Configured',
   'Sem resposta': 'No response',
+  'Sem resposta ICMP': 'No ICMP response',
   'HISTÓRICO': 'HISTORY',
   'Execuções recentes': 'Recent runs',
   'resultados': 'results',
