@@ -71,7 +71,9 @@ A gestão de roles em `/definicoes?tab=users` usa o client confidencial `simoes-
 npm run keycloak:provision-settings
 ```
 
-O backend precisa de `KEYCLOAK_ADMIN_URL`, `KEYCLOAK_ADMIN_REALM`, `KEYCLOAK_ADMIN_CLIENT_ID` e `KEYCLOAK_ADMIN_CLIENT_SECRET`. O service account recebe apenas `realm-management/manage-users` e `realm-management/query-users`; a segunda role permite confirmar quantos administradores permanecem antes de alterar roles. Não são expostas operações de criação, passwords ou eliminação de utilizadores pela aplicação.
+O backend precisa de `KEYCLOAK_ADMIN_URL`, `KEYCLOAK_ADMIN_REALM`, `KEYCLOAK_ADMIN_CLIENT_ID` e `KEYCLOAK_ADMIN_CLIENT_SECRET`. O service account recebe `realm-management/manage-users` e `realm-management/query-users` para gerir roles e proteger o último ADMIN. A configuração LDAP acrescenta `realm-management/manage-realm`, uma permissão ampla necessária pela API administrativa do Keycloak para gerir providers e mapeadores; avalia este impacto antes de ativar a configuração num realm de produção.
+
+Em `/definicoes?tab=directory`, um ADMIN pode configurar LDAPS e mapear nomes exatos de grupos sincronizados para roles da aplicação. O Keycloak tem de confiar no certificado LDAPS e conseguir alcançar o diretório. Reintroduz a credencial de bind para cada teste ou gravação; não é mostrada de volta pela aplicação. A sincronização falha se o grupo ainda não existir no Keycloak ou se o nome não for único.
 
 ## Parar e reiniciar
 

@@ -65,3 +65,49 @@ test('role updates cannot remove the last active administrator', async () => {
     return true;
   });
 });
+
+test('directory federation status never returns the stored bind secret', async () => {
+  const service = new KeycloakAdminService({ record: async () => undefined } as never);
+  (service as any).request = async (path: string) => path.includes('type=')
+    ? [{ id: 'provider', name: 'management-app-directory-ldap', config: { connectionUrl: ['ldaps://ldap.example.org:636'], bindDn: ['uid=svc,dc=example,dc=org'], bindCredential: ['directory-secret'], usersDn: ['ou=people,dc=example,dc=org'], vendor: ['other'] } }]
+    : [{ id: 'mapper', name: 'management-app-directory-groups', parentId: 'provider', config: { 'groups.dn': ['ou=groups,dc=example,dc=org'], 'group.name.ldap.attribute': ['cn'], 'group.object.classes': ['groupOfNames'], 'membership.ldap.attribute': ['member'], 'app.groupRoleMappings': ['[{"groupName":"network-admins","appRole":"ADMIN"}]'] } }];
+  const result = await service.directoryFederationStatus();
+  assert.deepEqual(result.groupRoleMappings, [{ groupName: 'network-admins', appRole: 'ADMIN' }]);
+  assert.equal(JSON.stringify(result).includes('directory-secret'), false);
+});
+
+test('directory federation rejects plaintext LDAP before making Keycloak requests', async () => {
+  const service = new KeycloakAdminService({ record: async () => undefined } as never);
+  let calls = 0;
+  (service as any).request = async () => { calls += 1; return []; };
+  await assert.rejects(() => service.updateDirectoryFederation({ vendor: 'other', connectionUrl: 'ldap://ldap.example.org:389', bindDn: 'uid=svc', bindCredential: 'secret', usersDn: 'ou=people', usernameLdapAttribute: 'uid', groupsDn: 'ou=groups', groupNameLdapAttribute: 'cn', groupObjectClass: 'groupOfNames', membershipLdapAttribute: 'member', groupRoleMappings: [] } as never, actor as never), (error: unknown) => {
+    assert.equal(((error as any).getResponse() as { code: string }).code, 'DIRECTORY_LDAPS_REQUIRED');
+    return true;
+  });
+  assert.equal(calls, 0);
+});
+
+test('directory federation rejects duplicate group-role mappings before making Keycloak requests', async () => {
+  const service = new KeycloakAdminService({ record: async () => undefined } as never);
+  let calls = 0;
+  (service as any).request = async () => { calls += 1; return []; };
+  await assert.rejects(() => service.updateDirectoryFederation({ vendor: 'other', connectionUrl: 'ldaps://ldap.example.org:636', bindDn: 'uid=svc', bindCredential: 'secret', usersDn: 'ou=people', usernameLdapAttribute: 'uid', groupsDn: 'ou=groups', groupNameLdapAttribute: 'cn', groupObjectClass: 'groupOfNames', membershipLdapAttribute: 'member', groupRoleMappings: [{ groupName: 'operators', appRole: 'READ_ONLY' }, { groupName: 'operators', appRole: 'READ_ONLY' }] } as never, actor as never), (error: unknown) => {
+    assert.equal(((error as any).getResponse() as { code: string }).code, 'DIRECTORY_GROUP_MAPPING_DUPLICATE');
+    return true;
+  });
+  assert.equal(calls, 0);
+});
+
+test('directory connection failures never echo bind credentials', async () => {
+  const service = new KeycloakAdminService({ record: async () => undefined } as never);
+  (service as any).accessToken = async () => 'test-token';
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(JSON.stringify({ error: 'bind-password-must-not-escape' }), { status: 401, headers: { 'content-type': 'application/json' } })) as typeof fetch;
+  try {
+    await assert.rejects(() => service.testDirectoryConnection({ vendor: 'other', connectionUrl: 'ldaps://ldap.example.org:636', bindDn: 'uid=svc', bindCredential: 'bind-password-must-not-escape', usersDn: 'ou=people', usernameLdapAttribute: 'uid', groupsDn: 'ou=groups', groupNameLdapAttribute: 'cn', groupObjectClass: 'groupOfNames', membershipLdapAttribute: 'member', groupRoleMappings: [] } as never), (error: unknown) => {
+      const response = (error as any).getResponse();
+      assert.equal(JSON.stringify(response).includes('bind-password-must-not-escape'), false);
+      return true;
+    });
+  } finally { globalThis.fetch = previousFetch; }
+});
