@@ -63,3 +63,21 @@ test('clamps a drop to the rack boundaries', () => {
   const plan = planRackPlacement(racks(), 'moving', 'rack-a', 42);
   assert.equal(plan.target.rackUnitStart, 41);
 });
+
+test('rejects equipment that is taller than the destination rack', () => {
+  const data = racks();
+  data[0].devices[0].rackUnitSize = 43;
+  assert.throws(() => planRackPlacement(data, 'moving', 'rack-b', 1), /não cabe no bastidor de destino/);
+});
+
+test('rejects an occupied drop when no displacement or swap can fit', () => {
+  const data: RackPlacementRack[] = [{
+    id: 'rack-a', name: 'A', units: 2,
+    devices: [
+      { id: 'moving', name: 'Moving', rackId: 'rack-a', rackUnitStart: 1, rackUnitSize: 2 },
+      { id: 'one', name: 'One', rackId: 'rack-a', rackUnitStart: 1, rackUnitSize: 1 },
+      { id: 'two', name: 'Two', rackId: 'rack-a', rackUnitStart: 2, rackUnitSize: 1 },
+    ],
+  }];
+  assert.throws(() => planRackPlacement(data, 'moving', 'rack-a', 1), /Não existe espaço/);
+});

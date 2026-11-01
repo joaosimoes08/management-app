@@ -111,6 +111,7 @@ export class PlaceDeviceDto {
 
 export class CreateBuildingDto {
   @IsString() @MinLength(1) name!: string;
+  @IsOptional() @IsString() description?: string;
 }
 export class UpdateBuildingDto extends CreateBuildingDto {}
 export class CreateRoomDto {

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Boxes, HardDrive, KeyRound, Layers, MapPinned, Server, X } from 'lucide-react';
+import { Boxes, Edit3, HardDrive, KeyRound, Layers, MapPinned, Server, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { AppShell } from '@/components/layout/app-shell';
 import { useAuth } from '@/lib/auth';
@@ -14,8 +14,10 @@ import type { RackEditDraft } from './types';
 import type { InterfaceFormState } from './components/models/interface-editor';
 import {
   createBuilding as apiCreateBuilding,
+  updateBuilding as apiUpdateBuilding,
   createAsset,
   createRoom as apiCreateRoom,
+  updateRoom as apiUpdateRoom,
   deleteAsset as apiDeleteAsset,
   deleteRack as apiDeleteRack,
   detectDeviceModelPortLayout,
@@ -79,6 +81,7 @@ export function InfrastructureWorkspace() {
   const [uploadModelId, setUploadModelId] = useState('');
   const [buildingForm, setBuildingForm] = useState<BuildingForm>({ name: '', description: '' });
   const [roomForm, setRoomForm] = useState({ name: '', buildingId: '' });
+  const [editingLocationId, setEditingLocationId] = useState('');
   const [rackForm, setRackForm] = useState<RackForm>({ name: '', units: '42', roomId: '', modelId: '', frontAssetId: '' });
   const [deviceForm, setDeviceForm] = useState<DeviceForm>(emptyDeviceForm);
   const [interfaceForm, setInterfaceForm] = useState<InterfaceFormState>(emptyInterfaceForm);
@@ -235,13 +238,15 @@ export function InfrastructureWorkspace() {
   const canEdit = (roomId ? roleCanEdit : hasRole('ADMIN') || hasRole('SYSTEMS_OPERATOR')) && scopeActions.some((action) => action !== 'READ');
   const canCreateBuilding = (hasRole('ADMIN') || hasRole('SYSTEMS_OPERATOR')) && (effective?.infrastructure?.site ?? []).includes('CREATE');
   const canCreateRoom = (hasRole('ADMIN') || hasRole('SYSTEMS_OPERATOR')) && Boolean(buildingId) && (effective?.infrastructure?.buildings?.find((item) => item.id === buildingId)?.actions ?? []).includes('CREATE');
+  const canUpdateBuilding = (hasRole('ADMIN') || hasRole('SYSTEMS_OPERATOR')) && Boolean(buildingId) && (effective?.infrastructure?.buildings?.find((item) => item.id === buildingId)?.actions ?? []).includes('UPDATE');
+  const canUpdateRoom = (hasRole('ADMIN') || hasRole('SYSTEMS_OPERATOR')) && Boolean(roomId) && (effective?.infrastructure?.rooms?.find((item) => item.id === roomId)?.actions ?? []).includes('UPDATE');
 
   const invalidateInfrastructure = () => queryClient.invalidateQueries({ queryKey: ['infrastructure'] });
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
   const chooseBuilding = (id: string) => {
-    if (id === '__new__') { setBuildingForm({ name: '', description: '' }); setModal('building'); return; }
+    if (id === '__new__') { setEditingLocationId(''); setBuildingForm({ name: '', description: '' }); setModal('building'); return; }
     setBuildingId(id);
     setRoomId('');
     setRackId('');
@@ -250,7 +255,7 @@ export function InfrastructureWorkspace() {
     history.replaceState({}, '', `/infraestrutura?siteId=${siteId}&buildingId=${id}`);
   };
   const chooseRoom = (id: string) => {
-    if (id === '__new__') { setRoomForm({ name: '', buildingId: buildingId || buildings[0]?.id || '' }); setModal('room'); return; }
+    if (id === '__new__') { setEditingLocationId(''); setRoomForm({ name: '', buildingId: buildingId || buildings[0]?.id || '' }); setModal('room'); return; }
     const room = rooms.find((item) => item.id === id);
     const nextBuilding = room?.building?.id || buildingId;
     setBuildingId(nextBuilding);
@@ -263,11 +268,13 @@ export function InfrastructureWorkspace() {
   const createBuilding = async () => {
     if (!buildingForm.name.trim()) return;
     try {
-      await apiCreateBuilding(siteId, { name: buildingForm.name.trim() });
+      if (editingLocationId) await apiUpdateBuilding(editingLocationId, { name: buildingForm.name.trim(), description: buildingForm.description.trim() || undefined });
+      else await apiCreateBuilding(siteId, { name: buildingForm.name.trim(), description: buildingForm.description.trim() || undefined });
       const fresh = await getSiteLocations(siteId);
       queryClient.setQueryData(['infrastructure', 'locations', siteId], fresh);
-      const created = fresh.find((item) => item.name === buildingForm.name.trim());
+      const created = editingLocationId ? fresh.find((item) => item.id === editingLocationId) : fresh.find((item) => item.name === buildingForm.name.trim());
       setModal('');
+      setEditingLocationId('');
       if (created) {
         setBuildingId(created.id);
         setRoomId('');
@@ -281,11 +288,13 @@ export function InfrastructureWorkspace() {
   const createRoom = async () => {
     if (!roomForm.name.trim() || !roomForm.buildingId) return;
     try {
-      await apiCreateRoom(roomForm.buildingId, { name: roomForm.name.trim() });
+      if (editingLocationId) await apiUpdateRoom(editingLocationId, { name: roomForm.name.trim() });
+      else await apiCreateRoom(roomForm.buildingId, { name: roomForm.name.trim() });
       const fresh = await getSiteLocations(siteId);
       queryClient.setQueryData(['infrastructure', 'locations', siteId], fresh);
-      const created = fresh.flatMap((item) => item.rooms ?? []).find((room) => room.name === roomForm.name.trim() && room.buildingId === roomForm.buildingId);
+      const created = editingLocationId ? fresh.flatMap((item) => item.rooms ?? []).find((room) => room.id === editingLocationId) : fresh.flatMap((item) => item.rooms ?? []).find((room) => room.name === roomForm.name.trim() && room.buildingId === roomForm.buildingId);
       setModal('');
+      setEditingLocationId('');
       if (created) {
         setBuildingId(roomForm.buildingId);
         setRoomId(created.id);
@@ -517,5 +526,5 @@ export function InfrastructureWorkspace() {
 
   if (tab === 'permissions' && effective?.tabs?.permissions) return <AppShell section="Infraestrutura" context={[siteName, 'Permissões']}><main className="module-page infrastructure-workspace"><header className="workspace-head"><div><span className="section-kicker">MAPA FÍSICO</span><h1>Infraestrutura</h1><p>Site → edifício → sala → bastidor → equipamento → interfaces.</p></div></header><nav className="infra-menu">{visibleTabs.map(([key, label, Icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => selectTab(key)}><Icon size={15} /><span>{label}</span></button>)}</nav><InfrastructurePermissions siteId={siteId} buildings={buildings} /></main></AppShell>;
 
-  return <AppShell section="Infraestrutura" context={[siteName, ...(buildingName ? [buildingName] : []), ...(roomName ? [roomName] : []), tabName]} search={{ value: search, onChange: setSearch, placeholder: `Pesquisar em ${tabName.toLowerCase()}…` }}><main className="module-page infrastructure-workspace"><header className="workspace-head"><div><span className="section-kicker">MAPA FÍSICO</span><h1>Infraestrutura</h1><p>Site → edifício → sala → bastidor → equipamento → interfaces.</p></div></header>{(error || errorMessage) && <div className="ipam-alert error"><X size={15} />{error || errorMessage}</div>}<section className="infra-context-bar"><label><MapPinned size={15} /> Edifício<select value={buildingId} onChange={(event) => chooseBuilding(event.target.value)}><option value="">Seleciona um edifício</option>{buildings.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}{canCreateBuilding && <option value="__new__">Criar novo Edifício</option>}</select></label><label><MapPinned size={15} /> Sala<select value={roomId} onChange={(event) => chooseRoom(event.target.value)}><option value="">Seleciona uma sala</option>{rooms.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}{canCreateRoom && <option value="__new__">Criar nova Sala</option>}</select></label><span>{busy ? 'A carregar…' : `${racks.length} bastidores · ${devices.length} equipamentos ativos`}</span></section><nav className="infra-menu">{visibleTabs.map(([key, label, Icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => selectTab(key)}><Icon size={15} /><span>{label}</span></button>)}</nav>{tab === 'racks' && <RackWorkspace rooms={rooms} roomId={roomId} buildingId={buildingId} racks={roomRacks} unplacedDevices={devices.filter((item) => !item.rackId)} selected={selectedRack} setRack={(rack: Rack) => { if (rack.room) setRoomId(rack.room.id); setRackId(rack.id); history.replaceState({}, '', `/infraestrutura?siteId=${siteId}&buildingId=${rack.room?.building?.id ?? buildingId}&roomId=${rack.room?.id ?? roomId}&rackId=${rack.id}`); }} onOut={() => setRackId('')} onDevice={openDevice} onEdit={(rack: RackEditDraft) => { setEditingId(rack.id ?? ''); setRackForm({ name: rack.name ?? '', units: String(rack.units ?? 42), roomId: rack.room?.id ?? rack.roomId ?? roomId, modelId: rack.modelId ?? rack.model?.id ?? '', frontAssetId: rack.frontAssetId ?? rack.frontAsset?.id ?? '' }); setModal('rack'); }} onDelete={canDeleteRack && scopeActions.includes('DELETE') ? deleteRack : undefined} deletingRackId={deletingRackId} canEdit={canEdit} onPreviewPlacement={previewPlacement} onPlaceDevice={placeDevice} onEditDevice={editDevice} />} {tab === 'devices' && <DeviceList devices={devices} search={search} onSelect={openDevice} onEdit={editDevice} onNew={newDevice} canEdit={canEdit} selectedId={device?.id} />} {tab === 'models' && effective?.tabs?.models && <ModelList models={visibleModels} onEdit={(model) => { setEditingId(model.id); setModelForm({ manufacturer: model.manufacturer, model: model.model, type: model.type ?? 'OTHER', supportsNetworkPorts: !!model.supportsNetworkPorts, networkPortCount: String(model.networkPortCount ?? ''), frontAssetId: model.frontAssetId ?? model.frontAsset?.id ?? '' }); setModal('model'); }} onLayout={openLayout} canEdit={roleCanEdit} />} {tab === 'assets' && effective?.tabs?.assets && <AssetList assets={visibleAssets} onDelete={deleteAsset} canEdit={roleCanEdit} canDelete={roleCanEdit} />} {tab === 'interfaces' && effective?.tabs?.interfaces && <InterfaceWorkspace devices={devices} selected={device} interfaces={visibleInterfaces} selectedInterface={selectedInterface} onDevice={openDevice} onInterface={editInterface} onGenerate={generateInterfaces} onEditDevice={() => device && editDevice(device)} />}<EntityEditor modal={modalForEditor} close={() => setModal('')} editingId={editingId} form={{ rack: rackForm, device: deviceForm, model: modelForm }} setForm={{ rack: setRackForm, device: setDeviceForm, model: setModelForm }} rooms={rooms} racks={racks} models={models} assets={assets} ips={EMPTY_IPS} save={save} />{modal === 'interface' && <InterfaceEditor modal={modal} close={() => setModal('')} form={{ interface: interfaceForm }} setForm={{ interface: setInterfaceForm }} vlans={vlans} save={save} />}<BuildingModal modal={modal === 'building'} close={() => setModal('')} buildingForm={buildingForm} setBuildingForm={setBuildingForm} createBuilding={createBuilding} /><RoomModal modal={modal === 'room'} close={() => setModal('')} roomForm={roomForm} setRoomForm={setRoomForm} buildings={buildings} createRoom={createRoom} /><AssetUploadModal modal={modal === 'asset-upload'} close={() => setModal('')} file={pendingUpload} name={assetName} setName={setAssetName} modelId={uploadModelId} setModelId={setUploadModelId} models={models} choose={chooseUpload} submit={submitUpload} busy={uploading} /><PortLayoutEditor modal={modal === 'layout'} close={() => setModal('')} layoutModel={layoutModel} layout={layout} setLayout={setLayout} assets={assets} assetId={layoutAssetId} setAssetId={setLayoutAssetId} detect={detectLayout} confirm={confirmLayout} saving={layoutSaving} error={layoutError} />  </main></AppShell>;
+  return <AppShell section="Infraestrutura" context={[siteName, ...(buildingName ? [buildingName] : []), ...(roomName ? [roomName] : []), tabName]} search={{ value: search, onChange: setSearch, placeholder: `Pesquisar em ${tabName.toLowerCase()}…` }}><main className="module-page infrastructure-workspace"><header className="workspace-head"><div><span className="section-kicker">MAPA FÍSICO</span><h1>Infraestrutura</h1><p>Site → edifício → sala → bastidor → equipamento → interfaces.</p></div></header>{(error || errorMessage) && <div className="ipam-alert error"><X size={15} />{error || errorMessage}</div>}<section className="infra-context-bar"><label><MapPinned size={15} /> Edifício<select value={buildingId} onChange={(event) => chooseBuilding(event.target.value)}><option value="">Seleciona um edifício</option>{buildings.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}{canCreateBuilding && <option value="__new__">Criar novo Edifício</option>}</select></label>{canUpdateBuilding && <button type="button" className="secondary-button compact-button" aria-label="Editar edifício" onClick={() => { const building = buildings.find((item) => item.id === buildingId); if (!building) return; setEditingLocationId(building.id); setBuildingForm({ name: building.name, description: building.description ?? '' }); setModal('building-edit'); }}><Edit3 size={14} /> Editar edifício</button>}<label><MapPinned size={15} /> Sala<select value={roomId} onChange={(event) => chooseRoom(event.target.value)}><option value="">Seleciona uma sala</option>{rooms.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}{canCreateRoom && <option value="__new__">Criar nova Sala</option>}</select></label>{canUpdateRoom && <button type="button" className="secondary-button compact-button" aria-label="Editar sala" onClick={() => { const room = rooms.find((item) => item.id === roomId); if (!room) return; setEditingLocationId(room.id); setRoomForm({ name: room.name, buildingId: room.buildingId }); setModal('room-edit'); }}><Edit3 size={14} /> Editar sala</button>}<span>{busy ? 'A carregar…' : `${racks.length} bastidores · ${devices.length} equipamentos ativos`}</span></section><nav className="infra-menu">{visibleTabs.map(([key, label, Icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => selectTab(key)}><Icon size={15} /><span>{label}</span></button>)}</nav>{tab === 'racks' && <RackWorkspace rooms={rooms} roomId={roomId} buildingId={buildingId} racks={roomRacks} unplacedDevices={devices.filter((item) => !item.rackId)} selected={selectedRack} setRack={(rack: Rack) => { if (rack.room) setRoomId(rack.room.id); setRackId(rack.id); history.replaceState({}, '', `/infraestrutura?siteId=${siteId}&buildingId=${rack.room?.building?.id ?? buildingId}&roomId=${rack.room?.id ?? roomId}&rackId=${rack.id}`); }} onOut={() => setRackId('')} onDevice={openDevice} onEdit={(rack: RackEditDraft) => { setEditingId(rack.id ?? ''); setRackForm({ name: rack.name ?? '', units: String(rack.units ?? 42), roomId: rack.room?.id ?? rack.roomId ?? roomId, modelId: rack.modelId ?? rack.model?.id ?? '', frontAssetId: rack.frontAssetId ?? rack.frontAsset?.id ?? '' }); setModal('rack'); }} onDelete={canDeleteRack && scopeActions.includes('DELETE') ? deleteRack : undefined} deletingRackId={deletingRackId} canEdit={canEdit} onPreviewPlacement={previewPlacement} onPlaceDevice={placeDevice} onEditDevice={editDevice} />} {tab === 'devices' && <DeviceList devices={devices} search={search} onSelect={openDevice} onEdit={editDevice} onNew={newDevice} canEdit={canEdit} selectedId={device?.id} />} {tab === 'models' && effective?.tabs?.models && <ModelList models={visibleModels} onEdit={(model) => { setEditingId(model.id); setModelForm({ manufacturer: model.manufacturer, model: model.model, type: model.type ?? 'OTHER', supportsNetworkPorts: !!model.supportsNetworkPorts, networkPortCount: String(model.networkPortCount ?? ''), frontAssetId: model.frontAssetId ?? model.frontAsset?.id ?? '' }); setModal('model'); }} onLayout={openLayout} canEdit={roleCanEdit} />} {tab === 'assets' && effective?.tabs?.assets && <AssetList assets={visibleAssets} onDelete={deleteAsset} canEdit={roleCanEdit} canDelete={roleCanEdit} />} {tab === 'interfaces' && effective?.tabs?.interfaces && <InterfaceWorkspace devices={devices} selected={device} interfaces={visibleInterfaces} selectedInterface={selectedInterface} onDevice={openDevice} onInterface={editInterface} onGenerate={generateInterfaces} onEditDevice={() => device && editDevice(device)} />}<EntityEditor modal={modalForEditor} close={() => setModal('')} editingId={editingId} form={{ rack: rackForm, device: deviceForm, model: modelForm }} setForm={{ rack: setRackForm, device: setDeviceForm, model: setModelForm }} rooms={rooms} racks={racks} models={models} assets={assets} ips={EMPTY_IPS} save={save} />{modal === 'interface' && <InterfaceEditor modal={modal} close={() => setModal('')} form={{ interface: interfaceForm }} setForm={{ interface: setInterfaceForm }} vlans={vlans} save={save} />}<BuildingModal modal={modal === 'building' || modal === 'building-edit'} editing={modal === 'building-edit'} close={() => { setModal(''); setEditingLocationId(''); }} buildingForm={buildingForm} setBuildingForm={setBuildingForm} createBuilding={createBuilding} /><RoomModal modal={modal === 'room' || modal === 'room-edit'} editing={modal === 'room-edit'} close={() => { setModal(''); setEditingLocationId(''); }} roomForm={roomForm} setRoomForm={setRoomForm} buildings={buildings} createRoom={createRoom} /><AssetUploadModal modal={modal === 'asset-upload'} close={() => setModal('')} file={pendingUpload} name={assetName} setName={setAssetName} modelId={uploadModelId} setModelId={setUploadModelId} models={models} choose={chooseUpload} submit={submitUpload} busy={uploading} /><PortLayoutEditor modal={modal === 'layout'} close={() => setModal('')} layoutModel={layoutModel} layout={layout} setLayout={setLayout} assets={assets} assetId={layoutAssetId} setAssetId={setLayoutAssetId} detect={detectLayout} confirm={confirmLayout} saving={layoutSaving} error={layoutError} />  </main></AppShell>;
 }

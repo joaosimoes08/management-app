@@ -42,3 +42,55 @@ test('rejects a management IP from another Site', async () => {
     ConflictException,
   );
 });
+
+function placementService(targetSiteId = 'site-a') {
+  const sourceRack = {
+    id: 'rack-source', name: 'Source', units: 6, roomId: 'room-a',
+    room: { id: 'room-a', building: { siteId: 'site-a' } },
+    devices: [{ id: 'device-1', name: 'Router', rackUnitStart: 5, rackUnitSize: 1, status: 'ACTIVE' }],
+  };
+  const targetRack = {
+    id: 'rack-target', name: 'Target', units: 6, roomId: 'room-b',
+    room: { id: 'room-b', building: { siteId: targetSiteId } },
+    devices: [],
+  };
+  const prisma = {
+    device: { findUnique: async () => ({
+      id: 'device-1', name: 'Router', rackId: 'rack-source', rackUnitStart: 5, rackUnitSize: 1,
+      rack: { roomId: 'room-a', room: { building: { siteId: 'site-a' } } },
+    }) },
+    rack: {
+      findUnique: async () => targetRack,
+      findMany: async () => [sourceRack, targetRack],
+    },
+  } as any;
+  return { subject: new InfrastructureService(prisma, {} as any, {} as any, {} as any), prisma };
+}
+
+test('plans placement into a different room within the same Site', async () => {
+  const { subject, prisma } = placementService();
+  const plan = await (subject as any).buildDevicePlacementPlan(prisma, 'device-1', { rackId: 'rack-target', rackUnitStart: 2 });
+  assert.equal(plan.target.rackId, 'rack-target');
+  assert.equal(plan.target.rackUnitStart, 2);
+});
+
+test('rejects a placement into a rack in a different Site', async () => {
+  const { subject, prisma } = placementService('site-b');
+  await assert.rejects(
+    () => (subject as any).buildDevicePlacementPlan(prisma, 'device-1', { rackId: 'rack-target', rackUnitStart: 2 }),
+    ConflictException,
+  );
+});
+
+test('reports a concurrent placement change as a clear conflict', async () => {
+  const prisma = { $transaction: async () => { throw Object.assign(new Error('transaction conflict'), { code: 'P2034' }); } } as any;
+  const access = {
+    assertDevice: async () => ({ type: 'SWITCH' }),
+    assertRack: async () => undefined,
+  } as any;
+  const subject = new InfrastructureService(prisma, {} as any, access, {} as any);
+  await assert.rejects(
+    () => subject.placeDevice('device-1', { rackId: 'rack-target', rackUnitStart: 2 }, user),
+    (error: unknown) => error instanceof ConflictException && error.message.includes('A localização foi alterada'),
+  );
+});
