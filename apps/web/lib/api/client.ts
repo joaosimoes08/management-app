@@ -62,3 +62,11 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
   const responseText = await response.text();
   return (responseText ? JSON.parse(responseText) : undefined) as T;
 }
+
+export async function apiDownload(path: string, filename: string): Promise<void> {
+  if (!tokenProvider) throw new Error('O cliente da API não está inicializado.');
+  const accessToken = await tokenProvider();
+  const response = await fetch(`${apiUrl}${path}`, { headers: { Authorization: `Bearer ${accessToken}`, 'Accept-Language': window.localStorage.getItem('cociber.locale') ?? 'pt-PT' } });
+  if (!response.ok) throw new Error(`Export falhou (${response.status})`);
+  const url = URL.createObjectURL(await response.blob()); const link = document.createElement('a'); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url);
+}

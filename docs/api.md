@@ -84,6 +84,13 @@ Os endpoints `POST`, `PATCH`, `DELETE` e `POST /:id/check` exigem a role `ADMIN`
 
 `GET /api/v1/audit/events?limit=100` devolve eventos recentes com utilizador, entidade, ação e data. Exige `ADMIN` ou `AUDITOR`.
 
+### Exportações de inventário e estado de backups
+
+- `GET /api/v1/exports/:kind/:format?siteId=...` descarrega `devices`, `subnets`, `vlans` ou `ips` como `csv` ou `json`. Os resultados respeitam os scopes de leitura de IPAM e infraestrutura do utilizador, aceitam `siteId` como filtro adicional e têm limite de 10 000 linhas. Os campos são listas explícitas no serviço de exportação; não incluem dados de configuração ou credenciais SNMP. Cada exportação cria um evento `INVENTORY_EXPORT` com tipo/formato/site/número de linhas, sem guardar os dados exportados.
+- Campos exportados: devices (`id,name,type,serialNumber,assetTag,hostname,managementIp,status,source,siteId,createdAt,updatedAt`); subnets (`id,cidr,version,gateway,purpose,environment,siteId,vlanId,vrfId`); vlans (`id,vlanId,name,description,siteId`); ips (`id,address,state,hostname,macAddress,version,subnetId,deviceId,interfaceId,hostId`). CSV protege valores iniciados por caracteres de fórmula.
+- `GET /api/v1/settings/backups` (ADMIN) mostra os últimos registos manuais de backup e teste de restauro. `POST /api/v1/settings/backups/checks` (ADMIN) aceita `kind` (`BACKUP_COMPLETED`, `RESTORE_VERIFIED` ou `RESTORE_FAILED`), `completedAt` ISO-8601 e `reference`/`notes` opcionais. O registo é auditado; não executa backup nem restaura dados.
+- A configuração Docker documenta volumes persistentes e um exemplo manual de `pg_dump`; a aplicação não está ligada a um job de backup nem verifica cópias ou restauros automaticamente. Um registo de sucesso é uma declaração do operador, não prova independente da cópia ou do restauro.
+
 ## Swagger
 
 Disponível em `http://localhost:3001/api`.

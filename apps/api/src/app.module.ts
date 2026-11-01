@@ -17,6 +17,7 @@ import { AccessModule } from './access/access.module';
 import { OperationsModule } from './operations/operations.module';
 import { InventoryQualityModule } from './inventory-quality/inventory-quality.module';
 import { TopologyModule } from './topology/topology.module';
+import { ExportsModule } from './settings/exports.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { TopologyModule } from './topology/topology.module';
     OperationsModule,
     InventoryQualityModule,
     TopologyModule,
+    ExportsModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
