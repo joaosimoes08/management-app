@@ -145,27 +145,37 @@ export class InfrastructureService implements OnModuleInit {
   private async buildDevicePlacementPlan(client: any, id: string, dto: PlaceDeviceDto) {
     const device = await client.device.findUnique({ where: { id }, include: { rack: { include: { room: { include: { building: true } } } } } });
     if (!device) throw new NotFoundException('Equipamento não encontrado');
-    if (!device.rackId || !device.rackUnitStart || !device.rackUnitSize) throw new ConflictException('O equipamento tem de estar posicionado num bastidor antes de ser arrastado');
     const targetRack = await client.rack.findUnique({ where: { id: dto.rackId }, include: { room: { include: { building: true } } } });
     if (!targetRack) throw new NotFoundException('Bastidor de destino não encontrado');
-    if (targetRack.roomId !== device.rack.roomId) throw new ConflictException('Só é possível mover equipamentos entre bastidores da mesma sala');
-    if (targetRack.room.building.siteId !== device.rack.room.building.siteId) throw new ConflictException('O bastidor não pertence ao Site do equipamento');
+    const targetSiteId = targetRack.room.building.siteId;
+    if (device.rackId) {
+      if (targetRack.roomId !== device.rack.roomId) throw new ConflictException('Só é possível mover equipamentos entre bastidores da mesma sala');
+      if (targetSiteId !== device.rack.room.building.siteId) throw new ConflictException('O bastidor não pertence ao Site do equipamento');
+      if (!device.rackUnitStart || !device.rackUnitSize) throw new ConflictException('O equipamento não tem uma posição válida no bastidor de origem');
+    } else if (device.siteId !== targetSiteId) {
+      throw new ConflictException('O bastidor não pertence ao Site do equipamento');
+    }
 
-    const rackIds = [...new Set([device.rackId, dto.rackId])];
+    const rackIds = [...new Set([...(device.rackId ? [device.rackId] : []), dto.rackId])];
     const racks = await client.rack.findMany({
       where: { id: { in: rackIds } },
       include: { devices: { where: { status: { not: 'RETIRED' } } } },
     });
     try {
-      return planRackPlacement(
-        racks.map((rack: any) => ({
+      const placementRacks = racks.map((rack: any) => ({
           id: rack.id,
           name: rack.name,
           units: rack.units,
           devices: rack.devices
             .filter((item: any) => item.rackUnitStart && item.rackUnitSize)
             .map((item: any) => ({ id: item.id, name: item.name, rackId: rack.id, rackUnitStart: item.rackUnitStart, rackUnitSize: item.rackUnitSize })),
-        })),
+        }));
+      if (!device.rackId) {
+        const target = placementRacks.find((rack: any) => rack.id === dto.rackId)!;
+        target.devices.push({ id: device.id, name: device.name, rackId: dto.rackId, rackUnitStart: dto.rackUnitStart, rackUnitSize: device.rackUnitSize ?? 1 });
+      }
+      return planRackPlacement(
+        placementRacks,
         id,
         dto.rackId,
         dto.rackUnitStart,
