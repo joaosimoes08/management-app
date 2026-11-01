@@ -71,6 +71,7 @@ export interface DiscoveryDefaults {
   methods: string[];
   tcpPorts: number[];
   reverseDns: boolean;
+  profiles: Array<{ id: string; name: string; description: string; methods: string[]; tcpPorts: number[]; reverseDns: boolean }>;
 }
 
 export interface DiscoveryJobPayload {
@@ -78,6 +79,8 @@ export interface DiscoveryJobPayload {
   subnetId: string;
   methods: string[];
   tcpPorts: number[];
+  reverseDns: boolean;
+  profileId: string;
 }
 
 export function listDiscoveryJobs(): Promise<{ items: DiscoveryJob[]; total: number }> {
