@@ -20,7 +20,7 @@ import type { TopologyConnection, TopologyMap, TopologyMapType, TopologyNode } f
 const types: TopologyMapType[] = ['PHYSICAL', 'NETWORK', 'VLAN_SUBNET'];
 const EMPTY_DEVICE_INTERFACES: Record<string, DeviceInterface[]> = {};
 
-type TopologyNodeData = { label: string; deviceName: string; hostname: string; location: string; asset: ReturnType<typeof topologyDeviceImage>; equipmentType: string; alertSummary?: TopologyNodeAlertSummary };
+type TopologyNodeData = { label: string; deviceName: string; hostname: string; location: string; managementIp: string; modelName: string; status: string; asset: ReturnType<typeof topologyDeviceImage>; equipmentType: string; alertSummary?: TopologyNodeAlertSummary };
 type TopologyFlowNode = Node<TopologyNodeData, 'topologyDevice'>;
 type TopologyEdgeData = { tooltip: string; onSelect: (id: string) => void };
 type TopologyFlowEdge = Edge<TopologyEdgeData, 'topologyConnection'>;
@@ -30,17 +30,27 @@ function TopologyDeviceNode({ data, selected }: NodeProps<TopologyFlowNode>) {
     <Handle type="target" position={Position.Left} className="topology-device-handle" />
     <span className="topology-device-image">{data.asset ? <AssetImage asset={data.asset} alt={`Imagem de ${data.deviceName}`} fallback={<EquipmentTypeIcon type={data.equipmentType} alt="" />} /> : <EquipmentTypeIcon type={data.equipmentType} alt="" />}</span>
     <Handle type="source" position={Position.Right} className="topology-device-handle" />
-    <strong className="topology-device-name">{data.deviceName}</strong>
-    <span className="topology-device-tooltip" role="tooltip"><span><b>Hostname</b> {data.hostname || 'Não definido'}</span><span><b>Localização</b> {data.location || 'Não definida'}</span></span>
-    {data.alertSummary && <span className="topology-node-alert" style={{ color: topologySeverityColor(data.alertSummary.highestSeverity) }} title={data.alertSummary.titles.join('\n')}>{data.alertSummary.count} {data.alertSummary.count === 1 ? 'alerta' : 'alertas'} · {data.alertSummary.highestSeverity}</span>}
+    <span className="topology-device-tooltip" role="tooltip"><strong>{data.deviceName}</strong><span><small>Hostname:</small><b>{data.hostname || 'Não definido'}</b></span><span><small>Modelo:</small><b>{data.modelName || data.equipmentType}</b></span><span><small>Localização:</small><b>{data.location || 'Não definida'}</b></span><span><small>IP Management:</small><b>{data.managementIp || 'não definido'}</b></span><span><small>Status:</small><b>{data.status.toLowerCase()}</b></span>{data.alertSummary && <span><small>Alertas ativos:</small><b style={{ color: topologySeverityColor(data.alertSummary.highestSeverity) }}>{data.alertSummary.count} · {data.alertSummary.highestSeverity}</b></span>}</span>
   </div>;
 }
 
 function TopologyConnectionEdge(props: EdgeProps<TopologyFlowEdge>) {
   const [hovered, setHovered] = useState(false);
+  const [reducedMotion, setReducedMotion] = useState(true);
   const [path, labelX, labelY] = getBezierPath(props);
+  useEffect(() => {
+    const query = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const update = () => setReducedMotion(query.matches);
+    update();
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
+  }, []);
   return <>
     <BaseEdge id={props.id} path={path} style={props.style} markerEnd={props.markerEnd} interactionWidth={18} />
+    {!reducedMotion && <>
+      <circle r="3" className="topology-flow-particle"><animateMotion dur="2.8s" repeatCount="indefinite" path={path} /></circle>
+      <circle r="3" className="topology-flow-particle topology-flow-particle--reverse"><animateMotion dur="2.8s" repeatCount="indefinite" path={path} keyPoints="1;0" keyTimes="0;1" calcMode="linear" /></circle>
+    </>}
     <path d={path} className="topology-edge-hit-area" onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)} onClick={(event) => { event.stopPropagation(); props.data?.onSelect(props.id); }} />
     {hovered && <EdgeLabelRenderer><div className="topology-edge-tooltip" style={{ transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)` }}>{props.data?.tooltip}</div></EdgeLabelRenderer>}
   </>;
@@ -68,8 +78,8 @@ function toFlowNode(node: TopologyNode, alertSummary?: TopologyNodeAlertSummary)
     id: node.id,
     position: { x: node.x, y: node.y },
     type: 'topologyDevice',
-    data: { label: node.label ?? node.device?.name ?? node.deviceId, deviceName: node.device?.name ?? node.deviceId, hostname: node.device?.hostname ?? '', location: [node.device?.rack?.room?.building?.name, node.device?.rack?.room?.name, node.device?.rack?.name].filter(Boolean).join(' · '), asset: image, equipmentType: node.device?.type ?? 'OTHER', alertSummary: severity ? alertSummary : undefined },
-    style: { width: 194, height: 142, padding: 0, border: 0, background: 'transparent', boxShadow: 'none', overflow: 'visible' },
+    data: { label: node.label ?? node.device?.name ?? node.deviceId, deviceName: node.device?.name ?? node.deviceId, hostname: node.device?.hostname ?? '', location: [node.device?.rack?.room?.building?.name, node.device?.rack?.room?.name, node.device?.rack?.name].filter(Boolean).join(' · '), managementIp: node.device?.managementIp ?? '', modelName: [node.device?.model?.manufacturer, node.device?.model?.model].filter(Boolean).join(' '), status: node.device?.status ?? 'UNKNOWN', asset: image, equipmentType: node.device?.type ?? 'OTHER', alertSummary: severity ? alertSummary : undefined },
+    style: { width: 194, height: 100, padding: 0, border: 0, background: 'transparent', boxShadow: 'none', overflow: 'visible' },
   };
 }
 
