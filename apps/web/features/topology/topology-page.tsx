@@ -72,7 +72,7 @@ export function TopologyPage() {
   }, []);
   useEffect(() => {
     if (!fullscreen) return;
-    const handleKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape' && !(event.target instanceof HTMLInputElement)) setFullscreen(false); };
+    const handleKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') setFullscreen(false); };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [fullscreen]);
