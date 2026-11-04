@@ -55,6 +55,14 @@ export function getHost(id: string): Promise<HostDetail> {
   return apiFetch<HostDetail>(`/api/v1/hosts/${id}`);
 }
 
+export interface IpCheckHistoryEntry { id: string; createdAt: string; metadata?: { reachable?: boolean } | null; user?: { displayName?: string | null; username?: string | null } | null }
+export function getIpCheckHistory(id: string, page = 1): Promise<PaginatedResponse<IpCheckHistoryEntry>> {
+  return apiFetch<PaginatedResponse<IpCheckHistoryEntry>>(`/api/v1/ip-addresses/${id}/check-history?page=${page}&pageSize=20`);
+}
+export function checkIpAddress(id: string): Promise<IpAddressRow & { lastCheckAt?: string | null; lastCheckMethod?: string | null; responseMs?: number | null }> {
+  return apiFetch(`/api/v1/ip-addresses/${id}/check`, { method: 'POST' });
+}
+
 export function listVlans(siteId: string): Promise<PaginatedResponse<Vlan>> {
   return apiFetch<PaginatedResponse<Vlan>>(`/api/v1/vlans?siteId=${siteId}&pageSize=200`);
 }

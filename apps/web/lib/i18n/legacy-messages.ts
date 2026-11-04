@@ -229,6 +229,7 @@ const enUS: LegacyDictionary = {
   'Novo equipamento': 'New equipment',
   'Novo modelo': 'New model',
   'O mapeamento de portas foi guardado.': 'The port mapping was saved.',
+  'O endereço IP foi atualizado.': 'The IP address was updated.',
   'Operação': 'Operation',
   'Operação concluída.': 'Operation completed.',
   'Operação falhou.': 'Operation failed.',

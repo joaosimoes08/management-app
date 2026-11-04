@@ -33,6 +33,7 @@ import { CalculatorView } from './components/calculator-view';
 import { NetworkMap } from './components/network-map';
 import { SubnetsView } from './components/subnets-view';
 import { HostPanel } from './components/host-panel';
+import { IpAddressPanel } from './components/ip-address-panel';
 import { CentralIpamPermissions } from './components/central-permissions';
 
 const tabs: [string, string][] = [['map', 'Mapa'], ['subnets', 'Subnets'], ['vrfs', 'VRFs'], ['nat', 'NAT'], ['calculator', 'Calculadora'], ['imports', 'RIPE']];
@@ -67,6 +68,7 @@ export default function IpamPage() {
   const [search, setSearch] = useState('');
   const [selectedSubnetId, setSelectedSubnetId] = useState('');
   const [hostDetailId, setHostDetailId] = useState('');
+  const [ipDetail, setIpDetail] = useState<IpAddressRow | null>(null);
   const [modal, setModal] = useState('');
   const [error, setError] = useState('');
   const [origin, setOrigin] = useState<{ deviceId: string; interfaceId: string } | null>(null);
@@ -122,6 +124,8 @@ export default function IpamPage() {
   const busy = fetchingMap || fetchingAccess;
 
   const canEdit = roleCanEdit && (effective?.ipamActions ?? []).some((action) => action !== 'READ');
+  const canUpdateIp = roleCanEdit && (effective?.ipamActions ?? []).includes('UPDATE');
+  const canCheckIp = roleCanEdit && (effective?.ipamActions ?? []).includes('DISCOVER');
 
   const updateUrl = (values: Record<string, string | undefined>) => {
     const params = new URLSearchParams(location.search);
@@ -166,6 +170,7 @@ export default function IpamPage() {
   useEffect(() => {
     setSelectedSubnetId('');
     setHostDetailId('');
+    setIpDetail(null);
   }, [siteId]);
 
   const save = async (path: string, body: unknown, method = 'POST', after?: () => Promise<void>) => {
@@ -246,13 +251,14 @@ export default function IpamPage() {
         : tab === 'map'
           ? <NetworkMap vlans={visibleVlans} canEdit={canEdit} edit={(item) => { setVlan({ id: item.id, vlanId: item.vlanId, name: item.name, description: item.description ?? '' }); setModal('vlan'); }} remove={(item) => remove(`/api/v1/vlans/${item.id}`, `Eliminar VLAN ${item.vlanId} — ${item.name}?`)} associate={(item) => { setCurrentVlan(item); setModal('association'); }} detachSubnet={(item) => void detachSubnet(item)} openSubnet={openSubnet} newVlan={() => { setVlan({ ...blankVlan }); setModal('vlan'); }} newSubnet={openNewSubnet} />
             : tab === 'subnets'
-              ? <SubnetsView selected={selected ?? null} items={visibleSubnets} usage={usage ?? null} ips={ips} search={search} setSearch={setSearch} openSubnet={openSubnet} openHost={openHost} canEdit={canEdit} siteId={siteId} newSubnet={() => openNewSubnet()} editSubnet={editSubnet} removeSubnet={(item) => void removeSubnet(item)} editIp={(ip) => { setHost({ id: ip.id, address: ip.address, hostname: ip.hostname ?? '', description: ip.notes ?? '' }); setModal('ip'); }} newIp={() => { setHost({ ...blankHost }); setModal('ip'); }} createHost={(ip) => { setHost({ name: ip.hostname || `host-${ip.address.replace(/[:.]/g, '-')}`, hostname: ip.hostname ?? '', operatingSystem: '', macAddress: ip.macAddress ?? '', notes: ip.notes ?? '', status: 'UNKNOWN', ipAddressId: ip.id }); setModal('create-host'); }} />
+              ? <SubnetsView selected={selected ?? null} items={visibleSubnets} usage={usage ?? null} ips={ips} search={search} setSearch={setSearch} openSubnet={openSubnet} openHost={openHost} canEdit={canEdit} siteId={siteId} newSubnet={() => openNewSubnet()} editSubnet={editSubnet} removeSubnet={(item) => void removeSubnet(item)} editIp={(ip) => setIpDetail(ip)} newIp={() => { setHost({ ...blankHost }); setModal('ip'); }} createHost={(ip) => { setHost({ name: ip.hostname || `host-${ip.address.replace(/[:.]/g, '-')}`, hostname: ip.hostname ?? '', operatingSystem: '', macAddress: ip.macAddress ?? '', notes: ip.notes ?? '', status: 'UNKNOWN', ipAddressId: ip.id }); setModal('create-host'); }} />
                 : tab === 'permissions' && effective?.tabs?.permissions
                   ? <CentralIpamPermissions siteId={siteId} />
                   : tab === 'calculator'
                   ? <CalculatorView calc={calc} setCalc={setCalc} result={calcResult} onSubmit={calculate} />
                   : <Empty title={tabLabel} text="Esta área do IPAM está preparada para a próxima configuração." />}
       {hostDetail && <HostPanel host={hostDetail} canEdit={canEdit} close={closeHost} reload={() => openHost(hostDetail.id)} success={success} toastError={toastError} />}
+      {ipDetail && <IpAddressPanel ip={ipDetail} canUpdate={canUpdateIp} canCheck={canCheckIp} close={() => setIpDetail(null)} updated={(item) => { setIpDetail(item); void invalidateIpam(); }} saved={() => success('IP atualizado', 'O endereço IP foi atualizado.')} error={(message) => toastError('Operação IPAM', message)} />}
 
       {modal === 'vlan' && <IpamModal title={vlan.id ? 'Editar VLAN' : 'Criar VLAN'} close={() => setModal('')}><form className="modal-form" onSubmit={(event) => { event.preventDefault(); void save(vlan.id ? `/api/v1/vlans/${vlan.id}` : '/api/v1/vlans', { vlanId: Number(vlan.vlanId), name: vlan.name, description: vlan.description, siteId }, vlan.id ? 'PATCH' : 'POST'); }}><label>VLAN ID<input required type="number" min="1" max="4094" value={vlan.vlanId} onChange={(event) => setVlan({ ...vlan, vlanId: event.target.value })} /></label><label>Nome<input required value={vlan.name} onChange={(event) => setVlan({ ...vlan, name: event.target.value })} /></label><label>Descrição<input value={vlan.description || ''} onChange={(event) => setVlan({ ...vlan, description: event.target.value })} /></label><button className="primary-button">Guardar</button></form></IpamModal>}
 
