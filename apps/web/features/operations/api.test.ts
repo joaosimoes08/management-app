@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { acknowledgeOperationalAlert, getInventoryQuality, getInventoryQualityItems, readAllOperationalAlerts, resolveOperationalAlert, snoozeOperationalAlert } from './api';
+import { acknowledgeOperationalAlert, getInventoryQuality, getInventoryQualityItems, listOperationalAlerts, readAllOperationalAlerts, resolveOperationalAlert, snoozeOperationalAlert } from './api';
 
 const fetchMock = vi.hoisted(() => vi.fn().mockResolvedValue({}));
 vi.mock('@/lib/api/client', () => ({ apiFetch: fetchMock }));
@@ -16,5 +16,7 @@ describe('operations API contracts', () => {
     await getInventoryQuality('site'); await getInventoryQualityItems('site');
     expect(fetchMock).toHaveBeenNthCalledWith(5, '/api/v1/inventory-quality/summary?siteId=site');
     expect(fetchMock).toHaveBeenNthCalledWith(6, '/api/v1/inventory-quality/findings?siteId=site');
+    await listOperationalAlerts('site', 100);
+    expect(fetchMock).toHaveBeenNthCalledWith(7, '/api/v1/operations/alerts?siteId=site&pageSize=100');
   });
 });

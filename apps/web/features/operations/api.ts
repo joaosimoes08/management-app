@@ -1,10 +1,10 @@
 import { apiFetch } from '@/lib/api/client';
 
-export type OperationalAlert = { id: string; title: string; detail?: string; severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'WARNING' | 'INFO'; status?: 'OPEN' | 'ACKNOWLEDGED' | 'SNOOZED' | 'RESOLVED'; occurredAt?: string; href?: string };
+export type OperationalAlert = { id: string; title: string; detail?: string; severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'WARNING' | 'INFO'; status?: 'OPEN' | 'ACKNOWLEDGED' | 'SNOOZED' | 'RESOLVED'; entityType?: string | null; entityId?: string | null; occurredAt?: string; href?: string };
 export type InventoryQuality = { score?: number; total?: number; valid?: number; invalid?: number; stale?: number; deviceCount?: number; affectedDeviceCount?: number; validDeviceCount?: number; affectedEntityCount?: number; findingCount?: number; staleFindingCount?: number };
 export type InventoryFinding = { id: string; siteId: string; rule: string; severity: 'CRITICAL' | 'HIGH' | 'WARNING' | 'INFO'; status: 'OPEN' | 'ACKNOWLEDGED' | 'SNOOZED' | 'RESOLVED'; title: string; detail: string; lastDetectedAt: string; assignedTo?: { id: string; username: string; displayName?: string | null } | null };
 
-export const listOperationalAlerts = (siteId?: string) => apiFetch<{ items: OperationalAlert[] }>(`/api/v1/operations/alerts${siteId ? `?siteId=${encodeURIComponent(siteId)}` : ''}`);
+export const listOperationalAlerts = (siteId?: string, pageSize = 25) => apiFetch<{ items: OperationalAlert[] }>(`/api/v1/operations/alerts?${siteId ? `siteId=${encodeURIComponent(siteId)}&` : ''}pageSize=${pageSize}`);
 export const acknowledgeOperationalAlert = (id: string) => apiFetch(`/api/v1/operations/alerts/${encodeURIComponent(id)}/acknowledge`, { method: 'PATCH' });
 export const snoozeOperationalAlert = (id: string, until = new Date(Date.now() + 60 * 60 * 1000).toISOString()) => apiFetch(`/api/v1/operations/alerts/${encodeURIComponent(id)}/snooze`, { method: 'PATCH', body: JSON.stringify({ until }) });
 export const resolveOperationalAlert = (id: string) => apiFetch(`/api/v1/operations/alerts/${encodeURIComponent(id)}/resolve`, { method: 'PATCH', body: JSON.stringify({}) });
