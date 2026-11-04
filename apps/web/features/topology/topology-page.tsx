@@ -33,6 +33,7 @@ export function TopologyPage() {
   const [labelsVisible, setLabelsVisible] = useState(true);
   const [showGrid, setShowGrid] = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
+  const [fullscreenAnnouncement, setFullscreenAnnouncement] = useState('');
   const [toolbarExpanded, setToolbarExpanded] = useState(true);
   const [flow, setFlow] = useState<ReactFlowInstance | null>(null);
   const [name, setName] = useState('');
@@ -72,7 +73,12 @@ export function TopologyPage() {
   }, []);
   useEffect(() => {
     if (!fullscreen) return;
-    const handleKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') setFullscreen(false); };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setFullscreen(false);
+        setFullscreenAnnouncement('Modo de ecrã inteiro desativado.');
+      }
+    };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [fullscreen]);
@@ -125,6 +131,11 @@ export function TopologyPage() {
     setSelectedNodeId(nodeId);
     void flow?.fitView({ nodes: [{ id: nodeId }], duration: 450, padding: 0.45 });
   };
+  const toggleFullscreen = () => {
+    const next = !fullscreen;
+    setFullscreen(next);
+    setFullscreenAnnouncement(next ? 'Modo de ecrã inteiro ativado. Prima Escape para sair.' : 'Modo de ecrã inteiro desativado.');
+  };
 
   return <AppShell section="Topologia" context={['Infraestrutura']}>
     <main className="module-page topology-page">
@@ -165,11 +176,11 @@ export function TopologyPage() {
             <button className="secondary-button" aria-pressed={labelsVisible} onClick={() => setLabelsVisible((value) => !value)}>{labelsVisible ? 'Ocultar etiquetas' : 'Mostrar etiquetas'}</button>
             <button className="secondary-button" aria-pressed={showGrid} onClick={() => setShowGrid((value) => !value)}>{showGrid ? 'Ocultar grelha' : 'Mostrar grelha'}</button>
             <button className="secondary-button" onClick={() => void flow?.fitView({ duration: 450, padding: 0.2 })}>Ajustar mapa</button>
-            <button className="secondary-button" onClick={() => setFullscreen((value) => !value)}>{fullscreen ? 'Sair de ecrã inteiro' : 'Ecrã inteiro'}</button>
+            <button className="secondary-button" onClick={toggleFullscreen}>Alternar ecrã inteiro</button>
             </div>
           </div>}
           {current && search.trim() && !searchMatch && <p className="topology-map-no-results" role="status">Nenhum equipamento encontrado para “{search.trim()}”.</p>}
-          <span className="topology-sr-only" aria-live="polite">{fullscreen ? 'Modo de ecrã inteiro ativado. Prima Escape para sair.' : 'Modo de ecrã inteiro desativado.'}</span>
+          <span className="topology-sr-only" aria-live="polite">{fullscreenAnnouncement}</span>
           {selectedNode && <aside className="topology-node-details" aria-live="polite"><strong>{selectedNode.label ?? selectedNode.device?.name ?? selectedNode.deviceId}</strong><span>{selectedNode.device?.type ?? 'Equipamento'}</span>{selectedNode.device?.managementIp && <span>{selectedNode.device.managementIp}</span>}<button className="secondary-button" onClick={() => focusNode(selectedNode.id)}>Focar equipamento</button></aside>}
           <ReactFlow nodes={nodes} edges={edges} onInit={setFlow} onNodesChange={handleNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_event, node) => setSelectedNodeId(node.id)} onPaneClick={() => setSelectedNodeId('')} onEdgeClick={(_event, edge) => setSelectedEdgeId(edge.id)} fitView><>{showGrid && <Background />}<MiniMap /><Controls /></></ReactFlow>
           {!selected && !maps.isLoading && <div className="topology-canvas-empty"><strong>Seleciona ou cria um mapa</strong><span>O teu mapa de topologia aparece aqui.</span></div>}
