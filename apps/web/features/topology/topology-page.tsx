@@ -180,7 +180,7 @@ export function TopologyPage() {
             </div>
           </div>}
           {current && search.trim() && !searchMatch && <p className="topology-map-no-results" role="status">Nenhum equipamento encontrado para “{search.trim()}”.</p>}
-          <span className="topology-sr-only" aria-live="polite">{fullscreenAnnouncement}</span>
+          <span className="topology-sr-only" aria-live="polite">{fullscreen ? 'Modo de ecrã inteiro ativado. Prima Escape para sair.' : fullscreenAnnouncement ? 'Modo de ecrã inteiro desativado.' : ''}</span>
           {selectedNode && <aside className="topology-node-details" aria-live="polite"><strong>{selectedNode.label ?? selectedNode.device?.name ?? selectedNode.deviceId}</strong><span>{selectedNode.device?.type ?? 'Equipamento'}</span>{selectedNode.device?.managementIp && <span>{selectedNode.device.managementIp}</span>}<button className="secondary-button" onClick={() => focusNode(selectedNode.id)}>Focar equipamento</button></aside>}
           <ReactFlow nodes={nodes} edges={edges} onInit={setFlow} onNodesChange={handleNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_event, node) => setSelectedNodeId(node.id)} onPaneClick={() => setSelectedNodeId('')} onEdgeClick={(_event, edge) => setSelectedEdgeId(edge.id)} fitView><>{showGrid && <Background />}<MiniMap /><Controls /></></ReactFlow>
           {!selected && !maps.isLoading && <div className="topology-canvas-empty"><strong>Seleciona ou cria um mapa</strong><span>O teu mapa de topologia aparece aqui.</span></div>}
