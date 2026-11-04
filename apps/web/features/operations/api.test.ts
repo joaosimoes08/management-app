@@ -17,6 +17,6 @@ describe('operations API contracts', () => {
     expect(fetchMock).toHaveBeenNthCalledWith(5, '/api/v1/inventory-quality/summary?siteId=site');
     expect(fetchMock).toHaveBeenNthCalledWith(6, '/api/v1/inventory-quality/findings?siteId=site');
     await listOperationalAlerts('site', 100);
-    expect(fetchMock).toHaveBeenNthCalledWith(7, '/api/v1/operations/alerts?siteId=site&pageSize=100');
+    expect(fetchMock).toHaveBeenNthCalledWith(7, '/api/v1/operations/alerts?siteId=site&page=1&pageSize=100');
   });
 });

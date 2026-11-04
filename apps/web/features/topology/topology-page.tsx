@@ -8,15 +8,16 @@ import { AppShell } from '@/components/layout/app-shell';
 import { listAllDevices } from '@/features/infrastructure/api';
 import { listVlans } from '@/features/ipam/api';
 import { listOperationalAlerts } from '@/features/operations/api';
+import { AssetImage } from '@/features/infrastructure/components/asset-image';
+import { EquipmentTypeIcon } from '@/features/infrastructure/components/equipment-type-icon';
 import { useSiteContext } from '@/lib/site-context';
 import { createTopologyConnection, createTopologyMap, deleteTopologyConnection, deleteTopologyMap, getTopologyMap, listTopologyMaps, replaceTopologyNodes, updateTopologyConnection } from './api';
-import { summarizeTopologyDeviceAlerts, type TopologyNodeAlertSummary } from './alerts';
+import { loadAllTopologyAlerts, summarizeTopologyDeviceAlerts, topologyDeviceImage, topologySeverityColor, type TopologyNodeAlertSummary } from './alerts';
 import { findTopologyNode } from './search';
 import type { TopologyMap, TopologyMapType, TopologyNode } from './types';
 
 const types: TopologyMapType[] = ['PHYSICAL', 'NETWORK', 'VLAN_SUBNET'];
 const nodeColor = (type?: string) => ({ SWITCH: '#2563eb', ROUTER: '#7c3aed', FIREWALL: '#dc2626', SERVER: '#0891b2', STORAGE: '#059669' }[type ?? ''] ?? '#475569');
-const alertColor = (severity: string) => ({ CRITICAL: '#b91c1c', HIGH: '#ea580c', WARNING: '#d97706', MEDIUM: '#d97706', LOW: '#2563eb', INFO: '#2563eb' }[severity] ?? '#475569');
 
 function nodeLabel(map: TopologyMap, node: TopologyNode) {
   const device = node.device;
@@ -29,11 +30,12 @@ function nodeLabel(map: TopologyMap, node: TopologyNode) {
 
 function toFlowNode(map: TopologyMap, node: TopologyNode, alertSummary?: TopologyNodeAlertSummary): Node {
   const severity = alertSummary?.highestSeverity;
-  const color = severity ? alertColor(severity) : undefined;
+  const color = severity ? topologySeverityColor(severity) : undefined;
+  const image = topologyDeviceImage(node.device);
   return {
     id: node.id,
     position: { x: node.x, y: node.y },
-    data: { label: <span className="topology-node-content"><span className="topology-node-label">{nodeLabel(map, node)}</span>{alertSummary && <span className={`topology-node-alert topology-node-alert--${severity?.toLowerCase()}`} aria-label={`${alertSummary.count} alertas ativos; gravidade máxima ${severity}`} title={alertSummary.titles.join('\n')}>● {alertSummary.count} {alertSummary.count === 1 ? 'alerta ativo' : 'alertas ativos'}</span>}</span> },
+    data: { label: <span className="topology-node-content"><span className="topology-node-visual">{image ? <AssetImage asset={image} alt={`Imagem de ${node.device?.name ?? 'equipamento'}`} fallback={<EquipmentTypeIcon type={node.device?.type} alt="" />} /> : <EquipmentTypeIcon type={node.device?.type} alt="" />}</span><span className="topology-node-label">{nodeLabel(map, node)}</span>{alertSummary && <span className="topology-node-alert" style={{ color }} aria-label={`${alertSummary.count} alertas ativos; gravidade máxima ${severity}`} title={alertSummary.titles.join('\n')}>● {alertSummary.count} {alertSummary.count === 1 ? 'alerta' : 'alertas'} · {severity}</span>}</span> },
     style: { color: '#fff', background: nodeColor(node.device?.type), border: color ? `2px solid ${color}` : '1px solid rgba(255,255,255,.9)', boxShadow: color ? `0 0 0 3px ${color}35` : undefined, borderRadius: 8, padding: 10 },
   };
 }
@@ -63,7 +65,7 @@ export function TopologyPage() {
   const detail = useQuery({ queryKey: ['topology', selected], queryFn: () => getTopologyMap(selected), enabled: Boolean(selected) });
   const devices = useQuery({ queryKey: ['topology', 'devices', siteId], queryFn: () => listAllDevices(siteId, ''), enabled: Boolean(siteId) });
   const vlans = useQuery({ queryKey: ['topology', 'vlans', siteId], queryFn: () => listVlans(siteId), enabled: Boolean(siteId) });
-  const operationalAlerts = useQuery({ queryKey: ['topology', 'alerts', siteId], queryFn: () => listOperationalAlerts(siteId, 100), enabled: Boolean(siteId), refetchInterval: 30_000 });
+  const operationalAlerts = useQuery({ queryKey: ['topology', 'alerts', siteId], queryFn: async () => ({ items: await loadAllTopologyAlerts((page) => listOperationalAlerts(siteId, 100, page)) }), enabled: Boolean(siteId), refetchInterval: 30_000 });
   const current = detail.data;
   const nodeAlertSummaries = useMemo(() => summarizeTopologyDeviceAlerts(current?.nodes ?? [], operationalAlerts.data?.items ?? []), [current?.nodes, operationalAlerts.data?.items]);
   const mapProblemCount = [...nodeAlertSummaries.values()].reduce((total, summary) => total + summary.count, 0);
@@ -175,35 +177,21 @@ export function TopologyPage() {
     setFullscreenAnnouncement(next ? 'Modo de ecrã inteiro ativado. Prima Escape para sair.' : 'Modo de ecrã inteiro desativado.');
   };
 
-  return <AppShell section="Topologia" context={['Infraestrutura']}>
-    <main className="module-page topology-page">
-      <header className="module-hero"><span className="section-kicker">INFRAESTRUTURA</span><h1>Topologia</h1><p>Cria mapas e organiza ligações entre equipamentos do Site selecionado.</p></header>
-      <div className="topology-layout">
-        <aside className="topology-sidebar">
-          <section className="ipam-card topology-card">
-            <div className="panel-heading"><div><span className="section-kicker">NOVO MAPA</span><h2>Criar mapa</h2></div></div>
-            <div className="topology-form">
-              <label>Nome do mapa<input aria-label="Nome do mapa" value={name} onChange={(event) => setName(event.target.value)} placeholder="Ex.: Rede principal" /></label>
-              <label>Tipo do mapa<select aria-label="Tipo do mapa" value={mapType} onChange={(event) => setMapType(event.target.value as TopologyMapType)}>{types.map((type) => <option key={type}>{type}</option>)}</select></label>
-              {mapType === 'VLAN_SUBNET' && <label>VLANs associadas<select multiple aria-label="VLANs do mapa" value={selectedVlanIds} onChange={(event) => setSelectedVlanIds([...event.target.selectedOptions].map((option) => option.value))}>{vlans.data?.items.map((vlan) => <option key={vlan.id} value={vlan.id}>VLAN {vlan.vlanId} · {vlan.name}</option>)}</select><small>Usa Ctrl ou Command para selecionar várias VLANs.</small></label>}
-              <button className="primary-button topology-create" disabled={!name.trim() || !siteId || create.isPending} onClick={() => create.mutate()}>{create.isPending ? 'A criar…' : 'Criar mapa'}</button>
-            </div>
-          </section>
-          <section className="ipam-card topology-card">
-            <div className="panel-heading"><div><span className="section-kicker">MAPAS DO SITE</span><h2>Mapas existentes</h2></div><span className="topology-count">{mapOptions.length}</span></div>
-            {maps.isLoading ? <p className="topology-hint">A carregar mapas…</p> : maps.isError ? <p className="topology-hint" role="alert">Não foi possível carregar os mapas.</p> : mapOptions.length ? <ul className="topology-map-list">{mapOptions.map((map) => <li key={map.id}><button className={selected === map.id ? 'selected' : ''} onClick={() => setSelected(map.id)} aria-current={selected === map.id ? 'page' : undefined}><span>{map.name}</span><small>{map.type.replace('_', ' ')}</small></button></li>)}</ul> : <p className="topology-hint">Ainda não existem mapas neste Site.</p>}
-          </section>
-          {current && <section className="ipam-card topology-card">
-            <div className="panel-heading"><div><span className="section-kicker">EQUIPAMENTOS</span><h2>Adicionar equipamento</h2></div></div>
-            <div className="topology-form"><label htmlFor="topology-device">Equipamento<select id="topology-device" value={deviceId} onChange={(event) => setDeviceId(event.target.value)}><option value="">Seleciona…</option>{devices.data?.items.filter((device) => !current.nodes.some((node) => node.deviceId === device.id)).map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}</select></label><button className="secondary-button" disabled={!deviceId} onClick={() => void addDevice()}>Adicionar ao mapa</button></div>
-          </section>}
-          {selectedConnection && <section className="ipam-card topology-card">
-            <div className="panel-heading"><div><span className="section-kicker">LIGAÇÃO</span><h2>Ligação selecionada</h2></div></div>
-            <div className="topology-form"><label>Etiqueta<input value={edgeLabel} onChange={(event) => setEdgeLabel(event.target.value)} placeholder="Etiqueta" /></label><label>Tipo<select value={edgeType} onChange={(event) => setEdgeType(event.target.value as 'PHYSICAL' | 'LOGICAL')}><option value="PHYSICAL">Física</option><option value="LOGICAL">Lógica</option></select></label><button className="primary-button" onClick={() => void saveConnection()}>Guardar ligação</button><button className="secondary-button danger" onClick={() => void removeConnection()}>Remover do mapa</button></div>
-          </section>}
-          {selected && <button className="secondary-button danger topology-delete" onClick={() => remove.mutate()} disabled={remove.isPending}>{remove.isPending ? 'A eliminar…' : 'Eliminar mapa'}</button>}
-          {warning && <p className="ipam-alert error" role="alert">{warning}</p>}
-        </aside>
+  const topbarActions = <div className="topology-topbar-actions">
+    <select aria-label="Mapa do site" value={selected} onChange={(event) => setSelected(event.target.value)}><option value="">Seleciona mapa…</option>{mapOptions.map((map) => <option key={map.id} value={map.id}>{map.name} · {map.type.replace('_', ' ')}</option>)}</select>
+    <details className="topology-topbar-menu"><summary>Editar mapa</summary><div className="topology-topbar-form">
+      <strong>Criar mapa</strong><label>Nome<input aria-label="Nome do novo mapa" value={name} onChange={(event) => setName(event.target.value)} placeholder="Ex.: Rede principal" /></label><label>Tipo<select aria-label="Tipo do novo mapa" value={mapType} onChange={(event) => setMapType(event.target.value as TopologyMapType)}>{types.map((type) => <option key={type}>{type}</option>)}</select></label>
+      {mapType === 'VLAN_SUBNET' && <label>VLANs associadas<select multiple aria-label="VLANs do mapa" value={selectedVlanIds} onChange={(event) => setSelectedVlanIds([...event.target.selectedOptions].map((option) => option.value))}>{vlans.data?.items.map((vlan) => <option key={vlan.id} value={vlan.id}>VLAN {vlan.vlanId} · {vlan.name}</option>)}</select></label>}
+      <button className="primary-button" disabled={!name.trim() || !siteId || create.isPending} onClick={() => create.mutate()}>{create.isPending ? 'A criar…' : 'Criar mapa'}</button>
+      {current && <><strong>Adicionar equipamento</strong><label>Equipamento<select aria-label="Equipamento para adicionar" value={deviceId} onChange={(event) => setDeviceId(event.target.value)}><option value="">Seleciona…</option>{devices.data?.items.filter((device) => !current.nodes.some((node) => node.deviceId === device.id)).map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}</select></label><button className="secondary-button" disabled={!deviceId} onClick={() => void addDevice()}>Adicionar ao mapa</button></>}
+      {selectedConnection && <><strong>Ligação selecionada</strong><label>Etiqueta<input aria-label="Etiqueta da ligação" value={edgeLabel} onChange={(event) => setEdgeLabel(event.target.value)} placeholder="Etiqueta" /></label><label>Tipo da ligação<select aria-label="Tipo da ligação" value={edgeType} onChange={(event) => setEdgeType(event.target.value as 'PHYSICAL' | 'LOGICAL')}><option value="PHYSICAL">Física</option><option value="LOGICAL">Lógica</option></select></label><button className="primary-button" onClick={() => void saveConnection()}>Guardar ligação</button><button className="secondary-button danger" onClick={() => void removeConnection()}>Remover ligação</button></>}
+      {selected && <button className="secondary-button danger" onClick={() => remove.mutate()} disabled={remove.isPending}>{remove.isPending ? 'A eliminar…' : 'Eliminar mapa'}</button>}
+      {warning && <p className="ipam-alert error" role="alert">{warning}</p>}
+    </div></details>
+  </div>;
+
+  return <AppShell section="Topologia" context={['Infraestrutura']} actions={topbarActions}>
+    <main className="topology-page">
         <section className={`topology-canvas panel${fullscreen ? ' topology-canvas--fullscreen' : ''}${labelsVisible ? '' : ' topology-canvas--auto-labels'}`} aria-label="Área do mapa de topologia">
           {current && <div className={`topology-map-toolbar${toolbarExpanded ? ' topology-map-toolbar--expanded' : ' topology-map-toolbar--collapsed'}`}>
             <div><strong>{current.name}</strong><span>{current.nodes.length} equipamentos · {current.connections.length} ligações · {operationalAlerts.isLoading ? 'A carregar problemas…' : operationalAlerts.isError ? 'Problemas indisponíveis' : `${mapProblemCount} problemas ativos`}</span>{operationalAlerts.isError && <span role="status">Estado dos alertas indisponível</span>}</div>
@@ -219,11 +207,11 @@ export function TopologyPage() {
           </div>}
           {current && search.trim() && !searchMatch && <p className="topology-map-no-results" role="status">Nenhum equipamento encontrado para “{search.trim()}”.</p>}
           <span ref={fullscreenAnnouncementRef} className="topology-sr-only" aria-live="polite" />
+          {warning && <p className="ipam-alert error topology-warning" role="alert">{warning}</p>}
           {selectedNode && <aside className="topology-node-details" aria-live="polite"><strong>{selectedNode.label ?? selectedNode.device?.name ?? selectedNode.deviceId}</strong><span>{selectedNode.device?.type ?? 'Equipamento'}</span>{selectedNode.device?.managementIp && <span>{selectedNode.device.managementIp}</span>}{nodeAlertSummaries.get(selectedNode.deviceId) && <span className="topology-detail-alert">{nodeAlertSummaries.get(selectedNode.deviceId)?.count} alertas ativos · {nodeAlertSummaries.get(selectedNode.deviceId)?.highestSeverity}</span>}<button className="secondary-button" onClick={() => focusNode(selectedNode.id)}>Focar equipamento</button></aside>}
           <ReactFlow nodes={nodes} edges={edges} onInit={setFlow} onNodesChange={handleNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_event, node) => setSelectedNodeId(node.id)} onPaneClick={() => setSelectedNodeId('')} onEdgeClick={(_event, edge) => setSelectedEdgeId(edge.id)} fitView><>{showGrid && <Background />}<MiniMap /><Controls /></></ReactFlow>
           {!selected && !maps.isLoading && <div className="topology-canvas-empty"><strong>Seleciona ou cria um mapa</strong><span>O teu mapa de topologia aparece aqui.</span></div>}
         </section>
-      </div>
     </main>
   </AppShell>;
 }
