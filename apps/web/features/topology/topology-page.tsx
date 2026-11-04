@@ -34,6 +34,7 @@ export function TopologyPage() {
   const [showGrid, setShowGrid] = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
   const [fullscreenAnnouncement, setFullscreenAnnouncement] = useState('');
+  const fullscreenAnnouncementRef = useRef<HTMLSpanElement>(null);
   const [toolbarExpanded, setToolbarExpanded] = useState(true);
   const [flow, setFlow] = useState<ReactFlowInstance | null>(null);
   const [name, setName] = useState('');
@@ -82,6 +83,12 @@ export function TopologyPage() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [fullscreen]);
+  useEffect(() => {
+    if (!fullscreenAnnouncement || !fullscreenAnnouncementRef.current) return;
+    fullscreenAnnouncementRef.current.textContent = fullscreen
+      ? 'Modo de ecrã inteiro ativado. Prima Escape para sair.'
+      : 'Modo de ecrã inteiro desativado.';
+  }, [fullscreen, fullscreenAnnouncement]);
 
   const create = useMutation({ mutationFn: () => createTopologyMap({ name: name.trim(), type: mapType, siteId, ...(mapType === 'VLAN_SUBNET' ? { filters: { vlanIds: selectedVlanIds } } : {}) }), onSuccess: (map) => { setName(''); setSelectedVlanIds([]); setSelected(map.id); void queryClient.invalidateQueries({ queryKey: ['topology', 'maps', siteId] }); } });
   const remove = useMutation({ mutationFn: () => deleteTopologyMap(selected, current?.revision), onSuccess: () => { setSelected(''); void queryClient.invalidateQueries({ queryKey: ['topology', 'maps', siteId] }); } });
@@ -180,7 +187,7 @@ export function TopologyPage() {
             </div>
           </div>}
           {current && search.trim() && !searchMatch && <p className="topology-map-no-results" role="status">Nenhum equipamento encontrado para “{search.trim()}”.</p>}
-          <span className="topology-sr-only" aria-live="polite">{fullscreen ? 'Modo de ecrã inteiro ativado. Prima Escape para sair.' : fullscreenAnnouncement ? 'Modo de ecrã inteiro desativado.' : ''}</span>
+          <span ref={fullscreenAnnouncementRef} className="topology-sr-only" aria-live="polite" />
           {selectedNode && <aside className="topology-node-details" aria-live="polite"><strong>{selectedNode.label ?? selectedNode.device?.name ?? selectedNode.deviceId}</strong><span>{selectedNode.device?.type ?? 'Equipamento'}</span>{selectedNode.device?.managementIp && <span>{selectedNode.device.managementIp}</span>}<button className="secondary-button" onClick={() => focusNode(selectedNode.id)}>Focar equipamento</button></aside>}
           <ReactFlow nodes={nodes} edges={edges} onInit={setFlow} onNodesChange={handleNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_event, node) => setSelectedNodeId(node.id)} onPaneClick={() => setSelectedNodeId('')} onEdgeClick={(_event, edge) => setSelectedEdgeId(edge.id)} fitView><>{showGrid && <Background />}<MiniMap /><Controls /></></ReactFlow>
           {!selected && !maps.isLoading && <div className="topology-canvas-empty"><strong>Seleciona ou cria um mapa</strong><span>O teu mapa de topologia aparece aqui.</span></div>}
