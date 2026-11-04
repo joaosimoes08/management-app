@@ -822,6 +822,7 @@ model SnmpJob {
   createdAt    DateTime          @default(now())
 
   @@index([deviceId, createdAt])
+  @@index([deviceId, type, createdAt])
   @@index([status, type, createdAt])
 }
 
