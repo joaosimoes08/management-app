@@ -7,6 +7,12 @@ import { Roles } from '../auth/roles.decorator';
 @ApiTags('exports') @ApiBearerAuth() @Controller({ path: 'exports', version: '1' })
 export class ExportsController {
   constructor(private readonly service: ExportsService) {}
+  @Get('ansible') @Roles('ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'AUDITOR', 'READ_ONLY') async ansible(@Query('siteId') siteId: string | undefined, @Req() req: { user: AuthenticatedUser }, @Res({ passthrough: true }) reply: any) {
+    const inventory = await this.service.ansibleInventory(siteId, req.user);
+    reply.type('application/json; charset=utf-8');
+    reply.header('Content-Disposition', 'attachment; filename="ansible-inventory.json"');
+    return JSON.stringify(inventory, null, 2);
+  }
   @Get(':kind/:format') @Roles('ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'AUDITOR', 'READ_ONLY') async export(@Param('kind') kind: string, @Param('format') format: string, @Query('siteId') siteId: string | undefined, @Req() req: { user: AuthenticatedUser }, @Res({ passthrough: true }) reply: any) {
     const result = await this.service.export(kind, format, siteId, req.user);
     const rows = result.rows.map((row) => Object.fromEntries(result.fields.map((field) => [field, row[field] ?? null])));
