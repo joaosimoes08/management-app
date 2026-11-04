@@ -72,6 +72,8 @@ As operações de escrita exigem `ADMIN` ou `NETWORK_OPERATOR`. A API normaliza 
 
 Os jobs são colocados na fila BullMQ `discovery` em Redis. A API não executa o scan; é necessário manter o processo `worker:dev` ativo.
 
+`GET /api/v1/settings/discovery` inclui os perfis `defaults`, `icmp-only`, `web`, `network` e `custom`. `POST /api/v1/discovery/jobs` aceita `profileId`; os perfis nomeados resolvem métodos, portas e reverse DNS no servidor. `custom` usa esses campos enviados pelo operador e continua limitado a 64 portas, à allowlist de Discovery, aos scopes de Site e a subnets IPv4 de até 4096 endereços. Os parâmetros usados ficam guardados no job. Uma resposta ICMP ou uma ligação TCP aceite é apenas evidência de uma sonda, não uma avaliação da saúde do serviço ou do equipamento.
+
 Uma aprovação cria/atualiza o IP no inventário oficial; a descoberta nunca cria automaticamente ativos definitivos.
 
 ### Portal de aplicações
