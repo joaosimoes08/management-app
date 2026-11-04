@@ -54,6 +54,13 @@ function connectionPort(deviceId: string, interfaceId: string | null | undefined
   return devicePorts.find((port) => port.id === interfaceId) ?? devicePorts[0];
 }
 
+function configuredPortLabel(node: TopologyNode | undefined, port?: DeviceInterface) {
+  const layout = node?.device?.model?.portLayout;
+  const layoutPorts = layout && typeof layout === 'object' && Array.isArray(layout.ports) ? layout.ports : [];
+  const mappedPort = layoutPorts.find((item) => item.portKey === port?.portKey || item.portKey === port?.name);
+  return mappedPort?.label ?? port?.portKey ?? port?.name ?? 'Porta não definida';
+}
+
 function toFlowNode(node: TopologyNode, alertSummary?: TopologyNodeAlertSummary): TopologyFlowNode {
   const severity = alertSummary?.highestSeverity;
   const image = topologyDeviceImage(node.device);
@@ -262,8 +269,9 @@ function connectionDisplay(connection: TopologyConnection, map: TopologyMap, int
   const targetPort = connectionPort(connection.targetDeviceId, connection.targetInterfaceId, interfaces);
   const sourceName = source?.device?.name ?? connection.sourceDeviceId;
   const targetName = target?.device?.name ?? connection.targetDeviceId;
-  const portName = (port?: DeviceInterface) => port?.name ?? port?.portKey ?? 'Porta não definida';
-  return { sourceName, targetName, sourcePort: portName(sourcePort), targetPort: portName(targetPort), tooltip: `${connection.label || connection.type || 'Ligação'} / ${sourceName} (Device 1) / ${portName(sourcePort)} / ${targetName} (Device 2) / ${portName(targetPort)}` };
+  const sourcePortName = configuredPortLabel(source, sourcePort);
+  const targetPortName = configuredPortLabel(target, targetPort);
+  return { sourceName, targetName, sourcePort: sourcePortName, targetPort: targetPortName, tooltip: `${connection.label || connection.type || 'Ligação'} / ${sourceName} (Device 1) / ${sourcePortName} / ${targetName} (Device 2) / ${targetPortName}` };
 }
 
 function makeFlowEdge(connection: TopologyConnection, map: TopologyMap, interfaces: Record<string, DeviceInterface[]>, onSelect: (id: string) => void): TopologyFlowEdge {
