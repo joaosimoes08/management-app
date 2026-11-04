@@ -2,41 +2,66 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Background, Controls, MiniMap, ReactFlow, addEdge, applyNodeChanges, type Connection, type Edge, type Node, type NodeChange, type ReactFlowInstance, useEdgesState, useNodesState } from '@xyflow/react';
+import { Background, BaseEdge, Controls, EdgeLabelRenderer, Handle, MiniMap, Position, ReactFlow, addEdge, applyNodeChanges, getBezierPath, type Connection, type Edge, type EdgeProps, type Node, type NodeChange, type NodeProps, type ReactFlowInstance, useEdgesState, useNodesState } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { AppShell } from '@/components/layout/app-shell';
-import { listAllDevices } from '@/features/infrastructure/api';
+import { listAllDevices, listInterfaces } from '@/features/infrastructure/api';
 import { listVlans } from '@/features/ipam/api';
 import { listOperationalAlerts } from '@/features/operations/api';
 import { AssetImage } from '@/features/infrastructure/components/asset-image';
 import { EquipmentTypeIcon } from '@/features/infrastructure/components/equipment-type-icon';
+import type { DeviceInterface } from '@/features/infrastructure/types';
 import { useSiteContext } from '@/lib/site-context';
 import { createTopologyConnection, createTopologyMap, deleteTopologyConnection, deleteTopologyMap, getTopologyMap, listTopologyMaps, replaceTopologyNodes, updateTopologyConnection } from './api';
 import { loadAllTopologyAlerts, summarizeTopologyDeviceAlerts, topologyDeviceImage, topologySeverityColor, type TopologyNodeAlertSummary } from './alerts';
 import { findTopologyNode } from './search';
-import type { TopologyMap, TopologyMapType, TopologyNode } from './types';
+import type { TopologyConnection, TopologyMap, TopologyMapType, TopologyNode } from './types';
 
 const types: TopologyMapType[] = ['PHYSICAL', 'NETWORK', 'VLAN_SUBNET'];
-const nodeColor = (type?: string) => ({ SWITCH: '#2563eb', ROUTER: '#7c3aed', FIREWALL: '#dc2626', SERVER: '#0891b2', STORAGE: '#059669' }[type ?? ''] ?? '#475569');
+const EMPTY_DEVICE_INTERFACES: Record<string, DeviceInterface[]> = {};
 
-function nodeLabel(map: TopologyMap, node: TopologyNode) {
-  const device = node.device;
-  const location = [device?.rack?.room?.building?.name, device?.rack?.room?.name, device?.rack?.name].filter(Boolean).join(' · ');
-  const vlanBadges = node.networkContext?.vlans.map((vlan) => `VLAN ${vlan.vlanId}`).join(', ');
-  const subnetBadges = node.networkContext?.subnets.map((subnet) => subnet.cidr).join(', ');
-  const secondary = map.type === 'PHYSICAL' ? (location || 'Sem localização') : map.type === 'NETWORK' ? (device?.managementIp || 'Sem IP de gestão') : ([vlanBadges, subnetBadges].filter(Boolean).join(' · ') || 'Sem VLAN/subnet documentada');
-  return <span style={{ display: 'grid', gap: 3 }}><strong>{node.label ?? device?.name ?? node.deviceId}</strong><small style={{ opacity: .8 }}>{secondary}</small></span>;
+type TopologyNodeData = { label: string; deviceName: string; hostname: string; location: string; asset: ReturnType<typeof topologyDeviceImage>; equipmentType: string; alertSummary?: TopologyNodeAlertSummary };
+type TopologyFlowNode = Node<TopologyNodeData, 'topologyDevice'>;
+type TopologyEdgeData = { tooltip: string; onSelect: (id: string) => void };
+type TopologyFlowEdge = Edge<TopologyEdgeData, 'topologyConnection'>;
+
+function TopologyDeviceNode({ data, selected }: NodeProps<TopologyFlowNode>) {
+  return <div className={`topology-device-node${selected ? ' topology-device-node--selected' : ''}`} title={`${data.hostname || data.deviceName}\n${data.location || 'Sem localização'}`} aria-label={`${data.deviceName}; hostname ${data.hostname || 'não definido'}; localização ${data.location || 'não definida'}`}>
+    <Handle type="target" position={Position.Left} className="topology-device-handle" />
+    <span className="topology-device-image">{data.asset ? <AssetImage asset={data.asset} alt={`Imagem de ${data.deviceName}`} fallback={<EquipmentTypeIcon type={data.equipmentType} alt="" />} /> : <EquipmentTypeIcon type={data.equipmentType} alt="" />}</span>
+    <Handle type="source" position={Position.Right} className="topology-device-handle" />
+    <strong className="topology-device-name">{data.deviceName}</strong>
+    {data.alertSummary && <span className="topology-node-alert" style={{ color: topologySeverityColor(data.alertSummary.highestSeverity) }} title={data.alertSummary.titles.join('\n')}>{data.alertSummary.count} {data.alertSummary.count === 1 ? 'alerta' : 'alertas'} · {data.alertSummary.highestSeverity}</span>}
+  </div>;
 }
 
-function toFlowNode(map: TopologyMap, node: TopologyNode, alertSummary?: TopologyNodeAlertSummary): Node {
+function TopologyConnectionEdge(props: EdgeProps<TopologyFlowEdge>) {
+  const [hovered, setHovered] = useState(false);
+  const [path, labelX, labelY] = getBezierPath(props);
+  return <>
+    <BaseEdge id={props.id} path={path} style={props.style} markerEnd={props.markerEnd} interactionWidth={18} />
+    <path d={path} className="topology-edge-hit-area" onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)} onClick={(event) => { event.stopPropagation(); props.data?.onSelect(props.id); }} />
+    {hovered && <EdgeLabelRenderer><div className="topology-edge-tooltip" style={{ transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)` }}>{props.data?.tooltip}</div></EdgeLabelRenderer>}
+  </>;
+}
+
+const topologyNodeTypes = { topologyDevice: TopologyDeviceNode };
+const topologyEdgeTypes = { topologyConnection: TopologyConnectionEdge };
+
+function connectionPort(deviceId: string, interfaceId: string | null | undefined, interfaces: Record<string, DeviceInterface[]>) {
+  const devicePorts = interfaces[deviceId] ?? [];
+  return devicePorts.find((port) => port.id === interfaceId) ?? devicePorts[0];
+}
+
+function toFlowNode(node: TopologyNode, alertSummary?: TopologyNodeAlertSummary): TopologyFlowNode {
   const severity = alertSummary?.highestSeverity;
-  const color = severity ? topologySeverityColor(severity) : undefined;
   const image = topologyDeviceImage(node.device);
   return {
     id: node.id,
     position: { x: node.x, y: node.y },
-    data: { label: <span className="topology-node-content"><span className="topology-node-visual">{image ? <AssetImage asset={image} alt={`Imagem de ${node.device?.name ?? 'equipamento'}`} fallback={<EquipmentTypeIcon type={node.device?.type} alt="" />} /> : <EquipmentTypeIcon type={node.device?.type} alt="" />}</span><span className="topology-node-label">{nodeLabel(map, node)}</span>{alertSummary && <span className="topology-node-alert" style={{ color }} aria-label={`${alertSummary.count} alertas ativos; gravidade máxima ${severity}`} title={alertSummary.titles.join('\n')}>● {alertSummary.count} {alertSummary.count === 1 ? 'alerta' : 'alertas'} · {severity}</span>}</span> },
-    style: { color: '#fff', background: nodeColor(node.device?.type), border: color ? `2px solid ${color}` : '1px solid rgba(255,255,255,.9)', boxShadow: color ? `0 0 0 3px ${color}35` : undefined, borderRadius: 8, padding: 10 },
+    type: 'topologyDevice',
+    data: { label: node.label ?? node.device?.name ?? node.deviceId, deviceName: node.device?.name ?? node.deviceId, hostname: node.device?.hostname ?? '', location: [node.device?.rack?.room?.building?.name, node.device?.rack?.room?.name, node.device?.rack?.name].filter(Boolean).join(' · '), asset: image, equipmentType: node.device?.type ?? 'OTHER', alertSummary: severity ? alertSummary : undefined },
+    style: { width: 194, height: 142, padding: 0, border: 0, background: 'transparent', boxShadow: 'none', overflow: 'visible' },
   };
 }
 
@@ -44,7 +69,6 @@ export function TopologyPage() {
   const { siteId } = useSiteContext();
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState('');
-  const [selectedNodeId, setSelectedNodeId] = useState('');
   const [search, setSearch] = useState('');
   const [labelsVisible, setLabelsVisible] = useState(true);
   const [showGrid, setShowGrid] = useState(true);
@@ -59,6 +83,7 @@ export function TopologyPage() {
   const [warning, setWarning] = useState('');
   const [deviceId, setDeviceId] = useState('');
   const [selectedEdgeId, setSelectedEdgeId] = useState('');
+  const [selectedConnectionTab, setSelectedConnectionTab] = useState<'source' | 'target'>('source');
   const [edgeLabel, setEdgeLabel] = useState('');
   const [edgeType, setEdgeType] = useState<'PHYSICAL' | 'LOGICAL'>('PHYSICAL');
   const maps = useQuery({ queryKey: ['topology', 'maps', siteId], queryFn: () => listTopologyMaps(siteId), enabled: Boolean(siteId) });
@@ -67,9 +92,11 @@ export function TopologyPage() {
   const vlans = useQuery({ queryKey: ['topology', 'vlans', siteId], queryFn: () => listVlans(siteId), enabled: Boolean(siteId) });
   const operationalAlerts = useQuery({ queryKey: ['topology', 'alerts', siteId], queryFn: async () => ({ items: await loadAllTopologyAlerts((page) => listOperationalAlerts(siteId, 100, page)) }), enabled: Boolean(siteId), refetchInterval: 30_000 });
   const current = detail.data;
+  const mapDeviceIds = current?.nodes.map((node) => node.deviceId) ?? [];
+  const interfaceData = useQuery({ queryKey: ['topology', 'interfaces', current?.id, mapDeviceIds], queryFn: async () => Object.fromEntries(await Promise.all(mapDeviceIds.map(async (id) => [id, await listInterfaces(id)]))), enabled: Boolean(current) });
+  const interfacesByDevice = interfaceData.data ?? EMPTY_DEVICE_INTERFACES;
   const nodeAlertSummaries = useMemo(() => summarizeTopologyDeviceAlerts(current?.nodes ?? [], operationalAlerts.data?.items ?? []), [current?.nodes, operationalAlerts.data?.items]);
   const mapProblemCount = [...nodeAlertSummaries.values()].reduce((total, summary) => total + summary.count, 0);
-  const selectedNode = current?.nodes.find((node) => node.id === selectedNodeId);
   const searchMatch = current ? findTopologyNode(current.nodes, search) : undefined;
   const selectedConnection = current?.connections.find((connection) => connection.id === selectedEdgeId);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
@@ -78,17 +105,17 @@ export function TopologyPage() {
 
   useEffect(() => {
     if (!current) return;
-    setNodes(current.nodes.map((node) => toFlowNode(current, node, nodeAlertSummaries.get(node.deviceId))));
-    setEdges(current.connections.map((edge) => ({ id: edge.id, source: edge.sourceNodeId, target: edge.targetNodeId, label: edge.label ?? edge.type })));
-  }, [current, setEdges, setNodes]);
+    setNodes(current.nodes.map((node) => toFlowNode(node, nodeAlertSummaries.get(node.deviceId))));
+    setEdges(current.connections.map((edge) => makeFlowEdge(edge, current, interfacesByDevice, setSelectedEdgeId)));
+  }, [current, interfacesByDevice, setEdges, setNodes]);
   useEffect(() => {
     if (!current) return;
     const currentNodes = new Map(current.nodes.map((node) => [node.id, node]));
     setNodes((existing) => {
-      if (existing.length !== current.nodes.length || existing.some((node) => !currentNodes.has(node.id))) return current.nodes.map((node) => toFlowNode(current, node, nodeAlertSummaries.get(node.deviceId)));
+      if (existing.length !== current.nodes.length || existing.some((node) => !currentNodes.has(node.id))) return current.nodes.map((node) => toFlowNode(node, nodeAlertSummaries.get(node.deviceId)));
       return existing.map((flowNode) => {
         const node = currentNodes.get(flowNode.id)!;
-        const refreshed = toFlowNode(current, node, nodeAlertSummaries.get(node.deviceId));
+        const refreshed = toFlowNode(node, nodeAlertSummaries.get(node.deviceId));
         return { ...flowNode, data: refreshed.data, style: { ...flowNode.style, ...refreshed.style } };
       });
     });
@@ -142,7 +169,11 @@ export function TopologyPage() {
     if (!current || !connection.source || !connection.target || connection.source === connection.target) return;
     setEdges((items) => addEdge(connection, items));
     try {
-      await createTopologyConnection(current.id, { sourceNodeId: connection.source, targetNodeId: connection.target, revision: current.revision, type: current.type === 'PHYSICAL' ? 'PHYSICAL' : 'LOGICAL' });
+      const sourceDeviceId = current.nodes.find((node) => node.id === connection.source)?.deviceId;
+      const targetDeviceId = current.nodes.find((node) => node.id === connection.target)?.deviceId;
+      const sourceInterface = sourceDeviceId ? connectionPort(sourceDeviceId, undefined, interfacesByDevice) : undefined;
+      const targetInterface = targetDeviceId ? connectionPort(targetDeviceId, undefined, interfacesByDevice) : undefined;
+      await createTopologyConnection(current.id, { sourceNodeId: connection.source, targetNodeId: connection.target, revision: current.revision, ...(sourceInterface ? { sourceInterfaceId: sourceInterface.id } : {}), ...(targetInterface ? { targetInterfaceId: targetInterface.id } : {}), type: current.type === 'PHYSICAL' ? 'PHYSICAL' : 'LOGICAL' });
       await detail.refetch(); setWarning('');
     } catch (error) {
       setWarning(String(error).includes('alterado') ? 'O mapa mudou entretanto. Recarrega antes de criar a ligação.' : 'Não foi possível criar a ligação.');
@@ -168,7 +199,6 @@ export function TopologyPage() {
   const mapOptions = useMemo(() => maps.data?.items ?? [], [maps.data]);
   const handleNodesChange = (changes: NodeChange[]) => { const next = applyNodeChanges(changes, nodes); onNodesChange(changes); if (changes.some((change) => change.type === 'position' && change.position)) persist(next); };
   const focusNode = (nodeId: string) => {
-    setSelectedNodeId(nodeId);
     void flow?.fitView({ nodes: [{ id: nodeId }], duration: 450, padding: 0.45 });
   };
   const toggleFullscreen = () => {
@@ -176,6 +206,15 @@ export function TopologyPage() {
     setFullscreen(next);
     setFullscreenAnnouncement(next ? 'Modo de ecrã inteiro ativado. Prima Escape para sair.' : 'Modo de ecrã inteiro desativado.');
   };
+
+  const openDeviceInterfaces = (device: TopologyNode['device']) => {
+    if (!device?.id) return;
+    window.location.assign(`/infraestrutura?siteId=${encodeURIComponent(siteId)}&tab=interfaces&deviceId=${encodeURIComponent(device.id)}`);
+  };
+
+  const closeConnectionCard = () => setSelectedEdgeId('');
+  const selectedSourcePort = selectedConnection ? connectionPort(selectedConnection.sourceDeviceId, selectedConnection.sourceInterfaceId, interfacesByDevice) : undefined;
+  const selectedTargetPort = selectedConnection ? connectionPort(selectedConnection.targetDeviceId, selectedConnection.targetInterfaceId, interfacesByDevice) : undefined;
 
   const topbarActions = <div className="topology-topbar-actions">
     <select aria-label="Mapa do site" value={selected} onChange={(event) => setSelected(event.target.value)}><option value="">Seleciona mapa…</option>{mapOptions.map((map) => <option key={map.id} value={map.id}>{map.name} · {map.type.replace('_', ' ')}</option>)}</select>
@@ -208,10 +247,21 @@ export function TopologyPage() {
           {current && search.trim() && !searchMatch && <p className="topology-map-no-results" role="status">Nenhum equipamento encontrado para “{search.trim()}”.</p>}
           <span ref={fullscreenAnnouncementRef} className="topology-sr-only" aria-live="polite" />
           {warning && <p className="ipam-alert error topology-warning" role="alert">{warning}</p>}
-          {selectedNode && <aside className="topology-node-details" aria-live="polite"><strong>{selectedNode.label ?? selectedNode.device?.name ?? selectedNode.deviceId}</strong><span>{selectedNode.device?.type ?? 'Equipamento'}</span>{selectedNode.device?.managementIp && <span>{selectedNode.device.managementIp}</span>}{nodeAlertSummaries.get(selectedNode.deviceId) && <span className="topology-detail-alert">{nodeAlertSummaries.get(selectedNode.deviceId)?.count} alertas ativos · {nodeAlertSummaries.get(selectedNode.deviceId)?.highestSeverity}</span>}<button className="secondary-button" onClick={() => focusNode(selectedNode.id)}>Focar equipamento</button></aside>}
-          <ReactFlow nodes={nodes} edges={edges} onInit={setFlow} onNodesChange={handleNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_event, node) => setSelectedNodeId(node.id)} onPaneClick={() => setSelectedNodeId('')} onEdgeClick={(_event, edge) => setSelectedEdgeId(edge.id)} fitView><>{showGrid && <Background />}<MiniMap /><Controls /></></ReactFlow>
+          {selectedConnection && <aside className="topology-terminal-card" aria-label="Configuração da ligação"><header><strong>Terminal · {selectedConnection.type ?? 'Ligação'}</strong><button type="button" className="topology-terminal-close" aria-label="Fechar configuração" onClick={closeConnectionCard}>×</button></header><div className="topology-terminal-tabs" role="tablist" aria-label="Extremos da ligação"><button role="tab" aria-selected={selectedConnectionTab === 'source'} onClick={() => setSelectedConnectionTab('source')}>{current?.nodes.find((node) => node.deviceId === selectedConnection.sourceDeviceId)?.device?.name ?? 'Device 1'}</button><button role="tab" aria-selected={selectedConnectionTab === 'target'} onClick={() => setSelectedConnectionTab('target')}>{current?.nodes.find((node) => node.deviceId === selectedConnection.targetDeviceId)?.device?.name ?? 'Device 2'}</button></div><div className="topology-terminal-output" role="tabpanel"><span>{selectedConnectionTab === 'source' ? selectedSourcePort?.name ?? selectedSourcePort?.portKey ?? 'Porta não definida' : selectedTargetPort?.name ?? selectedTargetPort?.portKey ?? 'Porta não definida'}</span><code>switchport mode trunk</code></div></aside>}
+          <ReactFlow nodes={nodes} edges={edges} nodeTypes={topologyNodeTypes} edgeTypes={topologyEdgeTypes} onInit={setFlow} onNodesChange={handleNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_event, node) => { const mapNode = current?.nodes.find((item) => item.id === node.id); openDeviceInterfaces(mapNode?.device); }} onEdgeClick={(_event, edge) => { setSelectedEdgeId(edge.id); setSelectedConnectionTab('source'); }} fitView><>{showGrid && <Background />}<MiniMap /><Controls /></></ReactFlow>
           {!selected && !maps.isLoading && <div className="topology-canvas-empty"><strong>Seleciona ou cria um mapa</strong><span>O teu mapa de topologia aparece aqui.</span></div>}
         </section>
     </main>
   </AppShell>;
+}
+
+function makeFlowEdge(connection: TopologyConnection, map: TopologyMap, interfaces: Record<string, DeviceInterface[]>, onSelect: (id: string) => void): TopologyFlowEdge {
+  const source = map.nodes.find((node) => node.deviceId === connection.sourceDeviceId);
+  const target = map.nodes.find((node) => node.deviceId === connection.targetDeviceId);
+  const sourcePort = connectionPort(connection.sourceDeviceId, connection.sourceInterfaceId, interfaces);
+  const targetPort = connectionPort(connection.targetDeviceId, connection.targetInterfaceId, interfaces);
+  const sourceName = source?.device?.name ?? connection.sourceDeviceId;
+  const targetName = target?.device?.name ?? connection.targetDeviceId;
+  const portName = (port?: DeviceInterface) => port?.name ?? port?.portKey ?? 'Porta não definida';
+  return { id: connection.id, type: 'topologyConnection', source: connection.sourceNodeId, target: connection.targetNodeId, data: { tooltip: `${connection.label || connection.type || 'Ligação'} / ${sourceName} (Device 1) / ${portName(sourcePort)} / ${targetName} (Device 2) / ${portName(targetPort)}`, onSelect }, label: connection.label ?? connection.type };
 }
