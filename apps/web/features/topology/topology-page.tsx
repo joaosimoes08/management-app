@@ -26,11 +26,12 @@ type TopologyEdgeData = { tooltip: string; onSelect: (id: string) => void };
 type TopologyFlowEdge = Edge<TopologyEdgeData, 'topologyConnection'>;
 
 function TopologyDeviceNode({ data, selected }: NodeProps<TopologyFlowNode>) {
-  return <div className={`topology-device-node${selected ? ' topology-device-node--selected' : ''}`} title={`${data.hostname || data.deviceName}\n${data.location || 'Sem localização'}`} aria-label={`${data.deviceName}; hostname ${data.hostname || 'não definido'}; localização ${data.location || 'não definida'}`}>
+  return <div className={`topology-device-node${selected ? ' topology-device-node--selected' : ''}`} aria-label={`${data.deviceName}; hostname ${data.hostname || 'não definido'}; localização ${data.location || 'não definida'}`}>
     <Handle type="target" position={Position.Left} className="topology-device-handle" />
     <span className="topology-device-image">{data.asset ? <AssetImage asset={data.asset} alt={`Imagem de ${data.deviceName}`} fallback={<EquipmentTypeIcon type={data.equipmentType} alt="" />} /> : <EquipmentTypeIcon type={data.equipmentType} alt="" />}</span>
     <Handle type="source" position={Position.Right} className="topology-device-handle" />
     <strong className="topology-device-name">{data.deviceName}</strong>
+    <span className="topology-device-tooltip" role="tooltip"><span><b>Hostname</b> {data.hostname || 'Não definido'}</span><span><b>Localização</b> {data.location || 'Não definida'}</span></span>
     {data.alertSummary && <span className="topology-node-alert" style={{ color: topologySeverityColor(data.alertSummary.highestSeverity) }} title={data.alertSummary.titles.join('\n')}>{data.alertSummary.count} {data.alertSummary.count === 1 ? 'alerta' : 'alertas'} · {data.alertSummary.highestSeverity}</span>}
   </div>;
 }
@@ -213,8 +214,7 @@ export function TopologyPage() {
   };
 
   const closeConnectionCard = () => setSelectedEdgeId('');
-  const selectedSourcePort = selectedConnection ? connectionPort(selectedConnection.sourceDeviceId, selectedConnection.sourceInterfaceId, interfacesByDevice) : undefined;
-  const selectedTargetPort = selectedConnection ? connectionPort(selectedConnection.targetDeviceId, selectedConnection.targetInterfaceId, interfacesByDevice) : undefined;
+  const selectedConnectionDisplay = selectedConnection && current ? connectionDisplay(selectedConnection, current, interfacesByDevice) : undefined;
 
   const topbarActions = <div className="topology-topbar-actions">
     <select aria-label="Mapa do site" value={selected} onChange={(event) => setSelected(event.target.value)}><option value="">Seleciona mapa…</option>{mapOptions.map((map) => <option key={map.id} value={map.id}>{map.name} · {map.type.replace('_', ' ')}</option>)}</select>
@@ -247,7 +247,7 @@ export function TopologyPage() {
           {current && search.trim() && !searchMatch && <p className="topology-map-no-results" role="status">Nenhum equipamento encontrado para “{search.trim()}”.</p>}
           <span ref={fullscreenAnnouncementRef} className="topology-sr-only" aria-live="polite" />
           {warning && <p className="ipam-alert error topology-warning" role="alert">{warning}</p>}
-          {selectedConnection && <aside className="topology-terminal-card" aria-label="Configuração da ligação"><header><strong>Terminal · {selectedConnection.type ?? 'Ligação'}</strong><button type="button" className="topology-terminal-close" aria-label="Fechar configuração" onClick={closeConnectionCard}>×</button></header><div className="topology-terminal-tabs" role="tablist" aria-label="Extremos da ligação"><button role="tab" aria-selected={selectedConnectionTab === 'source'} onClick={() => setSelectedConnectionTab('source')}>{current?.nodes.find((node) => node.deviceId === selectedConnection.sourceDeviceId)?.device?.name ?? 'Device 1'}</button><button role="tab" aria-selected={selectedConnectionTab === 'target'} onClick={() => setSelectedConnectionTab('target')}>{current?.nodes.find((node) => node.deviceId === selectedConnection.targetDeviceId)?.device?.name ?? 'Device 2'}</button></div><div className="topology-terminal-output" role="tabpanel"><span>{selectedConnectionTab === 'source' ? selectedSourcePort?.name ?? selectedSourcePort?.portKey ?? 'Porta não definida' : selectedTargetPort?.name ?? selectedTargetPort?.portKey ?? 'Porta não definida'}</span><code>switchport mode trunk</code></div></aside>}
+          {selectedConnection && selectedConnectionDisplay && <aside className="topology-terminal-card" aria-label="Configuração da ligação"><header><strong>Terminal · {selectedConnection.type ?? 'Ligação'}</strong><button type="button" className="topology-terminal-close" aria-label="Fechar configuração" onClick={closeConnectionCard}>×</button></header><div className="topology-terminal-tabs" role="tablist" aria-label="Extremos da ligação"><button role="tab" aria-selected={selectedConnectionTab === 'source'} onClick={() => setSelectedConnectionTab('source')}>{selectedConnectionDisplay.sourceName}</button><button role="tab" aria-selected={selectedConnectionTab === 'target'} onClick={() => setSelectedConnectionTab('target')}>{selectedConnectionDisplay.targetName}</button></div><div className="topology-terminal-output" role="tabpanel"><span>{selectedConnectionTab === 'source' ? selectedConnectionDisplay.sourcePort : selectedConnectionDisplay.targetPort}</span><code>switchport mode trunk</code></div></aside>}
           <ReactFlow nodes={nodes} edges={edges} nodeTypes={topologyNodeTypes} edgeTypes={topologyEdgeTypes} onInit={setFlow} onNodesChange={handleNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_event, node) => { const mapNode = current?.nodes.find((item) => item.id === node.id); openDeviceInterfaces(mapNode?.device); }} onEdgeClick={(_event, edge) => { setSelectedEdgeId(edge.id); setSelectedConnectionTab('source'); }} fitView><>{showGrid && <Background />}<MiniMap /><Controls /></></ReactFlow>
           {!selected && !maps.isLoading && <div className="topology-canvas-empty"><strong>Seleciona ou cria um mapa</strong><span>O teu mapa de topologia aparece aqui.</span></div>}
         </section>
@@ -255,7 +255,7 @@ export function TopologyPage() {
   </AppShell>;
 }
 
-function makeFlowEdge(connection: TopologyConnection, map: TopologyMap, interfaces: Record<string, DeviceInterface[]>, onSelect: (id: string) => void): TopologyFlowEdge {
+function connectionDisplay(connection: TopologyConnection, map: TopologyMap, interfaces: Record<string, DeviceInterface[]>) {
   const source = map.nodes.find((node) => node.deviceId === connection.sourceDeviceId);
   const target = map.nodes.find((node) => node.deviceId === connection.targetDeviceId);
   const sourcePort = connectionPort(connection.sourceDeviceId, connection.sourceInterfaceId, interfaces);
@@ -263,5 +263,10 @@ function makeFlowEdge(connection: TopologyConnection, map: TopologyMap, interfac
   const sourceName = source?.device?.name ?? connection.sourceDeviceId;
   const targetName = target?.device?.name ?? connection.targetDeviceId;
   const portName = (port?: DeviceInterface) => port?.name ?? port?.portKey ?? 'Porta não definida';
-  return { id: connection.id, type: 'topologyConnection', source: connection.sourceNodeId, target: connection.targetNodeId, data: { tooltip: `${connection.label || connection.type || 'Ligação'} / ${sourceName} (Device 1) / ${portName(sourcePort)} / ${targetName} (Device 2) / ${portName(targetPort)}`, onSelect }, label: connection.label ?? connection.type };
+  return { sourceName, targetName, sourcePort: portName(sourcePort), targetPort: portName(targetPort), tooltip: `${connection.label || connection.type || 'Ligação'} / ${sourceName} (Device 1) / ${portName(sourcePort)} / ${targetName} (Device 2) / ${portName(targetPort)}` };
+}
+
+function makeFlowEdge(connection: TopologyConnection, map: TopologyMap, interfaces: Record<string, DeviceInterface[]>, onSelect: (id: string) => void): TopologyFlowEdge {
+  const display = connectionDisplay(connection, map, interfaces);
+  return { id: connection.id, type: 'topologyConnection', source: connection.sourceNodeId, target: connection.targetNodeId, data: { ...display, onSelect }, label: connection.label ?? connection.type };
 }
