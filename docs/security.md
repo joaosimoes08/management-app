@@ -2,13 +2,15 @@
 
 ## Keycloak
 
-O ambiente atual usa utilizadores locais do realm `COCiber`. Não existe LDAP nesta fase.
+O realm `COCiber` usa Keycloak como broker de autenticação. A federação opcional LDAP/LDAPS é configurada pelo Keycloak; a aplicação não valida passwords LDAP nem as guarda na sua base de dados.
 
 O realm é importado a partir de `infra/keycloak/realm-cociber.json`. Existem dois clients com responsabilidades diferentes:
 
 - `simoes-api`: confidential, usado pela API e testes direct grant.
 - `simoes-web`: public, usado pelo browser com Authorization Code + PKCE. Nunca deve ter client secret.
-- `simoes-settings-admin`: confidential, limitado a `manage-users` e `query-users` para gerir roles da aplicação e proteger o último ADMIN.
+- `simoes-settings-admin`: confidential; `manage-users` e `query-users` suportam a gestão de roles e a proteção do último ADMIN. `manage-realm` é necessário para criar e editar providers LDAP e mapeadores de grupos através da API administrativa do Keycloak. Esta role dá acesso amplo à configuração do realm; limita o acesso ao segredo do client e à API, e não a atribuas a outros clients.
+
+O segredo de bind só é enviado à API para o teste/gravação e desta para o Keycloak; não é persistido pela aplicação nem devolvido por endpoints. Exige HTTPS entre browser, API e Keycloak em produção. O Keycloak guarda a configuração LDAP. Protege o acesso administrativo e as cópias de segurança da base de dados do Keycloak. Só são aceites URLs `ldaps://` na porta 636; o Keycloak valida certificados através do seu truststore. A sincronização de grupos falha fechada quando um grupo não existe ou não é único.
 
 ## API
 
