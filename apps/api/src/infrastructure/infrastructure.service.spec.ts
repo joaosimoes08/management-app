@@ -43,21 +43,21 @@ test('rejects a management IP from another Site', async () => {
   );
 });
 
-function placementService(targetSiteId = 'site-a') {
+function placementService({ targetSiteId = 'site-a', targetRoomId = 'room-b', placed = true } = {}) {
   const sourceRack = {
     id: 'rack-source', name: 'Source', units: 6, roomId: 'room-a',
     room: { id: 'room-a', building: { siteId: 'site-a' } },
-    devices: [{ id: 'device-1', name: 'Router', rackUnitStart: 5, rackUnitSize: 1, status: 'ACTIVE' }],
+    devices: placed ? [{ id: 'device-1', name: 'Router', rackUnitStart: 5, rackUnitSize: 1, status: 'ACTIVE' }] : [],
   };
   const targetRack = {
-    id: 'rack-target', name: 'Target', units: 6, roomId: 'room-b',
-    room: { id: 'room-b', building: { siteId: targetSiteId } },
+    id: 'rack-target', name: 'Target', units: 6, roomId: targetRoomId,
+    room: { id: targetRoomId, building: { siteId: targetSiteId } },
     devices: [],
   };
   const prisma = {
     device: { findUnique: async () => ({
-      id: 'device-1', name: 'Router', rackId: 'rack-source', rackUnitStart: 5, rackUnitSize: 1,
-      rack: { roomId: 'room-a', room: { building: { siteId: 'site-a' } } },
+      id: 'device-1', name: 'Router', rackId: placed ? 'rack-source' : null, siteId: 'site-a', rackUnitStart: placed ? 5 : null, rackUnitSize: 1,
+      rack: placed ? { roomId: 'room-a', room: { id: 'room-a', building: { siteId: 'site-a' } } } : null,
     }) },
     rack: {
       findUnique: async () => targetRack,
@@ -67,15 +67,30 @@ function placementService(targetSiteId = 'site-a') {
   return { subject: new InfrastructureService(prisma, {} as any, {} as any, {} as any), prisma };
 }
 
-test('plans placement into a different room within the same Site', async () => {
+test('rejects moving an already placed device to a different room in the same Site', async () => {
   const { subject, prisma } = placementService();
+  await assert.rejects(
+    () => (subject as any).buildDevicePlacementPlan(prisma, 'device-1', { rackId: 'rack-target', rackUnitStart: 2 }),
+    (error: unknown) => error instanceof ConflictException && error.message.includes('mesma sala'),
+  );
+});
+
+test('allows moving an already placed device to another rack in the same room', async () => {
+  const { subject, prisma } = placementService({ targetRoomId: 'room-a' });
+  const plan = await (subject as any).buildDevicePlacementPlan(prisma, 'device-1', { rackId: 'rack-target', rackUnitStart: 2 });
+  assert.equal(plan.target.rackId, 'rack-target');
+  assert.equal(plan.target.rackUnitStart, 2);
+});
+
+test('allows placing an unplaced device into a different room within the same Site', async () => {
+  const { subject, prisma } = placementService({ placed: false });
   const plan = await (subject as any).buildDevicePlacementPlan(prisma, 'device-1', { rackId: 'rack-target', rackUnitStart: 2 });
   assert.equal(plan.target.rackId, 'rack-target');
   assert.equal(plan.target.rackUnitStart, 2);
 });
 
 test('rejects a placement into a rack in a different Site', async () => {
-  const { subject, prisma } = placementService('site-b');
+  const { subject, prisma } = placementService({ targetSiteId: 'site-b' });
   await assert.rejects(
     () => (subject as any).buildDevicePlacementPlan(prisma, 'device-1', { rackId: 'rack-target', rackUnitStart: 2 }),
     ConflictException,
