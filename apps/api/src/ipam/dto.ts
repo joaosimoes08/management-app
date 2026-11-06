@@ -111,6 +111,7 @@ export class CreateDiscoveryJobDto {
   @IsString() @MinLength(2) @MaxLength(100) name!: string;
   @IsString() subnetId!: string;
   @IsArray() @IsIn(['ICMP', 'TCP'], { each: true }) methods!: string[];
+  @IsOptional() @IsIn(['defaults', 'icmp-only', 'web', 'network', 'custom']) profileId?: string;
   @IsOptional() @IsArray() @ArrayMaxSize(64) @IsInt({ each: true }) @Min(1, { each: true }) @Max(65535, { each: true }) tcpPorts?: number[];
   @IsOptional() @IsBoolean() reverseDns?: boolean;
 }
