@@ -159,6 +159,18 @@ export function updateDevice(id: string, body: Partial<DeviceInput>): Promise<De
   return apiFetch<Device>(`/api/v1/devices/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
+export function previewDeviceImport(siteId: string, rows: Record<string, unknown>[]) {
+  return apiFetch<{ total: number; valid: number; invalid: number; rows: { rowNumber: number; data: Record<string, unknown>; valid: boolean; errors: string[] }[] }>('/api/v1/devices/import/preview', { method: 'POST', body: JSON.stringify({ siteId, rows }) });
+}
+
+export function importDevices(siteId: string, rows: Record<string, unknown>[]) {
+  return apiFetch<{ imported: number }>('/api/v1/devices/import', { method: 'POST', body: JSON.stringify({ siteId, rows }) });
+}
+
+export function bulkUpdateDevices(ids: string[], changes: { status?: string; modelId?: string | null; rackId?: string | null }) {
+  return apiFetch<{ updated: number }>('/api/v1/devices/bulk-update', { method: 'POST', body: JSON.stringify({ ids, changes }) });
+}
+
 export function previewDevicePlacement(deviceId: string, body: { rackId: string; rackUnitStart: number }): Promise<RackPlacementPlan> {
   return apiFetch<RackPlacementPlan>(`/api/v1/devices/${deviceId}/placement/preview`, { method: 'POST', body: JSON.stringify(body) });
 }
