@@ -1,5 +1,5 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
-import { PrismaClient } from '@simoes/database';
+import { Prisma, PrismaClient } from '@simoes/database';
 import { Queue } from 'bullmq';
 
 @Injectable()
@@ -31,9 +31,15 @@ export class AuditService implements OnModuleDestroy {
   }
   async record(input: { userId?: string; action: string; entityType?: string; entityId?: string; metadata?: unknown; ipAddress?: string }) {
     const entry = await this.prisma.auditLog.create({ data: { ...input, metadata: input.metadata as object | undefined } });
-    if (['Device', 'DeviceInterface', 'DeviceModel', 'SnmpDrift', 'SnmpSnapshot', 'IpAddress', 'Subnet'].includes(input.entityType ?? '')) {
+    await this.scheduleInventoryQualityReconcile(input.entityType);
+    return entry;
+  }
+  async recordInTransaction(tx: Prisma.TransactionClient, input: { userId?: string; action: string; entityType?: string; entityId?: string; metadata?: unknown; ipAddress?: string }) {
+    return tx.auditLog.create({ data: { ...input, metadata: input.metadata as object | undefined } });
+  }
+  async scheduleInventoryQualityReconcile(entityType?: string) {
+    if (['Device', 'DeviceInterface', 'DeviceModel', 'SnmpDrift', 'SnmpSnapshot', 'IpAddress', 'Subnet'].includes(entityType ?? '')) {
       await this.maintenance.add('inventory-quality-reconcile', {}, { delay: 2_000, jobId: 'inventory-quality-reconcile-global', removeOnComplete: true, removeOnFail: 100 }).catch(() => undefined);
     }
-    return entry;
   }
 }

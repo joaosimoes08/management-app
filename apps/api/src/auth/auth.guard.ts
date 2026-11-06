@@ -4,6 +4,11 @@ import { createRemoteJWKSet, jwtVerify, JWTPayload } from 'jose';
 import { IS_PUBLIC_KEY } from './public.decorator';
 import { AuthService } from './auth.service';
 
+export function resolveJwksUrl(issuer: string, backchannelUrl?: string): URL {
+  const baseUrl = (backchannelUrl?.trim() || issuer).replace(/\/+$/, '');
+  return new URL(`${baseUrl}/protocol/openid-connect/certs`);
+}
+
 @Injectable()
 export class AuthGuard implements CanActivate {
   private readonly issuer: string;
@@ -13,7 +18,7 @@ export class AuthGuard implements CanActivate {
   constructor(private readonly reflector: Reflector, private readonly authService: AuthService) {
     this.issuer = process.env.OIDC_ISSUER_URL ?? 'http://localhost:8080/realms/COCiber';
     this.audience = process.env.OIDC_AUDIENCE ?? 'simoes-api';
-    this.jwks = createRemoteJWKSet(new URL(`${this.issuer}/protocol/openid-connect/certs`));
+    this.jwks = createRemoteJWKSet(resolveJwksUrl(this.issuer, process.env.OIDC_BACKCHANNEL_URL));
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {

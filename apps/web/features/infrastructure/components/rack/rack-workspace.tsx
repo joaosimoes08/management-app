@@ -13,6 +13,7 @@ export interface RackWorkspaceProps {
   roomId: string;
   buildingId: string;
   racks: Rack[];
+  unplacedDevices: Device[];
   selected: Rack | undefined;
   setRack: (rack: Rack) => void;
   onOut: () => void;
@@ -27,7 +28,7 @@ export interface RackWorkspaceProps {
 }
 
 /** Rack gallery of the selected room, or the full detail view of the selected rack. */
-export function RackWorkspace({ rooms, roomId, buildingId, racks, selected, setRack, onOut, onDevice, onEdit, onDelete, deletingRackId, canEdit, onPreviewPlacement, onPlaceDevice, onEditDevice }: RackWorkspaceProps) {
+export function RackWorkspace({ rooms, roomId, buildingId, racks, unplacedDevices, selected, setRack, onOut, onDevice, onEdit, onDelete, deletingRackId, canEdit, onPreviewPlacement, onPlaceDevice, onEditDevice }: RackWorkspaceProps) {
   const racksPerPage = 5;
   const [firstVisibleRack, setFirstVisibleRack] = useState(0);
   const [reordering, setReordering] = useState(false);
@@ -81,6 +82,7 @@ export function RackWorkspace({ rooms, roomId, buildingId, racks, selected, setR
 
   return <section className="ipam-card rack-room-section">
     <div className="panel-heading"><div><span className="section-kicker">SALA SELECIONADA</span><h2>Bastidores</h2>{reordering && <p>Arrasta os equipamentos para outro bastidor ou U. Cada movimento é guardado automaticamente.</p>}</div><div className="rack-order-actions">{reordering ? <button type="button" className="primary-button" disabled={savingPlacement} onClick={cancelReordering}><Check size={14} /> {savingPlacement ? 'A atualizar…' : 'Concluir reorganização'}</button> : <>{canEdit && racks.length > 0 && <button type="button" className="secondary-button" onClick={startReordering}><GripVertical size={14} /> Reorganizar</button>}{canEdit && <button className="primary-button" onClick={() => onEdit({ name: '', room: { id: roomId }, roomId })}><Plus size={14} /> Adicionar bastidor</button>}</>}</div></div>
+    {canEdit && unplacedDevices.length > 0 && <aside className="rack-unplaced-shelf"><div><strong>Por localizar</strong><small>{reordering ? 'Arrasta um equipamento para o bastidor e escolhe a unidade U.' : 'Seleciona “Reorganizar” para colocar equipamentos nos bastidores.'}</small></div><div className="rack-unplaced-devices">{unplacedDevices.map((device) => <button type="button" className="rack-unplaced-device" key={device.id} draggable={reordering} aria-disabled={!reordering} onDragStart={(event) => { if (!reordering) return; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', device.id); event.dataTransfer.setData('application/x-device-id', device.id); event.dataTransfer.setData('application/x-device-size', String(Math.max(1, Number(device.rackUnitSize) || 1))); }}><GripVertical size={14} />{device.name}<small>{device.rackUnitSize ?? 1}U</small></button>)}</div></aside>}
     <div className={`rack-figure-grid${reordering ? ' reordering equipment-reordering' : ''}`}>{visibleRacks.map((rack) => <figure className={`rack-figure${reordering ? ' equipment-reorderable' : ''}`} key={rack.id}>
       {reordering && <span className="rack-drag-handle" aria-hidden="true"><GripVertical size={14} /> Equipamentos</span>}
       <div className="rack-figure-image" role={reordering ? 'group' : 'button'} tabIndex={reordering ? undefined : 0} onClick={() => { if (!reordering) setRack(rack); }} onKeyDown={(event) => { if (!reordering && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); setRack(rack); } }} aria-label={`${reordering ? 'Reorganizar equipamentos no' : 'Abrir'} bastidor ${rack.name}, ${rack.devices?.length ?? 0} equipamentos`}>

@@ -8,6 +8,7 @@ import { SetProcessor } from './set';
 import { TrapReceiver } from './traps';
 import { log, publicErrorCode } from './log';
 import { startHealthServer, SnmpMetrics } from './health';
+import { metricsRetentionDays } from './metrics-retention';
 import type { Server } from 'node:http';
 
 if (process.env.SNMP_DATABASE_URL) process.env.DATABASE_URL = process.env.SNMP_DATABASE_URL;
@@ -58,6 +59,19 @@ async function start() {
     await recoverPendingJobs();
   }
   await traps.recoverPending();
+  if (role === 'all' || role === 'worker') {
+    const retentionDays = metricsRetentionDays();
+    const pruneMetrics = async () => {
+      const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+      const result = await prisma.snmpJob.deleteMany({
+        where: { type: 'POLL', status: { in: ['COMPLETED', 'FAILED', 'BLOCKED'] }, createdAt: { lt: cutoff } },
+      });
+      if (result.count) log('info', 'expired SNMP metric history removed', { count: result.count, retentionDays });
+    };
+    await pruneMetrics();
+    const metricsRetentionTimer = setInterval(() => void pruneMetrics().catch((error) => log('error', 'SNMP metric retention failed', { errorCode: publicErrorCode(error) })), 60 * 60 * 1000);
+    metricsRetentionTimer.unref(); timers.push(metricsRetentionTimer);
+  }
   if (receiverEnabled) {
     const timer = setInterval(() => void traps.refresh().catch((error) => log('error', 'trap listener refresh failed', { errorCode: publicErrorCode(error) })), 30_000);
     timer.unref(); timers.push(timer);

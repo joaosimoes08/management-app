@@ -3,6 +3,7 @@ export interface PublicRuntimeConfig {
   keycloakUrl?: string;
   keycloakRealm?: string;
   keycloakClientId?: string;
+  bookstackUrl?: string;
 }
 
 declare global {
@@ -18,5 +19,6 @@ export function getPublicRuntimeConfig(): Required<PublicRuntimeConfig> {
     keycloakUrl: runtime?.keycloakUrl ?? process.env.NEXT_PUBLIC_KEYCLOAK_URL ?? 'http://localhost:8080',
     keycloakRealm: runtime?.keycloakRealm ?? process.env.NEXT_PUBLIC_KEYCLOAK_REALM ?? 'COCiber',
     keycloakClientId: runtime?.keycloakClientId ?? process.env.NEXT_PUBLIC_KEYCLOAK_CLIENT_ID ?? 'simoes-web',
+    bookstackUrl: runtime?.bookstackUrl ?? process.env.NEXT_PUBLIC_BOOKSTACK_URL ?? '',
   };
 }

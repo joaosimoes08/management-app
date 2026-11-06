@@ -166,7 +166,20 @@ export class OperationsService implements OnModuleInit, OnModuleDestroy {
     const candidates = await this.prisma.operationalAlert.findMany({ where, orderBy: [{ severity: 'asc' }, { lastOccurredAt: 'desc' }], include: { site: { select: { id: true, name: true } }, userStates: { where: { userId: user.id }, select: { readAt: true } } } });
     const visible = await this.applyAlertPolicies(await this.filterVisibleAlerts(user, candidates));
     const items = visible.slice((page - 1) * pageSize, page * pageSize);
-    return { items: items.map(({ userStates, ...item }) => ({ ...item, readAt: userStates[0]?.readAt ?? null })), total: visible.length, page, pageSize };
+    const snmpJobIds = items.filter((item) => item.entityType === 'SnmpJob' && item.entityId).map((item) => item.entityId!);
+    const snmpDriftIds = items.filter((item) => item.entityType === 'SnmpDrift' && item.entityId).map((item) => item.entityId!);
+    const snmpTrapIds = items.filter((item) => item.entityType === 'SnmpTrapEvent' && item.entityId).map((item) => item.entityId!);
+    const [jobs, drifts, traps] = await Promise.all([
+      this.prisma.snmpJob.findMany({ where: { id: { in: snmpJobIds } }, select: { id: true, deviceId: true } }),
+      this.prisma.snmpDrift.findMany({ where: { id: { in: snmpDriftIds } }, select: { id: true, deviceId: true } }),
+      this.prisma.snmpTrapEvent.findMany({ where: { id: { in: snmpTrapIds } }, select: { id: true, deviceId: true } }),
+    ]);
+    const relatedDevices = new Map<string, string | null>([
+      ...jobs.map((item) => [item.id, item.deviceId] as const),
+      ...drifts.map((item) => [item.id, item.deviceId] as const),
+      ...traps.map((item) => [item.id, item.deviceId] as const),
+    ]);
+    return { items: items.map(({ userStates, ...item }) => ({ ...item, relatedDeviceId: item.entityType === 'Device' ? item.entityId : relatedDevices.get(item.entityId ?? '') ?? null, readAt: userStates[0]?.readAt ?? null })), total: visible.length, page, pageSize };
   }
 
   async summary(user: AuthenticatedUser, siteId?: string) {

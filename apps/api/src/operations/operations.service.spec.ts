@@ -27,6 +27,25 @@ test('upsert preserves acknowledged and snoozed workflow state for active alerts
   assert.deepEqual(args.update.occurrenceCount, { increment: 1 });
 });
 
+test('list includes related device ids for SNMP alerts without changing their source entities', async () => {
+  const prisma = {
+    site: { findMany: async () => [] },
+    operationalAlert: { findMany: async () => [
+      { id: 'job-alert', siteId: 'site', entityType: 'SnmpJob', entityId: 'job', userStates: [] },
+      { id: 'drift-alert', siteId: 'site', entityType: 'SnmpDrift', entityId: 'drift', userStates: [] },
+      { id: 'trap-alert', siteId: 'site', entityType: 'SnmpTrapEvent', entityId: 'trap', userStates: [] },
+    ] },
+    snmpJob: { findMany: async () => [{ id: 'job', deviceId: 'device-a' }] },
+    snmpDrift: { findMany: async () => [{ id: 'drift', deviceId: 'device-b' }] },
+    snmpTrapEvent: { findMany: async () => [{ id: 'trap', deviceId: 'device-c' }] },
+  };
+  const service = new OperationsService(prisma as never, {} as never, {} as never, {} as never);
+  const result = await service.list({ id: 'admin', roles: ['ADMIN'] } as never);
+  assert.deepEqual(result.items.map((item) => [item.entityType, item.entityId, item.relatedDeviceId]), [
+    ['SnmpJob', 'job', 'device-a'], ['SnmpDrift', 'drift', 'device-b'], ['SnmpTrapEvent', 'trap', 'device-c'],
+  ]);
+});
+
 test('acknowledge, snooze and resolve preserve global operational state transitions', async () => {
   const updates: any[] = [];
   const prisma = { operationalAlert: { findUnique: async () => ({ id: 'alert', siteId: null }), update: async (args: any) => { updates.push(args.data); return args.data; } } };
