@@ -11,7 +11,7 @@ import { BulkTopologyNodesDto, CreateDeviceConnectionDto, CreateTopologyConnecti
 export class TopologyService {
   constructor(private readonly prisma: PrismaClient, private readonly access: InfrastructureAccessService, private readonly ipamAccess: IpamAccessService, private readonly audit: AuditService) {}
   private db() { return this.prisma as any; }
-  private readonly mapInclude = { nodes: { include: { device: { include: { rack: { include: { room: { include: { building: true } } } } } } } }, connections: { include: { connection: true } } };
+  private readonly mapInclude = { nodes: { include: { device: { include: { frontAsset: true, model: { include: { frontAsset: true } }, rack: { include: { room: { include: { building: true } } } } } } } }, connections: { include: { connection: true } } };
   private async map(id: string) {
     const item = await this.db().topologyMap.findUnique({ where: { id }, include: this.mapInclude });
     if (!item) throw new NotFoundException('Mapa de topologia não encontrado');
