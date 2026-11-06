@@ -11,6 +11,9 @@ export class ListTopologyMapsQueryDto {
   @IsOptional() @IsString() page?: string;
   @IsOptional() @IsString() pageSize?: string;
 }
+export class TopologyConnectionPortAvailabilityQueryDto {
+  @IsOptional() @IsUUID() excludeConnectionId?: string;
+}
 export class ListDeviceConnectionsQueryDto {
   @IsOptional() @IsUUID() siteId?: string;
   @IsOptional() @IsEnum(DeviceConnectionTypeDto) type?: DeviceConnectionTypeDto;

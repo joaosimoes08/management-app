@@ -2,6 +2,7 @@ import { apiFetch } from '@/lib/api/client';
 import type { TopologyConnection, TopologyMap, TopologyMapType, TopologyNode } from './types';
 export const listTopologyMaps = (siteId?: string) => apiFetch<{ items: TopologyMap[]; total: number }>(`/api/v1/topology/maps${siteId ? `?siteId=${encodeURIComponent(siteId)}&pageSize=100` : '?pageSize=100'}`);
 export const getTopologyMap = (id: string) => apiFetch<TopologyMap>(`/api/v1/topology/maps/${id}`);
+export const getTopologyConnectionPortAvailability = (mapId: string, excludeConnectionId?: string) => apiFetch<{ usedInterfaceIds: string[] }>(`/api/v1/topology/maps/${mapId}/connection-port-availability${excludeConnectionId ? `?excludeConnectionId=${encodeURIComponent(excludeConnectionId)}` : ''}`);
 export const createTopologyMap = (body: { name: string; type: TopologyMapType; siteId: string; filters?: { vlanIds: string[] } }) => apiFetch<TopologyMap>('/api/v1/topology/maps', { method: 'POST', body: JSON.stringify(body) });
 export const updateTopologyMap = (id: string, body: Partial<Pick<TopologyMap, 'name' | 'type'>> & { expectedRevision: number }) => apiFetch<TopologyMap>(`/api/v1/topology/maps/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 export const deleteTopologyMap = (id: string, revision?: number) => apiFetch(`/api/v1/topology/maps/${id}${revision === undefined ? '' : `?revision=${revision}`}`, { method: 'DELETE' });

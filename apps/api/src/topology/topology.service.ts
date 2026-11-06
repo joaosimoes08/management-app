@@ -103,6 +103,27 @@ export class TopologyService {
     const finalIds = new Set(nodes.map((node: any) => node.deviceId));
     return { ...item, nodes, connections: item.connections.filter((connection: any) => finalIds.has(connection.sourceDeviceId) && finalIds.has(connection.targetDeviceId)) };
   }
+  async connectionPortAvailability(user: AuthenticatedUser, mapId: string, excludeConnectionId?: string) {
+    const map = await this.map(mapId);
+    await this.authorizeMap(user, 'READ', map.siteId, map.type);
+    const visibleDeviceIds = (await Promise.all(map.nodes.map(async (node: any) => {
+      try { await this.access.assertDevice(user, 'READ', node.deviceId); return node.deviceId; } catch { return null; }
+    }))).filter((id): id is string => Boolean(id));
+    if (excludeConnectionId) {
+      const excluded = await this.db().deviceConnection.findUnique({ where: { id: excludeConnectionId }, include: { maps: { select: { mapId: true } } } });
+      if (!excluded || excluded.siteId !== map.siteId || !excluded.maps.some((association: any) => association.mapId === mapId)) throw new NotFoundException('Ligação não encontrada neste mapa');
+      await this.assertConnectionVisible(user, excluded);
+    }
+    if (!visibleDeviceIds.length) return { usedInterfaceIds: [] };
+    const interfaces = await this.db().deviceInterface.findMany({ where: { deviceId: { in: visibleDeviceIds } }, select: { id: true } });
+    const interfaceIds = new Set(interfaces.map((item: any) => item.id));
+    const connections = await this.db().deviceConnection.findMany({
+      where: { ...(excludeConnectionId ? { id: { not: excludeConnectionId } } : {}), OR: [{ sourceDeviceId: { in: visibleDeviceIds } }, { targetDeviceId: { in: visibleDeviceIds } }] },
+      select: { sourceInterfaceId: true, targetInterfaceId: true },
+    });
+    const usedInterfaceIds = new Set(connections.flatMap((item: any) => [item.sourceInterfaceId, item.targetInterfaceId]).filter((id: unknown): id is string => typeof id === 'string' && interfaceIds.has(id)));
+    return { usedInterfaceIds: [...usedInterfaceIds] };
+  }
   async create(user: AuthenticatedUser, dto: CreateTopologyMapDto) {
     await this.authorizeMap(user, 'CREATE', dto.siteId, dto.type);
     const item = await this.db().topologyMap.create({ data: { name: dto.name, type: dto.type, siteId: dto.siteId, description: dto.description, viewport: dto.viewport, filters: dto.filters, createdById: user.id }, include: this.mapInclude });

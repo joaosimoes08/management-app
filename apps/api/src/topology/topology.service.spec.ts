@@ -91,3 +91,35 @@ test('connection serialization conflicts return a retryable API conflict', async
     (error: any) => error.getStatus() === 409 && error.getResponse().code === 'TOPOLOGY_CONNECTION_CONCURRENT_UPDATE',
   );
 });
+
+test('port availability includes cross-map and standalone links while excluding the edited connection', async () => {
+  let availabilityWhere: any;
+  const map = {
+    id: 'map', siteId: 'site', type: 'PHYSICAL', revision: 2,
+    nodes: [{ deviceId: 'a' }, { deviceId: 'b' }],
+    connections: [{ connection: { id: 'current', siteId: 'site', sourceDeviceId: 'a', targetDeviceId: 'b', sourceInterfaceId: 'port-a', targetInterfaceId: 'port-b' } }],
+  };
+  const connections = [
+    { id: 'current', sourceInterfaceId: 'port-a', targetInterfaceId: 'port-b' },
+    { id: 'other-map-link', sourceInterfaceId: 'port-c', targetInterfaceId: null },
+    { id: 'standalone-link', sourceInterfaceId: null, targetInterfaceId: 'port-b' },
+  ];
+  const prisma = {
+    topologyMap: { findUnique: async () => map },
+    deviceConnection: {
+      findUnique: async () => ({ id: 'current', siteId: 'site', sourceDeviceId: 'a', targetDeviceId: 'b', maps: [{ mapId: 'map' }] }),
+      findMany: async ({ where }: any) => {
+        availabilityWhere = where;
+        return connections.filter((connection) => connection.id !== where.id?.not);
+      },
+    },
+    deviceInterface: { findMany: async () => [{ id: 'port-a' }, { id: 'port-b' }, { id: 'port-c' }] },
+  };
+  const access = { assertSite: async () => undefined, assertDevice: async () => undefined };
+  const service = new TopologyService(prisma as never, access as never, {} as never, {} as never);
+  const result = await service.connectionPortAvailability(user, 'map', 'current');
+  assert.deepEqual(new Set(result.usedInterfaceIds), new Set(['port-c', 'port-b']));
+  assert.equal(availabilityWhere.siteId, undefined);
+  assert.equal(availabilityWhere.id.not, 'current');
+  assert.deepEqual(availabilityWhere.OR, [{ sourceDeviceId: { in: ['a', 'b'] } }, { targetDeviceId: { in: ['a', 'b'] } }]);
+});

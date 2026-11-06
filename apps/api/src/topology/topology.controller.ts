@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Req } fr
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { Roles } from '../auth/roles.decorator';
-import { AssociateTopologyConnectionDto, BulkTopologyNodesDto, CreateDeviceConnectionDto, CreateTopologyConnectionDto, CreateTopologyMapDto, ListDeviceConnectionsQueryDto, ListTopologyMapsQueryDto, UpdateDeviceConnectionDto, UpdateTopologyMapDto } from './dto';
+import { AssociateTopologyConnectionDto, BulkTopologyNodesDto, CreateDeviceConnectionDto, CreateTopologyConnectionDto, CreateTopologyMapDto, ListDeviceConnectionsQueryDto, ListTopologyMapsQueryDto, TopologyConnectionPortAvailabilityQueryDto, UpdateDeviceConnectionDto, UpdateTopologyMapDto } from './dto';
 import { TopologyService } from './topology.service';
 
 @ApiTags('topology') @ApiBearerAuth() @Controller({ path: 'topology', version: '1' })
@@ -10,6 +10,7 @@ export class TopologyController {
   constructor(private readonly service: TopologyService) {}
   @Get('maps') maps(@Req() req: { user: AuthenticatedUser }, @Query() query: ListTopologyMapsQueryDto) { return this.service.list(req.user, query); }
   @Get('maps/:id') map(@Req() req: { user: AuthenticatedUser }, @Param('id') id: string) { return this.service.get(req.user, id); }
+  @Get('maps/:id/connection-port-availability') connectionPortAvailability(@Req() req: { user: AuthenticatedUser }, @Param('id') id: string, @Query() query: TopologyConnectionPortAvailabilityQueryDto) { return this.service.connectionPortAvailability(req.user, id, query.excludeConnectionId); }
   @Post('maps') @Roles('ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR') create(@Req() req: { user: AuthenticatedUser }, @Body() dto: CreateTopologyMapDto) { return this.service.create(req.user, dto); }
   @Patch('maps/:id') @Roles('ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR') update(@Req() req: { user: AuthenticatedUser }, @Param('id') id: string, @Body() dto: UpdateTopologyMapDto) { return this.service.update(req.user, id, dto); }
   @Delete('maps/:id') @Roles('ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR') remove(@Req() req: { user: AuthenticatedUser }, @Param('id') id: string, @Query('revision') revision?: string) { return this.service.remove(req.user, id, revision === undefined ? undefined : Number(revision)); }
