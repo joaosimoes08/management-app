@@ -3,7 +3,7 @@ import { PrismaClient } from '@simoes/database';
 import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { CreateAssetDto, CreateBuildingDto, CreateDeviceDto, CreateDeviceModelDto, CreateInterfaceDto, CreateRackDto, CreateRackModelDto, CreateRoomDto, DetectPortLayoutDto, PlaceDeviceDto, ReorderRacksDto, UpdateBuildingDto, UpdateDeviceDto, UpdateDeviceModelDto, UpdateInterfaceDto, UpdateRackDto, UpdateRackModelDto, UpdateRoomDto } from './dto';
-import { findRackImportOverlaps, planRackPlacement } from './rack-placement';
+import { findRackImportOverlaps, planRackPlacement, type RackPlacementPlan } from './rack-placement';
 import { PersistedDeviceAuditError, updateDevicesIndividually } from './bulk-update';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { extname, join, resolve } from 'node:path';
@@ -235,27 +235,36 @@ export class InfrastructureService implements OnModuleInit {
   private async buildDevicePlacementPlan(client: any, id: string, dto: PlaceDeviceDto) {
     const device = await client.device.findUnique({ where: { id }, include: { rack: { include: { room: { include: { building: true } } } } } });
     if (!device) throw new NotFoundException('Equipamento não encontrado');
-    if (!device.rackId || !device.rackUnitStart || !device.rackUnitSize) throw new ConflictException('O equipamento tem de estar posicionado num bastidor antes de ser arrastado');
     const targetRack = await client.rack.findUnique({ where: { id: dto.rackId }, include: { room: { include: { building: true } } } });
     if (!targetRack) throw new NotFoundException('Bastidor de destino não encontrado');
-    if (targetRack.roomId !== device.rack.roomId) throw new ConflictException('Só é possível mover equipamentos entre bastidores da mesma sala');
-    if (targetRack.room.building.siteId !== device.rack.room.building.siteId) throw new ConflictException('O bastidor não pertence ao Site do equipamento');
+    const targetSiteId = targetRack.room.building.siteId;
+    if (device.rackId) {
+      if (targetSiteId !== device.rack.room.building.siteId) throw new ConflictException('O bastidor de destino tem de pertencer ao mesmo Site do equipamento');
+      if (!device.rackUnitStart || !device.rackUnitSize) throw new ConflictException('O equipamento não tem uma posição válida no bastidor de origem');
+    } else if (device.siteId !== targetSiteId) {
+      throw new ConflictException('O bastidor não pertence ao Site do equipamento');
+    }
 
-    const rackIds = [...new Set([device.rackId, dto.rackId])];
+    const rackIds = [...new Set([...(device.rackId ? [device.rackId] : []), dto.rackId])];
     const racks = await client.rack.findMany({
       where: { id: { in: rackIds } },
       include: { devices: { where: { status: { not: 'RETIRED' } } } },
     });
     try {
-      return planRackPlacement(
-        racks.map((rack: any) => ({
+      const placementRacks = racks.map((rack: any) => ({
           id: rack.id,
           name: rack.name,
           units: rack.units,
           devices: rack.devices
             .filter((item: any) => item.rackUnitStart && item.rackUnitSize)
             .map((item: any) => ({ id: item.id, name: item.name, rackId: rack.id, rackUnitStart: item.rackUnitStart, rackUnitSize: item.rackUnitSize })),
-        })),
+        }));
+      if (!device.rackId) {
+        const target = placementRacks.find((rack: any) => rack.id === dto.rackId)!;
+        target.devices.push({ id: device.id, name: device.name, rackId: dto.rackId, rackUnitStart: dto.rackUnitStart, rackUnitSize: device.rackUnitSize ?? 1 });
+      }
+      return planRackPlacement(
+        placementRacks,
         id,
         dto.rackId,
         dto.rackUnitStart,
@@ -264,17 +273,28 @@ export class InfrastructureService implements OnModuleInit {
       throw new ConflictException(error instanceof Error ? error.message : 'Não foi possível posicionar o equipamento');
     }
   }
-  async previewDevicePlacement(id: string, dto: PlaceDeviceDto, user: AuthenticatedUser) { await Promise.all([this.access.assertDevice(user, 'UPDATE', id), this.access.assertRack(user, 'UPDATE', dto.rackId), this.assertDeviceIdCapability(user, id)]); return this.buildDevicePlacementPlan(this.prisma, id, dto); }
+  async previewDevicePlacement(id: string, dto: PlaceDeviceDto, user: AuthenticatedUser) { const device = await this.access.assertDevice(user, 'UPDATE', id); this.assertDeviceCapability(user, device.type); await this.access.assertRack(user, 'UPDATE', dto.rackId, 'DEVICE', device.type); return this.buildDevicePlacementPlan(this.prisma, id, dto); }
   async placeDevice(id: string, dto: PlaceDeviceDto, user: AuthenticatedUser) {
-    await Promise.all([this.access.assertDevice(user, 'UPDATE', id), this.access.assertRack(user, 'UPDATE', dto.rackId), this.assertDeviceIdCapability(user, id)]);
-    const plan = await this.prisma.$transaction(async (tx) => {
-      const next = await this.buildDevicePlacementPlan(tx, id, dto);
-      for (const change of next.changes) {
-        const rack = await tx.rack.findUnique({ where: { id: change.rackId }, select: { room: { select: { building: { select: { siteId: true } } } } } });
-        await tx.device.update({ where: { id: change.id }, data: { rackId: change.rackId, rackUnitStart: change.rackUnitStart, siteId: rack!.room.building.siteId, status: 'ACTIVE' } });
+    const device = await this.access.assertDevice(user, 'UPDATE', id);
+    this.assertDeviceCapability(user, device.type);
+    await this.access.assertRack(user, 'UPDATE', dto.rackId, 'DEVICE', device.type);
+    let plan: RackPlacementPlan;
+    try {
+      plan = await this.prisma.$transaction(async (tx) => {
+        const next = await this.buildDevicePlacementPlan(tx, id, dto);
+        for (const change of next.changes) {
+          const rack = await tx.rack.findUnique({ where: { id: change.rackId }, select: { room: { select: { building: { select: { siteId: true } } } } } });
+          await tx.device.update({ where: { id: change.id }, data: { rackId: change.rackId, rackUnitStart: change.rackUnitStart, siteId: rack!.room.building.siteId, status: 'ACTIVE' } });
+        }
+        return next;
+      }, { isolationLevel: 'Serializable' });
+    } catch (error) {
+      if (error instanceof ConflictException) throw error;
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'P2034') {
+        throw new ConflictException('A localização foi alterada por outra operação. Atualiza os bastidores e tenta novamente.');
       }
-      return next;
-    }, { isolationLevel: 'Serializable' });
+      throw error;
+    }
     await this.log(user, 'DEVICE_PLACEMENT_UPDATED', 'Device', id, { changes: plan.changes });
     return plan;
   }

@@ -291,11 +291,12 @@ model SystemSettings {
 }
 
 model Building {
-  id     String @id @default(uuid()) @db.Uuid
-  name   String
-  siteId String @db.Uuid
-  site   Site   @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  rooms  Room[]
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String
+  description String?
+  siteId      String  @db.Uuid
+  site        Site    @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  rooms       Room[]
 
   @@unique([siteId, name])
 }
