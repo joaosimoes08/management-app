@@ -14,8 +14,17 @@ export interface SnmpOverview {
   traps: Array<{ id: string; receivedAt: string; category?: string | null; severity?: string | null; trapOid?: string | null; sourceAddress: string; status: string }>;
   setEnabled: boolean;
 }
+export interface SnmpMetrics {
+  days: number;
+  expectedIntervalMinutes: number | null;
+  selectedInterfaceIndex: number | null;
+  interfaces: Array<{ ifIndex: number; name?: string | null; description?: string | null }>;
+  availability: Array<{ id: string; observedAt: string; available: boolean | null; status: string; errorCode?: string | null }>;
+  interfacesHistory: Array<{ observedAt: string; ifIndex: number; name?: string | null; description?: string | null; adminUp?: boolean | null; operUp?: boolean | null; speedMbps?: number | null; inMbps: number | null; outMbps: number | null }>;
+}
 
 export const getSnmpOverview = (deviceId: string) => apiFetch<SnmpOverview>(`/api/v1/snmp/devices/${deviceId}`);
+export const getSnmpMetrics = (deviceId: string, interfaceIndex?: number, days = 7) => apiFetch<SnmpMetrics>(`/api/v1/snmp/devices/${deviceId}/metrics?days=${days}${interfaceIndex === undefined ? '' : `&interfaceIndex=${interfaceIndex}`}`);
 export const saveSnmpConfig = (deviceId: string, body: Omit<SnmpConfig, 'id' | 'lastPollAt' | 'nextPollAt' | 'lastStatus' | 'lastErrorCode'>) => apiFetch<SnmpConfig>(`/api/v1/snmp/devices/${deviceId}/config`, { method: 'PATCH', body: JSON.stringify(body) });
 export const saveSnmpCredential = (deviceId: string, body: Record<string, unknown>) => apiFetch<SnmpCredentialSummary>(`/api/v1/snmp/devices/${deviceId}/credentials`, { method: 'POST', body: JSON.stringify(body) });
 export const testSnmpCredential = (deviceId: string, purpose: SnmpCredentialPurpose) => apiFetch(`/api/v1/snmp/devices/${deviceId}/credentials/${purpose}/test`, { method: 'POST' });

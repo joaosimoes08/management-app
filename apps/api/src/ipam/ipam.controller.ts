@@ -24,6 +24,7 @@ export class IpamController {
   @Delete('subnets/:id') @Roles('ADMIN', 'NETWORK_OPERATOR') deleteSubnet(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.service.deleteSubnet(id, req.user); }
   @Get('subnets/:id') subnet(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.advanced.getSubnet(id, req.user); }
   @Get('subnets/:id/usage') subnetUsage(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.advanced.subnetUsage(id, req.user); }
+  @Get('subnets/:id/planning') subnetPlanning(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.advanced.subnetPlanning(id, req.user); }
   @Get('subnets/:id/tree') subnetTree(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.advanced.subnetTree(id, req.user); }
   @Patch('subnets/:id/scan-config') @Roles('ADMIN', 'NETWORK_OPERATOR') updateSubnetScan(@Param('id') id: string, @Body() dto: UpdateSubnetScanDto, @Req() req: { user: AuthenticatedUser }) { return this.advanced.updateSubnetScan(id, dto, req.user); }
   @Post('subnets/:id/scan') @Roles('ADMIN', 'NETWORK_OPERATOR') scanSubnet(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.advanced.scanSubnet(id, req.user); }
@@ -32,6 +33,7 @@ export class IpamController {
   @Patch('ip-addresses/:id') @Roles('ADMIN', 'NETWORK_OPERATOR') updateIp(@Param('id') id: string, @Body() dto: UpdateIpDto, @Req() req: { user: AuthenticatedUser }) { return this.service.updateIp(id, dto, req.user); }
   @Delete('ip-addresses/:id') @Roles('ADMIN', 'NETWORK_OPERATOR') deleteIp(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.service.deleteIp(id, req.user); }
   @Get('ip-addresses/:id') ip(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.advanced.getIp(id, req.user); }
+  @Get('ip-addresses/:id/check-history') ipCheckHistory(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }, @Query('page') page?: string, @Query('pageSize') pageSize?: string) { return this.advanced.getIpCheckHistory(id, req.user, page, pageSize); }
   @Post('ip-addresses/:id/check') @Roles('ADMIN', 'NETWORK_OPERATOR') checkIp(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.advanced.checkIp(id, req.user); }
   @Get('hosts') hosts(@Req() req: { user: AuthenticatedUser }, @Query('siteId') siteId?: string, @Query('vlanId') vlanId?: string, @Query('subnetId') subnetId?: string, @Query('state') state?: string, @Query('source') source?: string, @Query('search') search?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) { return this.service.listHosts(req.user, siteId, vlanId, subnetId, state, source, search, page, pageSize); }
   @Get('hosts/:id') host(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.service.getHost(req.user, id); }
@@ -65,6 +67,7 @@ export class IpamController {
   @Get('discovery/jobs') jobs(@Req() req: { user: AuthenticatedUser }, @Query('status') status?: string, @Query('subnetId') subnetId?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) { return this.service.listDiscoveryJobs(req.user, status, subnetId, page, pageSize); }
   @Get('discovery/jobs/:id') job(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.service.getDiscoveryJob(req.user, id); }
   @Get('discovery/jobs/:id/results') results(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.service.listDiscoveryResults(req.user, id); }
+  @Get('discovery/jobs/:id/compare') compareJobs(@Param('id') id: string, @Query('with') previousId: string, @Req() req: { user: AuthenticatedUser }) { return this.service.compareDiscoveryJobs(req.user, id, previousId); }
   @Post('discovery/jobs') @Roles('ADMIN', 'NETWORK_OPERATOR') createJob(@Body() dto: CreateDiscoveryJobDto, @Req() req: { user: AuthenticatedUser }) { return this.service.runDiscovery(dto, req.user); }
   @Get('subnets/:id/discovery-schedule') schedule(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.service.getDiscoverySchedule(req.user, id); }
   @Patch('subnets/:id/discovery-schedule') @Roles('ADMIN', 'NETWORK_OPERATOR') updateSchedule(@Param('id') id: string, @Body() dto: UpdateDiscoveryScheduleDto, @Req() req: { user: AuthenticatedUser }) { return this.service.updateDiscoverySchedule(id, dto, req.user); }

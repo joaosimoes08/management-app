@@ -23,9 +23,10 @@ if (!client) { await request('/clients', { method: 'POST', body: JSON.stringify(
 else await request(`/clients/${client.id}`, { method: 'PUT', body: JSON.stringify({ ...client, ...representation }) });
 const serviceAccount = await request(`/clients/${client.id}/service-account-user`);
 const [realmManagement] = await request('/clients?clientId=realm-management');
-const [manageUsers, queryUsers] = await Promise.all([
+const [manageUsers, queryUsers, manageRealm] = await Promise.all([
   request(`/clients/${realmManagement.id}/roles/manage-users`),
   request(`/clients/${realmManagement.id}/roles/query-users`),
+  request(`/clients/${realmManagement.id}/roles/manage-realm`),
 ]);
-await request(`/users/${serviceAccount.id}/role-mappings/clients/${realmManagement.id}`, { method: 'POST', body: JSON.stringify([manageUsers, queryUsers]) });
+await request(`/users/${serviceAccount.id}/role-mappings/clients/${realmManagement.id}`, { method: 'POST', body: JSON.stringify([manageUsers, queryUsers, manageRealm]) });
 console.info(`Client ${clientId} provisionado no realm ${realm}.`);

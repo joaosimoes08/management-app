@@ -44,7 +44,7 @@ export function SubnetsView({ selected, items, usage, ips, search, setSearch, op
           ? <button className="link-button" onClick={() => openHost(ip.host!.id)}>{ip.host.name} · {ip.host._count?.services ?? 0} services</button>
           : canEdit ? <button className="secondary-button" onClick={() => createHost(ip)}><Plus size={13} /> Criar/associar Host</button> : '—'}</td>
         <td>{ip.hostname || '—'}</td>
-        <td className="table-actions">{canEdit && <button className="icon-button subtle" title="Editar IP" onClick={() => editIp(ip)}><Edit3 size={14} /></button>}</td>
+        <td className="table-actions"><button className="icon-button subtle" title={`Abrir endereço IP ${ip.address}`} aria-label={`Abrir endereço IP ${ip.address}`} onClick={() => editIp(ip)}><Edit3 size={14} /></button></td>
       </tr>)}</tbody>
     </table>
     {!ips.length && <Empty title={search ? 'Sem IPs correspondentes' : 'Ainda não existem endereços nesta subnet'} text={search ? 'Experimenta outra pesquisa.' : 'Adiciona o primeiro IP ou executa Discovery.'} />}
