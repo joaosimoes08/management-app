@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Background, BaseEdge, Controls, EdgeLabelRenderer, Handle, MiniMap, Position, ReactFlow, addEdge, applyNodeChanges, getBezierPath, type Connection, type Edge, type EdgeProps, type Node, type NodeChange, type NodeProps, type ReactFlowInstance, useEdgesState, useNodesState } from '@xyflow/react';
+import { Background, BaseEdge, Controls, EdgeLabelRenderer, Handle, MiniMap, Position, ReactFlow, applyNodeChanges, getBezierPath, type Connection, type Edge, type EdgeProps, type Node, type NodeChange, type NodeProps, type ReactFlowInstance, useEdgesState, useNodesState } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { AppShell } from '@/components/layout/app-shell';
 import { listAllDevices, listInterfaces } from '@/features/infrastructure/api';
@@ -12,8 +12,9 @@ import { AssetImage } from '@/features/infrastructure/components/asset-image';
 import { EquipmentTypeIcon } from '@/features/infrastructure/components/equipment-type-icon';
 import type { DeviceInterface } from '@/features/infrastructure/types';
 import { useSiteContext } from '@/lib/site-context';
-import { createTopologyConnection, createTopologyMap, deleteTopologyConnection, deleteTopologyMap, getTopologyMap, listTopologyMaps, replaceTopologyNodes, updateTopologyConnection } from './api';
+import { createTopologyConnection, createTopologyMap, deleteTopologyConnection, deleteTopologyMap, getTopologyConnectionPortAvailability, getTopologyMap, listTopologyMaps, replaceTopologyNodes, updateTopologyConnection } from './api';
 import { loadAllTopologyAlerts, summarizeTopologyDeviceAlerts, topologyDeviceImage, topologySeverityColor, type TopologyNodeAlertSummary } from './alerts';
+import { availableInterfaces, retainAvailableInterfaceId } from './port-availability';
 import { findTopologyNode } from './search';
 import type { TopologyConnection, TopologyMap, TopologyMapType, TopologyNode } from './types';
 
@@ -110,19 +111,28 @@ export function TopologyPage() {
   const [edgeNotes, setEdgeNotes] = useState('');
   const [sourcePortId, setSourcePortId] = useState('');
   const [targetPortId, setTargetPortId] = useState('');
+  const [pendingConnection, setPendingConnection] = useState<{ sourceDeviceId: string; targetDeviceId: string } | null>(null);
+  const [newSourcePortId, setNewSourcePortId] = useState('');
+  const [newTargetPortId, setNewTargetPortId] = useState('');
   const maps = useQuery({ queryKey: ['topology', 'maps', siteId], queryFn: () => listTopologyMaps(siteId), enabled: Boolean(siteId) });
   const detail = useQuery({ queryKey: ['topology', selected], queryFn: () => getTopologyMap(selected), enabled: Boolean(selected) });
   const devices = useQuery({ queryKey: ['topology', 'devices', siteId], queryFn: () => listAllDevices(siteId, ''), enabled: Boolean(siteId) });
   const vlans = useQuery({ queryKey: ['topology', 'vlans', siteId], queryFn: () => listVlans(siteId), enabled: Boolean(siteId) });
   const operationalAlerts = useQuery({ queryKey: ['topology', 'alerts', siteId], queryFn: async () => ({ items: await loadAllTopologyAlerts((page) => listOperationalAlerts(siteId, 100, page)) }), enabled: Boolean(siteId), refetchInterval: 30_000 });
   const current = detail.data;
+  const selectedConnection = current?.connections.find((connection) => connection.id === selectedEdgeId);
   const mapDeviceIds = current?.nodes.map((node) => node.deviceId) ?? [];
-  const interfaceData = useQuery({ queryKey: ['topology', 'interfaces', current?.id, mapDeviceIds], queryFn: async () => Object.fromEntries(await Promise.all(mapDeviceIds.map(async (id) => [id, await listInterfaces(id)]))), enabled: Boolean(current) });
+  const interfaceData = useQuery<Record<string, DeviceInterface[]>>({ queryKey: ['topology', 'interfaces', current?.id, mapDeviceIds], queryFn: async () => Object.fromEntries(await Promise.all(mapDeviceIds.map(async (id) => [id, await listInterfaces(id)]))) as Record<string, DeviceInterface[]>, enabled: Boolean(current) });
+  const interfaceAvailability = useQuery({ queryKey: ['topology', 'interface-availability', current?.id, selectedConnection?.id ?? null], queryFn: () => getTopologyConnectionPortAvailability(current!.id, selectedConnection?.id), enabled: Boolean(current) });
   const interfacesByDevice = interfaceData.data ?? EMPTY_DEVICE_INTERFACES;
+  const usedInterfaceIds = useMemo(() => new Set(interfaceAvailability.data?.usedInterfaceIds ?? []), [interfaceAvailability.data?.usedInterfaceIds]);
+  const newSourcePorts = pendingConnection ? availableInterfaces(interfacesByDevice[pendingConnection.sourceDeviceId] ?? [], usedInterfaceIds) : [];
+  const newTargetPorts = pendingConnection ? availableInterfaces(interfacesByDevice[pendingConnection.targetDeviceId] ?? [], usedInterfaceIds) : [];
+  const selectedSourcePorts = selectedConnection ? availableInterfaces(interfacesByDevice[selectedConnection.sourceDeviceId] ?? [], usedInterfaceIds) : [];
+  const selectedTargetPorts = selectedConnection ? availableInterfaces(interfacesByDevice[selectedConnection.targetDeviceId] ?? [], usedInterfaceIds) : [];
   const nodeAlertSummaries = useMemo(() => summarizeTopologyDeviceAlerts(current?.nodes ?? [], operationalAlerts.data?.items ?? []), [current?.nodes, operationalAlerts.data?.items]);
   const mapProblemCount = [...nodeAlertSummaries.values()].reduce((total, summary) => total + summary.count, 0);
   const searchMatch = current ? findTopologyNode(current.nodes, search) : undefined;
-  const selectedConnection = current?.connections.find((connection) => connection.id === selectedEdgeId);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -148,6 +158,15 @@ export function TopologyPage() {
     if (current && selectedEdgeId && !current.connections.some((connection) => connection.id === selectedEdgeId)) setSelectedEdgeId('');
   }, [current, selectedEdgeId]);
   useEffect(() => { if (selectedConnection) { setEdgeLabel(selectedConnection.label ?? ''); setEdgeType(selectedConnection.type ?? 'PHYSICAL'); setEdgeNotes(selectedConnection.notes ?? ''); setSourcePortId(selectedConnection.sourceInterfaceId ?? ''); setTargetPortId(selectedConnection.targetInterfaceId ?? ''); } }, [selectedConnection]);
+  useEffect(() => {
+    if (!interfaceAvailability.data) return;
+    const occupied = new Set(interfaceAvailability.data.usedInterfaceIds);
+    const retainFreePort = (id: string) => retainAvailableInterfaceId(id, occupied);
+    setNewSourcePortId(retainFreePort);
+    setNewTargetPortId(retainFreePort);
+    setSourcePortId(retainFreePort);
+    setTargetPortId(retainFreePort);
+  }, [interfaceAvailability.data?.usedInterfaceIds]);
   useEffect(() => () => clearTimeout(saveTimer.current), []);
   useEffect(() => {
     const compact = window.matchMedia('(max-width: 980px)');
@@ -194,15 +213,29 @@ export function TopologyPage() {
   };
   const retrySave = () => { if (pendingPositions) persist(pendingPositions); };
   const reloadMap = () => { clearTimeout(saveTimer.current); setPendingPositions(null); setSaveState('saved'); setWarning(''); void detail.refetch(); };
-  const onConnect = async (connection: Connection) => {
+  const onConnect = (connection: Connection) => {
     if (!current || !connection.source || !connection.target || connection.source === connection.target) return;
-    setEdges((items) => addEdge(connection, items));
+    const sourceDeviceId = current.nodes.find((node) => node.id === connection.source)?.deviceId;
+    const targetDeviceId = current.nodes.find((node) => node.id === connection.target)?.deviceId;
+    if (!sourceDeviceId || !targetDeviceId || sourceDeviceId === targetDeviceId) return;
+    setSelectedEdgeId('');
+    setPendingConnection({ sourceDeviceId, targetDeviceId });
+    setNewSourcePortId('');
+    setNewTargetPortId('');
+    setWarning('Seleciona uma porta livre em cada equipamento para criar a ligação.');
+  };
+  const createConnectionFromPorts = async () => {
+    if (!current || !pendingConnection || !newSourcePortId || !newTargetPortId || newSourcePortId === newTargetPortId) return;
     try {
-      await createTopologyConnection(current.id, { sourceNodeId: connection.source, targetNodeId: connection.target, revision: current.revision, type: current.type === 'PHYSICAL' ? 'PHYSICAL' : 'LOGICAL' });
-      await detail.refetch(); setWarning('');
+      await createTopologyConnection(current.id, { sourceNodeId: `${current.id}:${pendingConnection.sourceDeviceId}`, targetNodeId: `${current.id}:${pendingConnection.targetDeviceId}`, revision: current.revision, sourceInterfaceId: newSourcePortId, targetInterfaceId: newTargetPortId, type: current.type === 'PHYSICAL' ? 'PHYSICAL' : 'LOGICAL' });
+      setPendingConnection(null); setNewSourcePortId(''); setNewTargetPortId('');
+      await Promise.all([detail.refetch(), interfaceAvailability.refetch()]); setWarning('');
     } catch (error) {
-      setWarning(String(error).includes('alterado') ? 'O mapa mudou entretanto. Recarrega antes de criar a ligação.' : 'Não foi possível criar a ligação.');
-      await detail.refetch();
+      setWarning(String(error).includes('já utilizadas') ? 'Uma das portas já está ligada. Escolhe novamente entre as portas livres.' : String(error).includes('alterado') ? 'O mapa mudou entretanto. Recarrega antes de criar a ligação.' : 'Não foi possível criar a ligação.');
+      const [, availability] = await Promise.all([detail.refetch(), interfaceAvailability.refetch()]);
+      const occupied = new Set(availability.data?.usedInterfaceIds ?? []);
+      setNewSourcePortId((id) => retainAvailableInterfaceId(id, occupied));
+      setNewTargetPortId((id) => retainAvailableInterfaceId(id, occupied));
     }
   };
   const addDevice = async () => {
@@ -215,7 +248,7 @@ export function TopologyPage() {
   };
   const saveConnection = async () => {
     if (!selectedConnection) return;
-    try { await updateTopologyConnection(selectedConnection.id, { label: edgeLabel.trim() || undefined, notes: edgeNotes.trim() || undefined, type: edgeType, sourceInterfaceId: sourcePortId || null, targetInterfaceId: targetPortId || null, expectedRevisions: current ? { [current.id]: current.revision } : {} }); await detail.refetch(); setWarning(''); } catch (error) { setWarning(String(error).includes('alterado') ? 'O mapa mudou entretanto. Recarrega antes de atualizar a ligação.' : 'Não foi possível atualizar a ligação.'); await detail.refetch(); }
+    try { await updateTopologyConnection(selectedConnection.id, { label: edgeLabel.trim() || undefined, notes: edgeNotes.trim() || undefined, type: edgeType, sourceInterfaceId: sourcePortId || null, targetInterfaceId: targetPortId || null, expectedRevisions: current ? { [current.id]: current.revision } : {} }); await detail.refetch(); setWarning(''); } catch (error) { setWarning(String(error).includes('já utilizadas') ? 'Uma das portas já foi atribuída a outra ligação. Escolhe novamente entre as portas livres.' : String(error).includes('alterado') ? 'O mapa mudou entretanto. Recarrega antes de atualizar a ligação.' : 'Não foi possível atualizar a ligação.'); const [, availability] = await Promise.all([detail.refetch(), interfaceAvailability.refetch()]); const occupied = new Set(availability.data?.usedInterfaceIds ?? []); setSourcePortId((id) => retainAvailableInterfaceId(id, occupied)); setTargetPortId((id) => retainAvailableInterfaceId(id, occupied)); }
   };
   const removeConnection = async () => {
     if (!current || !selectedConnection) return;
@@ -242,12 +275,13 @@ export function TopologyPage() {
 
   const topbarActions = <div className="topology-topbar-actions">
     <select aria-label="Mapa do site" value={selected} onChange={(event) => setSelected(event.target.value)}><option value="">Seleciona mapa…</option>{mapOptions.map((map) => <option key={map.id} value={map.id}>{map.name} · {map.type.replace('_', ' ')}</option>)}</select>
+    {pendingConnection && current && <details className="topology-topbar-menu" open onToggle={(event) => { if (!event.currentTarget.open) setPendingConnection(null); }}><summary>Concluir ligação</summary><div className="topology-topbar-form"><strong>Seleciona as portas da ligação</strong><label>Porta de origem<select aria-label="Porta de origem da nova ligação" value={newSourcePortId} onChange={(event) => setNewSourcePortId(event.target.value)} disabled={interfaceData.isLoading || interfaceData.isError || interfaceAvailability.isLoading || interfaceAvailability.isError || !newSourcePorts.length}><option value="">{interfaceAvailability.isLoading ? 'A verificar disponibilidade…' : newSourcePorts.length ? 'Seleciona uma porta livre' : 'Sem portas livres'}</option>{newSourcePorts.map((port) => <option key={port.id} value={port.id}>{port.name}</option>)}</select></label><label>Porta de destino<select aria-label="Porta de destino da nova ligação" value={newTargetPortId} onChange={(event) => setNewTargetPortId(event.target.value)} disabled={interfaceData.isLoading || interfaceData.isError || interfaceAvailability.isLoading || interfaceAvailability.isError || !newTargetPorts.length}><option value="">{interfaceAvailability.isLoading ? 'A verificar disponibilidade…' : newTargetPorts.length ? 'Seleciona uma porta livre' : 'Sem portas livres'}</option>{newTargetPorts.map((port) => <option key={port.id} value={port.id}>{port.name}</option>)}</select></label>{(interfaceData.isError || interfaceAvailability.isError) && <p role="alert">Não foi possível verificar as portas livres. Atualiza o mapa e tenta novamente.</p>}<button className="primary-button" onClick={() => void createConnectionFromPorts()} disabled={!newSourcePortId || !newTargetPortId || newSourcePortId === newTargetPortId || interfaceData.isLoading || interfaceData.isError || interfaceAvailability.isLoading || interfaceAvailability.isError}>Criar ligação</button><button type="button" className="secondary-button" onClick={() => setPendingConnection(null)}>Cancelar</button></div></details>}
     <details className="topology-topbar-menu"><summary>Editar mapa</summary><div className="topology-topbar-form">
       <strong>Criar mapa</strong><label>Nome<input aria-label="Nome do novo mapa" value={name} onChange={(event) => setName(event.target.value)} placeholder="Ex.: Rede principal" /></label><label>Tipo<select aria-label="Tipo do novo mapa" value={mapType} onChange={(event) => setMapType(event.target.value as TopologyMapType)}>{types.map((type) => <option key={type}>{type}</option>)}</select></label>
       {mapType === 'VLAN_SUBNET' && <label>VLANs associadas<select multiple aria-label="VLANs do mapa" value={selectedVlanIds} onChange={(event) => setSelectedVlanIds([...event.target.selectedOptions].map((option) => option.value))}>{vlans.data?.items.map((vlan) => <option key={vlan.id} value={vlan.id}>VLAN {vlan.vlanId} · {vlan.name}</option>)}</select></label>}
       <button className="primary-button" disabled={!name.trim() || !siteId || create.isPending} onClick={() => create.mutate()}>{create.isPending ? 'A criar…' : 'Criar mapa'}</button>
       {current && <><strong>Adicionar equipamento</strong><label>Equipamento<select aria-label="Equipamento para adicionar" value={deviceId} onChange={(event) => setDeviceId(event.target.value)}><option value="">Seleciona…</option>{devices.data?.items.filter((device) => !current.nodes.some((node) => node.deviceId === device.id)).map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}</select></label><button className="secondary-button" disabled={!deviceId} onClick={() => void addDevice()}>Adicionar ao mapa</button></>}
-      {selectedConnection && <><strong>Ligação selecionada</strong><small>{selectedConnection.source === 'MANUAL' ? 'Documentada' : `Observada (${selectedConnection.source ?? 'origem desconhecida'})`}</small><label>Etiqueta<input aria-label="Etiqueta da ligação" value={edgeLabel} onChange={(event) => setEdgeLabel(event.target.value)} placeholder="Etiqueta" /></label><label>Porta de origem<select aria-label="Porta de origem" value={sourcePortId} onChange={(event) => setSourcePortId(event.target.value)}><option value="">Porta não indicada</option>{(interfacesByDevice[selectedConnection.sourceDeviceId] ?? []).map((port: DeviceInterface) => <option key={port.id} value={port.id}>{port.name}</option>)}</select></label><label>Porta de destino<select aria-label="Porta de destino" value={targetPortId} onChange={(event) => setTargetPortId(event.target.value)}><option value="">Porta não indicada</option>{(interfacesByDevice[selectedConnection.targetDeviceId] ?? []).map((port: DeviceInterface) => <option key={port.id} value={port.id}>{port.name}</option>)}</select></label><label>Percurso físico / patch panel<textarea aria-label="Percurso físico / patch panel" value={edgeNotes} onChange={(event) => setEdgeNotes(event.target.value)} placeholder="Patch panel, porta, bastidor, etiqueta do cabo…" rows={3} /></label><label>Tipo da ligação<select aria-label="Tipo da ligação" value={edgeType} onChange={(event) => setEdgeType(event.target.value as 'PHYSICAL' | 'LOGICAL')}><option value="PHYSICAL">Física</option><option value="LOGICAL">Lógica</option></select></label><button className="primary-button" onClick={() => void saveConnection()}>Guardar ligação</button><button className="secondary-button danger" onClick={() => void removeConnection()}>Remover ligação</button></>}
+      {selectedConnection && <><strong>Ligação selecionada</strong><small>{selectedConnection.source === 'MANUAL' ? 'Documentada' : `Observada (${selectedConnection.source ?? 'origem desconhecida'})`}</small><label>Etiqueta<input aria-label="Etiqueta da ligação" value={edgeLabel} onChange={(event) => setEdgeLabel(event.target.value)} placeholder="Etiqueta" /></label><label>Porta de origem<select aria-label="Porta de origem" value={sourcePortId} onChange={(event) => setSourcePortId(event.target.value)} disabled={interfaceData.isLoading || interfaceData.isError || interfaceAvailability.isLoading || interfaceAvailability.isError}><option value="">Porta não indicada</option>{selectedSourcePorts.map((port) => <option key={port.id} value={port.id}>{port.name}</option>)}</select></label><label>Porta de destino<select aria-label="Porta de destino" value={targetPortId} onChange={(event) => setTargetPortId(event.target.value)} disabled={interfaceData.isLoading || interfaceData.isError || interfaceAvailability.isLoading || interfaceAvailability.isError}><option value="">Porta não indicada</option>{selectedTargetPorts.map((port) => <option key={port.id} value={port.id}>{port.name}</option>)}</select></label>{interfaceAvailability.isError && <p role="alert">Não foi possível verificar a disponibilidade das portas.</p>}<label>Percurso físico / patch panel<textarea aria-label="Percurso físico / patch panel" value={edgeNotes} onChange={(event) => setEdgeNotes(event.target.value)} placeholder="Patch panel, porta, bastidor, etiqueta do cabo…" rows={3} /></label><label>Tipo da ligação<select aria-label="Tipo da ligação" value={edgeType} onChange={(event) => setEdgeType(event.target.value as 'PHYSICAL' | 'LOGICAL')}><option value="PHYSICAL">Física</option><option value="LOGICAL">Lógica</option></select></label><button className="primary-button" onClick={() => void saveConnection()} disabled={interfaceAvailability.isLoading || interfaceAvailability.isError || interfaceData.isLoading || interfaceData.isError}>Guardar ligação</button><button className="secondary-button danger" onClick={() => void removeConnection()}>Remover ligação</button></>}
       {selected && <button className="secondary-button danger" onClick={() => remove.mutate()} disabled={remove.isPending}>{remove.isPending ? 'A eliminar…' : 'Eliminar mapa'}</button>}
       {warning && <p className="ipam-alert error" role="alert">{warning} {create.isError && <button type="button" className="secondary-button" onClick={() => create.mutate()}>Tentar criar novamente</button>} {remove.isError && <button type="button" className="secondary-button" onClick={() => remove.mutate()}>Tentar eliminar novamente</button>}</p>}
     </div></details>

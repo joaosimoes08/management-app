@@ -42,7 +42,7 @@ test('standalone connection update validates interface ownership before saving p
     deviceConnection: { findUnique: async () => ({ id: 'connection', siteId: 'site', sourceDeviceId: 'a', targetDeviceId: 'b', maps: [] }) },
     device: { findMany: async () => [{ id: 'a', siteId: 'site' }, { id: 'b', siteId: 'site' }] },
     deviceInterface: { findMany: async () => [{ id: 'port-a', deviceId: 'a' }, { id: 'port-b', deviceId: 'b' }] },
-    $transaction: async (work: (tx: any) => Promise<unknown>) => work({ topologyMap: { updateMany: async () => ({ count: 1 }) }, deviceConnection: { update: async ({ data }: any) => { saved = data; return data; } } }),
+    $transaction: async (work: (tx: any) => Promise<unknown>) => work({ topologyMap: { updateMany: async () => ({ count: 1 }) }, deviceConnection: { findMany: async () => [], update: async ({ data }: any) => { saved = data; return data; } } }),
   };
   const access = { assertSite: async () => undefined, assertDevice: async () => undefined };
   const service = new TopologyService(prisma as never, access as never, {} as never, { record: async () => undefined } as never);
@@ -53,4 +53,73 @@ test('standalone connection update validates interface ownership before saving p
     (error: any) => error.getStatus() === 404,
   );
   assert.deepEqual(saved, { sourceInterfaceId: 'port-a', targetInterfaceId: 'port-b', notes: 'Panel PP-01, porta 12' });
+});
+
+test('map connection creation rejects a port already used by another connection', async () => {
+  let created = false;
+  const map = { id: 'map', siteId: 'site', type: 'PHYSICAL', revision: 2, nodes: [], connections: [] };
+  const prisma = {
+    topologyMap: { findUnique: async () => map },
+    topologyMapNode: { findMany: async () => [{ deviceId: 'a' }, { deviceId: 'b' }] },
+    device: { findMany: async () => [{ id: 'a', siteId: 'site' }, { id: 'b', siteId: 'site' }] },
+    deviceInterface: { findMany: async () => [{ id: 'port-a', deviceId: 'a' }, { id: 'port-b', deviceId: 'b' }] },
+    $transaction: async (work: (tx: any) => Promise<unknown>) => work({
+      deviceConnection: {
+        findMany: async () => [{ sourceInterfaceId: 'port-a', targetInterfaceId: 'port-x' }],
+        create: async () => { created = true; return { id: 'new-connection' }; },
+      },
+      topologyMap: { updateMany: async () => ({ count: 1 }) },
+      topologyMapConnection: { create: async () => undefined },
+    }),
+  };
+  const access = { assertSite: async () => undefined, assertDevice: async () => undefined };
+  const service = new TopologyService(prisma as never, access as never, {} as never, { record: async () => undefined } as never);
+  await assert.rejects(
+    service.createConnection(user, 'map', { sourceDeviceId: 'a', targetDeviceId: 'b', sourceInterfaceId: 'port-a', targetInterfaceId: 'port-b', revision: 2 }),
+    (error: any) => error.getStatus() === 409 && error.getResponse().code === 'TOPOLOGY_INTERFACE_ALREADY_CONNECTED',
+  );
+  assert.equal(created, false);
+});
+
+test('connection serialization conflicts return a retryable API conflict', async () => {
+  const prisma = {
+    $transaction: async () => { throw Object.assign(new Error('serialization conflict'), { code: 'P2034' }); },
+  };
+  const service = new TopologyService(prisma as never, {} as never, {} as never, {} as never);
+  await assert.rejects(
+    (service as any).connectionTransaction(async () => undefined),
+    (error: any) => error.getStatus() === 409 && error.getResponse().code === 'TOPOLOGY_CONNECTION_CONCURRENT_UPDATE',
+  );
+});
+
+test('port availability includes cross-map and standalone links while excluding the edited connection', async () => {
+  let availabilityWhere: any;
+  const map = {
+    id: 'map', siteId: 'site', type: 'PHYSICAL', revision: 2,
+    nodes: [{ deviceId: 'a' }, { deviceId: 'b' }],
+    connections: [{ connection: { id: 'current', siteId: 'site', sourceDeviceId: 'a', targetDeviceId: 'b', sourceInterfaceId: 'port-a', targetInterfaceId: 'port-b' } }],
+  };
+  const connections = [
+    { id: 'current', sourceInterfaceId: 'port-a', targetInterfaceId: 'port-b' },
+    { id: 'other-map-link', sourceInterfaceId: 'port-c', targetInterfaceId: null },
+    { id: 'standalone-link', sourceInterfaceId: null, targetInterfaceId: 'port-b' },
+  ];
+  const prisma = {
+    topologyMap: { findUnique: async () => map },
+    deviceConnection: {
+      findUnique: async () => ({ id: 'current', siteId: 'site', sourceDeviceId: 'a', targetDeviceId: 'b', maps: [{ mapId: 'map' }] }),
+      findMany: async ({ where }: any) => {
+        availabilityWhere = where;
+        return connections.filter((connection) => connection.id !== where.id?.not);
+      },
+    },
+    deviceInterface: { findMany: async () => [{ id: 'port-a' }, { id: 'port-b' }, { id: 'port-c' }] },
+  };
+  const access = { assertSite: async () => undefined, assertDevice: async () => undefined };
+  const service = new TopologyService(prisma as never, access as never, {} as never, {} as never);
+  const result = await service.connectionPortAvailability(user, 'map', 'current');
+  assert.deepEqual(new Set(result.usedInterfaceIds), new Set(['port-c', 'port-b']));
+  assert.equal(availabilityWhere.siteId, undefined);
+  assert.equal(availabilityWhere.id.not, 'current');
+  assert.deepEqual(availabilityWhere.OR, [{ sourceDeviceId: { in: ['a', 'b'] } }, { targetDeviceId: { in: ['a', 'b'] } }]);
 });

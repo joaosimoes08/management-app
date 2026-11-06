@@ -44,6 +44,28 @@ export class TopologyService {
       if ((dto.sourceInterfaceId && !interfaces.some((item: any) => item.id === dto.sourceInterfaceId && item.deviceId === dto.sourceDeviceId)) || (dto.targetInterfaceId && !interfaces.some((item: any) => item.id === dto.targetInterfaceId && item.deviceId === dto.targetDeviceId))) throw new NotFoundException('A interface não pertence ao dispositivo indicado');
     }
   }
+  private async validateConnectionPortsAvailable(dto: { sourceInterfaceId?: string | null; targetInterfaceId?: string | null }, db = this.db(), excludeConnectionId?: string) {
+    const interfaceIds = [...new Set([dto.sourceInterfaceId, dto.targetInterfaceId].filter((id): id is string => Boolean(id)))];
+    if (!interfaceIds.length) return;
+    const existing = await db.deviceConnection.findMany({
+      where: { ...(excludeConnectionId ? { id: { not: excludeConnectionId } } : {}), OR: [{ sourceInterfaceId: { in: interfaceIds } }, { targetInterfaceId: { in: interfaceIds } }] },
+      select: { sourceInterfaceId: true, targetInterfaceId: true },
+    });
+    const occupied = new Set(existing.flatMap((item: any) => [item.sourceInterfaceId, item.targetInterfaceId].filter(Boolean)));
+    if (interfaceIds.some((id) => occupied.has(id))) {
+      throw new ConflictException({ code: 'TOPOLOGY_INTERFACE_ALREADY_CONNECTED', message: 'Uma ou mais portas já estão utilizadas noutra ligação.' });
+    }
+  }
+  private async connectionTransaction<T>(work: (tx: any) => Promise<T>): Promise<T> {
+    try {
+      return await this.db().$transaction(work, { isolationLevel: 'Serializable' });
+    } catch (error) {
+      if ((error as { code?: string })?.code === 'P2034') {
+        throw new ConflictException({ code: 'TOPOLOGY_CONNECTION_CONCURRENT_UPDATE', message: 'A ligação mudou em paralelo. Atualiza o mapa e tenta novamente.' });
+      }
+      throw error;
+    }
+  }
   private async assertConnectionVisible(user: AuthenticatedUser, connection: { sourceDeviceId: string; targetDeviceId: string }) {
     await Promise.all([this.access.assertDevice(user, 'READ', connection.sourceDeviceId), this.access.assertDevice(user, 'READ', connection.targetDeviceId)]);
   }
@@ -80,6 +102,27 @@ export class TopologyService {
     }
     const finalIds = new Set(nodes.map((node: any) => node.deviceId));
     return { ...item, nodes, connections: item.connections.filter((connection: any) => finalIds.has(connection.sourceDeviceId) && finalIds.has(connection.targetDeviceId)) };
+  }
+  async connectionPortAvailability(user: AuthenticatedUser, mapId: string, excludeConnectionId?: string) {
+    const map = await this.map(mapId);
+    await this.authorizeMap(user, 'READ', map.siteId, map.type);
+    const visibleDeviceIds = (await Promise.all(map.nodes.map(async (node: any) => {
+      try { await this.access.assertDevice(user, 'READ', node.deviceId); return node.deviceId; } catch { return null; }
+    }))).filter((id): id is string => Boolean(id));
+    if (excludeConnectionId) {
+      const excluded = await this.db().deviceConnection.findUnique({ where: { id: excludeConnectionId }, include: { maps: { select: { mapId: true } } } });
+      if (!excluded || excluded.siteId !== map.siteId || !excluded.maps.some((association: any) => association.mapId === mapId)) throw new NotFoundException('Ligação não encontrada neste mapa');
+      await this.assertConnectionVisible(user, excluded);
+    }
+    if (!visibleDeviceIds.length) return { usedInterfaceIds: [] };
+    const interfaces = await this.db().deviceInterface.findMany({ where: { deviceId: { in: visibleDeviceIds } }, select: { id: true } });
+    const interfaceIds = new Set(interfaces.map((item: any) => item.id));
+    const connections = await this.db().deviceConnection.findMany({
+      where: { ...(excludeConnectionId ? { id: { not: excludeConnectionId } } : {}), OR: [{ sourceDeviceId: { in: visibleDeviceIds } }, { targetDeviceId: { in: visibleDeviceIds } }] },
+      select: { sourceInterfaceId: true, targetInterfaceId: true },
+    });
+    const usedInterfaceIds = new Set(connections.flatMap((item: any) => [item.sourceInterfaceId, item.targetInterfaceId]).filter((id: unknown): id is string => typeof id === 'string' && interfaceIds.has(id)));
+    return { usedInterfaceIds: [...usedInterfaceIds] };
   }
   async create(user: AuthenticatedUser, dto: CreateTopologyMapDto) {
     await this.authorizeMap(user, 'CREATE', dto.siteId, dto.type);
@@ -124,7 +167,8 @@ export class TopologyService {
     if (nodes.length !== 2) throw new NotFoundException('Os dispositivos não pertencem a este mapa');
     await this.validateConnectionEndpoints(existing.siteId, dto);
     await this.assertConnectionVisible(user, dto);
-    const connection = await this.db().$transaction(async (tx: any) => {
+    const connection = await this.connectionTransaction(async (tx: any) => {
+      await this.validateConnectionPortsAvailable(dto, tx);
       await this.advanceRevision(tx, mapId, dto.revision ?? existing.revision);
       const created = await tx.deviceConnection.create({ data: { siteId: existing.siteId, sourceDeviceId: dto.sourceDeviceId, targetDeviceId: dto.targetDeviceId, sourceInterfaceId: dto.sourceInterfaceId, targetInterfaceId: dto.targetInterfaceId, type: dto.type ?? 'PHYSICAL', label: dto.label, createdById: user.id } });
       await tx.topologyMapConnection.create({ data: { mapId, connectionId: created.id } });
@@ -178,7 +222,10 @@ export class TopologyService {
     await this.authorizeMap(user, 'CREATE', dto.siteId, 'NETWORK');
     await this.validateConnectionEndpoints(dto.siteId, dto);
     await this.assertConnectionVisible(user, dto);
-    const item = await this.db().deviceConnection.create({ data: { ...dto, type: dto.type ?? 'PHYSICAL', createdById: user.id } });
+    const item = await this.connectionTransaction(async (tx: any) => {
+      await this.validateConnectionPortsAvailable(dto, tx);
+      return tx.deviceConnection.create({ data: { ...dto, type: dto.type ?? 'PHYSICAL', createdById: user.id } });
+    });
     await this.audit.record({ userId: user.id, action: 'DEVICE_CONNECTION_CREATED', entityType: 'DeviceConnection', entityId: item.id, metadata: { siteId: dto.siteId } });
     return item;
   }
@@ -196,7 +243,13 @@ export class TopologyService {
         targetInterfaceId: data.targetInterfaceId ?? undefined,
       });
     }
-    const item = await this.db().$transaction(async (tx: any) => {
+    const item = await this.connectionTransaction(async (tx: any) => {
+      if (data.sourceInterfaceId !== undefined || data.targetInterfaceId !== undefined) {
+        await this.validateConnectionPortsAvailable({
+          sourceInterfaceId: data.sourceInterfaceId === undefined ? existing.sourceInterfaceId : data.sourceInterfaceId,
+          targetInterfaceId: data.targetInterfaceId === undefined ? existing.targetInterfaceId : data.targetInterfaceId,
+        }, tx, id);
+      }
       for (const association of existing.maps) {
         const expected = expectedRevisions?.[association.mapId] ?? association.map.revision;
         const result = await tx.topologyMap.updateMany({ where: { id: association.mapId, revision: expected }, data: { revision: { increment: 1 } } });
