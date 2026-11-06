@@ -188,6 +188,14 @@ export class TopologyService {
     await this.authorizeMap(user, 'UPDATE', existing.siteId, 'NETWORK');
     await this.assertConnectionVisible(user, existing);
     const { expectedRevisions, ...data } = dto;
+    if (data.sourceInterfaceId !== undefined || data.targetInterfaceId !== undefined) {
+      await this.validateConnectionEndpoints(existing.siteId, {
+        sourceDeviceId: existing.sourceDeviceId,
+        targetDeviceId: existing.targetDeviceId,
+        sourceInterfaceId: data.sourceInterfaceId ?? undefined,
+        targetInterfaceId: data.targetInterfaceId ?? undefined,
+      });
+    }
     const item = await this.db().$transaction(async (tx: any) => {
       for (const association of existing.maps) {
         const expected = expectedRevisions?.[association.mapId] ?? association.map.revision;

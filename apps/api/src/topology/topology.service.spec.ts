@@ -35,3 +35,22 @@ test('standalone connection update rejects a stale associated map revision witho
   await assert.rejects(service.updateStandaloneConnection(user, 'connection', { label: 'stale', expectedRevisions: { 'map-a': 3 } }), (error: any) => error.getStatus() === 409);
   assert.equal(updated, false);
 });
+
+test('standalone connection update validates interface ownership before saving ports', async () => {
+  let saved: any;
+  const prisma = {
+    deviceConnection: { findUnique: async () => ({ id: 'connection', siteId: 'site', sourceDeviceId: 'a', targetDeviceId: 'b', maps: [] }) },
+    device: { findMany: async () => [{ id: 'a', siteId: 'site' }, { id: 'b', siteId: 'site' }] },
+    deviceInterface: { findMany: async () => [{ id: 'port-a', deviceId: 'a' }, { id: 'port-b', deviceId: 'b' }] },
+    $transaction: async (work: (tx: any) => Promise<unknown>) => work({ topologyMap: { updateMany: async () => ({ count: 1 }) }, deviceConnection: { update: async ({ data }: any) => { saved = data; return data; } } }),
+  };
+  const access = { assertSite: async () => undefined, assertDevice: async () => undefined };
+  const service = new TopologyService(prisma as never, access as never, {} as never, { record: async () => undefined } as never);
+  await service.updateStandaloneConnection(user, 'connection', { sourceInterfaceId: 'port-a', targetInterfaceId: 'port-b', notes: 'Panel PP-01, porta 12' });
+  assert.deepEqual(saved, { sourceInterfaceId: 'port-a', targetInterfaceId: 'port-b', notes: 'Panel PP-01, porta 12' });
+  await assert.rejects(
+    service.updateStandaloneConnection(user, 'connection', { sourceInterfaceId: 'port-b' }),
+    (error: any) => error.getStatus() === 404,
+  );
+  assert.deepEqual(saved, { sourceInterfaceId: 'port-a', targetInterfaceId: 'port-b', notes: 'Panel PP-01, porta 12' });
+});
