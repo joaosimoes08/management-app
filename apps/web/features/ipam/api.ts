@@ -113,7 +113,7 @@ export function createHost(body: HostInput): Promise<HostDetail> {
   return apiFetch<HostDetail>('/api/v1/hosts', { method: 'POST', body: JSON.stringify(body) });
 }
 
-export function updateHost(id: string, body: Partial<HostInput>): Promise<HostDetail> {
+export function updateHost(id: string, body: Partial<{ [Key in keyof HostInput]: HostInput[Key] | null }>): Promise<HostDetail> {
   return apiFetch<HostDetail>(`/api/v1/hosts/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
@@ -127,6 +127,10 @@ export function unlinkHostIpAddress(hostId: string, ipId: string): Promise<unkno
 
 export function createService(body: ServiceInput): Promise<unknown> {
   return apiFetch('/api/v1/services', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function updateService(id: string, body: Partial<{ [Key in keyof Omit<ServiceInput, 'hostId'>]: Omit<ServiceInput, 'hostId'>[Key] | null }>): Promise<unknown> {
+  return apiFetch(`/api/v1/services/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
 export function deleteService(id: string): Promise<unknown> {
