@@ -512,8 +512,9 @@ export function InfrastructureWorkspace() {
   };
 
   const bulkUpdateDevices = async (ids: string[], changes: { status?: string; modelId?: string | null; rackId?: string | null }) => {
-    try { await apiBulkUpdateDevices(ids, changes); await invalidateInfrastructure(); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : 'Não foi possível atualizar os equipamentos selecionados.'); }
+    const outcome = await apiBulkUpdateDevices(ids, changes);
+    await invalidateInfrastructure();
+    return outcome;
   };
 
   if (!siteId) return <AppShell section="Infraestrutura"><main className="module-page infrastructure-workspace"><header className="workspace-head"><div><span className="section-kicker">MAPA FÍSICO</span><h1>Infraestrutura</h1><p>Seleciona um Site na barra lateral para começar.</p></div></header><section className="ipam-card empty-context"><MapPinned size={28} /><strong>Seleciona um Site na barra lateral</strong></section></main></AppShell>;

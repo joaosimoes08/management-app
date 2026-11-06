@@ -3,7 +3,8 @@ import { PrismaClient } from '@simoes/database';
 import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { CreateAssetDto, CreateBuildingDto, CreateDeviceDto, CreateDeviceModelDto, CreateInterfaceDto, CreateRackDto, CreateRackModelDto, CreateRoomDto, DetectPortLayoutDto, PlaceDeviceDto, ReorderRacksDto, UpdateBuildingDto, UpdateDeviceDto, UpdateDeviceModelDto, UpdateInterfaceDto, UpdateRackDto, UpdateRackModelDto, UpdateRoomDto } from './dto';
-import { planRackPlacement } from './rack-placement';
+import { findRackImportOverlaps, planRackPlacement } from './rack-placement';
+import { updateDevicesIndividually } from './bulk-update';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { extname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -154,7 +155,7 @@ export class InfrastructureService implements OnModuleInit {
       if (duplicateKeys.some((key) => seen.has(key))) errors.push('Duplicado noutra linha do ficheiro');
       duplicateKeys.forEach((key) => seen.add(key));
       const ors: Record<string, string>[] = []; if (row.serialNumber) ors.push({ serialNumber: String(row.serialNumber) }); if (row.assetTag) ors.push({ assetTag: String(row.assetTag) }); if (row.managementIp) ors.push({ managementIp: String(row.managementIp) });
-      if (ors.length && await this.prisma.device.findFirst({ where: { siteId, OR: ors as any }, select: { id: true, name: true } })) errors.push('Conflito: número de série ou etiqueta já existe neste Site');
+      if (ors.length && await this.prisma.device.findFirst({ where: { siteId, OR: ors as any }, select: { id: true, name: true } })) errors.push('Conflito: número de série, etiqueta ou IP de gestão já existe neste Site');
       if (row.modelId) { try { await this.validateDeviceModel(String(row.modelId)); } catch (cause) { errors.push(cause instanceof Error ? cause.message : 'Modelo inválido'); } }
       if (row.rackId) {
         try { await this.access.assertRack(user, 'CREATE', String(row.rackId), 'DEVICE', row.type); if (await this.rackSiteId(String(row.rackId)) !== siteId) errors.push('O bastidor não pertence ao Site selecionado'); await this.validateRackPlacement({ ...row, siteId }); }
@@ -162,6 +163,8 @@ export class InfrastructureService implements OnModuleInit {
       }
       preview.push({ rowNumber: index + 2, data: row, errors, valid: errors.length === 0 });
     }
+    const batchOverlaps = findRackImportOverlaps(preview.map((item) => ({ rowNumber: item.rowNumber, rackId: String(item.data.rackId ?? ''), rackUnitStart: Number(item.data.rackUnitStart), rackUnitSize: Number(item.data.rackUnitSize) })));
+    for (const row of preview) if (batchOverlaps.includes(row.rowNumber)) { row.errors.push('Sobreposição com outra linha do ficheiro neste bastidor'); row.valid = false; }
     return { total: preview.length, valid: preview.filter((item) => item.valid).length, invalid: preview.length - preview.filter((item) => item.valid).length, rows: preview };
   }
   async importDevices(siteId: string, rows: Record<string, unknown>[], user: AuthenticatedUser) {
@@ -207,14 +210,13 @@ export class InfrastructureService implements OnModuleInit {
         for (let unit = start; unit < start + size; unit++) occupied.add(unit);
       }
     }
-    const updated = [];
-    for (const device of currentDevices) {
+    const outcome = await updateDevicesIndividually(currentDevices, async (device) => {
       const targetSiteId = device.rack?.room.building.siteId ?? device.siteId;
       const dto: UpdateDeviceDto = { name: device.name, type: device.type, hostname: device.hostname ?? undefined, managementIp: device.managementIp ?? undefined, serialNumber: device.serialNumber ?? undefined, assetTag: device.assetTag ?? undefined, status: changes.status ?? device.status, modelId: changes.modelId === undefined ? device.modelId ?? undefined : changes.modelId as any, siteId: targetSiteId ?? undefined, rackId: changes.rackId === undefined ? device.rackId ?? undefined : changes.rackId as any, rackUnitStart: changes.rackId === undefined ? device.rackUnitStart ?? undefined : changes.rackId === null ? null as any : targetUnits.get(device.id), rackUnitSize: device.rackUnitSize ?? undefined, frontAssetId: device.frontAssetId ?? undefined, notes: device.notes ?? undefined };
-      updated.push(await this.updateDevice(device.id, dto, user, true));
-    }
-    await this.log(user, 'DEVICES_BULK_UPDATED', 'Device', 'bulk', { deviceIds: ids, changes });
-    return { updated: updated.length, devices: updated };
+      return this.updateDevice(device.id, dto, user, true);
+    });
+    await this.log(user, 'DEVICES_BULK_UPDATED', 'Device', 'bulk', { deviceIds: outcome.updatedIds, failed: outcome.failed, changes });
+    return { updated: outcome.updatedIds.length, updatedIds: outcome.updatedIds, failed: outcome.failed };
   }
   private async validateDeviceModel(modelId?: string) { if (!modelId) return; const model = await this.prisma.deviceModel.findUnique({ where: { id: modelId }, select: { model: true, supportsNetworkPorts: true, networkPortCount: true, portCount: true, portLayout: true } }); if (!model) throw new NotFoundException('Modelo não encontrado'); const ports = (model.portLayout as any)?.ports; if (model.supportsNetworkPorts && (model.networkPortCount || model.portCount) && (!Array.isArray(ports) || !ports.length)) throw new ConflictException('O modelo tem de ter as portas mapeadas antes de criar o equipamento'); }
   private async validateDeviceFrontAsset(frontAssetId?: string) { if (!frontAssetId) return; const asset = await this.prisma.assetFile.count({ where: { id: frontAssetId } }); if (asset !== 1) throw new NotFoundException('A imagem frontal selecionada não foi encontrada'); }

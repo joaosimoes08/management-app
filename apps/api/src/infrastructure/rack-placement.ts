@@ -29,6 +29,26 @@ const overlaps = (left: RackPlacementDevice, right: RackPlacementDevice) => {
   return left.rackUnitStart <= rightEnd && leftEnd >= right.rackUnitStart;
 };
 
+export type RackImportPlacement = { rowNumber: number; rackId: string; rackUnitStart: number; rackUnitSize: number };
+
+/** Finds incoming CSV rows that overlap one another in the same rack. */
+export function findRackImportOverlaps(rows: RackImportPlacement[]): number[] {
+  const conflicts = new Set<number>();
+  for (let leftIndex = 0; leftIndex < rows.length; leftIndex++) {
+    const left = rows[leftIndex];
+    if (!left.rackId || !Number.isInteger(left.rackUnitStart) || left.rackUnitStart < 1 || !Number.isInteger(left.rackUnitSize) || left.rackUnitSize < 1) continue;
+    for (let rightIndex = leftIndex + 1; rightIndex < rows.length; rightIndex++) {
+      const right = rows[rightIndex];
+      if (!right.rackId || left.rackId !== right.rackId || !Number.isInteger(right.rackUnitStart) || right.rackUnitStart < 1 || !Number.isInteger(right.rackUnitSize) || right.rackUnitSize < 1) continue;
+      if (left.rackUnitStart <= right.rackUnitStart + right.rackUnitSize - 1 && left.rackUnitStart + left.rackUnitSize - 1 >= right.rackUnitStart) {
+        conflicts.add(left.rowNumber);
+        conflicts.add(right.rowNumber);
+      }
+    }
+  }
+  return [...conflicts].sort((a, b) => a - b);
+}
+
 const fits = (device: RackPlacementDevice, rack: RackPlacementRack, placed: RackPlacementDevice[]) => (
   device.rackUnitStart >= 1
   && device.rackUnitStart + device.rackUnitSize - 1 <= rack.units
