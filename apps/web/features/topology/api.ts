@@ -13,5 +13,5 @@ export const createTopologyConnection = (id: string, body: { sourceNodeId: strin
     body: JSON.stringify({ ...connection, sourceDeviceId: sourceNodeId.split(':').pop(), targetDeviceId: targetNodeId.split(':').pop() }),
   });
 };
-export const updateTopologyConnection = (connectionId: string, body: { label?: string; notes?: string; type?: 'PHYSICAL' | 'LOGICAL'; expectedRevisions?: Record<string, number> }) => apiFetch<TopologyConnection>(`/api/v1/topology/connections/${connectionId}`, { method: 'PATCH', body: JSON.stringify(body) });
+export const updateTopologyConnection = (connectionId: string, body: { label?: string; notes?: string; type?: 'PHYSICAL' | 'LOGICAL'; sourceInterfaceId?: string | null; targetInterfaceId?: string | null; expectedRevisions?: Record<string, number> }) => apiFetch<TopologyConnection>(`/api/v1/topology/connections/${connectionId}`, { method: 'PATCH', body: JSON.stringify(body) });
 export const deleteTopologyConnection = (mapId: string, connectionId: string, revision: number) => apiFetch(`/api/v1/topology/maps/${mapId}/connections/${connectionId}?revision=${revision}`, { method: 'DELETE' });
