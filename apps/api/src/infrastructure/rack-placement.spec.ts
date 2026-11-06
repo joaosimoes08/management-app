@@ -1,6 +1,6 @@
 import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { planRackPlacement, RackPlacementRack } from './rack-placement';
+import { findRackImportOverlaps, planRackPlacement, RackPlacementRack } from './rack-placement';
 
 const racks = (): RackPlacementRack[] => [
   {
@@ -62,4 +62,12 @@ test('swaps devices inside the same rack when there is no space below', () => {
 test('clamps a drop to the rack boundaries', () => {
   const plan = planRackPlacement(racks(), 'moving', 'rack-a', 42);
   assert.equal(plan.target.rackUnitStart, 41);
+});
+
+test('flags overlaps between rack placements in the same incoming import', () => {
+  assert.deepEqual(findRackImportOverlaps([
+    { rowNumber: 2, rackId: 'rack-a', rackUnitStart: 5, rackUnitSize: 2 },
+    { rowNumber: 3, rackId: 'rack-a', rackUnitStart: 6, rackUnitSize: 1 },
+    { rowNumber: 4, rackId: 'rack-b', rackUnitStart: 5, rackUnitSize: 2 },
+  ]), [2, 3]);
 });
