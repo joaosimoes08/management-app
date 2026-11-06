@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Edit3, Plus, Server } from 'lucide-react';
+import { Archive, Edit3, Plus, Server } from 'lucide-react';
 import { EquipmentTypeIcon } from '../equipment-type-icon';
 import { AssetImage } from '../asset-image';
 import type { Device } from '../../types';
@@ -13,6 +13,8 @@ export interface DeviceListProps {
   onSelect: (device: Device) => void;
   onEdit: (device: Device) => void;
   onNew: () => void;
+  onRetire: (device: Device) => void;
+  canRetire: boolean;
   canEdit: boolean;
   selectedId?: string;
   models?: DeviceModel[];
@@ -23,7 +25,7 @@ export interface DeviceListProps {
 }
 
 /** Active device inventory of the site. */
-export function DeviceList({ devices, search, onSelect, onEdit, onNew, canEdit, selectedId, models = [], racks = [], onImport, canImport = canEdit, onBulkUpdate }: DeviceListProps) {
+export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire, canRetire, canEdit, selectedId, models = [], racks = [], onImport, canImport = canEdit, onBulkUpdate }: DeviceListProps) {
   const [selected, setSelected] = useState<string[]>([]);
   const [status, setStatus] = useState('');
   const [modelId, setModelId] = useState('');
@@ -68,6 +70,7 @@ export function DeviceList({ devices, search, onSelect, onEdit, onNew, canEdit, 
       <span><strong>{device.name}</strong><small>{device.type} · {device.model ? `${device.model.manufacturer} ${device.model.model}` : 'Sem modelo'} · {device.managementIp || 'Sem IP de gestão'} · {device.rack ? `${device.rack.name} / ${device.rackUnitStart ?? '?'}U` : 'Por localizar'}</small></span>
       <em className="status-active">{device.status}</em>
       {canEdit && <button className="icon-button subtle" onClick={(event) => { event.stopPropagation(); onEdit(device); }}><Edit3 size={14} /></button>}
+      {canRetire && <button type="button" className="icon-button subtle" aria-label={`Rever retirada de ${device.name}`} onClick={(event) => { event.stopPropagation(); onRetire(device); }}><Archive size={14} /></button>}
     </div>)}
     {!devices.length && <div className="empty-context"><Server size={26} /><strong>{search ? 'Sem equipamentos correspondentes' : 'Não existem equipamentos ativos neste Site'}</strong></div>}
   </section>;

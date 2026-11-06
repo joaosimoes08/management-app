@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Boxes, HardDrive, KeyRound, Layers, MapPinned, Server, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -19,7 +19,6 @@ import {
   createRoom as apiCreateRoom,
   deleteAsset as apiDeleteAsset,
   deleteRack as apiDeleteRack,
-  bulkUpdateDevices as apiBulkUpdateDevices,
   detectDeviceModelPortLayout,
   generateInterfaces as apiGenerateInterfaces,
   getDevice,
@@ -42,7 +41,8 @@ import { BuildingModal } from './components/sites/building-modal';
 import { RoomModal } from './components/sites/room-modal';
 import { RackWorkspace } from './components/rack/rack-workspace';
 import { DeviceList } from './components/devices/device-list';
-import { DeviceImport } from './components/devices/device-import';
+import { RetirementReviewModal } from './components/devices/retirement-review-modal';
+import { DeepLinkDeviceLoader } from './components/devices/deep-link-device-loader';
 import { ModelList } from './components/models/model-list';
 import { InterfaceWorkspace } from './components/models/interface-workspace';
 import { InterfaceEditor } from './components/models/interface-editor';
@@ -69,6 +69,7 @@ export function InfrastructureWorkspace() {
   const [roomId, setRoomId] = useState('');
   const [rackId, setRackId] = useState('');
   const [device, setDevice] = useState<Device | null>(null);
+  const [retirementDeviceId, setRetirementDeviceId] = useState('');
   const [selectedInterface, setSelectedInterface] = useState<DeviceInterface | null>(null);
   const [modal, setModal] = useState('');
   const [editingId, setEditingId] = useState('');
@@ -91,7 +92,6 @@ export function InfrastructureWorkspace() {
   const [layoutAssetId, setLayoutAssetId] = useState('');
   const [layoutSaving, setLayoutSaving] = useState(false);
   const [layoutError, setLayoutError] = useState('');
-  const [showDeviceImport, setShowDeviceImport] = useState(false);
   const clickRef = useRef({ key: '', at: 0 });
 
   // ── Server state (React Query) ───────────────────────────────────────────
@@ -133,6 +133,8 @@ export function InfrastructureWorkspace() {
     queryFn: () => listDevices(siteId, tab === 'devices' ? debouncedSearch : ''),
     enabled: Boolean(siteId),
   });
+  const deepLinkQuery = typeof window === 'undefined' ? null : new URLSearchParams(window.location.search);
+  const deepLinkedDeviceId = deepLinkQuery?.get('focus') === 'device' ? deepLinkQuery.get('deviceId') : null;
   const deviceId = device?.id ?? '';
   const { data: interfacesData } = useQuery({
     queryKey: ['infrastructure', 'interfaces', deviceId],
@@ -140,6 +142,12 @@ export function InfrastructureWorkspace() {
     enabled: Boolean(deviceId),
     select: (data) => [...data].sort(naturalInterfaceCompare),
   });
+  useEffect(() => {
+    const requested = new URLSearchParams(location.search).get('interfaceId');
+    if (!requested || !interfacesData) return;
+    const target = interfacesData.find((item) => item.id === requested);
+    if (target) setSelectedInterface(target);
+  }, [interfacesData]);
 
   // Debounced device search (matches the original 250ms delay).
   useEffect(() => {
@@ -237,7 +245,6 @@ export function InfrastructureWorkspace() {
       ? effective?.infrastructure?.buildings?.find((item) => item.id === buildingId)?.actions ?? []
       : effective?.infrastructure?.site ?? [];
   const canEdit = (roomId ? roleCanEdit : hasRole('ADMIN') || hasRole('SYSTEMS_OPERATOR')) && scopeActions.some((action) => action !== 'READ');
-  const canImportDevices = roleCanEdit && (effective?.infrastructure?.site ?? []).includes('CREATE');
   const canCreateBuilding = (hasRole('ADMIN') || hasRole('SYSTEMS_OPERATOR')) && (effective?.infrastructure?.site ?? []).includes('CREATE');
   const canCreateRoom = (hasRole('ADMIN') || hasRole('SYSTEMS_OPERATOR')) && Boolean(buildingId) && (effective?.infrastructure?.buildings?.find((item) => item.id === buildingId)?.actions ?? []).includes('CREATE');
 
@@ -301,14 +308,14 @@ export function InfrastructureWorkspace() {
       setError(cause instanceof Error ? cause.message : 'Não foi possível criar a sala.');
     }
   };
-  const openDevice = (selected: Device) => {
+  const openDevice = useCallback((selected: Device) => {
     rememberRecentItem(user?.id, { id: `device:${selected.id}`, kind: 'Equipamento', label: selected.name, href: `/infraestrutura?siteId=${encodeURIComponent(siteId)}&deviceId=${encodeURIComponent(selected.id)}` });
     setDevice(selected);
     setTab(canUseInterfaces ? 'interfaces' : 'devices');
     setSelectedInterface(null);
     history.replaceState({}, '', `/infraestrutura?siteId=${siteId}&tab=${canUseInterfaces ? 'interfaces' : 'devices'}&deviceId=${selected.id}`);
-  };
-  const editDevice = async (selected: Device) => {
+  }, [user?.id, siteId, canUseInterfaces]);
+  const editDevice = useCallback(async (selected: Device) => {
     const full = await getDevice(selected.id);
     setEditingId(full.id);
     setDeviceForm({
@@ -325,7 +332,16 @@ export function InfrastructureWorkspace() {
       frontAssetId: full.frontAssetId ?? full.frontAsset?.id ?? '',
     });
     setModal('device');
-  };
+  }, []);
+  const openDeepLinkedDevice = useCallback((selected: Device) => {
+    setDevice(selected);
+    setTab('devices');
+    if (siteId) history.replaceState({}, '', `/infraestrutura?siteId=${encodeURIComponent(siteId)}&tab=devices&deviceId=${encodeURIComponent(selected.id)}`);
+    void editDevice(selected);
+  }, [siteId, editDevice]);
+  const reportDeepLinkError = useCallback((cause: unknown) => {
+    setError(cause instanceof Error ? cause.message : 'Não foi possível abrir o equipamento.');
+  }, []);
   const editInterface = (item: DeviceInterface) => {
     setSelectedInterface(item);
     setInterfaceForm({
@@ -421,14 +437,28 @@ export function InfrastructureWorkspace() {
     setDeviceForm(emptyDeviceForm);
     setModal('device');
   };
-  const openLayout = async (model: DeviceModel | null) => {
+  const openLayout = useCallback(async (model: DeviceModel | null) => {
     if (!model) return;
     const data = await getDeviceModelPortLayout(model.id);
     setLayoutModel(model);
     setLayout(Array.isArray(data.portLayout?.ports) ? data.portLayout : { imageWidth: 1000, imageHeight: 300, ports: [] });
     setLayoutAssetId(model.frontAssetId ?? model.frontAsset?.id ?? '');
     setModal('layout');
-  };
+  }, []);
+  useEffect(() => {
+    const query = new URLSearchParams(location.search);
+    const modelId = query.get('modelId');
+    const model = modelId ? modelsData?.find((item) => item.id === modelId) : undefined;
+    if (!model) return;
+    setTab('models');
+    if (query.get('focus') === 'port-layout') {
+      void openLayout(model);
+      return;
+    }
+    setEditingId(model.id);
+    setModelForm({ manufacturer: model.manufacturer, model: model.model, type: model.type ?? 'OTHER', supportsNetworkPorts: !!model.supportsNetworkPorts, networkPortCount: String(model.networkPortCount ?? ''), frontAssetId: model.frontAssetId ?? model.frontAsset?.id ?? '' });
+    setModal('model');
+  }, [modelsData, openLayout]);
   const detectLayout = async () => {
     if (!layoutModel) return;
     try {
@@ -511,13 +541,7 @@ export function InfrastructureWorkspace() {
     }
   };
 
-  const bulkUpdateDevices = async (ids: string[], changes: { status?: string; modelId?: string | null; rackId?: string | null }) => {
-    const outcome = await apiBulkUpdateDevices(ids, changes);
-    await invalidateInfrastructure();
-    return outcome;
-  };
-
-  if (!siteId) return <AppShell section="Infraestrutura"><main className="module-page infrastructure-workspace"><header className="workspace-head"><div><span className="section-kicker">MAPA FÍSICO</span><h1>Infraestrutura</h1><p>Seleciona um Site na barra lateral para começar.</p></div></header><section className="ipam-card empty-context"><MapPinned size={28} /><strong>Seleciona um Site na barra lateral</strong></section></main></AppShell>;
+  if (!siteId) return <AppShell section="Infraestrutura"><main className="module-page infrastructure-workspace"><header className="workspace-head"><div><span className="section-kicker">MAPA FÍSICO</span><h1>Infraestrutura</h1><p>Seleciona um Site na barra lateral para começar.</p></div></header>{deepLinkedDeviceId ? <><DeepLinkDeviceLoader deviceId={deepLinkedDeviceId} loadDevice={getDevice} onOpen={openDeepLinkedDevice} onError={reportDeepLinkError} /><section className="ipam-card empty-context"><MapPinned size={28} /><strong>{device ? `${device.name} · ${device.type}` : error || 'A carregar equipamento…'}</strong><p>O equipamento está sem Site. Seleciona um Site na barra lateral para associá-lo e guardar alterações.</p></section><EntityEditor modal={modal} close={() => setModal('')} editingId={editingId} form={{ rack: rackForm, device: deviceForm, model: modelForm }} setForm={{ rack: setRackForm, device: setDeviceForm, model: setModelForm }} rooms={[]} racks={[]} models={[]} assets={[]} ips={EMPTY_IPS} save={save} /></> : <section className="ipam-card empty-context"><MapPinned size={28} /><strong>Seleciona um Site na barra lateral</strong></section>}</main></AppShell>;
 
   const canDeleteRack = hasRole('ADMIN') || hasRole('SYSTEMS_OPERATOR');
   const modalForEditor = modal === 'room' || modal === 'building' ? '' : modal;
@@ -529,5 +553,5 @@ export function InfrastructureWorkspace() {
 
   if (tab === 'permissions' && effective?.tabs?.permissions) return <AppShell section="Infraestrutura" context={[siteName, 'Permissões']}><main className="module-page infrastructure-workspace"><header className="workspace-head"><div><span className="section-kicker">MAPA FÍSICO</span><h1>Infraestrutura</h1><p>Site → edifício → sala → bastidor → equipamento → interfaces.</p></div></header><RecentItems userId={user?.id} /><nav className="infra-menu">{visibleTabs.map(([key, label, Icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => selectTab(key)}><Icon size={15} /><span>{label}</span></button>)}</nav><InfrastructurePermissions siteId={siteId} buildings={buildings} /></main></AppShell>;
 
-  return <AppShell section="Infraestrutura" context={[siteName, ...(buildingName ? [buildingName] : []), ...(roomName ? [roomName] : []), tabName]} search={{ value: search, onChange: setSearch, placeholder: `Pesquisar em ${tabName.toLowerCase()}…` }}><main className="module-page infrastructure-workspace"><header className="workspace-head"><div><span className="section-kicker">MAPA FÍSICO</span><h1>Infraestrutura</h1><p>Site → edifício → sala → bastidor → equipamento → interfaces.</p></div></header><RecentItems userId={user?.id} />{(error || errorMessage) && <div className="ipam-alert error"><X size={15} />{error || errorMessage}</div>}<section className="infra-context-bar"><label><MapPinned size={15} /> Edifício<select value={buildingId} onChange={(event) => chooseBuilding(event.target.value)}><option value="">Seleciona um edifício</option>{buildings.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}{canCreateBuilding && <option value="__new__">Criar novo Edifício</option>}</select></label><label><MapPinned size={15} /> Sala<select value={roomId} onChange={(event) => chooseRoom(event.target.value)}><option value="">Seleciona uma sala</option>{rooms.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}{canCreateRoom && <option value="__new__">Criar nova Sala</option>}</select></label><span>{busy ? 'A carregar…' : `${racks.length} bastidores · ${devices.length} equipamentos ativos`}</span></section><nav className="infra-menu">{visibleTabs.map(([key, label, Icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => selectTab(key)}><Icon size={15} /><span>{label}</span></button>)}</nav>{tab === 'racks' && <RackWorkspace rooms={rooms} roomId={roomId} buildingId={buildingId} racks={roomRacks} selected={selectedRack} setRack={(rack: Rack) => { if (rack.room) setRoomId(rack.room.id); setRackId(rack.id); history.replaceState({}, '', `/infraestrutura?siteId=${siteId}&buildingId=${rack.room?.building?.id ?? buildingId}&roomId=${rack.room?.id ?? roomId}&rackId=${rack.id}`); }} onOut={() => setRackId('')} onDevice={openDevice} onEdit={(rack: RackEditDraft) => { setEditingId(rack.id ?? ''); setRackForm({ name: rack.name ?? '', units: String(rack.units ?? 42), roomId: rack.room?.id ?? rack.roomId ?? roomId, modelId: rack.modelId ?? rack.model?.id ?? '', frontAssetId: rack.frontAssetId ?? rack.frontAsset?.id ?? '' }); setModal('rack'); }} onDelete={canDeleteRack && scopeActions.includes('DELETE') ? deleteRack : undefined} deletingRackId={deletingRackId} canEdit={canEdit} onPreviewPlacement={previewPlacement} onPlaceDevice={placeDevice} onEditDevice={editDevice} />} {tab === 'devices' && <DeviceList devices={devices} search={search} onSelect={openDevice} onEdit={editDevice} onNew={newDevice} canEdit={canEdit} canImport={canImportDevices} onImport={() => setShowDeviceImport(true)} onBulkUpdate={bulkUpdateDevices} models={models} racks={racks} selectedId={device?.id} />} {tab === 'models' && effective?.tabs?.models && <ModelList models={visibleModels} onEdit={(model) => { setEditingId(model.id); setModelForm({ manufacturer: model.manufacturer, model: model.model, type: model.type ?? 'OTHER', supportsNetworkPorts: !!model.supportsNetworkPorts, networkPortCount: String(model.networkPortCount ?? ''), frontAssetId: model.frontAssetId ?? model.frontAsset?.id ?? '' }); setModal('model'); }} onLayout={openLayout} canEdit={roleCanEdit} />} {tab === 'assets' && effective?.tabs?.assets && <AssetList assets={visibleAssets} onDelete={deleteAsset} canEdit={roleCanEdit} canDelete={roleCanEdit} />} {tab === 'interfaces' && effective?.tabs?.interfaces && <InterfaceWorkspace devices={devices} selected={device} interfaces={visibleInterfaces} selectedInterface={selectedInterface} onDevice={openDevice} onInterface={editInterface} onGenerate={generateInterfaces} onEditDevice={() => device && editDevice(device)} />}{showDeviceImport && <DeviceImport siteId={siteId} models={models} close={() => setShowDeviceImport(false)} onComplete={() => { void invalidateInfrastructure(); }} />}<EntityEditor modal={modalForEditor} close={() => setModal('')} editingId={editingId} form={{ rack: rackForm, device: deviceForm, model: modelForm }} setForm={{ rack: setRackForm, device: setDeviceForm, model: setModelForm }} rooms={rooms} racks={racks} models={models} assets={assets} ips={EMPTY_IPS} save={save} />{modal === 'interface' && <InterfaceEditor modal={modal} close={() => setModal('')} form={{ interface: interfaceForm }} setForm={{ interface: setInterfaceForm }} vlans={vlans} save={save} />}<BuildingModal modal={modal === 'building'} close={() => setModal('')} buildingForm={buildingForm} setBuildingForm={setBuildingForm} createBuilding={createBuilding} /><RoomModal modal={modal === 'room'} close={() => setModal('')} roomForm={roomForm} setRoomForm={setRoomForm} buildings={buildings} createRoom={createRoom} /><AssetUploadModal modal={modal === 'asset-upload'} close={() => setModal('')} file={pendingUpload} name={assetName} setName={setAssetName} modelId={uploadModelId} setModelId={setUploadModelId} models={models} choose={chooseUpload} submit={submitUpload} busy={uploading} /><PortLayoutEditor modal={modal === 'layout'} close={() => setModal('')} layoutModel={layoutModel} layout={layout} setLayout={setLayout} assets={assets} assetId={layoutAssetId} setAssetId={setLayoutAssetId} detect={detectLayout} confirm={confirmLayout} saving={layoutSaving} error={layoutError} />  </main></AppShell>;
+  return <AppShell section="Infraestrutura" context={[siteName, ...(buildingName ? [buildingName] : []), ...(roomName ? [roomName] : []), tabName]} search={{ value: search, onChange: setSearch, placeholder: `Pesquisar em ${tabName.toLowerCase()}…` }}><DeepLinkDeviceLoader deviceId={deepLinkedDeviceId} loadDevice={getDevice} onOpen={openDeepLinkedDevice} onError={reportDeepLinkError} /><main className="module-page infrastructure-workspace"><header className="workspace-head"><div><span className="section-kicker">MAPA FÍSICO</span><h1>Infraestrutura</h1><p>Site → edifício → sala → bastidor → equipamento → interfaces.</p></div></header><RecentItems userId={user?.id} />{(error || errorMessage) && <div className="ipam-alert error"><X size={15} />{error || errorMessage}</div>}<section className="infra-context-bar"><label><MapPinned size={15} /> Edifício<select value={buildingId} onChange={(event) => chooseBuilding(event.target.value)}><option value="">Seleciona um edifício</option>{buildings.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}{canCreateBuilding && <option value="__new__">Criar novo Edifício</option>}</select></label><label><MapPinned size={15} /> Sala<select value={roomId} onChange={(event) => chooseRoom(event.target.value)}><option value="">Seleciona uma sala</option>{rooms.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}{canCreateRoom && <option value="__new__">Criar nova Sala</option>}</select></label><span>{busy ? 'A carregar…' : `${racks.length} bastidores · ${devices.length} equipamentos ativos`}</span></section><nav className="infra-menu">{visibleTabs.map(([key, label, Icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => selectTab(key)}><Icon size={15} /><span>{label}</span></button>)}</nav>{tab === 'racks' && <RackWorkspace rooms={rooms} roomId={roomId} buildingId={buildingId} racks={roomRacks} selected={selectedRack} setRack={(rack: Rack) => { if (rack.room) setRoomId(rack.room.id); setRackId(rack.id); history.replaceState({}, '', `/infraestrutura?siteId=${siteId}&buildingId=${rack.room?.building?.id ?? buildingId}&roomId=${rack.room?.id ?? roomId}&rackId=${rack.id}`); }} onOut={() => setRackId('')} onDevice={openDevice} onEdit={(rack: RackEditDraft) => { setEditingId(rack.id ?? ''); setRackForm({ name: rack.name ?? '', units: String(rack.units ?? 42), roomId: rack.room?.id ?? rack.roomId ?? roomId, modelId: rack.modelId ?? rack.model?.id ?? '', frontAssetId: rack.frontAssetId ?? rack.frontAsset?.id ?? '' }); setModal('rack'); }} onDelete={canDeleteRack && scopeActions.includes('DELETE') ? deleteRack : undefined} deletingRackId={deletingRackId} canEdit={canEdit} onPreviewPlacement={previewPlacement} onPlaceDevice={placeDevice} onEditDevice={editDevice} />} {tab === 'devices' && <DeviceList devices={devices} search={search} onSelect={openDevice} onEdit={editDevice} onNew={newDevice} onRetire={(item) => setRetirementDeviceId(item.id)} canRetire={roleCanEdit && scopeActions.includes('DELETE')} canEdit={canEdit} selectedId={device?.id} />} {tab === 'models' && effective?.tabs?.models && <ModelList models={visibleModels} onEdit={(model) => { setEditingId(model.id); setModelForm({ manufacturer: model.manufacturer, model: model.model, type: model.type ?? 'OTHER', supportsNetworkPorts: !!model.supportsNetworkPorts, networkPortCount: String(model.networkPortCount ?? ''), frontAssetId: model.frontAssetId ?? model.frontAsset?.id ?? '' }); setModal('model'); }} onLayout={openLayout} canEdit={roleCanEdit} />} {tab === 'assets' && effective?.tabs?.assets && <AssetList assets={visibleAssets} onDelete={deleteAsset} canEdit={roleCanEdit} canDelete={roleCanEdit} />} {tab === 'interfaces' && effective?.tabs?.interfaces && <InterfaceWorkspace devices={devices} selected={device} interfaces={visibleInterfaces} selectedInterface={selectedInterface} onDevice={openDevice} onInterface={editInterface} onGenerate={generateInterfaces} onEditDevice={() => device && editDevice(device)} />}<EntityEditor modal={modalForEditor} close={() => setModal('')} editingId={editingId} form={{ rack: rackForm, device: deviceForm, model: modelForm }} setForm={{ rack: setRackForm, device: setDeviceForm, model: setModelForm }} rooms={rooms} racks={racks} models={models} assets={assets} ips={EMPTY_IPS} save={save} />{modal === 'interface' && <InterfaceEditor modal={modal} close={() => setModal('')} form={{ interface: interfaceForm }} setForm={{ interface: setInterfaceForm }} vlans={vlans} save={save} />}<BuildingModal modal={modal === 'building'} close={() => setModal('')} buildingForm={buildingForm} setBuildingForm={setBuildingForm} createBuilding={createBuilding} /><RoomModal modal={modal === 'room'} close={() => setModal('')} roomForm={roomForm} setRoomForm={setRoomForm} buildings={buildings} createRoom={createRoom} /><AssetUploadModal modal={modal === 'asset-upload'} close={() => setModal('')} file={pendingUpload} name={assetName} setName={setAssetName} modelId={uploadModelId} setModelId={setUploadModelId} models={models} choose={chooseUpload} submit={submitUpload} busy={uploading} /><PortLayoutEditor modal={modal === 'layout'} close={() => setModal('')} layoutModel={layoutModel} layout={layout} setLayout={setLayout} assets={assets} assetId={layoutAssetId} setAssetId={setLayoutAssetId} detect={detectLayout} confirm={confirmLayout} saving={layoutSaving} error={layoutError} />{retirementDeviceId && <RetirementReviewModal deviceId={retirementDeviceId} close={() => setRetirementDeviceId('')} retired={() => { setRetirementDeviceId(''); queryClient.invalidateQueries({ queryKey: ['infrastructure', 'devices', siteId] }); }} />}  </main></AppShell>;
 }

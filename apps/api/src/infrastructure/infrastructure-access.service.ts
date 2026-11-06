@@ -79,7 +79,7 @@ export class InfrastructureAccessService {
   async assertDevice(user: AuthenticatedUser, action: InfrastructureAction, deviceId: string) {
     const device = await this.prisma.device.findUnique({ where: { id: deviceId }, select: { id: true, type: true, siteId: true, rack: { select: { roomId: true } } } });
     if (!device) throw new NotFoundException('Equipamento não encontrado');
-    if (device.rack) await this.assertRoom(user, action, device.rack.roomId, 'DEVICE', device.type); else if (device.siteId) await this.assertSite(user, action, device.siteId, 'DEVICE', device.type); else this.denied(action);
+    if (device.rack) await this.assertRoom(user, action, device.rack.roomId, 'DEVICE', device.type); else if (device.siteId) await this.assertSite(user, action, device.siteId, 'DEVICE', device.type); else if (!user.roles.includes('ADMIN')) this.denied(action);
     return device;
   }
   async assertInterface(user: AuthenticatedUser, action: InfrastructureAction, interfaceId: string) {

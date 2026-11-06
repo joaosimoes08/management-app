@@ -24,6 +24,7 @@ export class IpamController {
   @Delete('subnets/:id') @Roles('ADMIN', 'NETWORK_OPERATOR') deleteSubnet(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.service.deleteSubnet(id, req.user); }
   @Get('subnets/:id') subnet(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.advanced.getSubnet(id, req.user); }
   @Get('subnets/:id/usage') subnetUsage(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.advanced.subnetUsage(id, req.user); }
+  @Get('subnets/:id/planning') subnetPlanning(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.advanced.subnetPlanning(id, req.user); }
   @Get('subnets/:id/tree') subnetTree(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.advanced.subnetTree(id, req.user); }
   @Patch('subnets/:id/scan-config') @Roles('ADMIN', 'NETWORK_OPERATOR') updateSubnetScan(@Param('id') id: string, @Body() dto: UpdateSubnetScanDto, @Req() req: { user: AuthenticatedUser }) { return this.advanced.updateSubnetScan(id, dto, req.user); }
   @Post('subnets/:id/scan') @Roles('ADMIN', 'NETWORK_OPERATOR') scanSubnet(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.advanced.scanSubnet(id, req.user); }

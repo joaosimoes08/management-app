@@ -146,6 +146,9 @@ export async function listAllDevices(siteId: string, search: string): Promise<De
 export function getDevice(id: string): Promise<Device> {
   return apiFetch<Device>(`/api/v1/devices/${id}`);
 }
+export type DeviceRetirementReview = { device: { id: string; name: string }; interfaces: Array<{ id: string; name: string }>; ipAddresses: Array<{ id: string; address: string; subnet: { cidr: string }; interface?: { id: string; name: string } | null }>; mapReferences: Array<{ id: string; name: string; type: string }> };
+export const getDeviceRetirementReview = (id: string) => apiFetch<DeviceRetirementReview>(`/api/v1/devices/${id}/retirement-review`);
+export const retireDevice = (id: string) => apiFetch(`/api/v1/devices/${id}/retire`, { method: 'POST', body: JSON.stringify({ operatorConfirmed: true }) });
 
 export function createDevice(body: DeviceInput): Promise<Device> {
   return apiFetch<Device>('/api/v1/devices', { method: 'POST', body: JSON.stringify(body) });

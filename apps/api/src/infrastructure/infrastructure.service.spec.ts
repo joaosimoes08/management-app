@@ -69,3 +69,23 @@ test('rolls back imported devices when an audit insert fails', async () => {
   await assert.rejects(() => subject.importDevices('site-1', [{ name: 'Switch 1', type: 'SWITCH' }], user), ConflictException);
   assert.deepEqual(committed, []);
 });
+
+test('retires a device and records its audit entry atomically', async () => {
+  const calls: string[] = [];
+  const device = { id: 'device-1', status: 'RETIRED' };
+  const prisma = {
+    device: { findUnique: async () => ({ id: 'device-1', name: 'switch-1', interfaces: [], ipAddresses: [], topologyNodes: [] }) },
+    $transaction: async (work: (tx: any) => Promise<any>) => work({
+      device: { update: async () => { calls.push('device.update'); return device; } },
+      auditLog: { create: async ({ data }: any) => { calls.push(`audit.create:${data.entityId}`); return data; } },
+    }),
+  } as any;
+  const access = { assertDevice: async () => undefined } as any;
+  const audit = { scheduleInventoryQualityReconcile: async () => { calls.push('reconcile'); } } as any;
+  const subject = new InfrastructureService(prisma, audit, access, {} as any);
+
+  const result = await subject.confirmDeviceRetirement('device-1', user, true);
+
+  assert.deepEqual(result, { success: true, device });
+  assert.deepEqual(calls, ['device.update', 'audit.create:device-1', 'reconcile']);
+});

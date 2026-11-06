@@ -13,6 +13,7 @@ import { useToast } from '@/components/ui/toast';
 import { getEffectiveAccess } from '@/features/infrastructure/api';
 import {
   calculateSubnets,
+  getIpAddress,
   getHost,
   getNetworkMap,
   getSubnet,
@@ -32,13 +33,14 @@ import type {
 } from './types';
 import { Empty, IpamModal } from './components/ipam-modal';
 import { CalculatorView } from './components/calculator-view';
+import { SubnetPlanningView } from './components/subnet-planning-view';
 import { NetworkMap } from './components/network-map';
 import { SubnetsView } from './components/subnets-view';
 import { HostPanel } from './components/host-panel';
 import { IpAddressPanel } from './components/ip-address-panel';
 import { CentralIpamPermissions } from './components/central-permissions';
 
-const tabs: [string, string][] = [['map', 'Mapa'], ['subnets', 'Subnets'], ['vrfs', 'VRFs'], ['nat', 'NAT'], ['calculator', 'Calculadora'], ['imports', 'RIPE']];
+const tabs: [string, string][] = [['map', 'Mapa'], ['subnets', 'Subnets'], ['planning', 'Planeamento'], ['vrfs', 'VRFs'], ['nat', 'NAT'], ['calculator', 'Calculadora'], ['imports', 'RIPE']];
 
 type VlanFormState = Omit<VlanInput, 'vlanId'> & { id: string; vlanId: string | number };
 type SubnetFormState = Omit<SubnetInput, 'vlanId' | 'gateway' | 'purpose'> & { id: string; vlanId: string; gateway: string; purpose: string };
@@ -291,6 +293,8 @@ export default function IpamPage() {
           ? <NetworkMap vlans={visibleVlans} canEdit={canEdit} edit={(item) => { setVlan({ id: item.id, vlanId: item.vlanId, name: item.name, description: item.description ?? '' }); setModal('vlan'); }} remove={(item) => remove(`/api/v1/vlans/${item.id}`, `Eliminar VLAN ${item.vlanId} — ${item.name}?`)} associate={(item) => { setCurrentVlan(item); setModal('association'); }} detachSubnet={(item) => void detachSubnet(item)} openSubnet={openSubnet} newVlan={() => { setVlan({ ...blankVlan }); setModal('vlan'); }} newSubnet={openNewSubnet} />
             : tab === 'subnets'
               ? <SubnetsView selected={selected ?? null} items={visibleSubnets} usage={usage ?? null} ips={ips} search={search} setSearch={setSearch} openSubnet={openSubnet} openHost={openHost} canEdit={canEdit} siteId={siteId} newSubnet={() => openNewSubnet()} editSubnet={editSubnet} removeSubnet={(item) => void removeSubnet(item)} editIp={(ip) => { setIpDetail(ip); updateUrl({ ipId: ip.id }); rememberRecentItem(user?.id, { id: `ip:${ip.id}`, kind: t('ipam.recent.ip'), label: ip.address, href: `/ipam?siteId=${encodeURIComponent(siteId)}&subnetId=${encodeURIComponent(selectedSubnetId)}&ipId=${encodeURIComponent(ip.id)}` }); }} newIp={() => { setHost({ ...blankHost }); setModal('ip'); }} createHost={(ip) => { setHost({ name: ip.hostname || `host-${ip.address.replace(/[:.]/g, '-')}`, hostname: ip.hostname ?? '', operatingSystem: '', macAddress: ip.macAddress ?? '', notes: ip.notes ?? '', status: 'UNKNOWN', ipAddressId: ip.id }); setModal('create-host'); }} />
+                : tab === 'planning'
+                  ? <SubnetPlanningView subnets={visibleSubnets} />
                 : tab === 'permissions' && effective?.tabs?.permissions
                   ? <CentralIpamPermissions siteId={siteId} />
                   : tab === 'calculator'
