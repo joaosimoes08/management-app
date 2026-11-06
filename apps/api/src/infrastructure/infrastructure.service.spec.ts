@@ -42,3 +42,30 @@ test('rejects a management IP from another Site', async () => {
     ConflictException,
   );
 });
+
+test('rolls back imported devices when an audit insert fails', async () => {
+  const committed: any[] = [];
+  let nextId = 0;
+  const prisma = {
+    device: { findFirst: async () => null },
+    $transaction: async (work: (tx: any) => Promise<any>) => {
+      const pending: any[] = [];
+      const tx = {
+        device: { create: async ({ data }: any) => { const item = { ...data, id: `device-${++nextId}` }; pending.push(item); return item; } },
+        auditLog: { create: async () => { throw new Error('audit unavailable'); } },
+      };
+      const result = await work(tx);
+      committed.push(...pending);
+      return result;
+    },
+  } as any;
+  const access = { assertSite: async () => undefined } as any;
+  const audit = {
+    recordInTransaction: (tx: any, input: any) => tx.auditLog.create({ data: input }),
+    scheduleInventoryQualityReconcile: async () => undefined,
+  } as any;
+  const subject = new InfrastructureService(prisma, audit, access, {} as any);
+
+  await assert.rejects(() => subject.importDevices('site-1', [{ name: 'Switch 1', type: 'SWITCH' }], user), ConflictException);
+  assert.deepEqual(committed, []);
+});

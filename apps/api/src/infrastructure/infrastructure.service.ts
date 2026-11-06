@@ -176,11 +176,13 @@ export class InfrastructureService implements OnModuleInit {
         const status = row.rackId && row.status !== 'RETIRED' ? 'ACTIVE' : row.status ?? 'UNKNOWN';
         created.push(await tx.device.create({ data: { name: row.name, type: row.type, hostname: row.hostname, managementIp: row.managementIp, serialNumber: row.serialNumber, assetTag: row.assetTag, status, modelId: row.modelId, siteId, rackId: row.rackId, rackUnitStart: row.rackUnitStart, rackUnitSize: row.rackUnitSize, notes: row.notes } as never }));
       }
+      for (const item of created) await this.audit.recordInTransaction(tx, { userId: user.id, action: 'DEVICE_CREATED', entityType: 'Device', entityId: item.id, metadata: { imported: true, siteId } });
+      await this.audit.recordInTransaction(tx, { userId: user.id, action: 'DEVICES_IMPORTED', entityType: 'Site', entityId: siteId, metadata: { count: created.length, deviceIds: created.map((item) => item.id) } });
       return created;
     }).catch(() => { throw new ConflictException('A importação foi cancelada porque os dados mudaram ou existe um conflito. Valida novamente o CSV.'); });
+    await this.audit.scheduleInventoryQualityReconcile('Device');
     const created = [];
-    for (const item of rawCreated) { await this.log(user, 'DEVICE_CREATED', 'Device', item.id, { imported: true, siteId }); created.push(await this.getDevice(item.id, user)); }
-    await this.log(user, 'DEVICES_IMPORTED', 'Site', siteId, { count: created.length, deviceIds: created.map((item) => item.id) });
+    for (const item of rawCreated) created.push(await this.getDevice(item.id, user));
     return { imported: created.length, devices: created };
   }
   async bulkUpdateDevices(ids: string[], changes: { status?: string; modelId?: string | null; rackId?: string | null }, user: AuthenticatedUser) {
