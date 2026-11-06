@@ -1,9 +1,10 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException, OnModuleInit, StreamableFile } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, OnModuleInit, StreamableFile } from '@nestjs/common';
 import { PrismaClient } from '@simoes/database';
 import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { CreateAssetDto, CreateBuildingDto, CreateDeviceDto, CreateDeviceModelDto, CreateInterfaceDto, CreateRackDto, CreateRackModelDto, CreateRoomDto, DetectPortLayoutDto, PlaceDeviceDto, ReorderRacksDto, UpdateBuildingDto, UpdateDeviceDto, UpdateDeviceModelDto, UpdateInterfaceDto, UpdateRackDto, UpdateRackModelDto, UpdateRoomDto } from './dto';
-import { planRackPlacement } from './rack-placement';
+import { findRackImportOverlaps, planRackPlacement } from './rack-placement';
+import { PersistedDeviceAuditError, updateDevicesIndividually } from './bulk-update';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { extname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -132,6 +133,95 @@ export class InfrastructureService implements OnModuleInit {
   async deleteModel(id: string, user: AuthenticatedUser) { await this.prisma.deviceModel.delete({ where: { id } }).catch(() => { throw new NotFoundException('Modelo não encontrado'); }); await this.log(user, 'DEVICE_MODEL_DELETED', 'DeviceModel', id); return { success: true }; }
   async listDevices(user: AuthenticatedUser, search?: string, type?: string, siteId?: string, pageText?: string, pageSizeText?: string) { const page = Math.max(Number(pageText) || 1, 1); const pageSize = Math.min(Math.max(Number(pageSizeText) || 25, 1), 100); const [roomIds, unplacedSiteIds] = await Promise.all([this.access.visibleRoomIds(user, siteId), this.access.visibleUnplacedSiteIds(user, siteId)]); const where = { AND: [{ OR: [{ rackId: null, siteId: { in: unplacedSiteIds } }, { rack: { roomId: { in: roomIds } } }] }, ...(type ? [{ type }] : []), ...(siteId ? [{ siteId }] : []), ...(search ? [{ OR: [{ name: { contains: search, mode: 'insensitive' as const } }, { hostname: { contains: search, mode: 'insensitive' as const } }, { serialNumber: { contains: search, mode: 'insensitive' as const } }, { assetTag: { contains: search, mode: 'insensitive' as const } }, { managementIp: { contains: search } }] }] : [])] }; const [items, total] = await Promise.all([this.prisma.device.findMany({ where, include: { model: { include: { frontAsset: true, iconAsset: true } }, frontAsset: true, iconAsset: true, site: true, rack: { include: { room: { include: { building: true } } } }, _count: { select: { interfaces: true, ipAddresses: true } } }, orderBy: { name: 'asc' }, skip: (page - 1) * pageSize, take: pageSize }), this.prisma.device.count({ where })]); return { items, page, pageSize, total, totalPages: Math.ceil(total / pageSize) }; }
   async getDevice(id: string, user: AuthenticatedUser) { await this.access.assertDevice(user, 'READ', id); const item = await this.prisma.device.findUnique({ where: { id }, include: { model: { include: { frontAsset: true, iconAsset: true } }, frontAsset: true, iconAsset: true, site: true, rack: { include: { room: { include: { building: true } } } }, interfaces: { include: { nativeVlan: this.vlanInclude, accessVlan: this.vlanInclude, allowedVlans: { include: { vlan: this.vlanInclude } }, ipAddresses: { include: { subnet: true, host: true } } } }, ipAddresses: { include: { subnet: true, host: true } } } }); if (!item) throw new NotFoundException('Equipamento não encontrado'); item.interfaces.sort(naturalInterfaceCompare); return item; }
+  async previewDeviceImport(siteId: string, rows: Record<string, unknown>[], user: AuthenticatedUser) {
+    if (typeof siteId !== 'string' || !siteId || !Array.isArray(rows) || !rows.length || rows.length > 500) throw new ConflictException('A importação deve conter entre 1 e 500 linhas e um Site.');
+    await this.access.assertSite(user, 'CREATE', siteId, 'DEVICE');
+    const seen = new Set<string>();
+    const preview = [];
+    for (let index = 0; index < rows.length; index++) {
+      const source = rows[index] ?? {};
+      const accepted = ['name', 'type', 'hostname', 'managementIp', 'serialNumber', 'assetTag', 'status', 'modelId', 'rackId', 'rackUnitStart', 'rackUnitSize', 'notes'];
+      const row: any = Object.fromEntries(Object.entries(source).filter(([key]) => accepted.includes(key)).map(([key, value]) => [key, typeof value === 'string' ? value.trim() : value]));
+      for (const key of ['rackUnitStart', 'rackUnitSize']) if (row[key] !== undefined && row[key] !== '') row[key] = Number(row[key]);
+      const errors: string[] = [];
+      const types = ['SWITCH', 'ROUTER', 'FIREWALL', 'SERVER', 'STORAGE', 'OTHER'];
+      const statuses = ['ACTIVE', 'INACTIVE', 'MAINTENANCE', 'RETIRED', 'UNKNOWN'];
+      if (!row.name) errors.push('Nome obrigatório');
+      if (!types.includes(row.type)) errors.push('Tipo inválido');
+      if (row.status && !statuses.includes(row.status)) errors.push('Estado inválido');
+      for (const key of ['rackUnitStart', 'rackUnitSize']) if (row[key] !== undefined && (!Number.isInteger(row[key]) || row[key] < 1)) errors.push(`${key} deve ser um inteiro positivo`);
+      try { if (row.type) this.assertDeviceCapability(user, String(row.type)); } catch { errors.push('A sua função não pode importar este tipo de equipamento'); }
+      const duplicateKeys = [['serialNumber', row.serialNumber], ['assetTag', row.assetTag], ['managementIp', row.managementIp]].filter((entry) => entry[1]).map(([key, value]) => `${key}:${String(value).toLowerCase()}`);
+      if (duplicateKeys.some((key) => seen.has(key))) errors.push('Duplicado noutra linha do ficheiro');
+      duplicateKeys.forEach((key) => seen.add(key));
+      const ors: Record<string, string>[] = []; if (row.serialNumber) ors.push({ serialNumber: String(row.serialNumber) }); if (row.assetTag) ors.push({ assetTag: String(row.assetTag) }); if (row.managementIp) ors.push({ managementIp: String(row.managementIp) });
+      if (ors.length && await this.prisma.device.findFirst({ where: { siteId, OR: ors as any }, select: { id: true, name: true } })) errors.push('Conflito: número de série, etiqueta ou IP de gestão já existe neste Site');
+      if (row.modelId) { try { await this.validateDeviceModel(String(row.modelId)); } catch (cause) { errors.push(cause instanceof Error ? cause.message : 'Modelo inválido'); } }
+      if (row.rackId) {
+        try { await this.access.assertRack(user, 'CREATE', String(row.rackId), 'DEVICE', row.type); if (await this.rackSiteId(String(row.rackId)) !== siteId) errors.push('O bastidor não pertence ao Site selecionado'); await this.validateRackPlacement({ ...row, siteId }); }
+        catch (cause) { errors.push(cause instanceof Error ? cause.message : 'Localização inválida'); }
+      }
+      preview.push({ rowNumber: index + 2, data: row, errors, valid: errors.length === 0 });
+    }
+    const batchOverlaps = findRackImportOverlaps(preview.map((item) => ({ rowNumber: item.rowNumber, rackId: String(item.data.rackId ?? ''), rackUnitStart: Number(item.data.rackUnitStart), rackUnitSize: Number(item.data.rackUnitSize) })));
+    for (const row of preview) if (batchOverlaps.includes(row.rowNumber)) { row.errors.push('Sobreposição com outra linha do ficheiro neste bastidor'); row.valid = false; }
+    return { total: preview.length, valid: preview.filter((item) => item.valid).length, invalid: preview.length - preview.filter((item) => item.valid).length, rows: preview };
+  }
+  async importDevices(siteId: string, rows: Record<string, unknown>[], user: AuthenticatedUser) {
+    const preview = await this.previewDeviceImport(siteId, rows, user);
+    if (preview.invalid) throw new ConflictException({ code: 'IMPORT_VALIDATION_FAILED', message: 'Corrige os erros antes de confirmar a importação.', rows: preview.rows.filter((item) => !item.valid) });
+    const rawCreated = await this.prisma.$transaction(async (tx) => {
+      const created = [];
+      for (const { data: row } of preview.rows) {
+        const status = row.rackId && row.status !== 'RETIRED' ? 'ACTIVE' : row.status ?? 'UNKNOWN';
+        created.push(await tx.device.create({ data: { name: row.name, type: row.type, hostname: row.hostname, managementIp: row.managementIp, serialNumber: row.serialNumber, assetTag: row.assetTag, status, modelId: row.modelId, siteId, rackId: row.rackId, rackUnitStart: row.rackUnitStart, rackUnitSize: row.rackUnitSize, notes: row.notes } as never }));
+      }
+      for (const item of created) await this.audit.recordInTransaction(tx, { userId: user.id, action: 'DEVICE_CREATED', entityType: 'Device', entityId: item.id, metadata: { imported: true, siteId } });
+      await this.audit.recordInTransaction(tx, { userId: user.id, action: 'DEVICES_IMPORTED', entityType: 'Site', entityId: siteId, metadata: { count: created.length, deviceIds: created.map((item) => item.id) } });
+      return created;
+    }).catch(() => { throw new ConflictException('A importação foi cancelada porque os dados mudaram ou existe um conflito. Valida novamente o CSV.'); });
+    await this.audit.scheduleInventoryQualityReconcile('Device');
+    const created = [];
+    for (const item of rawCreated) created.push(await this.getDevice(item.id, user));
+    return { imported: created.length, devices: created };
+  }
+  async bulkUpdateDevices(ids: string[], changes: { status?: string; modelId?: string | null; rackId?: string | null }, user: AuthenticatedUser) {
+    if (!Array.isArray(ids) || !ids.length || ids.length > 100 || ids.some((id) => typeof id !== 'string') || new Set(ids).size !== ids.length) throw new ConflictException('Seleciona entre 1 e 100 equipamentos distintos.');
+    const allowed = ['status', 'modelId', 'rackId'];
+    if (!Object.keys(changes ?? {}).length || Object.keys(changes).some((key) => !allowed.includes(key))) throw new ConflictException('Indica pelo menos um campo permitido para atualizar.');
+    if (changes.status !== undefined && typeof changes.status !== 'string' || changes.modelId !== undefined && changes.modelId !== null && typeof changes.modelId !== 'string' || changes.rackId !== undefined && changes.rackId !== null && typeof changes.rackId !== 'string') throw new ConflictException('Os valores de atualização não são válidos.');
+    const currentDevices = await this.prisma.device.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, type: true, status: true, modelId: true, rackId: true, siteId: true, hostname: true, managementIp: true, serialNumber: true, assetTag: true, rackUnitStart: true, rackUnitSize: true, frontAssetId: true, notes: true, rack: { select: { room: { select: { building: { select: { siteId: true } } } } } } } });
+    if (currentDevices.length !== ids.length) throw new NotFoundException('Um ou mais equipamentos não foram encontrados.');
+    for (const device of currentDevices) { await this.access.assertDevice(user, 'UPDATE', device.id); this.assertDeviceCapability(user, device.type); }
+    if (changes.status && !['ACTIVE', 'INACTIVE', 'MAINTENANCE', 'RETIRED', 'UNKNOWN'].includes(changes.status)) throw new ConflictException('Estado inválido.');
+    if (changes.modelId) await this.validateDeviceModel(changes.modelId);
+    if (changes.rackId) for (const device of currentDevices) await this.access.assertRack(user, 'UPDATE', changes.rackId, 'DEVICE', device.type);
+    const targetUnits = new Map<string, number>();
+    if (changes.rackId) {
+      const target = await this.prisma.rack.findUnique({ where: { id: changes.rackId }, include: { devices: true } });
+      if (!target) throw new NotFoundException('Bastidor não encontrado.');
+      const selectedIds = new Set(ids);
+      const occupied = new Set<number>();
+      for (const device of target.devices) if (!selectedIds.has(device.id) && device.rackUnitStart && device.rackUnitSize) for (let unit = device.rackUnitStart; unit < device.rackUnitStart + device.rackUnitSize; unit++) occupied.add(unit);
+      for (const device of currentDevices) {
+        const size = device.rackUnitSize ?? 1;
+        let start = 1;
+        for (; start + size - 1 <= target.units; start++) if (Array.from({ length: size }, (_, offset) => start + offset).every((unit) => !occupied.has(unit))) break;
+        if (start + size - 1 > target.units) throw new ConflictException('O bastidor selecionado não tem espaço para todos os equipamentos.');
+        targetUnits.set(device.id, start);
+        for (let unit = start; unit < start + size; unit++) occupied.add(unit);
+      }
+    }
+    const outcome = await updateDevicesIndividually(currentDevices, async (device) => {
+      const targetSiteId = device.rack?.room.building.siteId ?? device.siteId;
+      const dto: UpdateDeviceDto = { name: device.name, type: device.type, hostname: device.hostname ?? undefined, managementIp: device.managementIp ?? undefined, serialNumber: device.serialNumber ?? undefined, assetTag: device.assetTag ?? undefined, status: changes.status ?? device.status, modelId: changes.modelId === undefined ? device.modelId ?? undefined : changes.modelId as any, siteId: targetSiteId ?? undefined, rackId: changes.rackId === undefined ? device.rackId ?? undefined : changes.rackId as any, rackUnitStart: changes.rackId === undefined ? device.rackUnitStart ?? undefined : changes.rackId === null ? null as any : targetUnits.get(device.id), rackUnitSize: device.rackUnitSize ?? undefined, frontAssetId: device.frontAssetId ?? undefined, notes: device.notes ?? undefined };
+      return this.updateDevice(device.id, dto, user, true);
+    });
+    let batchAuditFailed = false;
+    try { await this.log(user, 'DEVICES_BULK_UPDATED', 'Device', 'bulk', { deviceIds: outcome.updatedIds, failed: outcome.failed, auditFailed: outcome.auditFailed, changes }); }
+    catch { batchAuditFailed = true; }
+    return { updated: outcome.updatedIds.length, updatedIds: outcome.updatedIds, failed: outcome.failed, auditFailed: outcome.auditFailed, batchAuditFailed };
+  }
   private async validateDeviceModel(modelId?: string) { if (!modelId) return; const model = await this.prisma.deviceModel.findUnique({ where: { id: modelId }, select: { model: true, supportsNetworkPorts: true, networkPortCount: true, portCount: true, portLayout: true } }); if (!model) throw new NotFoundException('Modelo não encontrado'); const ports = (model.portLayout as any)?.ports; if (model.supportsNetworkPorts && (model.networkPortCount || model.portCount) && (!Array.isArray(ports) || !ports.length)) throw new ConflictException('O modelo tem de ter as portas mapeadas antes de criar o equipamento'); }
   private async validateDeviceFrontAsset(frontAssetId?: string) { if (!frontAssetId) return; const asset = await this.prisma.assetFile.count({ where: { id: frontAssetId } }); if (asset !== 1) throw new NotFoundException('A imagem frontal selecionada não foi encontrada'); }
   private async validateRackPlacement(dto: CreateDeviceDto, deviceId?: string) { if (!dto.rackId) return; if (!dto.rackUnitStart || !dto.rackUnitSize) throw new ConflictException('Define a unidade inicial e o tamanho do equipamento'); const rack = await this.prisma.rack.findUnique({ where: { id: dto.rackId }, include: { room: { include: { building: true } }, devices: true } }); if (!rack) throw new NotFoundException('Bastidor não encontrado'); if (dto.rackUnitStart < 1 || dto.rackUnitStart + dto.rackUnitSize - 1 > rack.units) throw new ConflictException('A posição do equipamento excede as unidades do bastidor'); if (dto.siteId && dto.siteId !== rack.room.building.siteId) throw new ConflictException('O bastidor não pertence ao Site selecionado'); const end = dto.rackUnitStart + dto.rackUnitSize - 1; const overlap = rack.devices.some((device) => device.id !== deviceId && device.rackUnitStart && device.rackUnitSize && dto.rackUnitStart! <= device.rackUnitStart + device.rackUnitSize - 1 && end >= device.rackUnitStart); if (overlap) throw new ConflictException('A posição indicada já está ocupada no bastidor'); }
@@ -188,8 +278,27 @@ export class InfrastructureService implements OnModuleInit {
     await this.log(user, 'DEVICE_PLACEMENT_UPDATED', 'Device', id, { changes: plan.changes });
     return plan;
   }
-  async updateDevice(id: string, dto: UpdateDeviceDto, user: AuthenticatedUser) { const current = await this.prisma.device.findUnique({ where: { id }, select: { status: true, siteId: true, rackId: true, frontAssetId: true, type: true, rack: { select: { room: { select: { building: { select: { siteId: true } } } } } } } }); if (!current) throw new NotFoundException('Equipamento não encontrado'); this.assertDeviceCapability(user, current.type); this.assertDeviceCapability(user, dto.type); await this.access.assertDevice(user, 'UPDATE', id); if (dto.rackId && dto.rackId !== current.rackId) await this.access.assertRack(user, 'UPDATE', dto.rackId, 'DEVICE', dto.type); await this.validateDeviceFrontAsset(dto.frontAssetId ?? current.frontAssetId ?? undefined); await this.validateRackPlacement(dto, id); const currentSiteId = current.rack?.room.building.siteId ?? current.siteId; const targetSiteId = dto.rackId ? await this.rackSiteId(dto.rackId) : dto.siteId ?? currentSiteId; if (!targetSiteId) throw new NotFoundException('Site do equipamento não encontrado'); if (dto.rackId && dto.siteId && dto.siteId !== targetSiteId) throw new ConflictException('O bastidor não pertence ao Site selecionado'); if (!dto.rackId && targetSiteId !== currentSiteId) await this.access.assertSite(user, 'UPDATE', targetSiteId, 'DEVICE', dto.type); await this.validateManagementIp(user, dto.managementIpAddressId, targetSiteId); const status = dto.rackId && current.status !== 'RETIRED' ? 'ACTIVE' : (dto.status ?? current.status); const item = await this.prisma.$transaction(async (tx) => { const data = { ...dto, siteId: targetSiteId, status: status as never, managementIpAddressId: undefined } as any; delete data.managementIpAddressId; const updated = await tx.device.update({ where: { id }, data }); if (dto.managementIpAddressId) await tx.ipAddress.update({ where: { id: dto.managementIpAddressId }, data: { deviceId: id } }); return updated; }).catch(() => { throw new ConflictException('Não foi possível atualizar o equipamento e o respetivo IP de gestão'); }); await this.log(user, 'DEVICE_UPDATED', 'Device', id, { rackId: dto.rackId, managementIp: dto.managementIp, managementIpAddressId: dto.managementIpAddressId }); return this.getDevice(item.id, user); }
-  async deleteDevice(id: string, user: AuthenticatedUser) { await this.access.assertDevice(user, 'DELETE', id); await this.prisma.device.update({ where: { id }, data: { status: 'RETIRED' } }).catch(() => { throw new NotFoundException('Equipamento não encontrado'); }); await this.log(user, 'DEVICE_RETIRED', 'Device', id); return { success: true }; }
+  async updateDevice(id: string, dto: UpdateDeviceDto, user: AuthenticatedUser, preserveRequestedStatus = false) { const current = await this.prisma.device.findUnique({ where: { id }, select: { status: true, siteId: true, rackId: true, frontAssetId: true, type: true, rack: { select: { room: { select: { building: { select: { siteId: true } } } } } } } }); if (!current) throw new NotFoundException('Equipamento não encontrado'); this.assertDeviceCapability(user, current.type); this.assertDeviceCapability(user, dto.type); await this.access.assertDevice(user, 'UPDATE', id); if (dto.rackId && dto.rackId !== current.rackId) await this.access.assertRack(user, 'UPDATE', dto.rackId, 'DEVICE', dto.type); await this.validateDeviceFrontAsset(dto.frontAssetId ?? current.frontAssetId ?? undefined); await this.validateRackPlacement(dto, id); const currentSiteId = current.rack?.room.building.siteId ?? current.siteId; const targetSiteId = dto.rackId ? await this.rackSiteId(dto.rackId) : dto.siteId ?? currentSiteId; if (!targetSiteId) throw new NotFoundException('Site do equipamento não encontrado'); if (dto.rackId && dto.siteId && dto.siteId !== targetSiteId) throw new ConflictException('O bastidor não pertence ao Site selecionado'); if (!dto.rackId && targetSiteId !== currentSiteId) await this.access.assertSite(user, 'UPDATE', targetSiteId, 'DEVICE', dto.type); await this.validateManagementIp(user, dto.managementIpAddressId, targetSiteId); const status = !preserveRequestedStatus && dto.rackId && current.status !== 'RETIRED' ? 'ACTIVE' : (dto.status ?? current.status); const item = await this.prisma.$transaction(async (tx) => { const data = { ...dto, siteId: targetSiteId, status: status as never, managementIpAddressId: undefined } as any; delete data.managementIpAddressId; const updated = await tx.device.update({ where: { id }, data }); if (dto.managementIpAddressId) await tx.ipAddress.update({ where: { id: dto.managementIpAddressId }, data: { deviceId: id } }); return updated; }).catch(() => { throw new ConflictException('Não foi possível atualizar o equipamento e o respetivo IP de gestão'); }); try { await this.log(user, 'DEVICE_UPDATED', 'Device', id, { rackId: dto.rackId, managementIp: dto.managementIp, managementIpAddressId: dto.managementIpAddressId }); } catch (error) { if (preserveRequestedStatus) throw new PersistedDeviceAuditError(id); throw error; } return preserveRequestedStatus ? item : this.getDevice(item.id, user); }
+  async deleteDevice(_id: string, _user: AuthenticatedUser) { throw new ConflictException('A retirada exige a revisão do checklist. Consulta GET /api/v1/devices/:id/retirement-review e confirma em POST /api/v1/devices/:id/retire.'); }
+  async deviceRetirementReview(id: string, user: AuthenticatedUser, permission: 'READ' | 'DELETE' = 'READ') {
+    await this.access.assertDevice(user, permission, id);
+    const device = await this.prisma.device.findUnique({ where: { id }, select: { id: true, name: true, siteId: true, interfaces: { select: { id: true, name: true, ipAddresses: { select: { id: true, address: true, subnet: { select: { cidr: true } } } } } }, ipAddresses: { select: { id: true, address: true, subnet: { select: { cidr: true } }, interface: { select: { id: true, name: true } } } }, topologyNodes: { select: { map: { select: { id: true, name: true, type: true } } } } } });
+    if (!device) throw new NotFoundException('Equipamento não encontrado');
+    return { device: { id: device.id, name: device.name }, interfaces: device.interfaces.map(({ id, name }) => ({ id, name })), ipAddresses: device.ipAddresses, mapReferences: device.topologyNodes.map(({ map }) => map) };
+  }
+  async confirmDeviceRetirement(id: string, user: AuthenticatedUser, operatorConfirmed: boolean) {
+    if (!operatorConfirmed) throw new BadRequestException('A confirmação do operador é obrigatória');
+    await this.access.assertDevice(user, 'DELETE', id);
+    const review = await this.deviceRetirementReview(id, user, 'DELETE');
+    const metadata = { operatorConfirmed, interfaceCount: review.interfaces.length, ipAddressIds: review.ipAddresses.map((ip) => ip.id), mapIds: review.mapReferences.map((map) => map.id) };
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const device = await tx.device.update({ where: { id }, data: { status: 'RETIRED' } }).catch(() => { throw new NotFoundException('Equipamento não encontrado'); });
+      await tx.auditLog.create({ data: { userId: user.id, action: 'DEVICE_RETIREMENT_CONFIRMED', entityType: 'Device', entityId: id, metadata } });
+      return device;
+    });
+    await this.audit.scheduleInventoryQualityReconcile('Device');
+    return { success: true, device: updated };
+  }
   private readonly vlanInclude = { include: { subnets: { take: 1, orderBy: { id: 'asc' as const } } } };
   async listInterfaces(user: AuthenticatedUser, deviceId?: string, search?: string) { if (deviceId) await this.access.assertDevice(user, 'READ', deviceId); const [roomIds, unplacedSiteIds] = deviceId ? [[], []] : await Promise.all([this.access.visibleRoomIds(user), this.access.visibleUnplacedSiteIds(user)]); const items = await this.prisma.deviceInterface.findMany({ where: { ...(deviceId ? { deviceId } : { device: { OR: [{ rackId: null, siteId: { in: unplacedSiteIds } }, { rack: { roomId: { in: roomIds } } }] } }), ...(search ? { OR: [{ name: { contains: search, mode: 'insensitive' } }, { description: { contains: search, mode: 'insensitive' } }] } : {}) }, include: { device: { include: { model: true } }, nativeVlan: this.vlanInclude, accessVlan: this.vlanInclude, allowedVlans: { include: { vlan: this.vlanInclude } }, ipAddresses: { include: { subnet: true, host: true } } } }); const natural = (value: string) => value.toLocaleLowerCase().split(/(\d+)/).map((part) => /^\d+$/.test(part) ? Number(part) : part); const compare = (a: any, b: any) => { const aa = natural(a.name ?? a.portKey ?? ''); const bb = natural(b.name ?? b.portKey ?? ''); for (let index = 0; index < Math.max(aa.length, bb.length); index++) { if (aa[index] === undefined) return -1; if (bb[index] === undefined) return 1; if (aa[index] === bb[index]) continue; return aa[index] < bb[index] ? -1 : 1; } return String(a.name).localeCompare(String(b.name)); }; return items.sort((a, b) => a.deviceId.localeCompare(b.deviceId) || compare(a, b)); }
   async getInterface(id: string, user: AuthenticatedUser) { await this.access.assertInterface(user, 'READ', id); const item = await this.prisma.deviceInterface.findUnique({ where: { id }, include: { device: { include: { model: true } }, nativeVlan: this.vlanInclude, accessVlan: this.vlanInclude, allowedVlans: { include: { vlan: this.vlanInclude } }, ipAddresses: { include: { subnet: true, host: true } } } }); if (!item) throw new NotFoundException('Interface não encontrada'); return item; }

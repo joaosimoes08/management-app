@@ -114,7 +114,7 @@ Gates ainda por verificar antes de merge/piloto: browser/manual acceptance, recu
 - Interfaces ainda não têm editor completo na UI.
 - Bastidores/localizações têm modelo de dados, mas ainda não têm gestão visual.
 - Equipamentos ainda não têm ficha detalhada com navegação completa para VLAN/IPAM.
-- Perfis de Discovery e métricas avançadas do worker ainda não estão implementados.
+- Perfis de Discovery (predefinição da organização, ICMP, serviços web, infraestrutura de rede e personalizado) estão disponíveis para execuções manuais; métricas avançadas do worker continuam por implementar.
 
 ### Planeado
 

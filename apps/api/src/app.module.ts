@@ -18,6 +18,7 @@ import { OperationsModule } from './operations/operations.module';
 import { InventoryQualityModule } from './inventory-quality/inventory-quality.module';
 import { TopologyModule } from './topology/topology.module';
 import { ExportsModule } from './settings/exports.module';
+import { NetAppModule } from './netapp/netapp.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { ExportsModule } from './settings/exports.module';
     InventoryQualityModule,
     TopologyModule,
     ExportsModule,
+    NetAppModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

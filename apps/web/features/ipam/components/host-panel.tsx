@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from 'react';
 import { Edit3, Plus, Trash2, X } from 'lucide-react';
+import { BookStackContextLink } from '@/components/bookstack-context-link';
 import {
   createService,
   deleteHost,
@@ -107,7 +108,7 @@ export function HostPanel({ host, canEdit, close, reload, success, toastError }:
     <section className="host-section">
       <h3>Services</h3>
       {host.services.map((item) => <article className="service-row" key={item.id}>
-        <div><strong>{item.name}</strong><span>{item.protocol || 'OTHER'} {item.port ? `:${item.port}` : ''} · manual {item.status || 'UNKNOWN'} · observado {item.observedStatus || '—'}</span><small>{item.version || ''}{item.notes ? ` · ${item.notes}` : ''} · {item.source}</small></div>
+        <div><strong>{item.name}</strong><span>{item.protocol || 'OTHER'} {item.port ? `:${item.port}` : ''} · manual {item.status || 'UNKNOWN'} · observado {item.observedStatus || '—'}</span><small>{item.version || ''}{item.notes ? ` · ${item.notes}` : ''} · {item.source}</small><BookStackContextLink type="service" id={item.id} /></div>
         {canEdit && <button className="icon-button subtle danger" title="Eliminar Service" onClick={() => confirm(`Eliminar ${item.name}?`) && void act('Eliminar Service', () => deleteService(item.id))}><Trash2 size={14} /></button>}
       </article>)}
       {canEdit && <form className="service-form" onSubmit={createServiceHandler}>

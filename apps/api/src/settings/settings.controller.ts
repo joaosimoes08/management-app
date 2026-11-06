@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Req } fr
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { Roles } from '../auth/roles.decorator';
-import { AccessGroupMemberDto, CreateAccessGroupDto, UpdateAccessGroupDto, UpdateAccessGroupSiteDto, UpdateAuditPolicyDto, UpdateDiscoveryDefaultsDto, UpdateOrganizationSettingsDto, UpdateSnmpListenerDto, UpdateUserRolesDto } from './dto';
+import { AccessGroupMemberDto, CreateAccessGroupDto, UpdateAccessGroupDto, UpdateAccessGroupSiteDto, UpdateAuditPolicyDto, UpdateDirectoryFederationDto, UpdateDiscoveryDefaultsDto, UpdateOrganizationSettingsDto, UpdateSnmpListenerDto, UpdateUserRolesDto } from './dto';
 import { KeycloakAdminService } from './keycloak-admin.service';
 import { SettingsService } from './settings.service';
 import { CreateRoleRequestDto, DecideRoleRequestDto } from './role-request.dto';
@@ -25,6 +25,9 @@ export class SettingsController {
   @Get('audit-policy') @Roles('ADMIN', 'AUDITOR') auditPolicy() { return this.service.auditPolicy(); }
   @Patch('audit-policy') @Roles('ADMIN') updateAuditPolicy(@Body() body: UpdateAuditPolicyDto, @Req() req: { user: AuthenticatedUser }) { return this.service.updateAuditPolicy(body, req.user); }
   @Get('users') @Roles('ADMIN') users(@Query('search') search?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) { return this.service.users(search, page, pageSize); }
+  @Get('directory-federation') @Roles('ADMIN') directoryFederation() { return this.keycloak.directoryFederationStatus(); }
+  @Post('directory-federation/test') @Roles('ADMIN') testDirectoryFederation(@Body() body: UpdateDirectoryFederationDto) { return this.keycloak.testDirectoryConnection(body); }
+  @Put('directory-federation') @Roles('ADMIN') updateDirectoryFederation(@Body() body: UpdateDirectoryFederationDto, @Req() req: { user: AuthenticatedUser }) { return this.keycloak.updateDirectoryFederation(body, req.user); }
   @Get('legacy-role-assignments') @Roles('ADMIN') legacyRoleAssignments() { return this.service.legacyRoleAssignments(); }
   @Patch('users/:externalId/roles') @Roles('ADMIN') updateUserRoles(@Param('externalId') externalId: string, @Body() body: UpdateUserRolesDto, @Req() req: { user: AuthenticatedUser }) { return this.keycloak.updateRoles(externalId, body.roles, req.user); }
   @Get('role-requests/me') mineRoleRequests(@Req() req: { user: AuthenticatedUser }) { return this.roleRequests.mine(req.user); }

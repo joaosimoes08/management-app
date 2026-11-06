@@ -72,6 +72,8 @@ As operações de escrita exigem `ADMIN` ou `NETWORK_OPERATOR`. A API normaliza 
 
 Os jobs são colocados na fila BullMQ `discovery` em Redis. A API não executa o scan; é necessário manter o processo `worker:dev` ativo.
 
+`GET /api/v1/settings/discovery` inclui os perfis `defaults`, `icmp-only`, `web`, `network` e `custom`. `POST /api/v1/discovery/jobs` aceita `profileId`; os perfis nomeados resolvem métodos, portas e reverse DNS no servidor. `custom` usa esses campos enviados pelo operador e continua limitado a 64 portas, à allowlist de Discovery, aos scopes de Site e a subnets IPv4 de até 4096 endereços. Os parâmetros usados ficam guardados no job. Uma resposta ICMP ou uma ligação TCP aceite é apenas evidência de uma sonda, não uma avaliação da saúde do serviço ou do equipamento.
+
 Uma aprovação cria/atualiza o IP no inventário oficial; a descoberta nunca cria automaticamente ativos definitivos.
 
 ### Portal de aplicações
@@ -92,6 +94,16 @@ Os endpoints `POST`, `PATCH`, `DELETE` e `POST /:id/check` exigem a role `ADMIN`
 - Campos exportados: devices (`id,name,type,serialNumber,assetTag,hostname,managementIp,status,source,siteId,createdAt,updatedAt`); subnets (`id,cidr,version,gateway,purpose,environment,siteId,vlanId,vrfId`); vlans (`id,vlanId,name,description,siteId`); ips (`id,address,state,hostname,macAddress,version,subnetId,deviceId,interfaceId,hostId`). CSV protege valores iniciados por caracteres de fórmula.
 - `GET /api/v1/settings/backups` (ADMIN) mostra os últimos registos manuais de backup e teste de restauro. `POST /api/v1/settings/backups/checks` (ADMIN) aceita `kind` (`BACKUP_COMPLETED`, `RESTORE_VERIFIED` ou `RESTORE_FAILED`), `completedAt` ISO-8601 e `reference`/`notes` opcionais. O registo é auditado; não executa backup nem restaura dados.
 - A configuração Docker documenta volumes persistentes e um exemplo manual de `pg_dump`; a aplicação não está ligada a um job de backup nem verifica cópias ou restauros automaticamente. Um registo de sucesso é uma declaração do operador, não prova independente da cópia ou do restauro.
+### NetApp ONTAP (inventário read-only)
+
+- A página /netapp configura a integração e mostra os snapshots do Site ativo.
+- PUT /api/v1/netapp/sites/:siteId/integration — configura o endpoint HTTPS e a conta ONTAP; exige ADMIN. A password é cifrada e nunca é devolvida pela API.
+- GET /api/v1/netapp/sites/:siteId — consulta configuração pública, estado da última tentativa e último snapshot. Exige ADMIN, NETWORK_OPERATOR, SYSTEMS_OPERATOR, AUDITOR ou READ_ONLY.
+- POST /api/v1/netapp/sites/:siteId/refresh — consulta o ONTAP manualmente; exige ADMIN ou SYSTEMS_OPERATOR. A integração usa apenas pedidos REST GET, regista auditoria e mantém o último snapshot se a consulta falhar.
+
+O snapshot inclui cluster/sistemas, nós, aggregates, volumes, capacidade agregada e saúde. Não há polling agendado nem operações de escrita no ONTAP. A integração usa SNMP_KEYRING_FILE para proteger a credencial; prepara o keyring conforme a secção “Componente SNMP” em docs/setup.md.
+
+Validação feita com respostas mockadas/contratuais. Não havia appliance ONTAP nem credenciais de leitura disponíveis para validação ao vivo. A compatibilidade dos campos REST com a versão ONTAP e permissões da conta de leitura configurada ainda requer confirmação num equipamento de destino. Firmware, licenciamento, snapshots e métricas históricas não fazem parte deste snapshot inicial.
 
 ## Swagger
 
