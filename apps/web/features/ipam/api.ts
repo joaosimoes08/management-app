@@ -47,7 +47,7 @@ export function getSubnetUsage(id: string): Promise<SubnetUsage> {
   return apiFetch<SubnetUsage>(`/api/v1/subnets/${id}/usage`);
 }
 
-export type SubnetPlanning = { subnet: Subnet; version: number; network?: string; broadcast?: string; usableRange?: { start: string; end: string } | null; usableTotal?: number; assigned?: number; free?: number; utilizationPercent: number | null; usableGaps: Array<{ start: string; end: string; count: number }>; assignedAddresses?: string[]; message?: string };
+export type SubnetPlanning = { subnet: Subnet; version: number; network?: string; broadcast?: string; usableRange?: { start: string; end: string } | null; usableTotal?: number; unavailable?: number; free?: number; utilizationPercent: number | null; usableGaps: Array<{ start: string; end: string; count: number }>; unavailableAddresses?: string[]; message?: string };
 export function getSubnetPlanning(id: string): Promise<SubnetPlanning> {
   return apiFetch<SubnetPlanning>(`/api/v1/subnets/${id}/planning`);
 }

@@ -181,6 +181,7 @@ const enUS: LegacyDictionary = {
   'Não definido': 'Not set',
   'Não existem equipamentos ativos neste Site': 'There is no active equipment in this Site',
   'Não foi possível abrir a subnet.': 'Could not open the subnet.',
+  'Não foi possível abrir o endereço IP.': 'Could not open the IP address.',
   'Não foi possível abrir o editor de portas.': 'Could not open the port editor.',
   'Não foi possível abrir o Host.': 'Could not open the Host.',
   'Não foi possível calcular as subnets.': 'Could not calculate subnets.',

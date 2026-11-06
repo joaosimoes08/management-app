@@ -89,6 +89,9 @@ export class InventoryQualityService {
     const driftIds = pageItems.filter((item) => item.entityType === 'SnmpDrift').map((item) => item.entityId);
     const driftOwners = driftIds.length ? await this.prisma.snmpDrift.findMany({ where: { id: { in: driftIds } }, select: { id: true, deviceId: true } }) : [];
     const ownerByDrift = new Map(driftOwners.map((item) => [item.id, item.deviceId]));
+    const ipIds = pageItems.filter((item) => item.entityType === 'IpAddress').map((item) => item.entityId);
+    const ipTargets = ipIds.length ? await this.prisma.ipAddress.findMany({ where: { id: { in: ipIds } }, select: { id: true, subnetId: true } }) : [];
+    const subnetByIp = new Map(ipTargets.map((item) => [item.id, item.subnetId]));
     const suggestions: Record<string, string> = {
       DEVICE_MISSING_SITE: 'Associar o equipamento ao Site correto.', DEVICE_MISSING_LOCATION: 'Atribuir o equipamento ao bastidor e à posição física corretos.', DEVICE_MISSING_MODEL: 'Associar o modelo de equipamento correspondente.',
       NETWORK_DEVICE_MISSING_MANAGEMENT_IP: 'Atribuir um endereço IP de gestão válido ao equipamento.', INTERFACE_MISSING_MODE: 'Definir o modo da interface como ACCESS ou TRUNK.', ACCESS_INTERFACE_MISSING_VLAN: 'Selecionar a VLAN de acesso da interface.', TRUNK_INTERFACE_MISSING_VLANS: 'Adicionar as VLANs permitidas nesta interface trunk.',
@@ -96,7 +99,7 @@ export class InventoryQualityService {
     };
     const items = pageItems.map((item) => {
       const deviceId = item.entityType === 'Device' ? item.entityId : item.entityType === 'DeviceInterface' ? ownerByInterface.get(item.entityId) : item.entityType === 'SnmpDrift' ? ownerByDrift.get(item.entityId) : undefined;
-      const href = deviceId && item.siteId && item.entityType === 'SnmpDrift' ? `/snmp?siteId=${encodeURIComponent(item.siteId)}&deviceId=${encodeURIComponent(deviceId)}` : deviceId && item.siteId ? `/infraestrutura?siteId=${encodeURIComponent(item.siteId)}&tab=${item.entityType === 'DeviceInterface' ? 'interfaces' : 'devices'}&deviceId=${encodeURIComponent(deviceId)}${item.entityType === 'DeviceInterface' ? `&interfaceId=${encodeURIComponent(item.entityId)}` : ''}` : item.entityType === 'IpAddress' && item.siteId ? `/ipam?siteId=${encodeURIComponent(item.siteId)}&ipId=${encodeURIComponent(item.entityId)}` : item.entityType === 'DeviceModel' && item.siteId ? `/infraestrutura?siteId=${encodeURIComponent(item.siteId)}&tab=models&modelId=${encodeURIComponent(item.entityId)}` : null;
+      const href = deviceId && item.siteId && item.entityType === 'SnmpDrift' ? `/snmp?siteId=${encodeURIComponent(item.siteId)}&deviceId=${encodeURIComponent(deviceId)}` : deviceId && item.siteId ? `/infraestrutura?siteId=${encodeURIComponent(item.siteId)}&tab=${item.entityType === 'DeviceInterface' ? 'interfaces' : 'devices'}&deviceId=${encodeURIComponent(deviceId)}${item.entityType === 'DeviceInterface' ? `&interfaceId=${encodeURIComponent(item.entityId)}` : ''}` : item.entityType === 'IpAddress' && item.siteId && subnetByIp.has(item.entityId) ? `/ipam?siteId=${encodeURIComponent(item.siteId)}&subnetId=${encodeURIComponent(subnetByIp.get(item.entityId)!)}&ipId=${encodeURIComponent(item.entityId)}` : item.entityType === 'DeviceModel' && item.siteId ? `/infraestrutura?siteId=${encodeURIComponent(item.siteId)}&tab=models&modelId=${encodeURIComponent(item.entityId)}` : null;
       return { ...item, actionHref: href, suggestedCorrection: suggestions[item.rule] ?? 'Abrir o registo e corrigir os dados que originaram este finding.' };
     });
     return { items, total: visible.length, page, pageSize };
