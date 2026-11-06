@@ -54,6 +54,14 @@ test('admin bypasses configured infrastructure scopes', async () => {
   await service([], []).assertRoom({ ...user, roles: ['ADMIN'] } as never, 'DELETE', room.id);
 });
 
+test('an unassigned device can be opened only by an admin', async () => {
+  const prisma = { device: { findUnique: async () => ({ id: 'unassigned-device', type: 'SWITCH', siteId: null, rack: null }) } };
+  const access = new InfrastructureAccessService(prisma as never, {} as never, new AccessPolicyService());
+  await access.assertDevice({ ...user, roles: ['ADMIN'] } as never, 'READ', 'unassigned-device');
+  await access.assertDevice({ ...user, roles: ['ADMIN'] } as never, 'UPDATE', 'unassigned-device');
+  await assert.rejects(() => access.assertDevice(user as never, 'READ', 'unassigned-device'), NotFoundException);
+});
+
 test('a group never grants infrastructure access without an active application role', async () => {
   const access = service([{ groupId: 'group', scopeType: 'ROOM', scopeId: room.id, permission: 'READ' }]);
   await assert.rejects(() => access.assertRoom({ ...user, roles: [] } as never, 'READ', room.id), NotFoundException);
