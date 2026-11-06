@@ -136,7 +136,9 @@ export class OperationsService implements OnModuleInit, OnModuleDestroy {
       if (item.severity === 'CRITICAL') return true;
       const inQuietWindow = windows.some((window) => window.siteId === null || window.siteId === item.siteId);
       if (inQuietWindow) return false;
-      const rule = rules.find((candidate) => candidate.source === item.source && (candidate.siteId === null || candidate.siteId === item.siteId));
+      const rule = rules
+        .filter((candidate) => candidate.source === item.source && (candidate.siteId === null || candidate.siteId === item.siteId))
+        .sort((left, right) => Number(right.siteId === item.siteId) - Number(left.siteId === item.siteId) || (rank[right.minSeverity] ?? 2) - (rank[left.minSeverity] ?? 2))[0];
       return !rule || (rank[item.severity] ?? 99) <= (rank[rule.minSeverity] ?? 2);
     });
   }

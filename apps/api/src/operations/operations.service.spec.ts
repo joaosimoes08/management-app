@@ -153,3 +153,20 @@ test('configured source and site thresholds filter lower severities while preser
   ]);
   assert.deepEqual(result.map((item: any) => item.severity), ['HIGH', 'CRITICAL']);
 });
+
+test('site-specific alert rules override global rules deterministically', async () => {
+  const prisma = {
+    alertRule: { findMany: async () => [
+      { source: 'SNMP', siteId: null, minSeverity: 'CRITICAL' },
+      { source: 'SNMP', siteId: 'site', minSeverity: 'WARNING' },
+      { source: 'SNMP', siteId: 'site', minSeverity: 'INFO' },
+    ] },
+    maintenanceWindow: { findMany: async () => [] },
+  };
+  const service = new OperationsService(prisma as never, {} as never, {} as never, {} as never) as any;
+  const result = await service.applyAlertPolicies([
+    { source: 'SNMP', siteId: 'site', severity: 'INFO' },
+    { source: 'SNMP', siteId: 'other', severity: 'INFO' },
+  ]);
+  assert.deepEqual(result.map((item: any) => item.siteId), ['site']);
+});
