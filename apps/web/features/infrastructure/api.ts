@@ -60,8 +60,16 @@ export function createBuilding(siteId: string, body: { name: string; description
   return apiFetch(`/api/v1/sites/${siteId}/buildings`, { method: 'POST', body: JSON.stringify(body) });
 }
 
+export function updateBuilding(id: string, body: { name: string; description?: string }): Promise<unknown> {
+  return apiFetch(`/api/v1/buildings/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
 export function createRoom(buildingId: string, body: { name: string }): Promise<Room> {
   return apiFetch<Room>(`/api/v1/buildings/${buildingId}/rooms`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function updateRoom(id: string, body: { name: string }): Promise<Room> {
+  return apiFetch<Room>(`/api/v1/rooms/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
 // ── Racks ──────────────────────────────────────────────────────────────────
