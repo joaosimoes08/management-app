@@ -10,8 +10,14 @@ describe('topology interface availability', () => {
   });
 
   it('clears a selected port when a refreshed API response marks it used', () => {
-    const used = new Set(['occupied']);
-    expect(retainAvailableInterfaceId('occupied', used)).toBe('');
-    expect(retainAvailableInterfaceId('free', used)).toBe('free');
+    const selectedPortId = 'newly-connected';
+    const usedBeforeCreate = new Set<string>();
+    expect(retainAvailableInterfaceId(selectedPortId, usedBeforeCreate)).toBe(selectedPortId);
+
+    // The successful create refetch returns the new connection's occupied interface IDs.
+    const usedAfterCreate = new Set(['newly-connected']);
+    expect(availableInterfaces([{ id: selectedPortId }] as DeviceInterface[], usedAfterCreate)).toEqual([]);
+    expect(retainAvailableInterfaceId(selectedPortId, usedAfterCreate)).toBe('');
+    expect(retainAvailableInterfaceId('still-free', usedAfterCreate)).toBe('still-free');
   });
 });

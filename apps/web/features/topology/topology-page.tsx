@@ -229,7 +229,7 @@ export function TopologyPage() {
     try {
       await createTopologyConnection(current.id, { sourceNodeId: `${current.id}:${pendingConnection.sourceDeviceId}`, targetNodeId: `${current.id}:${pendingConnection.targetDeviceId}`, revision: current.revision, sourceInterfaceId: newSourcePortId, targetInterfaceId: newTargetPortId, type: current.type === 'PHYSICAL' ? 'PHYSICAL' : 'LOGICAL' });
       setPendingConnection(null); setNewSourcePortId(''); setNewTargetPortId('');
-      await detail.refetch(); setWarning('');
+      await Promise.all([detail.refetch(), interfaceAvailability.refetch()]); setWarning('');
     } catch (error) {
       setWarning(String(error).includes('já utilizadas') ? 'Uma das portas já está ligada. Escolhe novamente entre as portas livres.' : String(error).includes('alterado') ? 'O mapa mudou entretanto. Recarrega antes de criar a ligação.' : 'Não foi possível criar a ligação.');
       const [, availability] = await Promise.all([detail.refetch(), interfaceAvailability.refetch()]);
