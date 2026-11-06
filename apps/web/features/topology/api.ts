@@ -6,7 +6,7 @@ export const createTopologyMap = (body: { name: string; type: TopologyMapType; s
 export const updateTopologyMap = (id: string, body: Partial<Pick<TopologyMap, 'name' | 'type'>> & { expectedRevision: number }) => apiFetch<TopologyMap>(`/api/v1/topology/maps/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 export const deleteTopologyMap = (id: string, revision?: number) => apiFetch(`/api/v1/topology/maps/${id}${revision === undefined ? '' : `?revision=${revision}`}`, { method: 'DELETE' });
 export const replaceTopologyNodes = (id: string, revision: number, nodes: TopologyNode[]) => apiFetch<TopologyMap>(`/api/v1/topology/maps/${id}/nodes`, { method: 'PUT', body: JSON.stringify({ revision, nodes: nodes.map((node) => ({ deviceId: node.deviceId, x: node.x, y: node.y, label: node.label })) }) });
-export const createTopologyConnection = (id: string, body: { sourceNodeId: string; targetNodeId: string; revision: number; sourceInterfaceId?: string; targetInterfaceId?: string; type?: 'PHYSICAL' | 'LOGICAL'; label?: string }) => {
+export const createTopologyConnection = (id: string, body: { sourceNodeId: string; targetNodeId: string; revision: number; sourceInterfaceId: string; targetInterfaceId: string; type?: 'PHYSICAL' | 'LOGICAL'; label?: string }) => {
   const { sourceNodeId, targetNodeId, ...connection } = body;
   return apiFetch<TopologyConnection>(`/api/v1/topology/maps/${id}/connections`, {
     method: 'POST',

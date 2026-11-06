@@ -44,6 +44,18 @@ export class TopologyService {
       if ((dto.sourceInterfaceId && !interfaces.some((item: any) => item.id === dto.sourceInterfaceId && item.deviceId === dto.sourceDeviceId)) || (dto.targetInterfaceId && !interfaces.some((item: any) => item.id === dto.targetInterfaceId && item.deviceId === dto.targetDeviceId))) throw new NotFoundException('A interface não pertence ao dispositivo indicado');
     }
   }
+  private async assertInterfacesAvailable(db: any, interfaceIds: Array<string | null | undefined>, exceptConnectionId?: string) {
+    const ids = [...new Set(interfaceIds.filter((id): id is string => Boolean(id)))];
+    if (!ids.length) return;
+    const existing = await db.deviceConnection.findFirst({
+      where: {
+        ...(exceptConnectionId ? { id: { not: exceptConnectionId } } : {}),
+        OR: [{ sourceInterfaceId: { in: ids } }, { targetInterfaceId: { in: ids } }],
+      },
+      select: { id: true },
+    });
+    if (existing) throw new ConflictException('Uma ou mais portas já estão ligadas a outro equipamento');
+  }
   private async assertConnectionVisible(user: AuthenticatedUser, connection: { sourceDeviceId: string; targetDeviceId: string }) {
     await Promise.all([this.access.assertDevice(user, 'READ', connection.sourceDeviceId), this.access.assertDevice(user, 'READ', connection.targetDeviceId)]);
   }
@@ -126,6 +138,7 @@ export class TopologyService {
     await this.assertConnectionVisible(user, dto);
     const connection = await this.db().$transaction(async (tx: any) => {
       await this.advanceRevision(tx, mapId, dto.revision ?? existing.revision);
+      await this.assertInterfacesAvailable(tx, [dto.sourceInterfaceId, dto.targetInterfaceId]);
       const created = await tx.deviceConnection.create({ data: { siteId: existing.siteId, sourceDeviceId: dto.sourceDeviceId, targetDeviceId: dto.targetDeviceId, sourceInterfaceId: dto.sourceInterfaceId, targetInterfaceId: dto.targetInterfaceId, type: dto.type ?? 'PHYSICAL', label: dto.label, createdById: user.id } });
       await tx.topologyMapConnection.create({ data: { mapId, connectionId: created.id } });
       return created;
@@ -178,6 +191,7 @@ export class TopologyService {
     await this.authorizeMap(user, 'CREATE', dto.siteId, 'NETWORK');
     await this.validateConnectionEndpoints(dto.siteId, dto);
     await this.assertConnectionVisible(user, dto);
+    await this.assertInterfacesAvailable(this.db(), [dto.sourceInterfaceId, dto.targetInterfaceId]);
     const item = await this.db().deviceConnection.create({ data: { ...dto, type: dto.type ?? 'PHYSICAL', createdById: user.id } });
     await this.audit.record({ userId: user.id, action: 'DEVICE_CONNECTION_CREATED', entityType: 'DeviceConnection', entityId: item.id, metadata: { siteId: dto.siteId } });
     return item;
@@ -197,6 +211,12 @@ export class TopologyService {
       });
     }
     const item = await this.db().$transaction(async (tx: any) => {
+      if (data.sourceInterfaceId !== undefined || data.targetInterfaceId !== undefined) {
+        await this.assertInterfacesAvailable(tx, [
+          data.sourceInterfaceId !== undefined ? data.sourceInterfaceId : existing.sourceInterfaceId,
+          data.targetInterfaceId !== undefined ? data.targetInterfaceId : existing.targetInterfaceId,
+        ], id);
+      }
       for (const association of existing.maps) {
         const expected = expectedRevisions?.[association.mapId] ?? association.map.revision;
         const result = await tx.topologyMap.updateMany({ where: { id: association.mapId, revision: expected }, data: { revision: { increment: 1 } } });

@@ -13,13 +13,15 @@ describe('createTopologyConnection', () => {
       sourceNodeId: 'map-1:device-a',
       targetNodeId: 'map-1:device-b',
       revision: 3,
+      sourceInterfaceId: 'interface-a',
+      targetInterfaceId: 'interface-b',
       type: 'PHYSICAL',
       label: 'Uplink',
     });
 
     expect(apiFetch).toHaveBeenCalledWith('/api/v1/topology/maps/map-1/connections', {
       method: 'POST',
-      body: JSON.stringify({ revision: 3, type: 'PHYSICAL', label: 'Uplink', sourceDeviceId: 'device-a', targetDeviceId: 'device-b' }),
+      body: JSON.stringify({ revision: 3, sourceInterfaceId: 'interface-a', targetInterfaceId: 'interface-b', type: 'PHYSICAL', label: 'Uplink', sourceDeviceId: 'device-a', targetDeviceId: 'device-b' }),
     });
   });
 });

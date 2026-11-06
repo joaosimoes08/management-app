@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Background, BaseEdge, Controls, EdgeLabelRenderer, Handle, MiniMap, Position, ReactFlow, addEdge, applyNodeChanges, getBezierPath, type Connection, type Edge, type EdgeProps, type Node, type NodeChange, type NodeProps, type ReactFlowInstance, useEdgesState, useNodesState } from '@xyflow/react';
+import { Background, BaseEdge, Controls, EdgeLabelRenderer, Handle, MiniMap, Position, ReactFlow, applyNodeChanges, getBezierPath, type Connection, type Edge, type EdgeProps, type Node, type NodeChange, type NodeProps, type ReactFlowInstance, useEdgesState, useNodesState } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { AppShell } from '@/components/layout/app-shell';
 import { listAllDevices, listInterfaces } from '@/features/infrastructure/api';
@@ -15,6 +15,7 @@ import { useSiteContext } from '@/lib/site-context';
 import { createTopologyConnection, createTopologyMap, deleteTopologyConnection, deleteTopologyMap, getTopologyMap, listTopologyMaps, replaceTopologyNodes, updateTopologyConnection } from './api';
 import { loadAllTopologyAlerts, summarizeTopologyDeviceAlerts, topologyDeviceImage, topologySeverityColor, type TopologyNodeAlertSummary } from './alerts';
 import { findTopologyNode } from './search';
+import { availableTopologyPorts } from './port-availability';
 import type { TopologyConnection, TopologyMap, TopologyMapType, TopologyNode } from './types';
 
 const types: TopologyMapType[] = ['PHYSICAL', 'NETWORK', 'VLAN_SUBNET'];
@@ -110,6 +111,7 @@ export function TopologyPage() {
   const [edgeNotes, setEdgeNotes] = useState('');
   const [sourcePortId, setSourcePortId] = useState('');
   const [targetPortId, setTargetPortId] = useState('');
+  const [pendingConnection, setPendingConnection] = useState<{ sourceDeviceId: string; targetDeviceId: string } | null>(null);
   const maps = useQuery({ queryKey: ['topology', 'maps', siteId], queryFn: () => listTopologyMaps(siteId), enabled: Boolean(siteId) });
   const detail = useQuery({ queryKey: ['topology', selected], queryFn: () => getTopologyMap(selected), enabled: Boolean(selected) });
   const devices = useQuery({ queryKey: ['topology', 'devices', siteId], queryFn: () => listAllDevices(siteId, ''), enabled: Boolean(siteId) });
@@ -196,12 +198,31 @@ export function TopologyPage() {
   const reloadMap = () => { clearTimeout(saveTimer.current); setPendingPositions(null); setSaveState('saved'); setWarning(''); void detail.refetch(); };
   const onConnect = async (connection: Connection) => {
     if (!current || !connection.source || !connection.target || connection.source === connection.target) return;
-    setEdges((items) => addEdge(connection, items));
+    const sourceDeviceId = current.nodes.find((node) => node.id === connection.source)?.deviceId;
+    const targetDeviceId = current.nodes.find((node) => node.id === connection.target)?.deviceId;
+    if (!sourceDeviceId || !targetDeviceId) return;
+    setSelectedEdgeId('');
+    setPendingConnection({ sourceDeviceId, targetDeviceId });
+    setSourcePortId('');
+    setTargetPortId('');
+  };
+  const createConnection = async () => {
+    if (!current || !pendingConnection || !sourcePortId || !targetPortId) return;
     try {
-      await createTopologyConnection(current.id, { sourceNodeId: connection.source, targetNodeId: connection.target, revision: current.revision, type: current.type === 'PHYSICAL' ? 'PHYSICAL' : 'LOGICAL' });
+      await createTopologyConnection(current.id, {
+        sourceNodeId: `${current.id}:${pendingConnection.sourceDeviceId}`,
+        targetNodeId: `${current.id}:${pendingConnection.targetDeviceId}`,
+        sourceInterfaceId: sourcePortId,
+        targetInterfaceId: targetPortId,
+        revision: current.revision,
+        type: current.type === 'PHYSICAL' ? 'PHYSICAL' : 'LOGICAL',
+      });
+      setPendingConnection(null);
+      setSourcePortId('');
+      setTargetPortId('');
       await detail.refetch(); setWarning('');
     } catch (error) {
-      setWarning(String(error).includes('alterado') ? 'O mapa mudou entretanto. Recarrega antes de criar a ligação.' : 'Não foi possível criar a ligação.');
+      setWarning(String(error).includes('já ligada') ? 'Uma das portas já está ligada. Atualiza o mapa e escolhe outras portas.' : String(error).includes('alterado') ? 'O mapa mudou entretanto. Recarrega antes de criar a ligação.' : 'Não foi possível criar a ligação.');
       await detail.refetch();
     }
   };
@@ -239,15 +260,17 @@ export function TopologyPage() {
 
   const closeConnectionCard = () => setSelectedEdgeId('');
   const selectedConnectionDisplay = selectedConnection && current ? connectionDisplay(selectedConnection, current, interfacesByDevice) : undefined;
+  const pendingSourcePorts = pendingConnection ? availableTopologyPorts(pendingConnection.sourceDeviceId, interfacesByDevice, current?.connections ?? []) : [];
+  const pendingTargetPorts = pendingConnection ? availableTopologyPorts(pendingConnection.targetDeviceId, interfacesByDevice, current?.connections ?? []) : [];
 
   const topbarActions = <div className="topology-topbar-actions">
-    <select aria-label="Mapa do site" value={selected} onChange={(event) => setSelected(event.target.value)}><option value="">Seleciona mapa…</option>{mapOptions.map((map) => <option key={map.id} value={map.id}>{map.name} · {map.type.replace('_', ' ')}</option>)}</select>
+    <select aria-label="Mapa do site" value={selected} onChange={(event) => { setSelected(event.target.value); setPendingConnection(null); setSelectedEdgeId(''); setSourcePortId(''); setTargetPortId(''); }}><option value="">Seleciona mapa…</option>{mapOptions.map((map) => <option key={map.id} value={map.id}>{map.name} · {map.type.replace('_', ' ')}</option>)}</select>
     <details className="topology-topbar-menu"><summary>Editar mapa</summary><div className="topology-topbar-form">
       <strong>Criar mapa</strong><label>Nome<input aria-label="Nome do novo mapa" value={name} onChange={(event) => setName(event.target.value)} placeholder="Ex.: Rede principal" /></label><label>Tipo<select aria-label="Tipo do novo mapa" value={mapType} onChange={(event) => setMapType(event.target.value as TopologyMapType)}>{types.map((type) => <option key={type}>{type}</option>)}</select></label>
       {mapType === 'VLAN_SUBNET' && <label>VLANs associadas<select multiple aria-label="VLANs do mapa" value={selectedVlanIds} onChange={(event) => setSelectedVlanIds([...event.target.selectedOptions].map((option) => option.value))}>{vlans.data?.items.map((vlan) => <option key={vlan.id} value={vlan.id}>VLAN {vlan.vlanId} · {vlan.name}</option>)}</select></label>}
       <button className="primary-button" disabled={!name.trim() || !siteId || create.isPending} onClick={() => create.mutate()}>{create.isPending ? 'A criar…' : 'Criar mapa'}</button>
       {current && <><strong>Adicionar equipamento</strong><label>Equipamento<select aria-label="Equipamento para adicionar" value={deviceId} onChange={(event) => setDeviceId(event.target.value)}><option value="">Seleciona…</option>{devices.data?.items.filter((device) => !current.nodes.some((node) => node.deviceId === device.id)).map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}</select></label><button className="secondary-button" disabled={!deviceId} onClick={() => void addDevice()}>Adicionar ao mapa</button></>}
-      {selectedConnection && <><strong>Ligação selecionada</strong><small>{selectedConnection.source === 'MANUAL' ? 'Documentada' : `Observada (${selectedConnection.source ?? 'origem desconhecida'})`}</small><label>Etiqueta<input aria-label="Etiqueta da ligação" value={edgeLabel} onChange={(event) => setEdgeLabel(event.target.value)} placeholder="Etiqueta" /></label><label>Porta de origem<select aria-label="Porta de origem" value={sourcePortId} onChange={(event) => setSourcePortId(event.target.value)}><option value="">Porta não indicada</option>{(interfacesByDevice[selectedConnection.sourceDeviceId] ?? []).map((port: DeviceInterface) => <option key={port.id} value={port.id}>{port.name}</option>)}</select></label><label>Porta de destino<select aria-label="Porta de destino" value={targetPortId} onChange={(event) => setTargetPortId(event.target.value)}><option value="">Porta não indicada</option>{(interfacesByDevice[selectedConnection.targetDeviceId] ?? []).map((port: DeviceInterface) => <option key={port.id} value={port.id}>{port.name}</option>)}</select></label><label>Percurso físico / patch panel<textarea aria-label="Percurso físico / patch panel" value={edgeNotes} onChange={(event) => setEdgeNotes(event.target.value)} placeholder="Patch panel, porta, bastidor, etiqueta do cabo…" rows={3} /></label><label>Tipo da ligação<select aria-label="Tipo da ligação" value={edgeType} onChange={(event) => setEdgeType(event.target.value as 'PHYSICAL' | 'LOGICAL')}><option value="PHYSICAL">Física</option><option value="LOGICAL">Lógica</option></select></label><button className="primary-button" onClick={() => void saveConnection()}>Guardar ligação</button><button className="secondary-button danger" onClick={() => void removeConnection()}>Remover ligação</button></>}
+      {selectedConnection && <><strong>Ligação selecionada</strong><small>{selectedConnection.source === 'MANUAL' ? 'Documentada' : `Observada (${selectedConnection.source ?? 'origem desconhecida'})`}</small><label>Etiqueta<input aria-label="Etiqueta da ligação" value={edgeLabel} onChange={(event) => setEdgeLabel(event.target.value)} placeholder="Etiqueta" /></label><label>Porta de origem<select aria-label="Porta de origem" value={sourcePortId} onChange={(event) => setSourcePortId(event.target.value)}><option value="">Porta não indicada</option>{availableTopologyPorts(selectedConnection.sourceDeviceId, interfacesByDevice, current?.connections ?? [], selectedConnection.id).map((port) => <option key={port.id} value={port.id}>{port.name}</option>)}</select></label><label>Porta de destino<select aria-label="Porta de destino" value={targetPortId} onChange={(event) => setTargetPortId(event.target.value)}><option value="">Porta não indicada</option>{availableTopologyPorts(selectedConnection.targetDeviceId, interfacesByDevice, current?.connections ?? [], selectedConnection.id).map((port) => <option key={port.id} value={port.id}>{port.name}</option>)}</select></label><label>Percurso físico / patch panel<textarea aria-label="Percurso físico / patch panel" value={edgeNotes} onChange={(event) => setEdgeNotes(event.target.value)} placeholder="Patch panel, porta, bastidor, etiqueta do cabo…" rows={3} /></label><label>Tipo da ligação<select aria-label="Tipo da ligação" value={edgeType} onChange={(event) => setEdgeType(event.target.value as 'PHYSICAL' | 'LOGICAL')}><option value="PHYSICAL">Física</option><option value="LOGICAL">Lógica</option></select></label><button className="primary-button" onClick={() => void saveConnection()}>Guardar ligação</button><button className="secondary-button danger" onClick={() => void removeConnection()}>Remover ligação</button></>}
       {selected && <button className="secondary-button danger" onClick={() => remove.mutate()} disabled={remove.isPending}>{remove.isPending ? 'A eliminar…' : 'Eliminar mapa'}</button>}
       {warning && <p className="ipam-alert error" role="alert">{warning} {create.isError && <button type="button" className="secondary-button" onClick={() => create.mutate()}>Tentar criar novamente</button>} {remove.isError && <button type="button" className="secondary-button" onClick={() => remove.mutate()}>Tentar eliminar novamente</button>}</p>}
     </div></details>
@@ -272,8 +295,9 @@ export function TopologyPage() {
           <span ref={fullscreenAnnouncementRef} className="topology-sr-only" aria-live="polite" />
           {warning && <p className="ipam-alert error topology-warning" role="alert">{warning}</p>}
           {current && <p className={`topology-save-status ${saveState}`} role="status" aria-live="polite">{saveState === 'pending' ? 'A guardar posições…' : saveState === 'failed' ? <>Falha ao guardar posições. <button type="button" onClick={retrySave}>Tentar novamente</button> <button type="button" onClick={reloadMap}>Recarregar mapa</button></> : 'Todas as posições estão guardadas.'}</p>}
+          {pendingConnection && current && <aside className="topology-terminal-card topology-connection-create" aria-label="Criar ligação"><header><strong>Selecionar portas da ligação</strong><button type="button" className="topology-terminal-close" aria-label="Cancelar criação da ligação" onClick={() => setPendingConnection(null)}>×</button></header><div className="topology-connection-create-form"><label>Porta de origem · {current.nodes.find((node) => node.deviceId === pendingConnection.sourceDeviceId)?.device?.name ?? pendingConnection.sourceDeviceId}<select aria-label="Porta de origem da nova ligação" value={sourcePortId} onChange={(event) => setSourcePortId(event.target.value)} disabled={interfaceData.isLoading || interfaceData.isError || !pendingSourcePorts.length}><option value="">{interfaceData.isLoading ? 'A carregar portas…' : pendingSourcePorts.length ? 'Seleciona uma porta disponível' : 'Sem portas disponíveis'}</option>{pendingSourcePorts.map((port) => <option key={port.id} value={port.id}>{port.name}</option>)}</select></label><label>Porta de destino · {current.nodes.find((node) => node.deviceId === pendingConnection.targetDeviceId)?.device?.name ?? pendingConnection.targetDeviceId}<select aria-label="Porta de destino da nova ligação" value={targetPortId} onChange={(event) => setTargetPortId(event.target.value)} disabled={interfaceData.isLoading || interfaceData.isError || !pendingTargetPorts.length}><option value="">{interfaceData.isLoading ? 'A carregar portas…' : pendingTargetPorts.length ? 'Seleciona uma porta disponível' : 'Sem portas disponíveis'}</option>{pendingTargetPorts.map((port) => <option key={port.id} value={port.id}>{port.name}</option>)}</select></label>{interfaceData.isLoading ? <p role="status">A carregar portas do inventário…</p> : interfaceData.isError ? <p role="alert">Não foi possível carregar as portas do inventário. Atualiza o mapa e tenta novamente.</p> : (!pendingSourcePorts.length || !pendingTargetPorts.length) && <p role="status">Cada equipamento precisa de uma porta inventariada que ainda não esteja ligada.</p>}<div><button type="button" className="primary-button" disabled={interfaceData.isLoading || interfaceData.isError || !sourcePortId || !targetPortId || pendingSourcePorts.some((port) => port.id === targetPortId) || pendingTargetPorts.some((port) => port.id === sourcePortId)} onClick={() => void createConnection()}>Criar ligação</button><button type="button" className="secondary-button" onClick={() => setPendingConnection(null)}>Cancelar</button></div></div></aside>}
           {selectedConnection && selectedConnectionDisplay && <aside className="topology-terminal-card" aria-label="Configuração da ligação"><header><strong>Terminal · {selectedConnection.type ?? 'Ligação'}</strong><button type="button" className="topology-terminal-close" aria-label="Fechar configuração" onClick={closeConnectionCard}>×</button></header><div className="topology-terminal-tabs" role="tablist" aria-label="Extremos da ligação"><button role="tab" aria-selected={selectedConnectionTab === 'source'} onClick={() => setSelectedConnectionTab('source')}>{selectedConnectionDisplay.sourceName}</button><button role="tab" aria-selected={selectedConnectionTab === 'target'} onClick={() => setSelectedConnectionTab('target')}>{selectedConnectionDisplay.targetName}</button></div><div className="topology-terminal-output" role="tabpanel"><span>{selectedConnectionTab === 'source' ? selectedConnectionDisplay.sourcePort : selectedConnectionDisplay.targetPort}</span><p className="topology-terminal-note">Não há configuração CLI disponível para esta ligação.</p></div></aside>}
-          <ReactFlow nodes={nodes} edges={edges} nodeTypes={topologyNodeTypes} edgeTypes={topologyEdgeTypes} onInit={setFlow} onNodesChange={handleNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_event, node) => { const mapNode = current?.nodes.find((item) => item.id === node.id); openDeviceInterfaces(mapNode?.device); }} onEdgeClick={(_event, edge) => { setSelectedEdgeId(edge.id); setSelectedConnectionTab('source'); }} fitView><>{showGrid && <Background />}<MiniMap /><Controls /></></ReactFlow>
+          <ReactFlow nodes={nodes} edges={edges} nodeTypes={topologyNodeTypes} edgeTypes={topologyEdgeTypes} onInit={setFlow} onNodesChange={handleNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_event, node) => { const mapNode = current?.nodes.find((item) => item.id === node.id); openDeviceInterfaces(mapNode?.device); }} onEdgeClick={(_event, edge) => { setPendingConnection(null); setSelectedEdgeId(edge.id); setSelectedConnectionTab('source'); }} fitView><>{showGrid && <Background />}<MiniMap /><Controls /></></ReactFlow>
           {!selected && !maps.isLoading && <div className="topology-canvas-empty"><strong>Seleciona ou cria um mapa</strong><span>O teu mapa de topologia aparece aqui.</span></div>}
         </section>
     </main>
