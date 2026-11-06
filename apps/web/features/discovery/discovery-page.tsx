@@ -14,6 +14,7 @@ import {
   reviewDiscoveryResult, rotateSnmpPreRegistration, type DiscoveryAcceptInput, type DiscoveryJob,
   type DiscoveryComparison, type DiscoveryComparisonItem, type DiscoveryDefaults, type DiscoveryJobPayload, type DiscoveryResult, type SnmpPreRegistration, type SnmpPreRegistrationInput,
 } from './api';
+import { DiscoverySchedulePanel } from './discovery-schedule-panel';
 
 const emptyEnrollment: SnmpPreRegistrationInput = { sourceAddress: '', siteId: '', version: 'V3', username: '', community: '', authKey: '', privKey: '', authProtocol: 'SHA256', privProtocol: 'AES128', compatibilitySha1: false };
 
@@ -60,7 +61,7 @@ export default function DiscoveryPage() {
     <header className="workspace-head"><div><span className="section-kicker">NETWORK DISCOVERY</span><h1>Descoberta</h1><p>Descoberta ativa de rede e onboarding passivo por traps SNMP.</p></div></header>
     <nav className="infra-menu" aria-label="Tipo de descoberta"><button className={tab === 'network' ? 'active' : ''} onClick={() => switchTab('network')}><Search size={15} /> Rede</button><button className={tab === 'snmp' ? 'active' : ''} onClick={() => switchTab('snmp')}><KeyRound size={15} /> SNMP</button></nav>
     {error && <div className="ipam-alert error"><X size={15} />{error}</div>}
-    {tab === 'network' ? <NetworkDiscovery jobs={visibleJobs} allJobs={jobs} results={results} selectedJob={selectedJob} selectJob={setSelectedJob} canEdit={canEdit} review={review} searching={Boolean(normalized)} /> : <SnmpDiscovery devices={snmpDevices} siteId={siteId} waiting={waiting} discovered={discovered} admin={admin} canEdit={canEdit} renew={renew} cancel={cancel} accept={openCandidate} searching={Boolean(normalized)} />}
+    {tab === 'network' ? <><NetworkDiscovery jobs={visibleJobs} allJobs={jobs} results={results} selectedJob={selectedJob} selectJob={setSelectedJob} canEdit={canEdit} review={review} searching={Boolean(normalized)} /><DiscoverySchedulePanel subnets={subnets} canEdit={canEdit} onError={setError} /></> : <SnmpDiscovery devices={snmpDevices} siteId={siteId} waiting={waiting} discovered={discovered} admin={admin} canEdit={canEdit} renew={renew} cancel={cancel} accept={openCandidate} searching={Boolean(normalized)} />}
     {networkModal && <NetworkModal form={networkForm} setForm={setNetworkForm} subnets={subnets} profiles={defaults?.profiles ?? []} close={() => setNetworkModal(false)} submit={createNetwork} />}
     {enrollmentModal && <EnrollmentModal form={enrollmentForm} setForm={setEnrollmentForm} close={() => setEnrollmentModal(false)} submit={saveEnrollment} />}
     {candidate && <AcceptModal candidate={candidate} form={acceptForm} setForm={setAcceptForm} models={models.filter((model) => model.type === acceptForm.type)} close={() => setCandidate(null)} submit={accept} />}
