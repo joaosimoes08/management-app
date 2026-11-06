@@ -30,6 +30,21 @@ export interface DiscoveryResult {
   device?: { id: string; name: string; type: string } | null;
 }
 
+export interface DiscoveryComparisonItem {
+  address: string;
+  previous: Pick<DiscoveryResult, 'address' | 'hostname' | 'icmpReachable' | 'openPorts'> | null;
+  current: Pick<DiscoveryResult, 'address' | 'hostname' | 'icmpReachable' | 'openPorts'> | null;
+  changes: string[];
+}
+
+export interface DiscoveryComparison {
+  previous: { id: string; name: string; completedAt: string | null };
+  current: { id: string; name: string; completedAt: string | null };
+  newlySeen: DiscoveryComparisonItem[];
+  changed: DiscoveryComparisonItem[];
+  noLongerReachable: DiscoveryComparisonItem[];
+}
+
 export type SnmpOnboardingVersion = 'V2C' | 'V3';
 export interface SnmpPreRegistration {
   id: string;
@@ -102,6 +117,10 @@ export function createDiscoveryJob(payload: DiscoveryJobPayload): Promise<Discov
 
 export function listDiscoveryResults(jobId: string): Promise<DiscoveryResult[]> {
   return apiFetch<DiscoveryResult[]>(`/api/v1/discovery/jobs/${jobId}/results`);
+}
+
+export function compareDiscoveryJobs(currentId: string, previousId: string): Promise<DiscoveryComparison> {
+  return apiFetch<DiscoveryComparison>(`/api/v1/discovery/jobs/${currentId}/compare?with=${encodeURIComponent(previousId)}`);
 }
 
 export function reviewDiscoveryResult(resultId: string, status: 'APPROVED' | 'IGNORED'): Promise<unknown> {

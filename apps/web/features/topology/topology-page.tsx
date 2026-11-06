@@ -29,6 +29,7 @@ function TopologyDeviceNode({ data, selected }: NodeProps<TopologyFlowNode>) {
   return <div className={`topology-device-node${selected ? ' topology-device-node--selected' : ''}`} aria-label={`${data.deviceName}; hostname ${data.hostname || 'não definido'}; localização ${data.location || 'não definida'}`}>
     <Handle type="target" position={Position.Left} className="topology-device-handle" />
     <span className="topology-device-image">{data.asset ? <AssetImage asset={data.asset} alt={`Imagem de ${data.deviceName}`} fallback={<EquipmentTypeIcon type={data.equipmentType} alt="" />} /> : <EquipmentTypeIcon type={data.equipmentType} alt="" />}</span>
+    <span className="topology-node-label">{data.deviceName}</span>
     <Handle type="source" position={Position.Right} className="topology-device-handle" />
     <span className="topology-device-tooltip" role="tooltip"><strong>{data.deviceName}</strong><span><small>Hostname:</small><b>{data.hostname || 'Não definido'}</b></span><span><small>Modelo:</small><b>{data.modelName || data.equipmentType}</b></span><span><small>Localização:</small><b>{data.location || 'Não definida'}</b></span><span><small>IP Management:</small><b>{data.managementIp || 'não definido'}</b></span><span><small>Status:</small><b>{data.status.toLowerCase()}</b></span>{data.alertSummary && <span><small>Alertas ativos:</small><b style={{ color: topologySeverityColor(data.alertSummary.highestSeverity) }}>{data.alertSummary.count} · {data.alertSummary.highestSeverity}</b></span>}</span>
   </div>;
@@ -60,8 +61,8 @@ const topologyNodeTypes = { topologyDevice: TopologyDeviceNode };
 const topologyEdgeTypes = { topologyConnection: TopologyConnectionEdge };
 
 function connectionPort(deviceId: string, interfaceId: string | null | undefined, interfaces: Record<string, DeviceInterface[]>) {
-  const devicePorts = interfaces[deviceId] ?? [];
-  return devicePorts.find((port) => port.id === interfaceId) ?? devicePorts[0];
+  if (!interfaceId) return undefined;
+  return (interfaces[deviceId] ?? []).find((port) => port.id === interfaceId);
 }
 
 function configuredPortLabel(node: TopologyNode | undefined, port?: DeviceInterface) {
@@ -84,7 +85,7 @@ function toFlowNode(node: TopologyNode, alertSummary?: TopologyNodeAlertSummary)
 }
 
 export function TopologyPage() {
-  const { siteId } = useSiteContext();
+  const { siteId, activeSite } = useSiteContext();
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState('');
   const [search, setSearch] = useState('');
@@ -101,6 +102,8 @@ export function TopologyPage() {
   const [warning, setWarning] = useState('');
   const [deviceId, setDeviceId] = useState('');
   const [selectedEdgeId, setSelectedEdgeId] = useState('');
+  const [saveState, setSaveState] = useState<'saved' | 'pending' | 'failed'>('saved');
+  const [pendingPositions, setPendingPositions] = useState<Node[] | null>(null);
   const [selectedConnectionTab, setSelectedConnectionTab] = useState<'source' | 'target'>('source');
   const [edgeLabel, setEdgeLabel] = useState('');
   const [edgeType, setEdgeType] = useState<'PHYSICAL' | 'LOGICAL'>('PHYSICAL');
@@ -123,9 +126,9 @@ export function TopologyPage() {
 
   useEffect(() => {
     if (!current) return;
-    setNodes(current.nodes.map((node) => toFlowNode(node, nodeAlertSummaries.get(node.deviceId))));
+    setNodes(current.nodes.map((node) => { const flowNode = toFlowNode(node, nodeAlertSummaries.get(node.deviceId)); const pending = pendingPositions?.find((item) => item.id === node.id); return pending ? { ...flowNode, position: pending.position } : flowNode; }));
     setEdges(current.connections.map((edge) => makeFlowEdge(edge, current, interfacesByDevice, setSelectedEdgeId)));
-  }, [current, interfacesByDevice, setEdges, setNodes]);
+  }, [current, interfacesByDevice, pendingPositions, setEdges, setNodes]);
   useEffect(() => {
     if (!current) return;
     const currentNodes = new Map(current.nodes.map((node) => [node.id, node]));
@@ -168,30 +171,31 @@ export function TopologyPage() {
       : 'Modo de ecrã inteiro desativado.';
   }, [fullscreen, fullscreenAnnouncement]);
 
-  const create = useMutation({ mutationFn: () => createTopologyMap({ name: name.trim(), type: mapType, siteId, ...(mapType === 'VLAN_SUBNET' ? { filters: { vlanIds: selectedVlanIds } } : {}) }), onSuccess: (map) => { setName(''); setSelectedVlanIds([]); setSelected(map.id); void queryClient.invalidateQueries({ queryKey: ['topology', 'maps', siteId] }); } });
-  const remove = useMutation({ mutationFn: () => deleteTopologyMap(selected, current?.revision), onSuccess: () => { setSelected(''); void queryClient.invalidateQueries({ queryKey: ['topology', 'maps', siteId] }); } });
+  const create = useMutation({ mutationFn: () => createTopologyMap({ name: name.trim(), type: mapType, siteId, ...(mapType === 'VLAN_SUBNET' ? { filters: { vlanIds: selectedVlanIds } } : {}) }), onSuccess: (map) => { setWarning(''); setName(''); setSelectedVlanIds([]); setSelected(map.id); void queryClient.invalidateQueries({ queryKey: ['topology', 'maps', siteId] }); }, onError: () => setWarning('Não foi possível criar o mapa. Confirma as permissões do Site e tenta novamente.') });
+  const remove = useMutation({ mutationFn: () => deleteTopologyMap(selected, current?.revision), onSuccess: () => { setWarning(''); setSelected(''); void queryClient.invalidateQueries({ queryKey: ['topology', 'maps', siteId] }); }, onError: () => setWarning('Não foi possível eliminar o mapa. Confirma as permissões do Site e tenta novamente.') });
   const persist = (next: Node[]) => {
     if (!current) return;
+    setPendingPositions(next);
+    setSaveState('pending');
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
       try {
         await replaceTopologyNodes(current.id, current.revision, next.map((node) => ({ id: node.id, deviceId: current.nodes.find((item) => item.id === node.id)?.deviceId ?? node.id.split(':').pop()!, x: node.position.x, y: node.position.y })));
-        await detail.refetch(); setWarning('');
-      } catch (error) {
-        setWarning(String(error).includes('alterado') ? 'Este mapa foi alterado noutro separador. Recarrega o mapa antes de guardar.' : 'Não foi possível guardar as posições.');
+        setPendingPositions(null); setSaveState('saved'); setWarning('');
         await detail.refetch();
+      } catch (error) {
+        setSaveState('failed');
+        setWarning(String(error).includes('alterado') ? 'Este mapa foi alterado noutro separador. As posições locais foram mantidas; recarrega ou tenta guardar novamente.' : 'Não foi possível guardar as posições. As posições locais foram mantidas; tenta novamente.');
       }
     }, 500);
   };
+  const retrySave = () => { if (pendingPositions) persist(pendingPositions); };
+  const reloadMap = () => { clearTimeout(saveTimer.current); setPendingPositions(null); setSaveState('saved'); setWarning(''); void detail.refetch(); };
   const onConnect = async (connection: Connection) => {
     if (!current || !connection.source || !connection.target || connection.source === connection.target) return;
     setEdges((items) => addEdge(connection, items));
     try {
-      const sourceDeviceId = current.nodes.find((node) => node.id === connection.source)?.deviceId;
-      const targetDeviceId = current.nodes.find((node) => node.id === connection.target)?.deviceId;
-      const sourceInterface = sourceDeviceId ? connectionPort(sourceDeviceId, undefined, interfacesByDevice) : undefined;
-      const targetInterface = targetDeviceId ? connectionPort(targetDeviceId, undefined, interfacesByDevice) : undefined;
-      await createTopologyConnection(current.id, { sourceNodeId: connection.source, targetNodeId: connection.target, revision: current.revision, ...(sourceInterface ? { sourceInterfaceId: sourceInterface.id } : {}), ...(targetInterface ? { targetInterfaceId: targetInterface.id } : {}), type: current.type === 'PHYSICAL' ? 'PHYSICAL' : 'LOGICAL' });
+      await createTopologyConnection(current.id, { sourceNodeId: connection.source, targetNodeId: connection.target, revision: current.revision, type: current.type === 'PHYSICAL' ? 'PHYSICAL' : 'LOGICAL' });
       await detail.refetch(); setWarning('');
     } catch (error) {
       setWarning(String(error).includes('alterado') ? 'O mapa mudou entretanto. Recarrega antes de criar a ligação.' : 'Não foi possível criar a ligação.');
@@ -242,7 +246,7 @@ export function TopologyPage() {
       {current && <><strong>Adicionar equipamento</strong><label>Equipamento<select aria-label="Equipamento para adicionar" value={deviceId} onChange={(event) => setDeviceId(event.target.value)}><option value="">Seleciona…</option>{devices.data?.items.filter((device) => !current.nodes.some((node) => node.deviceId === device.id)).map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}</select></label><button className="secondary-button" disabled={!deviceId} onClick={() => void addDevice()}>Adicionar ao mapa</button></>}
       {selectedConnection && <><strong>Ligação selecionada</strong><label>Etiqueta<input aria-label="Etiqueta da ligação" value={edgeLabel} onChange={(event) => setEdgeLabel(event.target.value)} placeholder="Etiqueta" /></label><label>Tipo da ligação<select aria-label="Tipo da ligação" value={edgeType} onChange={(event) => setEdgeType(event.target.value as 'PHYSICAL' | 'LOGICAL')}><option value="PHYSICAL">Física</option><option value="LOGICAL">Lógica</option></select></label><button className="primary-button" onClick={() => void saveConnection()}>Guardar ligação</button><button className="secondary-button danger" onClick={() => void removeConnection()}>Remover ligação</button></>}
       {selected && <button className="secondary-button danger" onClick={() => remove.mutate()} disabled={remove.isPending}>{remove.isPending ? 'A eliminar…' : 'Eliminar mapa'}</button>}
-      {warning && <p className="ipam-alert error" role="alert">{warning}</p>}
+      {warning && <p className="ipam-alert error" role="alert">{warning} {create.isError && <button type="button" className="secondary-button" onClick={() => create.mutate()}>Tentar criar novamente</button>} {remove.isError && <button type="button" className="secondary-button" onClick={() => remove.mutate()}>Tentar eliminar novamente</button>}</p>}
     </div></details>
   </div>;
 
@@ -250,7 +254,7 @@ export function TopologyPage() {
     <main className="topology-page">
         <section className={`topology-canvas panel${fullscreen ? ' topology-canvas--fullscreen' : ''}${labelsVisible ? '' : ' topology-canvas--auto-labels'}`} aria-label="Área do mapa de topologia">
           {current && <div className={`topology-map-toolbar${toolbarExpanded ? ' topology-map-toolbar--expanded' : ' topology-map-toolbar--collapsed'}`}>
-            <div><strong>{current.name}</strong><span>{current.nodes.length} equipamentos · {current.connections.length} ligações · {operationalAlerts.isLoading ? 'A carregar problemas…' : operationalAlerts.isError ? 'Problemas indisponíveis' : `${mapProblemCount} problemas ativos`}</span>{operationalAlerts.isError && <span role="status">Estado dos alertas indisponível</span>}</div>
+            <div><strong>{current.name}</strong><span>Âmbito: {activeSite?.name ?? 'nenhum Site selecionado'} · {current.nodes.length} equipamentos · {current.connections.length} ligações · {operationalAlerts.isLoading ? 'A carregar problemas…' : operationalAlerts.isError ? 'Problemas indisponíveis' : `${mapProblemCount} problemas ativos`}</span>{operationalAlerts.isError && <span role="status">Estado dos alertas indisponível</span>}</div>
             <button className="secondary-button topology-map-more" aria-expanded={toolbarExpanded} aria-controls="topology-map-tools" onClick={() => setToolbarExpanded((value) => !value)}>{toolbarExpanded ? 'Menos controlos' : 'Controlos'}</button>
             <div id="topology-map-tools" className="topology-map-tools">
             <label className="topology-map-search">Procurar equipamento<input aria-label="Procurar equipamento no mapa" value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { setSearch(''); if (fullscreen) { setFullscreen(false); setFullscreenAnnouncement('Modo de ecrã inteiro desativado.'); event.stopPropagation(); } } if (event.key === 'Enter' && searchMatch) focusNode(searchMatch.id); }} placeholder="Nome, IP ou tipo" /></label>
@@ -264,7 +268,8 @@ export function TopologyPage() {
           {current && search.trim() && !searchMatch && <p className="topology-map-no-results" role="status">Nenhum equipamento encontrado para “{search.trim()}”.</p>}
           <span ref={fullscreenAnnouncementRef} className="topology-sr-only" aria-live="polite" />
           {warning && <p className="ipam-alert error topology-warning" role="alert">{warning}</p>}
-          {selectedConnection && selectedConnectionDisplay && <aside className="topology-terminal-card" aria-label="Configuração da ligação"><header><strong>Terminal · {selectedConnection.type ?? 'Ligação'}</strong><button type="button" className="topology-terminal-close" aria-label="Fechar configuração" onClick={closeConnectionCard}>×</button></header><div className="topology-terminal-tabs" role="tablist" aria-label="Extremos da ligação"><button role="tab" aria-selected={selectedConnectionTab === 'source'} onClick={() => setSelectedConnectionTab('source')}>{selectedConnectionDisplay.sourceName}</button><button role="tab" aria-selected={selectedConnectionTab === 'target'} onClick={() => setSelectedConnectionTab('target')}>{selectedConnectionDisplay.targetName}</button></div><div className="topology-terminal-output" role="tabpanel"><span>{selectedConnectionTab === 'source' ? selectedConnectionDisplay.sourcePort : selectedConnectionDisplay.targetPort}</span><code>switchport mode trunk</code></div></aside>}
+          {current && <p className={`topology-save-status ${saveState}`} role="status" aria-live="polite">{saveState === 'pending' ? 'A guardar posições…' : saveState === 'failed' ? <>Falha ao guardar posições. <button type="button" onClick={retrySave}>Tentar novamente</button> <button type="button" onClick={reloadMap}>Recarregar mapa</button></> : 'Todas as posições estão guardadas.'}</p>}
+          {selectedConnection && selectedConnectionDisplay && <aside className="topology-terminal-card" aria-label="Configuração da ligação"><header><strong>Terminal · {selectedConnection.type ?? 'Ligação'}</strong><button type="button" className="topology-terminal-close" aria-label="Fechar configuração" onClick={closeConnectionCard}>×</button></header><div className="topology-terminal-tabs" role="tablist" aria-label="Extremos da ligação"><button role="tab" aria-selected={selectedConnectionTab === 'source'} onClick={() => setSelectedConnectionTab('source')}>{selectedConnectionDisplay.sourceName}</button><button role="tab" aria-selected={selectedConnectionTab === 'target'} onClick={() => setSelectedConnectionTab('target')}>{selectedConnectionDisplay.targetName}</button></div><div className="topology-terminal-output" role="tabpanel"><span>{selectedConnectionTab === 'source' ? selectedConnectionDisplay.sourcePort : selectedConnectionDisplay.targetPort}</span><p className="topology-terminal-note">Não há configuração CLI disponível para esta ligação.</p></div></aside>}
           <ReactFlow nodes={nodes} edges={edges} nodeTypes={topologyNodeTypes} edgeTypes={topologyEdgeTypes} onInit={setFlow} onNodesChange={handleNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_event, node) => { const mapNode = current?.nodes.find((item) => item.id === node.id); openDeviceInterfaces(mapNode?.device); }} onEdgeClick={(_event, edge) => { setSelectedEdgeId(edge.id); setSelectedConnectionTab('source'); }} fitView><>{showGrid && <Background />}<MiniMap /><Controls /></></ReactFlow>
           {!selected && !maps.isLoading && <div className="topology-canvas-empty"><strong>Seleciona ou cria um mapa</strong><span>O teu mapa de topologia aparece aqui.</span></div>}
         </section>

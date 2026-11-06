@@ -115,6 +115,7 @@
 .topology-device-image { display:grid; place-items:center; width:190px; height:92px; overflow:visible; }
 .topology-device-image img { display:block; max-width:190px; max-height:92px; object-fit:contain; }
 .topology-device-image svg { width:60px; height:60px; }
+.topology-node-label { display:block; max-width:190px; margin-top:2px; overflow:hidden; padding:3px 7px; color:#262326; border:1px solid rgba(220,218,224,.85); border-radius:6px; background:rgba(255,255,255,.95); box-shadow:0 2px 6px rgba(20,18,18,.08); font-size:10px; font-weight:600; text-align:center; text-overflow:ellipsis; white-space:nowrap; }
 .topology-device-node--selected .topology-device-image img { filter:drop-shadow(0 0 3px rgba(49,90,210,.55)); }
 .topology-device-tooltip { position:absolute; z-index:15; top:calc(100% + 10px); left:50%; display:none; gap:9px; width:250px; max-width:min(280px,calc(100vw - 32px)); padding:14px; color:#242124; border:1px solid var(--line); border-radius:10px; background:#fff; box-shadow:0 10px 28px rgba(35,31,34,.18); transform:translateX(-50%); text-align:left; pointer-events:none; }
 .topology-device-tooltip > strong { display:block; padding:0 0 8px; color:#222; border-bottom:1px solid #ece9e9; font:700 14px/1.25 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; text-align:center; }
@@ -138,6 +139,15 @@
 .topology-terminal-tabs button[aria-selected="true"] { color:#a7f3d0; border-bottom-color:#34d399; }
 .topology-terminal-output { display:grid; gap:9px; min-height:82px; padding:14px; color:#a1a1aa; font-size:10px; }
 .topology-terminal-output code { display:block; padding:9px 10px; border-left:2px solid #34d399; color:#d1fae5; background:#202126; font:11px 'DM Mono',monospace; }
+.topology-terminal-note { margin:0; color:#a1a1aa; font-size:10px; line-height:1.5; }
+.topology-save-status { position:absolute; z-index:20; bottom:10px; left:12px; display:flex; flex-wrap:wrap; align-items:center; gap:8px; max-width:calc(100% - 450px); margin:0; padding:7px 9px; color:var(--muted); border:1px solid var(--line); border-radius:8px; background:rgba(255,255,255,.96); font-size:10px; }
+.topology-save-status.pending { color:#725b16; }.topology-save-status.failed { color:#a14c41; }
+.topology-save-status button { padding:3px 7px; color:inherit; border:1px solid currentColor; border-radius:6px; background:#fff; cursor:pointer; font:inherit; }
+.topology-save-status button:focus-visible { outline:3px solid #637ff0; outline-offset:2px; }
+.topology-scope,.ipam-scope-note { margin:0 0 12px; padding:10px 12px; color:var(--muted); border:1px solid var(--line); border-radius:9px; background:#fff; font-size:10px; line-height:1.5; }
+.topology-scope strong,.ipam-scope-note strong { color:#282428; }
+.discovery-compare-select { display:grid; gap:6px; max-width:460px; color:var(--muted); font-size:10px; }.discovery-compare-select select { padding:10px; border:1px solid var(--line); border-radius:8px; background:#fff; font-size:11px; }.discovery-comparison { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin-top:17px; }.discovery-comparison h3 { margin:0; padding-bottom:8px; border-bottom:1px solid var(--line); font-size:12px; }.discovery-comparison .no-data { margin:10px 0 0; font-size:10px; }
+@media (max-width:780px) { .discovery-comparison { grid-template-columns:1fr; }.topology-save-status { right:8px; bottom:8px; left:8px; max-width:none; } }
 
 :root { --ink:#111111; --muted:#7d7b82; --line:#e8e7e8; --surface:#f5f4f4; --panel:#ffffff; --green:#3a9a6a; --soft-green:#e4f4ea; --blue:#637ff0; --soft-blue:#eef1ff; --purple:#9a78ca; --soft-purple:#f3edfb; }
 
@@ -1412,3 +1422,10 @@ html[lang='en-US'] .environment-trigger.operational::after { content:'· Setup c
 @media (max-width:780px) {
   .app-shell .topbar .environment-trigger.operational::after { content:none; }
 }
+.recent-items { margin:0 0 12px; padding:12px 14px; border:1px solid var(--line); border-radius:11px; background:#fff; }
+.recent-items h2 { margin:0 0 8px; color:#666269; font-size:10px; font-weight:600; }
+.recent-items ul { display:flex; flex-wrap:wrap; gap:7px; margin:0; padding:0; list-style:none; }
+.recent-items a { display:grid; gap:3px; max-width:220px; padding:7px 9px; color:#252126; border:1px solid var(--line); border-radius:8px; text-decoration:none; }
+.recent-items a:hover { background:#f7f6f6; }.recent-items a:focus-visible { outline:3px solid #637ff0; outline-offset:2px; }
+.recent-items small { color:var(--muted); font-size:8px; }.recent-items span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:10px; }
+.snmp-form-grid label small { color:var(--muted); font-size:9px; line-height:1.45; }
