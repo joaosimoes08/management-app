@@ -30,6 +30,8 @@ test('upsert preserves acknowledged and snoozed workflow state for active alerts
 test('list includes related device ids for SNMP alerts without changing their source entities', async () => {
   const prisma = {
     site: { findMany: async () => [] },
+    alertRule: { findMany: async () => [] },
+    maintenanceWindow: { findMany: async () => [] },
     operationalAlert: { findMany: async () => [
       { id: 'job-alert', siteId: 'site', entityType: 'SnmpJob', entityId: 'job', userStates: [] },
       { id: 'drift-alert', siteId: 'site', entityType: 'SnmpDrift', entityId: 'drift', userStates: [] },
