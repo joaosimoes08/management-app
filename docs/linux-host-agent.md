@@ -9,7 +9,7 @@ The first agent release reports hostname, Linux kernel/system name, OS release, 
 3. On the Linux host, install Python 3 and place the client at `/opt/management-agent/linux_heartbeat_agent.py`. Create `/etc/management-agent/token` owned by root with mode `0600`; run the process as a dedicated unprivileged account.
 4. Set `MANAGEMENT_API_URL` to the HTTPS origin (for example `https://management.example`) and `MANAGEMENT_AGENT_TOKEN_FILE=/etc/management-agent/token`, then run the script under the host's service manager. The client verifies TLS using the system trust store.
 
-Revocation: `DELETE /api/v1/linux-agents/<agent UUID>` as an administrator immediately invalidates the credential. Listing at `GET /api/v1/linux-agents?siteId=<site UUID>` is subject to existing infrastructure access permissions. Heartbeats require the agent bearer token and update only the Host's observed hostname, OS, observed status and last-seen fields.
+Revocation: `DELETE /api/v1/linux-agents/<agent UUID>` as an administrator immediately invalidates the credential. Listing at `GET /api/v1/linux-agents?siteId=<site UUID>` is subject to existing infrastructure access permissions. Heartbeats require the agent bearer token and update only the Host's observed hostname, OS, observed status and last-seen fields. The Host's `observedStatus` is the last status reported by a heartbeat; it is not recalculated when the agent goes quiet. Use the agent listing's derived `state` (`ONLINE`, `STALE`, `PENDING`, or `REVOKED`) as the current agent freshness indicator.
 
 ## Acceptance checks
 

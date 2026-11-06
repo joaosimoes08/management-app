@@ -8,6 +8,7 @@ import { EnrollLinuxAgentDto, LinuxHeartbeatDto } from './linux-agent.dto';
 
 const hash = (token: string) => createHash('sha256').update(token).digest('hex');
 const STALE_AFTER_MS = 3 * 60_000;
+export const linuxAgentState = (revokedAt: Date | null, lastHeartbeatAt: Date | null, now = Date.now()) => revokedAt ? 'REVOKED' : !lastHeartbeatAt ? 'PENDING' : now - lastHeartbeatAt.getTime() > STALE_AFTER_MS ? 'STALE' : 'ONLINE';
 
 @Injectable()
 export class LinuxAgentService {
@@ -40,7 +41,7 @@ export class LinuxAgentService {
     for (const item of agents) {
       if (!item.host.device) continue;
       try { await this.access.assertDevice(user, 'READ', item.host.device.id); } catch { continue; }
-      visible.push({ id: item.id, hostId: item.hostId, hostName: item.host.name, deviceName: item.host.device.name, siteId: item.host.device.siteId, enrolledAt: item.enrolledAt, revokedAt: item.revokedAt, lastHeartbeatAt: item.lastHeartbeatAt, state: item.revokedAt ? 'REVOKED' : !item.lastHeartbeatAt ? 'PENDING' : Date.now() - item.lastHeartbeatAt.getTime() > STALE_AFTER_MS ? 'STALE' : 'ONLINE', hostname: item.observedHostname, os: item.observedOs, osVersion: item.observedOsVersion, agentVersion: item.agentVersion });
+      visible.push({ id: item.id, hostId: item.hostId, hostName: item.host.name, deviceName: item.host.device.name, siteId: item.host.device.siteId, enrolledAt: item.enrolledAt, revokedAt: item.revokedAt, lastHeartbeatAt: item.lastHeartbeatAt, state: linuxAgentState(item.revokedAt, item.lastHeartbeatAt), hostname: item.observedHostname, os: item.observedOs, osVersion: item.observedOsVersion, agentVersion: item.agentVersion });
     }
     return visible;
   }

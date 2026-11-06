@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert';
 import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 import { UnauthorizedException } from '@nestjs/common';
-import { LinuxAgentService } from './linux-agent.service';
+import { LinuxAgentService, linuxAgentState } from './linux-agent.service';
 
 {
   const hash = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -30,9 +30,11 @@ import { LinuxAgentService } from './linux-agent.service';
     await assert.rejects(() => service.heartbeat('valid', { hostname: 'x', os: 'Linux', osVersion: '', agentVersion: '1' }), UnauthorizedException);
   });
 
-  test('distinguishes stale and pending heartbeat timestamps', () => {
-    const old = new Date(Date.now() - 5 * 60_000);
-    const statuses = [old, null].map((lastHeartbeatAt) => lastHeartbeatAt && Date.now() - lastHeartbeatAt.getTime() > 3 * 60_000 ? 'STALE' : 'PENDING');
-    assert.deepEqual(statuses, ['STALE', 'PENDING']);
+  test('computes current agent freshness independently of the Host last-observed status', () => {
+    const now = Date.now();
+    assert.equal(linuxAgentState(null, new Date(now - 5 * 60_000), now), 'STALE');
+    assert.equal(linuxAgentState(null, null, now), 'PENDING');
+    assert.equal(linuxAgentState(null, new Date(now - 60_000), now), 'ONLINE');
+    assert.equal(linuxAgentState(new Date(now), new Date(now), now), 'REVOKED');
   });
 }

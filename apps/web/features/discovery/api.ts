@@ -30,6 +30,21 @@ export interface DiscoveryResult {
   device?: { id: string; name: string; type: string } | null;
 }
 
+export interface DiscoveryComparisonItem {
+  address: string;
+  previous: Pick<DiscoveryResult, 'address' | 'hostname' | 'icmpReachable' | 'openPorts'> | null;
+  current: Pick<DiscoveryResult, 'address' | 'hostname' | 'icmpReachable' | 'openPorts'> | null;
+  changes: string[];
+}
+
+export interface DiscoveryComparison {
+  previous: { id: string; name: string; completedAt: string | null };
+  current: { id: string; name: string; completedAt: string | null };
+  newlySeen: DiscoveryComparisonItem[];
+  changed: DiscoveryComparisonItem[];
+  noLongerReachable: DiscoveryComparisonItem[];
+}
+
 export type SnmpOnboardingVersion = 'V2C' | 'V3';
 export interface SnmpPreRegistration {
   id: string;
@@ -67,10 +82,40 @@ export interface DiscoverySubnet {
   vlanId?: string | null;
 }
 
+export interface DiscoverySchedule {
+  subnetId: string;
+  enabled: boolean;
+  intervalHours: number;
+  methods: string[];
+  tcpPorts: number[];
+  reverseDns: boolean;
+  lastRunAt: string | null;
+  nextRunAt: string | null;
+  lastStatus: string | null;
+  lastError: string | null;
+}
+
+export interface DiscoveryScheduleInput {
+  enabled: boolean;
+  intervalHours: number;
+  methods: string[];
+  tcpPorts: number[];
+  reverseDns: boolean;
+}
+
+export function getDiscoverySchedule(subnetId: string): Promise<DiscoverySchedule> {
+  return apiFetch<DiscoverySchedule>(`/api/v1/subnets/${encodeURIComponent(subnetId)}/discovery-schedule`);
+}
+
+export function updateDiscoverySchedule(subnetId: string, body: DiscoveryScheduleInput): Promise<DiscoverySchedule> {
+  return apiFetch<DiscoverySchedule>(`/api/v1/subnets/${encodeURIComponent(subnetId)}/discovery-schedule`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
 export interface DiscoveryDefaults {
   methods: string[];
   tcpPorts: number[];
   reverseDns: boolean;
+  profiles: Array<{ id: string; name: string; description: string; methods: string[]; tcpPorts: number[]; reverseDns: boolean }>;
 }
 
 export interface DiscoveryJobPayload {
@@ -78,6 +123,8 @@ export interface DiscoveryJobPayload {
   subnetId: string;
   methods: string[];
   tcpPorts: number[];
+  reverseDns: boolean;
+  profileId: string;
 }
 
 export function listDiscoveryJobs(): Promise<{ items: DiscoveryJob[]; total: number }> {
@@ -99,6 +146,10 @@ export function createDiscoveryJob(payload: DiscoveryJobPayload): Promise<Discov
 
 export function listDiscoveryResults(jobId: string): Promise<DiscoveryResult[]> {
   return apiFetch<DiscoveryResult[]>(`/api/v1/discovery/jobs/${jobId}/results`);
+}
+
+export function compareDiscoveryJobs(currentId: string, previousId: string): Promise<DiscoveryComparison> {
+  return apiFetch<DiscoveryComparison>(`/api/v1/discovery/jobs/${currentId}/compare?with=${encodeURIComponent(previousId)}`);
 }
 
 export function reviewDiscoveryResult(resultId: string, status: 'APPROVED' | 'IGNORED'): Promise<unknown> {

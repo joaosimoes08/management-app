@@ -88,7 +88,7 @@
       "username": "service-account-simoes-settings-admin",
       "enabled": true,
       "serviceAccountClientId": "simoes-settings-admin",
-      "clientRoles": { "realm-management": ["manage-users", "query-users"] }
+      "clientRoles": { "realm-management": ["manage-users", "query-users", "manage-realm"] }
     }
   ]
 }

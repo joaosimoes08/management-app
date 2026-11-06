@@ -264,6 +264,7 @@ model Site {
   topologyMaps         TopologyMap[]
   deviceConnections    DeviceConnection[]
   inventoryFindings    InventoryFinding[]
+  netAppIntegration    NetAppIntegration?
   createdAt            DateTime                  @default(now())
   updatedAt            DateTime                  @updatedAt
 }
@@ -290,11 +291,12 @@ model SystemSettings {
 }
 
 model Building {
-  id     String @id @default(uuid()) @db.Uuid
-  name   String
-  siteId String @db.Uuid
-  site   Site   @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  rooms  Room[]
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String
+  description String?
+  siteId      String  @db.Uuid
+  site        Site    @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  rooms       Room[]
 
   @@unique([siteId, name])
 }
@@ -713,6 +715,29 @@ model SnmpDeviceConfig {
   updatedAt         DateTime       @updatedAt
 }
 
+model NetAppIntegration {
+  id          String   @id @default(uuid()) @db.Uuid
+  siteId      String   @unique @db.Uuid
+  endpointUrl String
+  username    String
+  ciphertext  Bytes
+  iv          Bytes
+  authTag     Bytes
+  wrappedDek  Bytes
+  wrapIv      Bytes
+  wrapAuthTag Bytes
+  keyId       String
+  snapshot    Json?
+  lastAttemptAt DateTime?
+  lastSuccessAt DateTime?
+  lastErrorCode String?
+  site        Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([lastSuccessAt])
+}
+
 model SnmpListenerConfig {
   id                 String   @id @default("default")
   listenAll          Boolean  @default(true)
@@ -816,6 +841,7 @@ model SnmpJob {
   createdAt    DateTime          @default(now())
 
   @@index([deviceId, createdAt])
+  @@index([deviceId, type, createdAt])
   @@index([status, type, createdAt])
 }
 

@@ -60,8 +60,16 @@ export function createBuilding(siteId: string, body: { name: string; description
   return apiFetch(`/api/v1/sites/${siteId}/buildings`, { method: 'POST', body: JSON.stringify(body) });
 }
 
+export function updateBuilding(id: string, body: { name: string; description?: string }): Promise<unknown> {
+  return apiFetch(`/api/v1/buildings/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
 export function createRoom(buildingId: string, body: { name: string }): Promise<Room> {
   return apiFetch<Room>(`/api/v1/buildings/${buildingId}/rooms`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function updateRoom(id: string, body: { name: string }): Promise<Room> {
+  return apiFetch<Room>(`/api/v1/rooms/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
 // ── Racks ──────────────────────────────────────────────────────────────────
@@ -146,6 +154,9 @@ export async function listAllDevices(siteId: string, search: string): Promise<De
 export function getDevice(id: string): Promise<Device> {
   return apiFetch<Device>(`/api/v1/devices/${id}`);
 }
+export type DeviceRetirementReview = { device: { id: string; name: string }; interfaces: Array<{ id: string; name: string }>; ipAddresses: Array<{ id: string; address: string; subnet: { cidr: string }; interface?: { id: string; name: string } | null }>; mapReferences: Array<{ id: string; name: string; type: string }> };
+export const getDeviceRetirementReview = (id: string) => apiFetch<DeviceRetirementReview>(`/api/v1/devices/${id}/retirement-review`);
+export const retireDevice = (id: string) => apiFetch(`/api/v1/devices/${id}/retire`, { method: 'POST', body: JSON.stringify({ operatorConfirmed: true }) });
 
 export function createDevice(body: DeviceInput): Promise<Device> {
   return apiFetch<Device>('/api/v1/devices', { method: 'POST', body: JSON.stringify(body) });
@@ -157,6 +168,18 @@ export function createSnmpOnboardedDevice(body: Record<string, unknown>): Promis
 
 export function updateDevice(id: string, body: Partial<DeviceInput>): Promise<Device> {
   return apiFetch<Device>(`/api/v1/devices/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
+export function previewDeviceImport(siteId: string, rows: Record<string, unknown>[]) {
+  return apiFetch<{ total: number; valid: number; invalid: number; rows: { rowNumber: number; data: Record<string, unknown>; valid: boolean; errors: string[] }[] }>('/api/v1/devices/import/preview', { method: 'POST', body: JSON.stringify({ siteId, rows }) });
+}
+
+export function importDevices(siteId: string, rows: Record<string, unknown>[]) {
+  return apiFetch<{ imported: number }>('/api/v1/devices/import', { method: 'POST', body: JSON.stringify({ siteId, rows }) });
+}
+
+export function bulkUpdateDevices(ids: string[], changes: { status?: string; modelId?: string | null; rackId?: string | null }) {
+  return apiFetch<{ updated: number; updatedIds: string[]; failed: { id: string; message: string }[]; auditFailed: { id: string; message: string }[]; batchAuditFailed: boolean }>('/api/v1/devices/bulk-update', { method: 'POST', body: JSON.stringify({ ids, changes }) });
 }
 
 export function previewDevicePlacement(deviceId: string, body: { rackId: string; rackUnitStart: number }): Promise<RackPlacementPlan> {

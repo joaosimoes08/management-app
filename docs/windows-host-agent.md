@@ -11,7 +11,7 @@ The first agent release reports the Windows computer name, OS caption and versio
 
 The client uses Windows certificate validation via `Invoke-RestMethod`. It expects the heartbeat response to contain `accepted: true`. It retries on the next 60-second interval after network or server errors. Heartbeats require the shared agent bearer token and update the existing Host fields. No Windows-specific API or database schema is added.
 
-Revocation: `DELETE /api/v1/linux-agents/<agent UUID>` as an administrator immediately invalidates the credential. Listing at `GET /api/v1/linux-agents?siteId=<site UUID>` is subject to existing infrastructure access permissions.
+Revocation: `DELETE /api/v1/linux-agents/<agent UUID>` as an administrator immediately invalidates the credential. Listing at `GET /api/v1/linux-agents?siteId=<site UUID>` is subject to existing infrastructure access permissions. The Host's `observedStatus` is the last status reported by a heartbeat; it is not recalculated when the agent goes quiet. Use the agent listing's derived `state` (`ONLINE`, `STALE`, `PENDING`, or `REVOKED`) as the current agent freshness indicator.
 
 ## Acceptance checks
 

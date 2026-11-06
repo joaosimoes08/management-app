@@ -1,4 +1,4 @@
-import { Boxes, ClipboardCheck, ExternalLink, LayoutDashboard, Network, RadioTower, Search, Settings, Table2, CircleHelp, Share2 } from 'lucide-react';
+import { Boxes, ClipboardCheck, ExternalLink, HardDrive, LayoutDashboard, Network, RadioTower, Search, Settings, Table2, CircleHelp, Share2 } from 'lucide-react';
 
 export interface NavigationItem {
   label: string;
@@ -9,6 +9,7 @@ export interface NavigationItem {
   audit?: boolean;
   discovery?: boolean;
   snmp?: boolean;
+  netapp?: boolean;
 }
 
 /** Primary sidebar navigation, filtered per role at render time. */
@@ -21,6 +22,7 @@ export const navigation: NavigationItem[] = [
   { label: 'IPAM', key: 'nav.ipam', href: '/ipam', icon: Network, ipam: true },
   { label: 'Descoberta', key: 'nav.discovery', href: '/descoberta', icon: Search, discovery: true },
   { label: 'SNMP', key: 'nav.snmp', href: '/snmp', icon: RadioTower, snmp: true },
+  { label: 'NetApp', key: 'nav.netapp', href: '/netapp', icon: HardDrive, netapp: true },
   { label: 'Auditoria', key: 'nav.audit', href: '/auditoria', icon: Table2, audit: true },
 ];
 

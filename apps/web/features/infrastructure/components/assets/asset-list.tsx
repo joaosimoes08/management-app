@@ -4,6 +4,7 @@ import { Upload, X } from 'lucide-react';
 import type { AssetFile } from '../../types';
 import { assetDisplayName } from '../../utils';
 import { AssetImage } from '../asset-image';
+import { BookStackContextLink } from '@/components/bookstack-context-link';
 
 export interface AssetListProps {
   assets: AssetFile[];
@@ -22,6 +23,7 @@ export function AssetList({ assets, onDelete, onUpload, canEdit, canDelete = can
       <AssetImage asset={asset} alt={assetDisplayName(asset)} />
       <strong>{assetDisplayName(asset)}</strong>
       <small>{asset.mimeType} · {asset.license || 'Asset interno'}</small>
+      <BookStackContextLink type="asset" id={asset.id} />
       {canDelete && <button type="button" className="danger-button compact-button" onClick={() => onDelete(asset)}><X size={13} /> Eliminar imagem</button>}
     </article>)}</div>
     {!assets.length && <div className="no-data">Ainda não existem assets visuais. Usa “Importar imagem” para adicionar a primeira imagem.</div>}

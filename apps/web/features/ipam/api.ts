@@ -47,12 +47,28 @@ export function getSubnetUsage(id: string): Promise<SubnetUsage> {
   return apiFetch<SubnetUsage>(`/api/v1/subnets/${id}/usage`);
 }
 
+export type SubnetPlanning = { subnet: Subnet; version: number; network?: string; broadcast?: string; usableRange?: { start: string; end: string } | null; usableTotal?: number; unavailable?: number; free?: number; utilizationPercent: number | null; usableGaps: Array<{ start: string; end: string; count: number }>; unavailableAddresses?: string[]; message?: string };
+export function getSubnetPlanning(id: string): Promise<SubnetPlanning> {
+  return apiFetch<SubnetPlanning>(`/api/v1/subnets/${id}/planning`);
+}
+export function getIpAddress(id: string): Promise<IpAddressRow> {
+  return apiFetch<IpAddressRow>(`/api/v1/ip-addresses/${id}`);
+}
+
 export function listIpAddresses(subnetId: string, search: string): Promise<PaginatedResponse<IpAddressRow>> {
   return apiFetch<PaginatedResponse<IpAddressRow>>(`/api/v1/ip-addresses?subnetId=${subnetId}&pageSize=250&search=${encodeURIComponent(search)}`);
 }
 
 export function getHost(id: string): Promise<HostDetail> {
   return apiFetch<HostDetail>(`/api/v1/hosts/${id}`);
+}
+
+export interface IpCheckHistoryEntry { id: string; createdAt: string; metadata?: { reachable?: boolean } | null; user?: { displayName?: string | null; username?: string | null } | null }
+export function getIpCheckHistory(id: string, page = 1): Promise<PaginatedResponse<IpCheckHistoryEntry>> {
+  return apiFetch<PaginatedResponse<IpCheckHistoryEntry>>(`/api/v1/ip-addresses/${id}/check-history?page=${page}&pageSize=20`);
+}
+export function checkIpAddress(id: string): Promise<IpAddressRow & { lastCheckAt?: string | null; lastCheckMethod?: string | null; responseMs?: number | null }> {
+  return apiFetch(`/api/v1/ip-addresses/${id}/check`, { method: 'POST' });
 }
 
 export function listVlans(siteId: string): Promise<PaginatedResponse<Vlan>> {
@@ -63,7 +79,7 @@ export function searchHosts(subnetId: string, search: string): Promise<Paginated
   return apiFetch<PaginatedResponse<{ id: string }>>(`/api/v1/hosts?subnetId=${subnetId}&search=${encodeURIComponent(search)}`);
 }
 
-export function calculateSubnets(body: Omit<CalculatorInput, 'newPrefix'> & { operation: 'split'; newPrefix: number }): Promise<CalculatorResult> {
+export function calculateSubnets(body: Omit<CalculatorInput, 'newPrefix' | 'containsAddress' | 'cidrsText'> & { operation: 'split'; newPrefix: number } | { operation: 'summary'; cidr: string } | { operation: 'contains'; cidr: string; address: string } | { operation: 'overlap'; cidr: string; cidrs: string[] }): Promise<CalculatorResult> {
   return apiFetch<CalculatorResult>('/api/v1/ipam/calculator', { method: 'POST', body: JSON.stringify(body) });
 }
 
@@ -97,7 +113,7 @@ export function createHost(body: HostInput): Promise<HostDetail> {
   return apiFetch<HostDetail>('/api/v1/hosts', { method: 'POST', body: JSON.stringify(body) });
 }
 
-export function updateHost(id: string, body: Partial<HostInput>): Promise<HostDetail> {
+export function updateHost(id: string, body: Partial<{ [Key in keyof HostInput]: HostInput[Key] | null }>): Promise<HostDetail> {
   return apiFetch<HostDetail>(`/api/v1/hosts/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
@@ -111,6 +127,10 @@ export function unlinkHostIpAddress(hostId: string, ipId: string): Promise<unkno
 
 export function createService(body: ServiceInput): Promise<unknown> {
   return apiFetch('/api/v1/services', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function updateService(id: string, body: Partial<{ [Key in keyof Omit<ServiceInput, 'hostId'>]: Omit<ServiceInput, 'hostId'>[Key] | null }>): Promise<unknown> {
+  return apiFetch(`/api/v1/services/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
 export function deleteService(id: string): Promise<unknown> {

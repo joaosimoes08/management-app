@@ -72,6 +72,8 @@ As operações de escrita exigem `ADMIN` ou `NETWORK_OPERATOR`. A API normaliza 
 
 Os jobs são colocados na fila BullMQ `discovery` em Redis. A API não executa o scan; é necessário manter o processo `worker:dev` ativo.
 
+`GET /api/v1/settings/discovery` inclui os perfis `defaults`, `icmp-only`, `web`, `network` e `custom`. `POST /api/v1/discovery/jobs` aceita `profileId`; os perfis nomeados resolvem métodos, portas e reverse DNS no servidor. `custom` usa esses campos enviados pelo operador e continua limitado a 64 portas, à allowlist de Discovery, aos scopes de Site e a subnets IPv4 de até 4096 endereços. Os parâmetros usados ficam guardados no job. Uma resposta ICMP ou uma ligação TCP aceite é apenas evidência de uma sonda, não uma avaliação da saúde do serviço ou do equipamento.
+
 Uma aprovação cria/atualiza o IP no inventário oficial; a descoberta nunca cria automaticamente ativos definitivos.
 
 ### Portal de aplicações
@@ -83,6 +85,25 @@ Os endpoints `POST`, `PATCH`, `DELETE` e `POST /:id/check` exigem a role `ADMIN`
 ### Auditoria
 
 `GET /api/v1/audit/events?limit=100` devolve eventos recentes com utilizador, entidade, ação e data. Exige `ADMIN` ou `AUDITOR`.
+
+### Exportações de inventário e estado de backups
+
+- `GET /api/v1/exports/:kind/:format?siteId=...` descarrega `devices`, `subnets`, `vlans` ou `ips` como `csv` ou `json`. Os resultados respeitam os scopes de leitura de IPAM e infraestrutura do utilizador, aceitam `siteId` como filtro adicional e têm limite de 10 000 linhas. Os campos são listas explícitas no serviço de exportação; não incluem dados de configuração ou credenciais SNMP. Cada exportação cria um evento `INVENTORY_EXPORT` com tipo/formato/site/número de linhas, sem guardar os dados exportados.
+- `GET /api/v1/exports/ansible?siteId=...` descarrega JSON no formato de inventário estático do Ansible. Reutiliza o scope de leitura de equipamentos, aceita o mesmo filtro opcional por site e limita o resultado a 10 000 equipamentos. `all.children` aponta para grupos `device_type_<slug>` em ordem previsível; cada grupo contém os hosts ordenados e `_meta.hostvars` contém apenas `ansible_host`, `inventory_name`, `asset_tag`, `serial_number`, `device_type`, `device_status` e `site_id`, quando disponíveis. O nome do host vem de hostname, nome do equipamento ou ID; nomes duplicados recebem sufixo do ID. Não são exportados dados SNMP, credenciais, interfaces ou configurações. Cada pedido cria um evento `ANSIBLE_INVENTORY_EXPORT` com site, formato e quantidade, sem guardar o inventário.
+- Aceitação manual: entrar com um utilizador que tenha leitura de equipamentos, abrir Definições → Exportar inventário, escolher um Site autorizado (ou todos os sites permitidos) e descarregar o inventário Ansible. Validar o ficheiro com `ansible-inventory -i ansible-inventory.json --list`, confirmar que os grupos e hosts correspondem ao scope do utilizador e procurar chaves/valores de credenciais no JSON; por fim, em Auditoria, confirmar `ANSIBLE_INVENTORY_EXPORT` com o Site e número de registos. Repetir com um Site fora do scope e confirmar que a API não devolve dados desse Site.
+- Campos exportados: devices (`id,name,type,serialNumber,assetTag,hostname,managementIp,status,source,siteId,createdAt,updatedAt`); subnets (`id,cidr,version,gateway,purpose,environment,siteId,vlanId,vrfId`); vlans (`id,vlanId,name,description,siteId`); ips (`id,address,state,hostname,macAddress,version,subnetId,deviceId,interfaceId,hostId`). CSV protege valores iniciados por caracteres de fórmula.
+- `GET /api/v1/settings/backups` (ADMIN) mostra os últimos registos manuais de backup e teste de restauro. `POST /api/v1/settings/backups/checks` (ADMIN) aceita `kind` (`BACKUP_COMPLETED`, `RESTORE_VERIFIED` ou `RESTORE_FAILED`), `completedAt` ISO-8601 e `reference`/`notes` opcionais. O registo é auditado; não executa backup nem restaura dados.
+- A configuração Docker documenta volumes persistentes e um exemplo manual de `pg_dump`; a aplicação não está ligada a um job de backup nem verifica cópias ou restauros automaticamente. Um registo de sucesso é uma declaração do operador, não prova independente da cópia ou do restauro.
+### NetApp ONTAP (inventário read-only)
+
+- A página /netapp configura a integração e mostra os snapshots do Site ativo.
+- PUT /api/v1/netapp/sites/:siteId/integration — configura o endpoint HTTPS e a conta ONTAP; exige ADMIN. A password é cifrada e nunca é devolvida pela API.
+- GET /api/v1/netapp/sites/:siteId — consulta configuração pública, estado da última tentativa e último snapshot. Exige ADMIN, NETWORK_OPERATOR, SYSTEMS_OPERATOR, AUDITOR ou READ_ONLY.
+- POST /api/v1/netapp/sites/:siteId/refresh — consulta o ONTAP manualmente; exige ADMIN ou SYSTEMS_OPERATOR. A integração usa apenas pedidos REST GET, regista auditoria e mantém o último snapshot se a consulta falhar.
+
+O snapshot inclui cluster/sistemas, nós, aggregates, volumes, capacidade agregada e saúde. Não há polling agendado nem operações de escrita no ONTAP. A integração usa SNMP_KEYRING_FILE para proteger a credencial; prepara o keyring conforme a secção “Componente SNMP” em docs/setup.md.
+
+Validação feita com respostas mockadas/contratuais. Não havia appliance ONTAP nem credenciais de leitura disponíveis para validação ao vivo. A compatibilidade dos campos REST com a versão ONTAP e permissões da conta de leitura configurada ainda requer confirmação num equipamento de destino. Firmware, licenciamento, snapshots e métricas históricas não fazem parte deste snapshot inicial.
 
 ## Swagger
 

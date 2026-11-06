@@ -18,6 +18,8 @@ import { OperationsModule } from './operations/operations.module';
 import { InventoryQualityModule } from './inventory-quality/inventory-quality.module';
 import { TopologyModule } from './topology/topology.module';
 import { LinuxAgentModule } from './linux-agent/linux-agent.module';
+import { ExportsModule } from './settings/exports.module';
+import { NetAppModule } from './netapp/netapp.module';
 
 @Module({
   imports: [
@@ -39,6 +41,8 @@ import { LinuxAgentModule } from './linux-agent/linux-agent.module';
     InventoryQualityModule,
     TopologyModule,
     LinuxAgentModule,
+    ExportsModule,
+    NetAppModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
