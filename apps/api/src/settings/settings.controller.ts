@@ -8,10 +8,14 @@ import { SettingsService } from './settings.service';
 import { CreateRoleRequestDto, DecideRoleRequestDto } from './role-request.dto';
 import { RoleRequestService } from './role-request.service';
 import { AccessGroupService } from './access-group.service';
+import { BackupReadinessService } from './backup-readiness.service';
+import { RecordBackupCheckDto } from './backup.dto';
 
 @ApiTags('settings') @ApiBearerAuth() @Controller({ path: 'settings', version: '1' })
 export class SettingsController {
-  constructor(private readonly service: SettingsService, private readonly keycloak: KeycloakAdminService, private readonly roleRequests: RoleRequestService, private readonly accessGroups: AccessGroupService) {}
+  constructor(private readonly service: SettingsService, private readonly keycloak: KeycloakAdminService, private readonly roleRequests: RoleRequestService, private readonly accessGroups: AccessGroupService, private readonly backups: BackupReadinessService) {}
+  @Get('backups') @Roles('ADMIN') backupReadiness() { return this.backups.status(); }
+  @Post('backups/checks') @Roles('ADMIN') recordBackupCheck(@Body() body: RecordBackupCheckDto, @Req() req: { user: AuthenticatedUser }) { return this.backups.record(body, req.user); }
   @Get('organization') organization(@Req() req: { user: AuthenticatedUser }) { return this.service.organization(req.user); }
   @Patch('organization') @Roles('ADMIN') updateOrganization(@Body() body: UpdateOrganizationSettingsDto, @Req() req: { user: AuthenticatedUser }) { return this.service.updateOrganization(body, req.user); }
   @Get('discovery') discovery() { return this.service.discovery(); }
