@@ -6,6 +6,7 @@ import { RefreshCw, Server, X } from 'lucide-react';
 import { AppShell } from '@/components/layout/app-shell';
 import { useAuth } from '@/lib/auth';
 import { rememberRecentItem, RecentItems } from '@/lib/recent-items';
+import { useI18n } from '@/lib/i18n';
 import { useSiteContext } from '@/lib/site-context';
 import { apiFetch } from '@/lib/api/client';
 import { useToast } from '@/components/ui/toast';
@@ -60,6 +61,7 @@ const blankHost: HostFormState = { id: '', address: '', hostname: '', descriptio
 
 export default function IpamPage() {
   const { hasRole, user } = useAuth();
+  const { t } = useI18n();
   const { siteId, activeSite } = useSiteContext();
   const queryClient = useQueryClient();
   const { success, error: toastError } = useToast();
@@ -129,11 +131,11 @@ export default function IpamPage() {
   const canUpdateIp = roleCanEdit && (effective?.ipamActions ?? []).includes('UPDATE');
   const canCheckIp = roleCanEdit && (effective?.ipamActions ?? []).includes('DISCOVER');
   const unavailableIpamActions = [
-    !(effective?.ipamActions ?? []).includes('CREATE') && 'criação',
-    !(effective?.ipamActions ?? []).includes('UPDATE') && 'edição',
-    !(effective?.ipamActions ?? []).includes('DELETE') && 'remoção',
-    !(effective?.ipamActions ?? []).includes('DISCOVER') && 'descoberta',
-    !(effective?.ipamActions ?? []).includes('IMPORT') && 'importação',
+    !(effective?.ipamActions ?? []).includes('CREATE') && t('ipam.action.create'),
+    !(effective?.ipamActions ?? []).includes('UPDATE') && t('ipam.action.update'),
+    !(effective?.ipamActions ?? []).includes('DELETE') && t('ipam.action.delete'),
+    !(effective?.ipamActions ?? []).includes('DISCOVER') && t('ipam.action.discover'),
+    !(effective?.ipamActions ?? []).includes('IMPORT') && t('ipam.action.import'),
   ].filter(Boolean);
 
   const updateUrl = (values: Record<string, string | undefined>) => {
@@ -281,14 +283,14 @@ export default function IpamPage() {
       <header className="workspace-head"><div><span className="section-kicker">IP ADDRESS MANAGEMENT</span><h1>IPAM</h1><p>Site → VLAN → subnet → IP → Host → Service.</p></div></header>
       <RecentItems userId={user?.id} />
       {error && <div className="ipam-alert error"><X size={15} />{error}</div>}
-      {siteId && unavailableIpamActions.length > 0 && !fetchingAccess && <p className="ipam-scope-note">Âmbito ativo: Site <strong>{siteName}</strong>. As permissões atuais não permitem {unavailableIpamActions.join(', ')} neste Site.</p>}
+      {siteId && unavailableIpamActions.length > 0 && !fetchingAccess && <p className="ipam-scope-note">{t('ipam.scope.limited', undefined, { site: siteName, actions: unavailableIpamActions.join(', ') })}</p>}
       {siteId && <nav className="ipam-tabs ipam-feature-tabs">{visibleTabs.map(([value, label]) => <button key={value} className={tab === value ? 'active' : ''} onClick={() => { setTab(value); setSearch(''); }}>{label}</button>)}</nav>}
       {!siteId
         ? <Empty title="Escolhe um Site para começar" text="O mapa mostra as VLANs e subnets do Site selecionado." />
         : tab === 'map'
           ? <NetworkMap vlans={visibleVlans} canEdit={canEdit} edit={(item) => { setVlan({ id: item.id, vlanId: item.vlanId, name: item.name, description: item.description ?? '' }); setModal('vlan'); }} remove={(item) => remove(`/api/v1/vlans/${item.id}`, `Eliminar VLAN ${item.vlanId} — ${item.name}?`)} associate={(item) => { setCurrentVlan(item); setModal('association'); }} detachSubnet={(item) => void detachSubnet(item)} openSubnet={openSubnet} newVlan={() => { setVlan({ ...blankVlan }); setModal('vlan'); }} newSubnet={openNewSubnet} />
             : tab === 'subnets'
-              ? <SubnetsView selected={selected ?? null} items={visibleSubnets} usage={usage ?? null} ips={ips} search={search} setSearch={setSearch} openSubnet={openSubnet} openHost={openHost} canEdit={canEdit} siteId={siteId} newSubnet={() => openNewSubnet()} editSubnet={editSubnet} removeSubnet={(item) => void removeSubnet(item)} editIp={(ip) => { setIpDetail(ip); updateUrl({ ipId: ip.id }); rememberRecentItem(user?.id, { id: `ip:${ip.id}`, kind: 'Endereço IP', label: ip.address, href: `/ipam?siteId=${encodeURIComponent(siteId)}&subnetId=${encodeURIComponent(selectedSubnetId)}&ipId=${encodeURIComponent(ip.id)}` }); }} newIp={() => { setHost({ ...blankHost }); setModal('ip'); }} createHost={(ip) => { setHost({ name: ip.hostname || `host-${ip.address.replace(/[:.]/g, '-')}`, hostname: ip.hostname ?? '', operatingSystem: '', macAddress: ip.macAddress ?? '', notes: ip.notes ?? '', status: 'UNKNOWN', ipAddressId: ip.id }); setModal('create-host'); }} />
+              ? <SubnetsView selected={selected ?? null} items={visibleSubnets} usage={usage ?? null} ips={ips} search={search} setSearch={setSearch} openSubnet={openSubnet} openHost={openHost} canEdit={canEdit} siteId={siteId} newSubnet={() => openNewSubnet()} editSubnet={editSubnet} removeSubnet={(item) => void removeSubnet(item)} editIp={(ip) => { setIpDetail(ip); updateUrl({ ipId: ip.id }); rememberRecentItem(user?.id, { id: `ip:${ip.id}`, kind: t('ipam.recent.ip'), label: ip.address, href: `/ipam?siteId=${encodeURIComponent(siteId)}&subnetId=${encodeURIComponent(selectedSubnetId)}&ipId=${encodeURIComponent(ip.id)}` }); }} newIp={() => { setHost({ ...blankHost }); setModal('ip'); }} createHost={(ip) => { setHost({ name: ip.hostname || `host-${ip.address.replace(/[:.]/g, '-')}`, hostname: ip.hostname ?? '', operatingSystem: '', macAddress: ip.macAddress ?? '', notes: ip.notes ?? '', status: 'UNKNOWN', ipAddressId: ip.id }); setModal('create-host'); }} />
                 : tab === 'permissions' && effective?.tabs?.permissions
                   ? <CentralIpamPermissions siteId={siteId} />
                   : tab === 'calculator'
