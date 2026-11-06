@@ -47,6 +47,14 @@ export function getSubnetUsage(id: string): Promise<SubnetUsage> {
   return apiFetch<SubnetUsage>(`/api/v1/subnets/${id}/usage`);
 }
 
+export type SubnetPlanning = { subnet: Subnet; version: number; network?: string; broadcast?: string; usableRange?: { start: string; end: string } | null; usableTotal?: number; assigned?: number; free?: number; utilizationPercent: number | null; usableGaps: Array<{ start: string; end: string; count: number }>; assignedAddresses?: string[]; message?: string };
+export function getSubnetPlanning(id: string): Promise<SubnetPlanning> {
+  return apiFetch<SubnetPlanning>(`/api/v1/subnets/${id}/planning`);
+}
+export function getIpAddress(id: string): Promise<IpAddressRow> {
+  return apiFetch<IpAddressRow>(`/api/v1/ip-addresses/${id}`);
+}
+
 export function listIpAddresses(subnetId: string, search: string): Promise<PaginatedResponse<IpAddressRow>> {
   return apiFetch<PaginatedResponse<IpAddressRow>>(`/api/v1/ip-addresses?subnetId=${subnetId}&pageSize=250&search=${encodeURIComponent(search)}`);
 }

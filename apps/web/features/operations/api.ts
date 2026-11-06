@@ -2,7 +2,7 @@ import { apiFetch } from '@/lib/api/client';
 
 export type OperationalAlert = { id: string; title: string; detail?: string; severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'WARNING' | 'INFO'; status?: 'OPEN' | 'ACKNOWLEDGED' | 'SNOOZED' | 'RESOLVED'; occurredAt?: string; href?: string };
 export type InventoryQuality = { score?: number; total?: number; valid?: number; invalid?: number; stale?: number; deviceCount?: number; affectedDeviceCount?: number; validDeviceCount?: number; affectedEntityCount?: number; findingCount?: number; staleFindingCount?: number };
-export type InventoryFinding = { id: string; siteId: string; rule: string; severity: 'CRITICAL' | 'HIGH' | 'WARNING' | 'INFO'; status: 'OPEN' | 'ACKNOWLEDGED' | 'SNOOZED' | 'RESOLVED'; title: string; detail: string; lastDetectedAt: string; assignedTo?: { id: string; username: string; displayName?: string | null } | null };
+export type InventoryFinding = { id: string; siteId: string; rule: string; entityType: string; entityId: string; actionHref?: string | null; suggestedCorrection: string; severity: 'CRITICAL' | 'HIGH' | 'WARNING' | 'INFO'; status: 'OPEN' | 'ACKNOWLEDGED' | 'SNOOZED' | 'RESOLVED'; title: string; detail: string; lastDetectedAt: string; assignedTo?: { id: string; username: string; displayName?: string | null } | null };
 
 export const listOperationalAlerts = (siteId?: string) => apiFetch<{ items: OperationalAlert[] }>(`/api/v1/operations/alerts${siteId ? `?siteId=${encodeURIComponent(siteId)}` : ''}`);
 export const acknowledgeOperationalAlert = (id: string) => apiFetch(`/api/v1/operations/alerts/${encodeURIComponent(id)}/acknowledge`, { method: 'PATCH' });

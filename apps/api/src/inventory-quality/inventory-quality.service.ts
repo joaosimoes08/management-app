@@ -82,7 +82,24 @@ export class InventoryQualityService {
     const where = { AND: [scope, ...(query.status ? [{ status: query.status }] : []), ...(query.severity ? [{ severity: query.severity }] : []), ...(query.rule ? [{ rule: query.rule }] : []), ...(query.search ? [{ OR: [{ title: { contains: query.search, mode: 'insensitive' as const } }, { detail: { contains: query.search, mode: 'insensitive' as const } }] }] : [])] };
     const candidates = await this.prisma.inventoryFinding.findMany({ where, orderBy: [{ severity: 'asc' }, { lastDetectedAt: 'desc' }], include: { site: { select: { id: true, name: true } }, assignedTo: { select: { id: true, username: true, displayName: true } } } });
     const visible = await this.filterVisibleFindings(user, candidates);
-    return { items: visible.slice((page - 1) * pageSize, page * pageSize), total: visible.length, page, pageSize };
+    const pageItems = visible.slice((page - 1) * pageSize, page * pageSize);
+    const interfaceIds = pageItems.filter((item) => item.entityType === 'DeviceInterface').map((item) => item.entityId);
+    const interfaceOwners = interfaceIds.length ? await this.prisma.deviceInterface.findMany({ where: { id: { in: interfaceIds } }, select: { id: true, deviceId: true } }) : [];
+    const ownerByInterface = new Map(interfaceOwners.map((item) => [item.id, item.deviceId]));
+    const driftIds = pageItems.filter((item) => item.entityType === 'SnmpDrift').map((item) => item.entityId);
+    const driftOwners = driftIds.length ? await this.prisma.snmpDrift.findMany({ where: { id: { in: driftIds } }, select: { id: true, deviceId: true } }) : [];
+    const ownerByDrift = new Map(driftOwners.map((item) => [item.id, item.deviceId]));
+    const suggestions: Record<string, string> = {
+      DEVICE_MISSING_SITE: 'Associar o equipamento ao Site correto.', DEVICE_MISSING_LOCATION: 'Atribuir o equipamento ao bastidor e à posição física corretos.', DEVICE_MISSING_MODEL: 'Associar o modelo de equipamento correspondente.',
+      NETWORK_DEVICE_MISSING_MANAGEMENT_IP: 'Atribuir um endereço IP de gestão válido ao equipamento.', INTERFACE_MISSING_MODE: 'Definir o modo da interface como ACCESS ou TRUNK.', ACCESS_INTERFACE_MISSING_VLAN: 'Selecionar a VLAN de acesso da interface.', TRUNK_INTERFACE_MISSING_VLANS: 'Adicionar as VLANs permitidas nesta interface trunk.',
+      NETWORK_MODEL_MISSING_PORT_MAP: 'Completar e guardar o mapa de portas do modelo.', STALE_SNMP_OBSERVATION: 'Confirmar conectividade e configuração SNMP ou atualizar o inventário manualmente.', STALE_SNMP_DRIFT: 'Rever e resolver a divergência SNMP pendente.', DUPLICATE_IP_ROUTING_DOMAIN: 'Verificar as atribuições duplicadas e corrigir o endereço ou domínio de routing.',
+    };
+    const items = pageItems.map((item) => {
+      const deviceId = item.entityType === 'Device' ? item.entityId : item.entityType === 'DeviceInterface' ? ownerByInterface.get(item.entityId) : item.entityType === 'SnmpDrift' ? ownerByDrift.get(item.entityId) : undefined;
+      const href = deviceId && item.siteId && item.entityType === 'SnmpDrift' ? `/snmp?siteId=${encodeURIComponent(item.siteId)}&deviceId=${encodeURIComponent(deviceId)}` : deviceId && item.siteId ? `/infraestrutura?siteId=${encodeURIComponent(item.siteId)}&tab=${item.entityType === 'DeviceInterface' ? 'interfaces' : 'devices'}&deviceId=${encodeURIComponent(deviceId)}${item.entityType === 'DeviceInterface' ? `&interfaceId=${encodeURIComponent(item.entityId)}` : ''}` : item.entityType === 'IpAddress' && item.siteId ? `/ipam?siteId=${encodeURIComponent(item.siteId)}&ipId=${encodeURIComponent(item.entityId)}` : item.entityType === 'DeviceModel' && item.siteId ? `/infraestrutura?siteId=${encodeURIComponent(item.siteId)}&tab=models&modelId=${encodeURIComponent(item.entityId)}` : null;
+      return { ...item, actionHref: href, suggestedCorrection: suggestions[item.rule] ?? 'Abrir o registo e corrigir os dados que originaram este finding.' };
+    });
+    return { items, total: visible.length, page, pageSize };
   }
 
   async summary(user: AuthenticatedUser, siteId?: string) {

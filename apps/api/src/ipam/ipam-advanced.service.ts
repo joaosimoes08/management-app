@@ -28,6 +28,21 @@ export class IpamAdvancedService implements OnModuleDestroy {
   private async log(user: AuthenticatedUser, action: string, entityType: string, entityId: string, metadata?: unknown) { await this.audit.record({ userId: user.id, action, entityType, entityId, metadata }); }
   async getSubnet(id: string, user?: AuthenticatedUser) { if (user) await this.access.assertSubnet(user, 'READ', id); const item = await this.prisma.subnet.findUnique({ where: { id }, include: { site: true, vlan: true, vrf: true, parentSubnet: true, childSubnets: true, discoverySchedule: true } }); if (!item) throw new NotFoundException('Subnet não encontrada'); return item; }
   async subnetUsage(id: string, user?: AuthenticatedUser) { const subnet = await this.getSubnet(id, user); const counts = await this.prisma.ipAddress.groupBy({ by: ['state'], where: { subnetId: id }, _count: { _all: true } }); const byState = Object.fromEntries(counts.map((item) => [item.state, item._count._all])); const info = cidrInfo(subnet.cidr); const total = info.version === 4 ? info.broadcast - info.network + 1 : info.total; const occupied = (byState.OCCUPIED ?? 0) + (byState.UNKNOWN ?? 0); return { subnet, version: info.version, total, theoreticalCapacity: total, known: Object.values(byState).reduce((a, b) => a + b, 0), occupied, free: info.version === 4 && typeof total === 'number' ? Math.max(0, total - Object.values(byState).reduce((a, b) => a + b, 0)) : null, byState, utilizationPercent: typeof total === 'number' && total > 0 ? Math.round((occupied / total) * 10000) / 100 : null }; }
+  async subnetPlanning(id: string, user: AuthenticatedUser) {
+    const subnet = await this.getSubnet(id, user);
+    const info = cidrInfo(subnet.cidr);
+    if (info.version !== 4) return { subnet, version: 6, ranges: [], usableGaps: [], utilizationPercent: null, message: 'O planeamento por intervalos está disponível para IPv4.' };
+    const first = info.prefix >= 31 ? info.network : info.network + 1;
+    const last = info.prefix >= 31 ? info.broadcast : info.broadcast - 1;
+    const rows = await this.prisma.ipAddress.findMany({ where: { subnetId: id }, select: { address: true, state: true }, orderBy: { address: 'asc' } });
+    const used = [...new Set(rows.filter((row) => row.state === 'OCCUPIED' || row.state === 'UNKNOWN').map((row) => ipv4Number(row.address)).filter((value) => value >= first && value <= last))].sort((a, b) => a - b);
+    const gaps: Array<{ start: string; end: string; count: number }> = [];
+    let cursor = first;
+    for (const value of used) { if (value > cursor) gaps.push({ start: ipv4Address(cursor), end: ipv4Address(value - 1), count: value - cursor }); cursor = value + 1; }
+    if (cursor <= last) gaps.push({ start: ipv4Address(cursor), end: ipv4Address(last), count: last - cursor + 1 });
+    const usable = Math.max(0, last - first + 1);
+    return { subnet, version: 4, network: ipv4Address(info.network), broadcast: ipv4Address(info.broadcast), usableRange: usable ? { start: ipv4Address(first), end: ipv4Address(last) } : null, usableTotal: usable, assigned: used.length, free: Math.max(0, usable - used.length), utilizationPercent: usable ? Math.round((used.length / usable) * 10000) / 100 : 0, usableGaps: gaps, assignedAddresses: used.map((value) => ipv4Address(value)) };
+  }
   async subnetTree(id: string, user?: AuthenticatedUser) { const subnet = await this.getSubnet(id, user); return { root: subnet, children: subnet.childSubnets }; }
   async createSubnet(dto: CreateSubnetDto, user: AuthenticatedUser) {
     await this.access.assertSubnetPlacement(user, 'CREATE', dto);
