@@ -7,9 +7,11 @@ describe('legacy infrastructure messages', () => {
       .toBe('Could not update the selected equipment.');
   });
 
-  it('translates bulk update outcomes while preserving counts', () => {
-    expect(translateLegacyText('en-US', '3 atualizado(s) com sucesso.')).toBe('3 updated successfully.');
-    expect(translateLegacyText('en-US', '2 atualizado(s); 1 falhou/falharam: Router: access denied'))
-      .toBe('2 updated; 1 failed: Router: access denied');
+  it('translates bulk update outcomes while preserving persistence and audit status', () => {
+    expect(translateLegacyText('en-US', '3 guardado(s).')).toBe('3 saved.');
+    expect(translateLegacyText('en-US', '1 guardado(s). · Guardados, auditoria falhou: Router: A atualização foi guardada, mas não foi possível registar a auditoria.'))
+      .toBe('1 saved. · Saved, but audit failed: Router: The update was saved, but its audit record could not be written.');
+    expect(translateLegacyText('en-US', 'Não guardados: Router: Scope denied'))
+      .toBe('Not saved: Router: Scope denied');
   });
 });

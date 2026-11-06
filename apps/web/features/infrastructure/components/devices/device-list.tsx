@@ -19,7 +19,7 @@ export interface DeviceListProps {
   racks?: Rack[];
   onImport?: () => void;
   canImport?: boolean;
-  onBulkUpdate?: (ids: string[], changes: { status?: string; modelId?: string | null; rackId?: string | null }) => Promise<{ updated: number; updatedIds: string[]; failed: { id: string; message: string }[] }>;
+  onBulkUpdate?: (ids: string[], changes: { status?: string; modelId?: string | null; rackId?: string | null }) => Promise<{ updated: number; updatedIds: string[]; failed: { id: string; message: string }[]; auditFailed: { id: string; message: string }[]; batchAuditFailed: boolean }>;
 }
 
 /** Active device inventory of the site. */
@@ -45,7 +45,13 @@ export function DeviceList({ devices, search, onSelect, onEdit, onNew, canEdit, 
       const outcome = await onBulkUpdate?.(selected, changes);
       if (!outcome) return;
       const failedNames = outcome.failed.map(({ id, message }) => `${devices.find((item) => item.id === id)?.name ?? id}: ${message}`);
-      setError(failedNames.length ? `${outcome.updated} atualizado(s); ${failedNames.length} falhou/falharam: ${failedNames.join(' · ')}` : `${outcome.updated} atualizado(s) com sucesso.`);
+      const auditNames = outcome.auditFailed.map(({ id, message }) => `${devices.find((item) => item.id === id)?.name ?? id}: ${message}`);
+      const messages = [];
+      if (outcome.updated) messages.push(`${outcome.updated} guardado(s).`);
+      if (failedNames.length) messages.push(`Não guardados: ${failedNames.join(' · ')}`);
+      if (auditNames.length) messages.push(`Guardados, auditoria falhou: ${auditNames.join(' · ')}`);
+      if (outcome.batchAuditFailed) messages.push('Auditoria do lote falhou; atualizações guardadas.');
+      setError(messages.join(' · ') || 'Não foram guardadas atualizações.');
       setSelected(outcome.failed.map((item) => item.id));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Não foi possível atualizar os equipamentos selecionados.');

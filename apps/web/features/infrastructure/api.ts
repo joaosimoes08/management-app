@@ -168,7 +168,7 @@ export function importDevices(siteId: string, rows: Record<string, unknown>[]) {
 }
 
 export function bulkUpdateDevices(ids: string[], changes: { status?: string; modelId?: string | null; rackId?: string | null }) {
-  return apiFetch<{ updated: number; updatedIds: string[]; failed: { id: string; message: string }[] }>('/api/v1/devices/bulk-update', { method: 'POST', body: JSON.stringify({ ids, changes }) });
+  return apiFetch<{ updated: number; updatedIds: string[]; failed: { id: string; message: string }[]; auditFailed: { id: string; message: string }[]; batchAuditFailed: boolean }>('/api/v1/devices/bulk-update', { method: 'POST', body: JSON.stringify({ ids, changes }) });
 }
 
 export function previewDevicePlacement(deviceId: string, body: { rackId: string; rackUnitStart: number }): Promise<RackPlacementPlan> {
