@@ -80,3 +80,14 @@ test('map connection creation rejects a port already used by another connection'
   );
   assert.equal(created, false);
 });
+
+test('connection serialization conflicts return a retryable API conflict', async () => {
+  const prisma = {
+    $transaction: async () => { throw Object.assign(new Error('serialization conflict'), { code: 'P2034' }); },
+  };
+  const service = new TopologyService(prisma as never, {} as never, {} as never, {} as never);
+  await assert.rejects(
+    (service as any).connectionTransaction(async () => undefined),
+    (error: any) => error.getStatus() === 409 && error.getResponse().code === 'TOPOLOGY_CONNECTION_CONCURRENT_UPDATE',
+  );
+});

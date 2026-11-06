@@ -56,6 +56,16 @@ export class TopologyService {
       throw new ConflictException({ code: 'TOPOLOGY_INTERFACE_ALREADY_CONNECTED', message: 'Uma ou mais portas já estão utilizadas noutra ligação.' });
     }
   }
+  private async connectionTransaction<T>(work: (tx: any) => Promise<T>): Promise<T> {
+    try {
+      return await this.db().$transaction(work, { isolationLevel: 'Serializable' });
+    } catch (error) {
+      if ((error as { code?: string })?.code === 'P2034') {
+        throw new ConflictException({ code: 'TOPOLOGY_CONNECTION_CONCURRENT_UPDATE', message: 'A ligação mudou em paralelo. Atualiza o mapa e tenta novamente.' });
+      }
+      throw error;
+    }
+  }
   private async assertConnectionVisible(user: AuthenticatedUser, connection: { sourceDeviceId: string; targetDeviceId: string }) {
     await Promise.all([this.access.assertDevice(user, 'READ', connection.sourceDeviceId), this.access.assertDevice(user, 'READ', connection.targetDeviceId)]);
   }
@@ -136,7 +146,7 @@ export class TopologyService {
     if (nodes.length !== 2) throw new NotFoundException('Os dispositivos não pertencem a este mapa');
     await this.validateConnectionEndpoints(existing.siteId, dto);
     await this.assertConnectionVisible(user, dto);
-    const connection = await this.db().$transaction(async (tx: any) => {
+    const connection = await this.connectionTransaction(async (tx: any) => {
       await this.validateConnectionPortsAvailable(dto, tx);
       await this.advanceRevision(tx, mapId, dto.revision ?? existing.revision);
       const created = await tx.deviceConnection.create({ data: { siteId: existing.siteId, sourceDeviceId: dto.sourceDeviceId, targetDeviceId: dto.targetDeviceId, sourceInterfaceId: dto.sourceInterfaceId, targetInterfaceId: dto.targetInterfaceId, type: dto.type ?? 'PHYSICAL', label: dto.label, createdById: user.id } });
@@ -191,7 +201,7 @@ export class TopologyService {
     await this.authorizeMap(user, 'CREATE', dto.siteId, 'NETWORK');
     await this.validateConnectionEndpoints(dto.siteId, dto);
     await this.assertConnectionVisible(user, dto);
-    const item = await this.db().$transaction(async (tx: any) => {
+    const item = await this.connectionTransaction(async (tx: any) => {
       await this.validateConnectionPortsAvailable(dto, tx);
       return tx.deviceConnection.create({ data: { ...dto, type: dto.type ?? 'PHYSICAL', createdById: user.id } });
     });
@@ -212,7 +222,7 @@ export class TopologyService {
         targetInterfaceId: data.targetInterfaceId ?? undefined,
       });
     }
-    const item = await this.db().$transaction(async (tx: any) => {
+    const item = await this.connectionTransaction(async (tx: any) => {
       if (data.sourceInterfaceId !== undefined || data.targetInterfaceId !== undefined) {
         await this.validateConnectionPortsAvailable({
           sourceInterfaceId: data.sourceInterfaceId === undefined ? existing.sourceInterfaceId : data.sourceInterfaceId,
