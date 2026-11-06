@@ -66,6 +66,7 @@ export class IpamController {
   @Get('discovery/jobs') jobs(@Req() req: { user: AuthenticatedUser }, @Query('status') status?: string, @Query('subnetId') subnetId?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) { return this.service.listDiscoveryJobs(req.user, status, subnetId, page, pageSize); }
   @Get('discovery/jobs/:id') job(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.service.getDiscoveryJob(req.user, id); }
   @Get('discovery/jobs/:id/results') results(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.service.listDiscoveryResults(req.user, id); }
+  @Get('discovery/jobs/:id/compare') compareJobs(@Param('id') id: string, @Query('with') previousId: string, @Req() req: { user: AuthenticatedUser }) { return this.service.compareDiscoveryJobs(req.user, id, previousId); }
   @Post('discovery/jobs') @Roles('ADMIN', 'NETWORK_OPERATOR') createJob(@Body() dto: CreateDiscoveryJobDto, @Req() req: { user: AuthenticatedUser }) { return this.service.runDiscovery(dto, req.user); }
   @Get('subnets/:id/discovery-schedule') schedule(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.service.getDiscoverySchedule(req.user, id); }
   @Patch('subnets/:id/discovery-schedule') @Roles('ADMIN', 'NETWORK_OPERATOR') updateSchedule(@Param('id') id: string, @Body() dto: UpdateDiscoveryScheduleDto, @Req() req: { user: AuthenticatedUser }) { return this.service.updateDiscoverySchedule(id, dto, req.user); }

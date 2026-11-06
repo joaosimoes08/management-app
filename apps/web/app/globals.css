@@ -1324,3 +1324,5 @@ html[lang='en-US'] .environment-trigger.operational::after { content:'· Setup c
 @media (max-width:780px) {
   .app-shell .topbar .environment-trigger.operational::after { content:none; }
 }
+.discovery-compare-select { display:grid; gap:6px; max-width:460px; color:var(--muted); font-size:10px; }.discovery-compare-select select { padding:10px; border:1px solid var(--line); border-radius:8px; background:#fff; font-size:11px; }.discovery-comparison { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin-top:17px; }.discovery-comparison h3 { margin:0; padding-bottom:8px; border-bottom:1px solid var(--line); font-size:12px; }.discovery-comparison .no-data { margin:10px 0 0; font-size:10px; }
+@media (max-width:780px) { .discovery-comparison { grid-template-columns:1fr; } }

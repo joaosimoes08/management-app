@@ -11,6 +11,7 @@ import { CreateDiscoveryJobDto, CreateHostDto, CreateIpDto, CreateServiceDto, Cr
 import { IpamAccessService } from './ipam-access.service';
 import { assertDiscoveryAllowed, DiscoveryPolicyError, normalizeDiscoveryPorts, parseNetwork } from '../discovery/discovery-policy';
 import { resolveDiscoveryProfile } from '../discovery/discovery-profiles';
+import { compareDiscoveryResults } from '../discovery/discovery-comparison';
 
 const execFileAsync = promisify(execFile);
 const MAX_DISCOVERY_HOSTS = 4096;
@@ -120,6 +121,22 @@ export class IpamService implements OnModuleDestroy {
   async listDiscoveryJobs(user: AuthenticatedUser, status?: string, subnetId?: string, pageText?: string, pageSizeText?: string) { const page = Math.max(Number(pageText) || 1, 1); const pageSize = Math.min(Math.max(Number(pageSizeText) || 25, 1), 100); const subnetWhere = await this.access.whereFor(user, 'READ', 'subnet'); const where = { ...(status ? { status: status as never } : {}), ...(subnetId ? { subnetId } : {}), subnet: subnetWhere }; const [items, total] = await Promise.all([this.prisma.discoveryJob.findMany({ where, include: { subnet: { include: { vlan: true, site: true } }, _count: { select: { results: true } } }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }), this.prisma.discoveryJob.count({ where })]); return { items, page, pageSize, total, totalPages: Math.ceil(total / pageSize) }; }
   async getDiscoveryJob(user: AuthenticatedUser, id: string) { const job = await this.prisma.discoveryJob.findUnique({ where: { id }, include: { subnet: { include: { vlan: true, site: true } }, _count: { select: { results: true } } } }); if (!job) throw new NotFoundException('Execução de discovery não encontrada'); await this.access.assertSubnet(user, 'READ', job.subnetId); return job; }
   async listDiscoveryResults(user: AuthenticatedUser, jobId: string) { await this.getDiscoveryJob(user, jobId); return this.prisma.discoveryResult.findMany({ where: { jobId }, orderBy: [{ status: 'asc' }, { address: 'asc' }] }); }
+  async compareDiscoveryJobs(user: AuthenticatedUser, currentId: string, previousId: string) {
+    if (!previousId) throw new BadRequestException('Indique a execução a comparar.');
+    if (currentId === previousId) throw new BadRequestException('Selecione duas execuções diferentes.');
+    const [currentJob, previousJob] = await Promise.all([this.getDiscoveryJob(user, currentId), this.getDiscoveryJob(user, previousId)]);
+    if (currentJob.subnetId !== previousJob.subnetId) throw new BadRequestException('Só é possível comparar execuções da mesma subnet.');
+    if (currentJob.status !== 'COMPLETED' || previousJob.status !== 'COMPLETED') throw new BadRequestException('As duas execuções têm de estar concluídas.');
+    const [previousResults, currentResults] = await Promise.all([
+      this.prisma.discoveryResult.findMany({ where: { jobId: previousId }, select: { address: true, hostname: true, icmpReachable: true, openPorts: true } }),
+      this.prisma.discoveryResult.findMany({ where: { jobId: currentId }, select: { address: true, hostname: true, icmpReachable: true, openPorts: true } }),
+    ]);
+    return {
+      previous: { id: previousJob.id, name: previousJob.name, completedAt: previousJob.completedAt },
+      current: { id: currentJob.id, name: currentJob.name, completedAt: currentJob.completedAt },
+      ...compareDiscoveryResults(previousResults, currentResults),
+    };
+  }
   async runDiscovery(dto: CreateDiscoveryJobDto, user: AuthenticatedUser) {
     const [subnet, settings] = await Promise.all([this.access.assertSubnet(user, 'DISCOVER', dto.subnetId), this.prisma.systemSettings.findFirst()]);
     const fullSubnet = await this.prisma.subnet.findUniqueOrThrow({ where: { id: subnet.id } });
