@@ -240,6 +240,7 @@ export class InfrastructureService implements OnModuleInit {
     const targetSiteId = targetRack.room.building.siteId;
     if (device.rackId) {
       if (targetSiteId !== device.rack.room.building.siteId) throw new ConflictException('O bastidor de destino tem de pertencer ao mesmo Site do equipamento');
+      if (targetRack.room.id !== device.rack.room.id) throw new ConflictException('O equipamento só pode ser movido entre bastidores da mesma sala');
       if (!device.rackUnitStart || !device.rackUnitSize) throw new ConflictException('O equipamento não tem uma posição válida no bastidor de origem');
     } else if (device.siteId !== targetSiteId) {
       throw new ConflictException('O bastidor não pertence ao Site do equipamento');
