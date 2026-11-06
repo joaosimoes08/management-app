@@ -124,6 +124,24 @@ export class OperationsService implements OnModuleInit, OnModuleDestroy {
     for (const item of items) if (await this.canSeeAlert(user, item)) visible.push(item);
     return visible;
   }
+  private async applyAlertPolicies<T extends { source: string; siteId: string | null; severity: string }>(items: T[], now = new Date()) {
+    if (!items.length) return items;
+    const [rules, windows] = await Promise.all([
+      this.prisma.alertRule.findMany({ where: { enabled: true }, select: { source: true, siteId: true, minSeverity: true } }),
+      this.prisma.maintenanceWindow.findMany({ where: { startsAt: { lte: now }, endsAt: { gt: now } }, select: { siteId: true } }),
+    ]);
+    const rank: Record<string, number> = { CRITICAL: 0, HIGH: 1, WARNING: 2, INFO: 3 };
+    return items.filter((item) => {
+      // Critical alerts always bypass rule thresholds and maintenance quiet periods.
+      if (item.severity === 'CRITICAL') return true;
+      const inQuietWindow = windows.some((window) => window.siteId === null || window.siteId === item.siteId);
+      if (inQuietWindow) return false;
+      const rule = rules
+        .filter((candidate) => candidate.source === item.source && (candidate.siteId === null || candidate.siteId === item.siteId))
+        .sort((left, right) => Number(right.siteId === item.siteId) - Number(left.siteId === item.siteId) || (rank[right.minSeverity] ?? 2) - (rank[left.minSeverity] ?? 2))[0];
+      return !rule || (rank[item.severity] ?? 99) <= (rank[rule.minSeverity] ?? 2);
+    });
+  }
   private async canOperateSite(user: AuthenticatedUser, siteId: string) {
     if (user.roles.includes('ADMIN')) return true;
     try {
@@ -148,7 +166,7 @@ export class OperationsService implements OnModuleInit, OnModuleDestroy {
       ],
     };
     const candidates = await this.prisma.operationalAlert.findMany({ where, orderBy: [{ severity: 'asc' }, { lastOccurredAt: 'desc' }], include: { site: { select: { id: true, name: true } }, userStates: { where: { userId: user.id }, select: { readAt: true } } } });
-    const visible = await this.filterVisibleAlerts(user, candidates);
+    const visible = await this.applyAlertPolicies(await this.filterVisibleAlerts(user, candidates));
     const items = visible.slice((page - 1) * pageSize, page * pageSize);
     const snmpJobIds = items.filter((item) => item.entityType === 'SnmpJob' && item.entityId).map((item) => item.entityId!);
     const snmpDriftIds = items.filter((item) => item.entityType === 'SnmpDrift' && item.entityId).map((item) => item.entityId!);
@@ -171,7 +189,7 @@ export class OperationsService implements OnModuleInit, OnModuleDestroy {
     if (siteId && !siteIds.includes(siteId) && !user.roles.includes('ADMIN')) throw new NotFoundException('Site não encontrado');
     const where = { AND: [siteId ? { siteId } : { OR: [{ siteId: null }, { siteId: { in: siteIds } }] }, { status: { not: 'RESOLVED' as const } }] };
     const candidates = await this.prisma.operationalAlert.findMany({ where, include: { userStates: { where: { userId: user.id }, select: { readAt: true } } } });
-    const visible = await this.filterVisibleAlerts(user, candidates);
+    const visible = await this.applyAlertPolicies(await this.filterVisibleAlerts(user, candidates));
     const counts = new Map<string, { status: string; severity: string; _count: { _all: number } }>();
     for (const item of visible) { const key = `${item.status}:${item.severity}`; const group = counts.get(key) ?? { status: item.status, severity: item.severity, _count: { _all: 0 } }; group._count._all += 1; counts.set(key, group); }
     return { total: visible.length, unread: visible.filter((item) => !item.userStates[0]?.readAt).length, groups: [...counts.values()] };

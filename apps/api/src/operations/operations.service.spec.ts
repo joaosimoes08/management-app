@@ -30,6 +30,8 @@ test('upsert preserves acknowledged and snoozed workflow state for active alerts
 test('list includes related device ids for SNMP alerts without changing their source entities', async () => {
   const prisma = {
     site: { findMany: async () => [] },
+    alertRule: { findMany: async () => [] },
+    maintenanceWindow: { findMany: async () => [] },
     operationalAlert: { findMany: async () => [
       { id: 'job-alert', siteId: 'site', entityType: 'SnmpJob', entityId: 'job', userStates: [] },
       { id: 'drift-alert', siteId: 'site', entityType: 'SnmpDrift', entityId: 'drift', userStates: [] },
@@ -127,4 +129,44 @@ test('publisher disconnect and publish failure disable heartbeat Pub/Sub readine
 
   publisher.emit('ready');
   assert.equal(service.pubSubReady, true);
+});
+
+test('maintenance windows silence non-critical alerts but always preserve critical alerts', async () => {
+  const prisma = { alertRule: { findMany: async () => [] }, maintenanceWindow: { findMany: async () => [{ siteId: 'site' }] } };
+  const service = new OperationsService(prisma as never, {} as never, {} as never, {} as never) as any;
+  const items = [
+    { source: 'SNMP', siteId: 'site', severity: 'WARNING' },
+    { source: 'SNMP', siteId: 'site', severity: 'CRITICAL' },
+    { source: 'SNMP', siteId: 'other', severity: 'WARNING' },
+  ];
+  const result = await service.applyAlertPolicies(items);
+  assert.deepEqual(result.map((item: any) => item.severity), ['CRITICAL', 'WARNING']);
+});
+
+test('configured source and site thresholds filter lower severities while preserving critical alerts', async () => {
+  const prisma = { alertRule: { findMany: async () => [{ source: 'SNMP', siteId: 'site', minSeverity: 'HIGH' }] }, maintenanceWindow: { findMany: async () => [] } };
+  const service = new OperationsService(prisma as never, {} as never, {} as never, {} as never) as any;
+  const result = await service.applyAlertPolicies([
+    { source: 'SNMP', siteId: 'site', severity: 'WARNING' },
+    { source: 'SNMP', siteId: 'site', severity: 'HIGH' },
+    { source: 'SNMP', siteId: 'site', severity: 'CRITICAL' },
+  ]);
+  assert.deepEqual(result.map((item: any) => item.severity), ['HIGH', 'CRITICAL']);
+});
+
+test('site-specific alert rules override global rules deterministically', async () => {
+  const prisma = {
+    alertRule: { findMany: async () => [
+      { source: 'SNMP', siteId: null, minSeverity: 'CRITICAL' },
+      { source: 'SNMP', siteId: 'site', minSeverity: 'WARNING' },
+      { source: 'SNMP', siteId: 'site', minSeverity: 'INFO' },
+    ] },
+    maintenanceWindow: { findMany: async () => [] },
+  };
+  const service = new OperationsService(prisma as never, {} as never, {} as never, {} as never) as any;
+  const result = await service.applyAlertPolicies([
+    { source: 'SNMP', siteId: 'site', severity: 'INFO' },
+    { source: 'SNMP', siteId: 'other', severity: 'INFO' },
+  ]);
+  assert.deepEqual(result.map((item: any) => item.siteId), ['site']);
 });
