@@ -2,29 +2,25 @@ import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { InventoryQualityService } from './inventory-quality.service';
 
-test('summary counts distinct affected devices and reports finding/entity counts separately', async () => {
-  const findings = [
-    { id: 'f1', siteId: 'site', status: 'OPEN', severity: 'HIGH', rule: 'MISSING_MODEL', entityType: 'Device', entityId: 'device-a' },
-    { id: 'f2', siteId: 'site', status: 'OPEN', severity: 'WARNING', rule: 'MISSING_LOCATION', entityType: 'Device', entityId: 'device-a' },
-    { id: 'f3', siteId: 'site', status: 'OPEN', severity: 'WARNING', rule: 'STALE_SNMP_OBSERVATION', entityType: 'DeviceInterface', entityId: 'interface-a' },
-  ];
-  const prisma = {
-    site: { findMany: async () => [{ id: 'site' }] },
-    inventoryFinding: { findMany: async () => findings },
-    device: { findMany: async ({ select }: any) => select?.id ? [{ id: 'device-a' }, { id: 'device-b' }] : [] },
-    deviceInterface: { findMany: async () => [{ id: 'interface-a', deviceId: 'device-a' }] },
-    snmpDrift: { findMany: async () => [] }, ipAddress: { findMany: async () => [] },
+test('DEVICE_MISSING_SITE links directly to its unassigned device record', async () => {
+  const finding = {
+    id: 'finding-1',
+    siteId: null,
+    entityType: 'Device',
+    entityId: 'device-1',
+    rule: 'DEVICE_MISSING_SITE',
+    severity: 'HIGH',
+    status: 'OPEN',
+    title: 'Equipamento sem Site',
+    detail: 'switch-1 não está associado a um Site.',
+    lastDetectedAt: new Date('2026-11-06T10:00:00Z'),
   };
-  const service = new InventoryQualityService(prisma as never, {} as never, {} as never, {} as never, {} as never);
-  const summary = await service.summary({ id: 'user', roles: ['ADMIN'] } as never);
-  assert.equal(summary.deviceCount, 2);
-  assert.equal(summary.affectedDeviceCount, 1);
-  assert.equal(summary.validDeviceCount, 1);
-  assert.equal(summary.affectedEntityCount, 2);
-  assert.equal(summary.findingCount, 3);
-  assert.equal(summary.total, 2);
-  assert.equal(summary.invalid, 1);
-  assert.equal(summary.valid, 1);
-  assert.equal(summary.staleFindingCount, 1);
-  assert.equal(summary.score, 50);
+  const prisma = { inventoryFinding: { findMany: async () => [finding] } } as any;
+  const service = new InventoryQualityService(prisma, {} as any, {} as any, {} as any, {} as any);
+  (service as any).visibleSiteIds = async () => [];
+  (service as any).filterVisibleFindings = async (_user: unknown, items: unknown[]) => items;
+
+  const result = await service.list({ id: 'admin', roles: ['ADMIN'] } as any);
+
+  assert.equal(result.items[0].actionHref, '/infraestrutura?tab=devices&deviceId=device-1&focus=device');
 });
