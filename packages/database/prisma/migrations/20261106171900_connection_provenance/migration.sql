@@ -1,2 +1,2 @@
 ALTER TABLE "DeviceConnection"
-ADD COLUMN "source" "SourceType" NOT NULL DEFAULT 'MANUAL';
+ADD COLUMN IF NOT EXISTS "source" "SourceType" NOT NULL DEFAULT 'MANUAL';
