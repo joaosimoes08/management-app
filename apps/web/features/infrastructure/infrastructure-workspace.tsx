@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Boxes, HardDrive, KeyRound, Layers, MapPinned, Server, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -421,14 +421,28 @@ export function InfrastructureWorkspace() {
     setDeviceForm(emptyDeviceForm);
     setModal('device');
   };
-  const openLayout = async (model: DeviceModel | null) => {
+  const openLayout = useCallback(async (model: DeviceModel | null) => {
     if (!model) return;
     const data = await getDeviceModelPortLayout(model.id);
     setLayoutModel(model);
     setLayout(Array.isArray(data.portLayout?.ports) ? data.portLayout : { imageWidth: 1000, imageHeight: 300, ports: [] });
     setLayoutAssetId(model.frontAssetId ?? model.frontAsset?.id ?? '');
     setModal('layout');
-  };
+  }, []);
+  useEffect(() => {
+    const query = new URLSearchParams(location.search);
+    const modelId = query.get('modelId');
+    const model = modelId ? modelsData?.find((item) => item.id === modelId) : undefined;
+    if (!model) return;
+    setTab('models');
+    if (query.get('focus') === 'port-layout') {
+      void openLayout(model);
+      return;
+    }
+    setEditingId(model.id);
+    setModelForm({ manufacturer: model.manufacturer, model: model.model, type: model.type ?? 'OTHER', supportsNetworkPorts: !!model.supportsNetworkPorts, networkPortCount: String(model.networkPortCount ?? ''), frontAssetId: model.frontAssetId ?? model.frontAsset?.id ?? '' });
+    setModal('model');
+  }, [modelsData, openLayout]);
   const detectLayout = async () => {
     if (!layoutModel) return;
     try {
