@@ -202,6 +202,55 @@ test('enforces authentication and persona-level RBAC over HTTP', async () => {
   assert.equal((await request('POST', '/api/v1/ip-addresses', 'qa-auditor', { address: '10.250.1.21', subnetId: ids.subnetA })).statusCode, 403);
 });
 
+test('requires a current planned-change impact preview before review submission', async () => {
+  const start = new Date(Date.now() + 60 * 60 * 1000);
+  const end = new Date(start.getTime() + 60 * 60 * 1000);
+  const payload = {
+    siteId: ids.siteA,
+    title: 'HTTP planned change',
+    reason: 'Validate the change review workflow.',
+    plannedStartAt: start.toISOString(),
+    plannedEndAt: end.toISOString(),
+    items: [{ entityType: 'DEVICE', entityId: ids.deviceA, operationSummary: 'Upgrade firmware', currentValue: { version: '9.3.7' }, proposedValue: { version: '9.4.2' } }],
+  };
+  assert.equal((await request('POST', '/api/v1/change-plans', 'qa-readonly', payload)).statusCode, 403);
+  const created = await request('POST', '/api/v1/change-plans', 'qa-admin', payload);
+  assert.equal(created.statusCode, 201, created.body);
+  const id = json(created).id as string;
+  const withoutPreview = await request('POST', `/api/v1/change-plans/${id}/submit`, 'qa-admin');
+  assert.equal(withoutPreview.statusCode, 409);
+  assert.equal(json(withoutPreview).code, 'CHANGE_PLAN_PREVIEW_REQUIRED');
+
+  const preview = await request('POST', `/api/v1/change-plans/${id}/impact-preview`, 'qa-admin', {});
+  assert.equal(preview.statusCode, 201, preview.body);
+  assert.equal(json(preview).analysisStatus, 'COMPLETE');
+  assert.ok(Array.isArray(json(preview).knownImpacts));
+  assert.ok(json(preview).coverage.reason);
+
+  const edited = await request('PATCH', `/api/v1/change-plans/${id}`, 'qa-admin', { expectedRevision: 1, title: 'HTTP planned change updated' });
+  assert.equal(edited.statusCode, 200, edited.body);
+  assert.equal(json(edited).revision, 2);
+  assert.equal(json(edited).previewRevision, null);
+  const afterEdit = await request('POST', `/api/v1/change-plans/${id}/submit`, 'qa-admin');
+  assert.equal(json(afterEdit).code, 'CHANGE_PLAN_PREVIEW_REQUIRED');
+
+  const refreshedPreview = await request('POST', `/api/v1/change-plans/${id}/impact-preview`, 'qa-admin', {});
+  assert.equal(refreshedPreview.statusCode, 201, refreshedPreview.body);
+  await prisma.device.update({ where: { id: ids.deviceA }, data: { notes: 'Inventory changed after impact preview.' } });
+  const stalePreview = await request('POST', `/api/v1/change-plans/${id}/submit`, 'qa-admin');
+  assert.equal(stalePreview.statusCode, 409);
+  assert.equal(json(stalePreview).code, 'CHANGE_PLAN_PREVIEW_STALE');
+  const finalPreview = await request('POST', `/api/v1/change-plans/${id}/impact-preview`, 'qa-admin', {});
+  assert.equal(finalPreview.statusCode, 201, finalPreview.body);
+
+  const submitted = await request('POST', `/api/v1/change-plans/${id}/submit`, 'qa-admin');
+  assert.equal(submitted.statusCode, 201, submitted.body);
+  assert.equal(json(submitted).status, 'SUBMITTED');
+  const reviewed = await request('POST', `/api/v1/change-plans/${id}/review`, 'qa-admin', { status: 'APPROVED', reviewNote: 'Reviewed.' });
+  assert.equal(reviewed.statusCode, 201, reviewed.body);
+  assert.equal(json(reviewed).status, 'APPROVED');
+});
+
 test('applies scoped visibility, inherited reads, group union, and fail-closed access', async () => {
   const visible = await request('GET', '/api/v1/sites?pageSize=20', 'qa-network-scoped');
   assert.equal(visible.statusCode, 200);
