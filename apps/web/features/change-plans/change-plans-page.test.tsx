@@ -63,6 +63,9 @@ describe('ChangePlansPage impact preview transition', () => {
     expect(await screen.findAllByText('A calcular…')).toHaveLength(2);
     expect(screen.queryByText('Impacto conhecido')).not.toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('A calcular a pré-visualização…');
+    expect(screen.getByText('Pré-visualização').closest('.change-summary-grid')).toHaveTextContent('A calcular…');
+    expect(screen.queryByText(/Pré-visualização atualizada/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Análise concluída')).not.toBeInTheDocument();
 
     await act(async () => { resolvePreview(calculated); await pendingPreview; });
 
@@ -75,22 +78,26 @@ describe('ChangePlansPage impact preview transition', () => {
     expect(detail?.querySelector('.impact-preview .change-summary-grid div strong')).toHaveTextContent('6');
     expect(detail?.querySelectorAll('.impact-group li')).toHaveLength(6);
     expect(detail).toHaveTextContent('Impacto conhecido');
+    expect(screen.getByRole('button', { name: 'Recalcular pré-visualização' })).toBeInTheDocument();
+    expect(screen.queryByText('A calcular…')).not.toBeInTheDocument();
+    expect(screen.queryByText('Por calcular')).not.toBeInTheDocument();
 
     await act(async () => { resolveStaleDetail(plan); await staleDetail; });
     expect(detail).toHaveTextContent(`Calculada ${expectedTimestamp}`);
     expect(detail).toHaveTextContent('Affected device 1');
 
-    // A later refetch can still return an older persisted plan. Do not let the
-    // transition marker alone keep the new success state or impacts on screen.
+    // A same-revision detail refetch may race persistence of the just-saved
+    // preview. Preserve the coherent local snapshot instead of replacing it
+    // with a stale detail payload that has no calculated preview yet.
     mocks.detail = plan;
     fireEvent.click(screen.getByRole('button', { name: 'Atualizar' }));
     await vi.waitFor(() => {
       expect(mocks.getChangePlan).toHaveBeenCalledTimes(3);
-      expect(detail).toHaveTextContent('Por calcular');
+      expect(detail).toHaveTextContent(`Calculada ${expectedTimestamp}`);
     });
-    expect(detail).not.toHaveTextContent(`Calculada ${expectedTimestamp}`);
-    expect(detail?.querySelector('.impact-preview')).toBeNull();
-    expect(screen.queryByText(/Pré-visualização atualizada/)).not.toBeInTheDocument();
+    expect(detail).toHaveTextContent('Análise concluída');
+    expect(detail?.querySelectorAll('.impact-group li')).toHaveLength(6);
+    expect(screen.getByRole('status')).toHaveTextContent('Pré-visualização atualizada');
     expect(screen.getByRole('button', { name: 'Recalcular pré-visualização' })).toBeInTheDocument();
   });
 });
