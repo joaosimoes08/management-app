@@ -1,5 +1,9 @@
 FROM node:22-alpine AS build
+ARG VCS_REF
+LABEL org.opencontainers.image.source="https://github.com/joaosimoes08/management-app" \
+      org.opencontainers.image.revision=$VCS_REF
 WORKDIR /app
+RUN test -n "$VCS_REF"
 
 ARG NEXT_PUBLIC_API_URL=http://localhost:3001
 ARG NEXT_PUBLIC_KEYCLOAK_URL=http://localhost:8080

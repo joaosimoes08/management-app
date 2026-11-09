@@ -1,4 +1,6 @@
-# Arranque, utilização e paragem
+# Desenvolvimento local: arranque, utilização e paragem
+
+Este guia é para executar a API e o frontend a partir do código-fonte. Para uma instalação apenas com Docker e imagens publicadas, segue o [guia de deploy no README](../README.md#deploy-com-docker-compose). Aqui o Compose inicia apenas as dependências locais PostgreSQL, Redis e Keycloak; a API e o frontend são iniciados pelos comandos npm abaixo.
 
 ## Pré-requisitos
 
@@ -8,10 +10,10 @@
 
 ## Primeira instalação
 
-Na raiz do projeto, copiar `.env.example` para `.env` e definir as passwords locais. A `DATABASE_URL` deve usar a mesma password de `POSTGRES_PASSWORD`.
+Na raiz do projeto, copiar `.env.example` para `.env` e definir as passwords locais. A `DATABASE_URL` deve usar a mesma password de `POSTGRES_PASSWORD`. Para a API executada no host, definir também `OIDC_BACKCHANNEL_URL=http://localhost:8080/realms/COCiber` em `.env`.
 
 ```powershell
-docker compose up -d
+docker compose up -d postgres redis keycloak-db keycloak
 npm install
 npm run db:generate
 npm run db:migrate:dev

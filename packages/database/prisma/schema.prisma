@@ -115,6 +115,21 @@ enum SnmpDriftStatus {
   IGNORED
 }
 
+enum TopologyProposalAction {
+  ADD
+  UPDATE
+  CONNECTION_ADD
+  CONNECTION_UPDATE
+  REMOVAL_CANDIDATE
+}
+
+enum TopologyProposalStatus {
+  PENDING
+  APPLIED
+  REJECTED
+  UNDONE
+}
+
 enum SnmpWriteOperation {
   INTERFACE_ADMIN_STATUS
   SYSTEM_IDENTITY
@@ -423,6 +438,8 @@ model Device {
   snmpSnapshots     SnmpSnapshot[]
   snmpTraps         SnmpTrapEvent[]
   snmpDrifts        SnmpDrift[]
+  topologyProposals TopologyProposal[]
+  lldpObservations  LldpObservation[]
   snmpWriteRequests SnmpWriteRequest[]
   topologyNodes     TopologyMapNode[]
   sourceConnections DeviceConnection[] @relation("ConnectionSourceDevice")
@@ -518,6 +535,7 @@ model DeviceInterface {
   ipAddresses       IpAddress[]
   snmpObservations  SnmpInterfaceObservation[]
   snmpDrifts        SnmpDrift[]
+  topologyProposals TopologyProposal[]
   sourceConnections DeviceConnection[]         @relation("ConnectionSourceInterface")
   targetConnections DeviceConnection[]         @relation("ConnectionTargetInterface")
 
@@ -682,6 +700,7 @@ model DeviceConnection {
   targetInterface   DeviceInterface?        @relation("ConnectionTargetInterface", fields: [targetInterfaceId], references: [id], onDelete: SetNull)
   createdBy         User?                   @relation("DeviceConnectionCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   maps              TopologyMapConnection[]
+  topologyProposals TopologyProposal[]
 
   @@index([siteId, type])
   @@index([sourceDeviceId])
@@ -893,6 +912,8 @@ model SnmpSnapshot {
   job         SnmpJob                    @relation(fields: [jobId], references: [id], onDelete: Cascade)
   interfaces  SnmpInterfaceObservation[]
   drifts      SnmpDrift[]
+  proposals   TopologyProposal[]
+  lldpObservations LldpObservation[]
 
   @@index([deviceId, observedAt])
 }
@@ -970,6 +991,64 @@ model SnmpDrift {
 
   @@index([deviceId, status, createdAt])
   @@index([interfaceId, status])
+}
+
+model TopologyProposal {
+  id              String                 @id @default(uuid()) @db.Uuid
+  deviceId        String?                @db.Uuid
+  snapshotId      String?                @db.Uuid
+  interfaceId     String?                @db.Uuid
+  connectionId    String?                @db.Uuid
+  action          TopologyProposalAction
+  status          TopologyProposalStatus @default(PENDING)
+  proposalKey     String
+  observedIfIndex Int?
+  confidence      Int
+  source          SourceType             @default(SNMP)
+  context         Json?
+  beforeValues    Json?
+  observedValues  Json?
+  appliedEntityId String?                @db.Uuid
+  reviewedBy      String?                @db.Uuid
+  reviewedAt      DateTime?
+  appliedAt       DateTime?
+  undoneAt        DateTime?
+  device          Device?                @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  snapshot        SnmpSnapshot?          @relation(fields: [snapshotId], references: [id], onDelete: SetNull)
+  interface       DeviceInterface?       @relation(fields: [interfaceId], references: [id], onDelete: SetNull)
+  connection      DeviceConnection?      @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  createdAt       DateTime               @default(now())
+
+  @@unique([snapshotId, proposalKey])
+  @@index([deviceId, status, createdAt])
+}
+
+model LldpObservation {
+  id                 String   @id @default(uuid()) @db.Uuid
+  deviceId           String   @db.Uuid
+  snapshotId         String?  @db.Uuid
+  source             SourceType @default(SNMP)
+  observedAt         DateTime @default(now())
+  confidence         Int
+  localPortNumber    Int?
+  localPortId        String?
+  localPortDescription String?
+  remoteChassisIdSubtype Int?
+  remoteChassisId    String?
+  remotePortIdSubtype Int?
+  remotePortId       String?
+  remotePortDescription String?
+  remoteSystemName   String?
+  managementAddress  String?
+  vlanId             Int?
+  bridgePort         Int?
+  rawIdentifiers     Json
+  resolvedDeviceId   String?  @db.Uuid
+  device             Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  snapshot           SnmpSnapshot? @relation(fields: [snapshotId], references: [id], onDelete: SetNull)
+
+  @@index([deviceId, observedAt])
+  @@index([resolvedDeviceId, observedAt])
 }
 
 model SnmpWriteRequest {

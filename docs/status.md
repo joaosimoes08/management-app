@@ -79,20 +79,18 @@
 
 ## Roadmap atual
 
-O detalhe histórico desta página não é uma lista de trabalho por fazer. O roadmap de referência está em [`context.md`](../context.md), secções 20.6 e 21. A branch `joao/feature/operational-dashboard-topology` contém a implementação commitada, publicada no PR #10 e ainda não integrada.
+O detalhe histórico desta página não é uma lista de trabalho por fazer. O roadmap de referência está em [`context.md`](../context.md), secções 20.6 e 21. O incremento operacional foi integrado em 27 de outubro de 2026 (merge commit `751394913886a44376f7c4b1cbacf2ada4d292e5`).
 
-| Ordem | Trabalho e estado | Dependência / motivo |
+Não há uma próxima funcionalidade formalmente aprovada ou calendarizada; a lista abaixo é a proposta priorizada, não um compromisso de prazo.
+
+| Ordem | Próxima capacidade proposta | Owner proposto, dependências e critério de aceitação |
 |---|---|---|
-| 1 | ✅ Corrigir os três bloqueios P2: perda de atualizações SSE entre instâncias após falha de Redis Pub/Sub; incremento das revisões dos mapas ao atualizar uma ligação isolada; contagens corretas de qualidade quando uma entidade tem vários findings. | Correções commitadas na branch e ainda não integradas. |
-| 2 | ✅ Validar automaticamente as correções e o incremento. | API: 74 testes passaram; web: 5 ficheiros/13 testes passaram; typecheck passou; lint sem erros e com 21 avisos preexistentes; build API, verificação i18n e build integral do monorepo passaram. |
-| 3 | ⬜ Concluir browser/manual acceptance do centro operacional, dashboard, mapas e qualidade do inventário. | Continua por verificar; o Safari não disponibiliza um endpoint de runtime anexável para esta sessão. |
-| 4 | ✅ Abrir o PR #10 para revisão da equipa. | O diff e as verificações automatizadas passaram; a aceitação manual continua pendente antes de merge/piloto. A branch ainda não está integrada em `main`. |
-| 5 | ⬜ Validar SNMP em laboratório com equipamento real. | Gate de laboratório independente, ainda não verificado; necessário antes de confiar em perfis e relações observadas. |
-| 6 | Desenvolver LLDP/BRIDGE-MIB/Q-BRIDGE-MIB, MAC/VLAN e reconciliação com aprovação. | Depende da validação SNMP; observações têm de conservar fonte, confiança, timestamp e auditoria. |
-| 7 | ✅ Pesquisa global por Host/Service/interface/MAC na branch `joao/feature/global-asset-search`; PR #12 aberto. Inclui resultados scoped e links para as fichas. | Revisão pendente. Pesquisa de racks, eventos/alertas, regras/notificações e integrações contextuais dependem de evidência do piloto. |
-| 8 | Considerar LDAP/LDAPS, agentes, NetApp e hardening de produção. | Horizonte posterior, sujeito a requisitos de segurança, credenciais e necessidade operacional. |
+| 1 | SNMPv3 read-only com gestão segura de credenciais e sincronização de interfaces. | Adrian/Rashid; Carlos para regressão. Requer equipamento, credenciais protegidas e matriz de MIBs. Aceitar por recolha reproduzível, tratamento seguro de falhas e observações separadas dos dados manuais. |
+| 2 | Topologia observada e reconciliação controlada (LLDP, bridge/Q-bridge, MAC/VLAN). | Depende da validação da fase 1. Adrian/Rashid API; John UI; Carlos QA. Aceitar por navegação IP/MAC→interface com origem/confiança/tempo, aprovação auditada e sem sobrescrita silenciosa. |
+| 3 | Fechar lacunas dos percursos Host/Service, pesquisa global, mapas guardados e edição IPAM. | Sandra confirma lacunas do piloto; John UI; Adrian API; Carlos RBAC. Aceitar por tarefas acordadas concluídas sem perder contexto e com scopes corretos. |
+| 4 | Regras de alertas, janelas de manutenção e notificações de baixo ruído. | Sandra define requisitos com operadores; engenharia implementa depois do piloto. Aceitar com deduplicação, âmbito, ação, auditoria e limites de ruído; complementar Zabbix. |
 
-Gates ainda por verificar antes de merge/piloto: browser/manual acceptance, recuperação com Redis multi-instância ativo e edições concorrentes reais na base de dados. A validação SNMP física é necessária antes de confiar em perfis de fabricante ou enriquecer a topologia observada. IPv6 é suportado no IPAM e nas operações CIDR; enumeração/scanning de prefixos IPv6 continua deliberadamente fora do Discovery ativo.
+Horizonte posterior: agentes Linux/Windows, NetApp, LDAP/LDAPS, integrações Zabbix/Ansible/BookStack/Zammad, cablagem/patch panels e hardening de produção; opções separadas sujeitas a discovery e priorização. A aceitação manual do centro operacional e o laboratório SNMP são gates de readiness, não novas funcionalidades; browser/UI, Redis multi-instância, edições concorrentes e equipamento SNMP real continuam por validar. A equipa consegue entregar o roadmap, mas não há estimativas/datas comprometidas até sizing e confirmação de ambientes. IPv6 é suportado no IPAM; scanning ativo não enumera prefixos IPv6.
 
 ## Registo histórico — menus e infraestrutura
 

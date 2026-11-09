@@ -5,10 +5,16 @@ import { AuthenticatedUser } from '../auth/auth.service';
 import { Roles } from '../auth/roles.decorator';
 import { AcceptSnmpEnrollmentDto, CreateSnmpCredentialDto, CreateSnmpTrapEnrollmentDto, CreateSnmpWritePreviewDto, ReviewSnmpDriftDto, SnmpOnboardingDeviceDto, UpsertSnmpConfigDto } from './dto';
 import { SnmpService } from './snmp.service';
+import { TopologyReconciliationService } from './topology-reconciliation.service';
 
 @ApiTags('snmp') @ApiBearerAuth() @Controller({ path: 'snmp', version: '1' })
 export class SnmpController {
-  constructor(private readonly service: SnmpService) {}
+  constructor(private readonly service: SnmpService, private readonly reconciliation: TopologyReconciliationService) {}
+  @Get('devices/:deviceId/topology-proposals') @Roles('ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY') proposals(@Param('deviceId') deviceId: string, @Req() req: { user: AuthenticatedUser }) { return this.reconciliation.list(deviceId, req.user); }
+  @Get('devices/:deviceId/lldp-observations') @Roles('ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY') lldpObservations(@Param('deviceId') deviceId: string, @Req() req: { user: AuthenticatedUser }) { return this.reconciliation.observations(deviceId, req.user); }
+  @Post('topology-proposals/:id/apply') @Roles('ADMIN', 'NETWORK_OPERATOR') applyProposal(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.reconciliation.apply(id, req.user); }
+  @Post('topology-proposals/:id/reject') @Roles('ADMIN', 'NETWORK_OPERATOR') rejectProposal(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.reconciliation.reject(id, req.user); }
+  @Post('topology-proposals/:id/undo') @Roles('ADMIN', 'NETWORK_OPERATOR') undoProposal(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.reconciliation.undo(id, req.user); }
   @Get('traps/unmatched') @Roles('ADMIN') unmatchedTraps() { return this.service.unmatchedTraps(); }
   @Get('devices/:deviceId') @Roles('ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY') overview(@Param('deviceId') deviceId: string, @Req() req: { user: AuthenticatedUser }) { return this.service.overview(deviceId, req.user); }
   @Get('devices/:deviceId/metrics') @Roles('ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY') metrics(@Param('deviceId') deviceId: string, @Query('interfaceIndex') interfaceIndex: string | undefined, @Query('days') days: string | undefined, @Req() req: { user: AuthenticatedUser }) { return this.service.metrics(deviceId, req.user, interfaceIndex === undefined ? undefined : Number(interfaceIndex), days === undefined ? 7 : Number(days)); }

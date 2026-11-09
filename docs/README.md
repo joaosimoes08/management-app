@@ -10,6 +10,7 @@ Esta pasta documenta a fundação atual da plataforma SIMOES Management App.
 - [Arranque e paragem](setup.md)
 - [Autenticação e autorização](security.md)
 - [API e endpoints](api.md)
+- [Revisão de interfaces observadas por SNMP](snmp-interface-review.md)
 - [Decisões técnicas](decisions.md)
 - [Troubleshooting](troubleshooting.md)
 

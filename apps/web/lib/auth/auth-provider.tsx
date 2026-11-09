@@ -3,6 +3,7 @@
 import type { KeycloakProfile } from 'keycloak-js';
 import { createContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { setApiTokenProvider, setApiUnauthorizedHandler } from '@/lib/api/client';
+import { getPublicRuntimeConfig } from '@/lib/runtime-config';
 import { keycloak, initializeKeycloak } from './keycloak';
 import type { ApiUser, AuthContextValue } from './types';
 
@@ -19,7 +20,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const tokenRefreshPromise = useRef<Promise<string> | null>(null);
 
   const loadIdentity = useCallback(async (accessToken: string) => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+    const apiUrl = getPublicRuntimeConfig().apiUrl;
     const response = await fetch(`${apiUrl}/api/v1/auth/me`, {
       headers: { Authorization: `Bearer ${accessToken}` },
       cache: 'no-store',

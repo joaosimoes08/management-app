@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Script from 'next/script';
 import './globals.css';
 import { AuthProvider } from '@/lib/auth';
 import { AuthGate } from '@/components/layout/auth-gate';
@@ -15,7 +16,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="pt-PT">
-      <body><AuthProvider><I18nProvider><ToastProvider><AuthGate><QueryProvider><SiteProvider>{children}</SiteProvider></QueryProvider></AuthGate></ToastProvider></I18nProvider></AuthProvider></body>
+      <body><Script src="/runtime-config.js" strategy="beforeInteractive" /><AuthProvider><I18nProvider><ToastProvider><AuthGate><QueryProvider><SiteProvider>{children}</SiteProvider></QueryProvider></AuthGate></ToastProvider></I18nProvider></AuthProvider></body>
     </html>
   );
 }

@@ -1,10 +1,11 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/lib/auth';
+import { getPublicRuntimeConfig } from '@/lib/runtime-config';
 import { parseSseChunk, pubSubAvailability, type OperationEvent } from './sse';
 
 type Options<T> = { url?: string; fallback?: (signal?: AbortSignal) => Promise<T>; onEvent?: (event: OperationEvent) => void; intervalMs?: number };
-const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+const apiUrl = getPublicRuntimeConfig().apiUrl;
 
 export function useOperationalEvents<T>({ url = '/api/v1/operations/events', fallback, onEvent, intervalMs = 30_000 }: Options<T>) {
   const { token } = useAuth();
