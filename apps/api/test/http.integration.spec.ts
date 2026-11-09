@@ -236,7 +236,7 @@ test('enforces SNMP roles, Site isolation and disabled SET over HTTP', async () 
   });
   assert.equal(preview.statusCode, 201);
   assert.equal((await request('POST', `/api/v1/snmp/devices/${ids.deviceA}/write-requests/preview`, 'qa-network-scoped', { operation: 'SYSTEM_IDENTITY', parameters: { sysName: 'denied' } })).statusCode, 403);
-  assert.equal((await request('POST', `/api/v1/snmp/write-requests/${json(preview).id}/execute`, 'qa-admin')).statusCode, 403);
+  assert.equal((await request('POST', `/api/v1/snmp/write-requests/${json(preview).id}/execute`, 'qa-admin', { impactAcknowledged: true })).statusCode, 403);
   assert.equal((await request('GET', '/api/v1/snmp/traps/unmatched', 'qa-admin')).statusCode, 200);
   assert.equal((await request('GET', '/api/v1/snmp/traps/unmatched', 'qa-auditor')).statusCode, 403);
 
