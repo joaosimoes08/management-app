@@ -211,6 +211,7 @@ const enUS: LegacyDictionary = {
   'Não foi possível pesquisar equipamentos.': 'Could not search equipment.',
   'Não foi possível pré-visualizar a posição do equipamento.': 'Could not preview the equipment placement.',
   'Não foi possível remover a aplicação.': 'Could not remove the application.',
+  'Não foi possível libertar a reserva': 'Could not release the reservation',
   'Não foi possível rever o resultado.': 'Could not review the result.',
   'Não foi possível atualizar a localização do equipamento.': 'Could not update the equipment location.',
   'Não foi possível atualizar os equipamentos selecionados.': 'Could not update the selected equipment.',
