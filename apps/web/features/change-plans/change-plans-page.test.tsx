@@ -32,7 +32,7 @@ describe('ChangePlansPage impact preview transition', () => {
     };
     const generatedAt = '2026-11-09T15:00:00.000Z';
     const calculated: ImpactPreview = {
-      analysisStatus: 'COMPLETE', revision: 1, generatedAt, knownImpacts: [{ entityType: 'DEVICE', entityId: 'device-2', label: 'Affected device', href: '/infraestrutura', depth: 1, dependencyPath: ['Connection'], freshness: 'CURRENT', confidence: 'RECORDED' }],
+      analysisStatus: 'COMPLETE', revision: 1, generatedAt, knownImpacts: Array.from({ length: 7 }, (_, index) => ({ entityType: 'DEVICE' as const, entityId: `device-${index + 2}`, label: `Affected device ${index + 1}`, href: '/infraestrutura', depth: 1, dependencyPath: ['Connection'], freshness: 'CURRENT' as const, confidence: 'RECORDED' as const })),
       maintenanceOverlaps: [], changeOverlaps: [], coverage: { status: 'COMPLETE', reason: 'Complete', latestInventoryUpdate: null, staleItems: 0, unknownFreshnessItems: 0 }, graphSignature: 'signature',
     };
     mocks.detail = plan;
@@ -62,18 +62,21 @@ describe('ChangePlansPage impact preview transition', () => {
 
     expect(await screen.findAllByText('A calcular…')).toHaveLength(2);
     expect(screen.queryByText('Impacto conhecido')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('A calcular a pré-visualização…');
 
     await act(async () => { resolvePreview(calculated); await pendingPreview; });
 
     const success = await screen.findByRole('status');
     expect(success).toHaveTextContent('Pré-visualização atualizada');
     const detail = screen.getByText('Pré-visualização').closest('.change-detail');
-    expect(detail).toHaveTextContent(/Calculada /);
-    expect(detail).toHaveTextContent('Affected device');
+    const expectedTimestamp = new Date(generatedAt).toLocaleString('pt-PT', { dateStyle: 'medium', timeStyle: 'short' });
+    expect(detail).toHaveTextContent(`Calculada ${expectedTimestamp}`);
+    expect(detail?.querySelector('.impact-preview .change-summary-grid div strong')).toHaveTextContent('7');
+    expect(detail?.querySelectorAll('.impact-group li')).toHaveLength(7);
     expect(detail).toHaveTextContent('Impacto conhecido');
 
     await act(async () => { resolveStaleDetail(plan); await staleDetail; });
-    expect(detail).toHaveTextContent(/Calculada /);
-    expect(detail).toHaveTextContent('Affected device');
+    expect(detail).toHaveTextContent(`Calculada ${expectedTimestamp}`);
+    expect(detail).toHaveTextContent('Affected device 1');
   });
 });
