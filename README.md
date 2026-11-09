@@ -18,10 +18,10 @@ Obtenha os ficheiros `docker-compose.yml`, `.env.example` e a pasta `deploy/` de
 
 ```sh
 cp .env.example .env
-node deploy/generate-snmp-keyring.mjs
+node deploy/generate-snmp-keyring.mjs ./secrets/snmp-keyring.json
 ```
 
-O Compose descarrega as imagens publicadas em Docker Hub: `joaosimoes08/mgmt-app-api`, `joaosimoes08/mgmt-app-web` e `joaosimoes08/mgmt-app-snmp`. A tag publicada para esta beta é `beta-joao-feature-operational-dashboard-topology`. `DOCKERHUB_NAMESPACE` seleciona a conta/organização e `APP_IMAGE_TAG` seleciona a mesma versão para os três serviços; ambos podem ser alterados em `.env` para usar outra publicação compatível. A instalação não precisa do código-fonte nem compila imagens localmente.
+O Compose descarrega as imagens publicadas em Docker Hub: `joaosimoes08/mgmt-app-api`, `joaosimoes08/mgmt-app-web` e `joaosimoes08/mgmt-app-snmp`. Esta publicação usa a tag `release-2026-11-09` nos três serviços. `DOCKERHUB_NAMESPACE` seleciona a conta/organização e `APP_IMAGE_TAG` seleciona a mesma versão; ambos podem ser alterados em `.env` para usar outra publicação compatível. A instalação não precisa do código-fonte nem compila imagens localmente. As imagens registam a revisão exata do Git no label OCI `org.opencontainers.image.revision`.
 
 Edite `.env` e substitua as palavras-passe de exemplo por valores privados e fortes, em especial `POSTGRES_PASSWORD`, `KEYCLOAK_DB_PASSWORD` e `KEYCLOAK_ADMIN_PASSWORD`. Atualize também o segredo do cliente `simoes-settings-admin` em `KEYCLOAK_ADMIN_CLIENT_SECRET` e no campo `secret` correspondente em `deploy/realm-cociber.json`; os dois valores têm de coincidir. O cofre SNMP é criado localmente em `secrets/snmp-keyring.json` e não deve ser partilhado nem publicado.
 

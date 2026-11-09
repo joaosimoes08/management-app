@@ -12,6 +12,7 @@ import { AssetImage } from '@/features/infrastructure/components/asset-image';
 import { EquipmentTypeIcon } from '@/features/infrastructure/components/equipment-type-icon';
 import type { DeviceInterface } from '@/features/infrastructure/types';
 import { useSiteContext } from '@/lib/site-context';
+import { ObservedTopology } from './observed-topology';
 import { createTopologyConnection, createTopologyMap, deleteTopologyConnection, deleteTopologyMap, getTopologyConnectionPortAvailability, getTopologyMap, listTopologyMaps, replaceTopologyNodes, updateTopologyConnection } from './api';
 import { loadAllTopologyAlerts, summarizeTopologyDeviceAlerts, topologyDeviceImage, topologySeverityColor, type TopologyNodeAlertSummary } from './alerts';
 import { availableInterfaces, retainAvailableInterfaceId } from './port-availability';
@@ -89,6 +90,7 @@ export function TopologyPage() {
   const { siteId, activeSite } = useSiteContext();
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState('');
+  const [workspace, setWorkspace] = useState<'manual' | 'observed'>('manual');
   const [search, setSearch] = useState('');
   const [labelsVisible, setLabelsVisible] = useState(true);
   const [showGrid, setShowGrid] = useState(true);
@@ -289,6 +291,8 @@ export function TopologyPage() {
 
   return <AppShell section="Topologia" context={['Infraestrutura']} actions={topbarActions}>
     <main className="topology-page">
+      <nav className="infra-menu" aria-label="Visualização de topologia"><button className={workspace === 'manual' ? 'active' : ''} aria-pressed={workspace === 'manual'} onClick={() => setWorkspace('manual')}>Mapas manuais</button><button className={workspace === 'observed' ? 'active' : ''} aria-pressed={workspace === 'observed'} onClick={() => setWorkspace('observed')}>Observada e reconciliação</button></nav>
+      {workspace === 'observed' ? <ObservedTopology /> : <>
         <section className={`topology-canvas panel${fullscreen ? ' topology-canvas--fullscreen' : ''}${labelsVisible ? '' : ' topology-canvas--auto-labels'}`} aria-label="Área do mapa de topologia">
           {current && <div className={`topology-map-toolbar${toolbarExpanded ? ' topology-map-toolbar--expanded' : ' topology-map-toolbar--collapsed'}`}>
             <div><strong>{current.name}</strong><span>Âmbito: {activeSite?.name ?? 'nenhum Site selecionado'} · {current.nodes.length} equipamentos · {current.connections.length} ligações · {operationalAlerts.isLoading ? 'A carregar problemas…' : operationalAlerts.isError ? 'Problemas indisponíveis' : `${mapProblemCount} problemas ativos`}</span>{operationalAlerts.isError && <span role="status">Estado dos alertas indisponível</span>}</div>
@@ -310,6 +314,7 @@ export function TopologyPage() {
           <ReactFlow nodes={nodes} edges={edges} nodeTypes={topologyNodeTypes} edgeTypes={topologyEdgeTypes} onInit={setFlow} onNodesChange={handleNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_event, node) => { const mapNode = current?.nodes.find((item) => item.id === node.id); openDeviceInterfaces(mapNode?.device); }} onEdgeClick={(_event, edge) => { setSelectedEdgeId(edge.id); setSelectedConnectionTab('source'); }} fitView><>{showGrid && <Background />}<MiniMap /><Controls /></></ReactFlow>
           {!selected && !maps.isLoading && <div className="topology-canvas-empty"><strong>Seleciona ou cria um mapa</strong><span>O teu mapa de topologia aparece aqui.</span></div>}
         </section>
+      </>}
     </main>
   </AppShell>;
 }

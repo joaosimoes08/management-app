@@ -1,5 +1,9 @@
 FROM node:22-alpine
 
+ARG VCS_REF
+LABEL org.opencontainers.image.source="https://github.com/joaosimoes08/management-app" \
+      org.opencontainers.image.revision=$VCS_REF
+
 WORKDIR /app
 ENV NODE_ENV=production
 
@@ -10,6 +14,8 @@ COPY apps/web/package.json ./apps/web/package.json
 COPY packages/database/package.json ./packages/database/package.json
 COPY packages/snmp-core/package.json ./packages/snmp-core/package.json
 RUN npm ci --include=dev
+
+RUN test -n "$VCS_REF"
 
 COPY . .
 RUN npx prisma generate --schema=packages/database/prisma/schema.prisma \

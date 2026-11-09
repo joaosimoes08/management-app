@@ -73,7 +73,7 @@ services:
       - ./deploy/realm-cociber.json:/opt/keycloak/data/import/realm-cociber.json:ro
 
   api:
-    image: ${DOCKERHUB_NAMESPACE:-joaosimoes08}/mgmt-app-api:${APP_IMAGE_TAG:-beta-joao-feature-operational-dashboard-topology}
+    image: ${DOCKERHUB_NAMESPACE:-joaosimoes08}/mgmt-app-api:${APP_IMAGE_TAG:-release-2026-11-09}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -113,7 +113,7 @@ services:
       start_period: 45s
 
   web:
-    image: ${DOCKERHUB_NAMESPACE:-joaosimoes08}/mgmt-app-web:${APP_IMAGE_TAG:-beta-joao-feature-operational-dashboard-topology}
+    image: ${DOCKERHUB_NAMESPACE:-joaosimoes08}/mgmt-app-web:${APP_IMAGE_TAG:-release-2026-11-09}
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
       NEXT_PUBLIC_KEYCLOAK_URL: ${NEXT_PUBLIC_KEYCLOAK_URL:-http://localhost:8080}
@@ -138,7 +138,7 @@ services:
       start_period: 30s
 
   snmp:
-    image: ${DOCKERHUB_NAMESPACE:-joaosimoes08}/mgmt-app-snmp:${APP_IMAGE_TAG:-beta-joao-feature-operational-dashboard-topology}
+    image: ${DOCKERHUB_NAMESPACE:-joaosimoes08}/mgmt-app-snmp:${APP_IMAGE_TAG:-release-2026-11-09}
     restart: unless-stopped
     depends_on:
       postgres:

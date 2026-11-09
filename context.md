@@ -917,22 +917,22 @@ Os itens abaixo registam o âmbito planeado em 19 de outubro. A secção 21 desc
 - Mapas 3D, animações decorativas ou personalização avançada antes de validar o mapa 2D operacional.
 - Alertas sem ação associada ou notificações externas sem deduplicação e controlo de ruído.
 
-### 20.6 Prioridades restantes e dependências
+### 20.6 Roadmap de funcionalidades recomendado
 
-1. **✅ Corrigir os três bloqueios P2 confirmados na revisão de QA/diff.** (a) A falha Redis Pub/Sub já encerra o stream SSE afetado e permite o fallback de polling. (b) A atualização isolada de uma ligação incrementa agora as revisões dos mapas associados. (c) O resumo calcula entidades inválidas pelos dispositivos distintos com findings, sem sobrecontagem por entidade. As três correções estão no commit da branch referido na secção 21.
-2. **✅ Executar e registar as verificações automatizadas.** API: 74 testes passaram; web: 5 ficheiros e 13 testes passaram; typecheck passou; lint terminou sem erros, com 21 avisos preexistentes. Build da API, verificação i18n e build integral do monorepo passaram. As verificações direcionadas cobrem os três casos P2. Estes resultados foram reportados para esta atualização documental; não foram reexecutados aqui.
-3. **⬜ Concluir browser/manual acceptance do incremento (secção 21.3).** Verificar alertas e reconhecimento, fallback sem Redis, dashboards por workspace/role, mapas e resolução de findings. Continua pendente; o Safari não disponibiliza um endpoint de runtime anexável nesta sessão. Os testes automatizados não substituem estes fluxos manuais.
-4. **✅ Rever o diff e abrir o PR #10 para revisão da equipa.** O PR está aberto e pronto para revisão; a aceitação manual permanece pendente antes de merge/piloto. A branch ainda não está integrada em `main`.
-5. **Validar SNMP em laboratório com equipamento real.** Gate independente do centro operacional; pré-requisito para confiar em perfis e relações observadas por fabricante.
-6. **Só depois da validação SNMP enriquecer topologia observada e reconciliação.** Implementar LLDP/BRIDGE-MIB/Q-BRIDGE-MIB, tabelas MAC/VLAN e aprovação de diferenças com fonte, confiança, timestamp e auditoria. Não converter observações em dados oficiais sem política ou aprovação.
-7. **Completar percursos operacionais com evidência do piloto.** A pesquisa global por Host/Service/interface/MAC foi implementada na secção 22. Regras/notificações, racks, eventos/alertas e integrações contextuais continuam por priorizar com operadores; não são assumidos como aprovados.
-8. **Manter agentes, LDAP/LDAPS, NetApp, integrações Zabbix/Ansible/BookStack/Zammad e hardening de produção no horizonte posterior.** Validar necessidade e requisitos de credenciais/segurança antes de iniciar cada integração.
+O incremento do centro operacional foi integrado no PR #10. **Não há uma próxima funcionalidade formalmente aprovada ou calendarizada**; a sequência abaixo é a recomendação de produto baseada nas secções 17.4, 20.3 e 20.4. Confirmar âmbito e sizing depois de discovery com operadores e de validar o acesso ao laboratório.
 
-As correções P2, verificações automatizadas e revisão final do diff estão concluídas; o PR #10 está aberto e pronto para revisão enquanto a aceitação manual permanece pendente. Browser/manual acceptance, recuperação real com Redis multi-instância e edições concorrentes reais na base de dados continuam por verificar antes de merge/piloto. A validação SNMP é um gate independente e tem de ocorrer antes de confiar em perfis observados ou enriquecer a topologia observada. O que depende do resultado do piloto permanece uma recomendação, não um compromisso de prazo.
+1. **Próximo candidato — sincronização SNMPv3 read-only segura.** Adrian/Rashid: perfis e armazenamento cifrado de credenciais, separação de permissões read/write, rotação, teste de conectividade e auditoria sem expor secrets; depois recolher identidade, uptime e estado/velocidade/contadores de interfaces. Carlos define regressão com a equipa. Depende de credenciais protegidas e equipamento/matriz de MIBs do piloto. Aceitar quando a recolha for repetível em cada modelo piloto, tratar falhas/timeouts com segurança e guardar observações separadas dos dados manuais, sem sobrescrita automática. SNMP SET/configuração remota fica fora do âmbito.
+2. **Seguinte — topologia observada e reconciliação controlada.** Adrian/Rashid: LLDP, BRIDGE-MIB/Q-BRIDGE-MIB e tabelas MAC/VLAN; John: fluxo de revisão; Carlos: cobertura de regressão. Depende do êxito da fase 1 em laboratório. Aceitar quando a pesquisa por IP/MAC chega à interface física com fonte, timestamp e confiança visíveis; o operador pode aceitar/rejeitar/adiar diferenças individualmente e em lote; nenhuma observação altera dados oficiais sem aprovação e toda decisão é auditada.
+3. **Depois — completar os percursos operacionais IPAM/ativo/mapa com base no piloto.** Sandra prioriza lacunas observadas; John lidera interface e Adrian API; Carlos verifica permissões. Candidatos existentes: ficha consultável/editável de Host/Service, pesquisa global por Host/Service/interface/MAC, layouts de mapa guardados por Site/sala/serviço e drawers de edição/check do IPAM. Aceitar quando operadores completam tarefas acordadas (por exemplo, IP/MAC → ativo → interface/VLAN → subnet/Host/Service) sem perder contexto, com scopes respeitados. Confirmar quais destas lacunas ainda existem antes de estimar.
+4. **Depois do piloto — regras de alertas, janelas de manutenção e notificações.** Sandra conduz requisitos com operadores; Adrian implementa API/integrações e John os fluxos; Carlos valida. Aceitar cada regra com origem, Site/entidade, deduplicação, janela de manutenção, ação explícita, auditoria e teste de ruído; começar por canais internos/webhook ou Zammad/Rocket.Chat se validados. A plataforma complementa, não substitui, Zabbix.
+
+**Horizonte posterior / opções, sem compromisso de entrega:** agente Linux seguido de Windows (outbound TLS, identidade/OS/recursos primeiro); integração NetApp pela API oficial; federação LDAP/LDAPS e grupos→roles; integrações contextuais com Zabbix, Ansible, BookStack e Zammad; cablagem/patch panels/vista traseira; hardening, backups/restauro e testes de carga. Cada opção requer discovery de segurança, operação, credenciais e valor antes de entrar em desenvolvimento.
+
+**Readiness separada das funcionalidades:** a aceitação manual do incremento integrado continua aberta, incluindo browser/UI, recuperação Redis multi-instância, dois utilizadores a editarem o mesmo mapa e ciclo de finding. Esta sessão não conseguiu automatizar o Safari por falta de runtime anexável. Isto não altera a ordem do roadmap de produto, mas é pré-requisito para declarar o centro operacional pronto para piloto. O laboratório SNMP também está por executar; depende de equipamento, credenciais e conectividade da operação. A equipa consegue entregar os candidatos, mas não há datas/estimativas comprometidas até sizing e disponibilidade dos ambientes.
 
 ## 21. Incremento centro operacional e topologia — 19 de outubro de 2026
 
-Estado: implementação commitada na branch `joao/feature/operational-dashboard-topology` e publicada no PR #10, aberto para revisão. Correções P2, verificações automatizadas e revisão final do diff concluídas; browser/manual acceptance permanece pendente antes de merge/piloto.
+Estado: implementado e integrado pelo PR #10 em 27 de outubro de 2026 (merge commit `751394913886a44376f7c4b1cbacf2ada4d292e5`). Correções P2 e verificações automatizadas concluídas; aceitação manual pós-merge e laboratório SNMP continuam pendentes.
 
 ### 21.1 Implementado
 
@@ -960,14 +960,4 @@ O registo original acima descreve verificações executadas durante o incremento
 - Criar mapas dos três tipos, arrastar equipamentos, recarregar posições, editar/remover ligações e verificar edições concorrentes reais na base de dados; permanece por verificar.
 - Corrigir um problema de inventário e confirmar auto-resolução do finding e do alerta associado.
 
-As correções P2, checks automatizados e revisão final do diff estão concluídos, mas não substituem os fluxos manuais ainda por verificar. O PR #10 está aberto e pronto para revisão; browser/manual acceptance, recuperação real com Redis multi-instância e edições concorrentes reais na base de dados continuam gates antes de merge/piloto. A validação física de SNMP com equipamento real também não foi feita e continua independente; é necessária antes de confiar em perfis observados ou enriquecer a topologia observada. LLDP/BRIDGE-MIB/Q-BRIDGE-MIB, inferência automática de ligações e escrita SNMP continuam fora deste incremento.
-
-## 22. Pesquisa global de ativos — 30 de outubro de 2026
-
-Estado: implementada na branch `joao/feature/global-asset-search`; PR #12 aberto.
-
-- A pesquisa global inclui interfaces por nome, port key, descrição e MAC; Hosts por nome, hostname observado, sistema operativo e MAC; e Services por nome, protocolo, versão e porta.
-- Os resultados respeitam os scopes IPAM e de infraestrutura aplicados aos inventários.
-- Hosts e Services abrem a ficha do Host no IPAM; interfaces abrem o equipamento selecionado na vista de interfaces.
-- Validação registada nesta branch: 75 testes API, build API, build web e verificação i18n.
-- Eventos e alertas continuam fora da pesquisa; o gate SNMP de laboratório permanece pendente.
+As correções P2 e checks automatizados estão concluídos, mas não substituem a aceitação manual pós-merge: browser/UI, Redis multi-instância ao vivo, edições concorrentes reais e ciclo completo de findings ainda precisam de confirmação operacional. A validação física SNMP com equipamento real também está pendente e é necessária antes de confiar em perfis observados ou enriquecer a topologia observada. LLDP/BRIDGE-MIB/Q-BRIDGE-MIB, inferência automática de ligações e escrita SNMP continuam fora deste incremento.

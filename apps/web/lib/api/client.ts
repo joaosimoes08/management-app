@@ -1,4 +1,5 @@
 import { localizedApiErrors, type ApiErrorPayload } from './errors';
+import { getPublicRuntimeConfig } from '@/lib/runtime-config';
 
 type TokenProvider = () => Promise<string>;
 
@@ -18,7 +19,7 @@ export function setApiUnauthorizedHandler(handler: (() => void) | null): void {
   onUnauthorized = handler;
 }
 
-const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+const apiUrl = getPublicRuntimeConfig().apiUrl;
 
 declare global {
   interface Window {

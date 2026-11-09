@@ -75,6 +75,45 @@ export type PollResult = {
   raw: Record<string, unknown>;
 };
 
+export type LldpNeighbor = { localPortNumber: number; localPortId?: string; remoteIndex: number; chassisSubtype?: number; chassisId?: string; portSubtype?: number; portId?: string; portDescription?: string; systemName?: string; managementAddress?: string; rawIdentifiers: Record<string, unknown> };
+
+export async function pollLldp(session: Session): Promise<LldpNeighbor[]> {
+  const base = '1.0.8802.1.1.2.1.4.1.1';
+  const [values, localValues] = await Promise.all([subtree(session, base), subtree(session, '1.0.8802.1.1.2.1.3.7.1.3').catch(() => [])]);
+  const localIds = new Map<number, string>();
+  for (const item of localValues) { const suffix = String(item.oid).split('.').at(-1); const value = printable(item.value); if (suffix && value !== null) localIds.set(Number(suffix), String(value)); }
+  const rows = new Map<string, LldpNeighbor>();
+  for (const item of values) {
+    const oid = String(item.oid).split('.').map(Number);
+    const parts = base.split('.').map(Number);
+    if (oid.length < parts.length + 4 || !parts.every((part, i) => oid[i] === part)) continue;
+    const column = oid[parts.length], localPortNumber = oid[parts.length + 2], remoteIndex = oid[parts.length + 3];
+    if (![column, localPortNumber, remoteIndex].every(Number.isInteger)) continue;
+    const key = `${localPortNumber}.${remoteIndex}`;
+    const row = rows.get(key) ?? { localPortNumber, localPortId: localIds.get(localPortNumber), remoteIndex, rawIdentifiers: {} };
+    const value = printable(item.value);
+    const field = ({ 4: 'chassisSubtype', 5: 'chassisId', 6: 'portSubtype', 7: 'portId', 8: 'portDescription', 9: 'systemName' } as Record<number, keyof LldpNeighbor>)[column];
+    if (field && value !== null) (row as any)[field] = typeof value === 'number' ? value : String(value);
+    row.rawIdentifiers[String(item.oid)] = value;
+    rows.set(key, row);
+  }
+  // Management address suffix is variable length; retain its full OID and accept only valid IP forms.
+  const addressBase = '1.0.8802.1.1.2.1.4.2.1.4';
+  try {
+    for (const item of await subtree(session, addressBase)) {
+      const match = String(item.oid).match(/^(?:1\.0\.8802\.1\.1\.2\.1\.4\.2\.1\.4)\.(\d+)\.(\d+)\.(\d+)\.(\d+)\.(\d+)\.(.+)$/);
+      if (!match) continue;
+      const [, , local, remote, subtype, length, ...tail] = match;
+      const bytes = tail.join('.').split('.').map(Number);
+      if (bytes.length !== Number(length)) continue;
+      const address = subtype === '1' && bytes.length === 4 ? bytes.join('.') : subtype === '2' && bytes.length === 16 ? bytes.map((byte) => byte.toString(16).padStart(2, '0')).join('').match(/.{1,4}/g)?.join(':') : undefined;
+      const row = rows.get(`${local}.${remote}`);
+      if (address && row) { row.managementAddress = address; row.rawIdentifiers[String(item.oid)] = printable(item.value); }
+    }
+  } catch { /* LLDP management-address extension may be unsupported; base LLDP evidence remains usable. */ }
+  return [...rows.values()].sort((a, b) => a.localPortNumber - b.localPortNumber || a.remoteIndex - b.remoteIndex);
+}
+
 export async function pollStandard(session: Session): Promise<PollResult> {
   const systemOids = [SNMP_OIDS.sysDescr, SNMP_OIDS.sysObjectId, SNMP_OIDS.sysUpTime, SNMP_OIDS.sysName, SNMP_OIDS.sysLocation];
   const [systemValues, ifValues, ifXValues] = await Promise.all([get(session, systemOids), subtree(session, SNMP_OIDS.ifTable), subtree(session, SNMP_OIDS.ifXTable)]);

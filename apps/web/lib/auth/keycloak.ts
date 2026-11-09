@@ -1,9 +1,12 @@
 import Keycloak from 'keycloak-js';
+import { getPublicRuntimeConfig } from '@/lib/runtime-config';
+
+const publicConfig = getPublicRuntimeConfig();
 
 export const keycloak = new Keycloak({
-  url: process.env.NEXT_PUBLIC_KEYCLOAK_URL ?? 'http://localhost:8080',
-  realm: process.env.NEXT_PUBLIC_KEYCLOAK_REALM ?? 'COCiber',
-  clientId: process.env.NEXT_PUBLIC_KEYCLOAK_CLIENT_ID ?? 'simoes-web',
+  url: publicConfig.keycloakUrl,
+  realm: publicConfig.keycloakRealm,
+  clientId: publicConfig.keycloakClientId,
 });
 
 let keycloakInitPromise: Promise<boolean> | null = null;

@@ -19,7 +19,11 @@ COPY apps/snmp/runtime/package.json apps/snmp/runtime/package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts
 
 FROM node:22-alpine AS runtime
+ARG VCS_REF
+LABEL org.opencontainers.image.source="https://github.com/joaosimoes08/management-app" \
+      org.opencontainers.image.revision=$VCS_REF
 WORKDIR /app
+RUN test -n "$VCS_REF"
 ENV NODE_ENV=production
 COPY --from=dependencies /runtime/node_modules ./node_modules
 COPY --from=build /app/apps/snmp/dist ./apps/snmp/dist

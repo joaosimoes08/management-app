@@ -76,7 +76,7 @@ export class SettingsService {
   async integrations() {
     const probe = async (operation: () => Promise<unknown>) => { try { await Promise.race([operation(), new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 1500))]); return 'CONNECTED'; } catch { return 'DEGRADED'; } };
     const redis = new Redis(process.env.REDIS_URL ?? 'redis://localhost:6379', { lazyConnect: true, maxRetriesPerRequest: 0, enableOfflineQueue: false });
-    const issuer = process.env.OIDC_ISSUER_URL ?? 'http://localhost:8080/realms/COCiber';
+    const issuer = process.env.OIDC_BACKCHANNEL_URL ?? process.env.OIDC_ISSUER_URL ?? 'http://localhost:8080/realms/COCiber';
     const [postgresql, redisStatus, keycloak] = await Promise.all([
       probe(() => this.prisma.$queryRaw`SELECT 1`),
       probe(async () => { await redis.connect(); await redis.ping(); }),

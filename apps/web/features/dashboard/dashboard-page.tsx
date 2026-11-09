@@ -23,6 +23,7 @@ import { getDashboardLayout, getDashboardWorkspaces, getOperationalSummary, save
 import { OperationsPanel } from '@/features/operations/operations-panel';
 import { useSiteContext } from '@/lib/site-context';
 import { useI18n } from '@/lib/i18n';
+import { getPublicRuntimeConfig } from '@/lib/runtime-config';
 
 function MetricCard({ label, value, change, icon: Icon, className = '' }: { label: string; value: string; change?: string; icon: typeof Activity; className?: string }) {
   return (
@@ -57,7 +58,7 @@ export default function DashboardPage() {
   const { data: healthResponse } = useQuery({
     queryKey: ['dashboard', 'health'],
     queryFn: async () => {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+      const apiUrl = getPublicRuntimeConfig().apiUrl;
       const response = await fetch(`${apiUrl}/api/v1/health`, { cache: 'no-store' });
       return response.ok;
     },
