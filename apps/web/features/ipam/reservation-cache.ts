@@ -10,7 +10,7 @@ export function setCachedIpReservation(queryClient: QueryClient, ipAddressId: st
     return {
       ...page,
       items: page.items.map((ip) => ip.id === ipAddressId
-        ? { ...ip, reservation, reservations: reservation ? [reservation] : [] }
+        ? { ...ip, state: reservation ? 'RESERVED' : 'FREE', reservation, reservations: reservation ? [reservation] : [] }
         : ip),
     };
   });
