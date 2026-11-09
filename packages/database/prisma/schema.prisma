@@ -1059,6 +1059,9 @@ model SnmpWriteRequest {
   parameters     Json
   beforeValues   Json?
   desiredValues  Json
+  impactPreview  Json?
+  previewAcknowledgedAt DateTime?
+  previewAcknowledgedBy String?          @db.Uuid
   verifiedValues Json?
   status         SnmpWriteStatus    @default(PREVIEW)
   requestedBy    String             @db.Uuid

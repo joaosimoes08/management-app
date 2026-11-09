@@ -1541,3 +1541,9 @@ html[lang='en-US'] .environment-trigger.operational::after { content:'· Setup c
 .recent-items a:hover { background:#f7f6f6; }.recent-items a:focus-visible { outline:3px solid #637ff0; outline-offset:2px; }
 .recent-items small { color:var(--muted); font-size:8px; }.recent-items span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:10px; }
 .snmp-form-grid label small { color:var(--muted); font-size:9px; line-height:1.45; }
+.snmp-impact-preview { grid-column:1 / -1; display:grid; gap:8px; padding:14px; border:1px solid #e5d8be; border-radius:10px; background:#fffaf0; color:#463b27; font-size:12px; }
+.snmp-impact-preview p { margin:0; line-height:1.5; }
+.snmp-impact-preview ul { display:grid; gap:6px; margin:0; padding-left:20px; }
+.snmp-impact-preview a { color:#24589a; font-weight:650; }
+.snmp-impact-ack { display:flex; align-items:flex-start; gap:9px; padding-top:7px; font-weight:650; }
+.snmp-impact-ack input { margin-top:1px; }

@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { SnmpCredentialPurpose } from '@simoes/database';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { Roles } from '../auth/roles.decorator';
-import { AcceptSnmpEnrollmentDto, CreateSnmpCredentialDto, CreateSnmpTrapEnrollmentDto, CreateSnmpWritePreviewDto, ReviewSnmpDriftDto, SnmpOnboardingDeviceDto, UpsertSnmpConfigDto } from './dto';
+import { AcceptSnmpEnrollmentDto, AcknowledgeSnmpWriteImpactDto, CreateSnmpCredentialDto, CreateSnmpTrapEnrollmentDto, CreateSnmpWritePreviewDto, ReviewSnmpDriftDto, SnmpOnboardingDeviceDto, UpsertSnmpConfigDto } from './dto';
 import { SnmpService } from './snmp.service';
 import { TopologyReconciliationService } from './topology-reconciliation.service';
 
@@ -25,7 +25,7 @@ export class SnmpController {
   @Post('devices/:deviceId/poll') @Roles('ADMIN', 'NETWORK_OPERATOR') poll(@Param('deviceId') deviceId: string, @Req() req: { user: AuthenticatedUser }) { return this.service.poll(deviceId, req.user); }
   @Patch('drifts/:id') @Roles('ADMIN', 'NETWORK_OPERATOR') reviewDrift(@Param('id') id: string, @Body() dto: ReviewSnmpDriftDto, @Req() req: { user: AuthenticatedUser }) { return this.service.reviewDrift(id, dto, req.user); }
   @Post('devices/:deviceId/write-requests/preview') @Roles('ADMIN') previewWrite(@Param('deviceId') deviceId: string, @Body() dto: CreateSnmpWritePreviewDto, @Req() req: { user: AuthenticatedUser }) { return this.service.previewWrite(deviceId, dto, req.user); }
-  @Post('write-requests/:id/execute') @Roles('ADMIN') executeWrite(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.service.executeWrite(id, req.user); }
+  @Post('write-requests/:id/execute') @Roles('ADMIN') executeWrite(@Param('id') id: string, @Body() dto: AcknowledgeSnmpWriteImpactDto, @Req() req: { user: AuthenticatedUser }) { return this.service.executeWrite(id, dto, req.user); }
   @Post('credentials/rotate') @Roles('ADMIN') rotate(@Req() req: { user: AuthenticatedUser }) { return this.service.rotateCredentials(req.user); }
   @Get('discovery/enrollments') @Roles('ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY') enrollments(@Query('siteId') siteId: string | undefined, @Req() req: { user: AuthenticatedUser }) { return this.service.listEnrollments(req.user, siteId); }
   @Post('discovery/enrollments') @Roles('ADMIN') createEnrollment(@Body() dto: CreateSnmpTrapEnrollmentDto, @Req() req: { user: AuthenticatedUser }) { return this.service.createEnrollment(dto, req.user); }
