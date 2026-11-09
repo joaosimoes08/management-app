@@ -15,3 +15,15 @@ export function setCachedIpReservation(queryClient: QueryClient, ipAddressId: st
     };
   });
 }
+
+/** Keep the mutation result authoritative if the invalidation refetch returns an older row. */
+export async function syncIpReservationCache(
+  queryClient: QueryClient,
+  ipAddressId: string,
+  reservation: IpReservation | null,
+  refresh: () => Promise<unknown>,
+): Promise<void> {
+  setCachedIpReservation(queryClient, ipAddressId, reservation);
+  await refresh();
+  setCachedIpReservation(queryClient, ipAddressId, reservation);
+}

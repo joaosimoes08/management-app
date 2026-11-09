@@ -4,7 +4,7 @@ import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SubnetsView } from './components/subnets-view';
 import type { IpAddressRow, IpReservation } from './types';
-import { setCachedIpReservation } from './reservation-cache';
+import { setCachedIpReservation, syncIpReservationCache } from './reservation-cache';
 
 const ip: IpAddressRow = { id: 'ip-1', address: '192.0.2.18', subnetId: 'subnet-1', state: 'FREE' };
 const subnet = { id: 'subnet-1', cidr: '192.0.2.0/24', version: 4, siteId: 'site-1' };
@@ -43,15 +43,19 @@ describe('IP reservation cache updates', () => {
     clients.push(queryClient);
     const queryKey = ['ipam', 'ips', subnet.id, ''];
     queryClient.setQueryData(queryKey, { items: [ip] });
-    const createReservation = vi.fn().mockResolvedValue(reservation);
-    const releaseReservation = vi.fn().mockResolvedValue({ success: true, released: true });
+    let persistedState = 'FREE';
+    const createReservation = vi.fn().mockImplementation(async () => { persistedState = 'RESERVED'; return reservation; });
+    const releaseReservation = vi.fn().mockImplementation(async () => { persistedState = 'FREE'; return { success: true, released: true }; });
 
     function InteractionHarness() {
       const { data } = useQuery({ queryKey, queryFn: async () => ({ items: [ip] }) });
       const updateReservation = async (ipRow: IpAddressRow, nextReservation: IpReservation | null) => {
         if (nextReservation) await createReservation();
         else await releaseReservation();
-        setCachedIpReservation(queryClient, ipRow.id, nextReservation);
+        await syncIpReservationCache(queryClient, ipRow.id, nextReservation, async () => {
+          // A refetch can still return an older list snapshot after the mutation persisted.
+          queryClient.setQueryData(queryKey, { items: [ip] });
+        });
       };
       return createElement(SubnetsView, {
         selected: subnet, items: [subnet], usage: null, ips: data?.items ?? [], search: '', setSearch: vi.fn(), openSubnet: vi.fn(), openHost: vi.fn(),
@@ -66,11 +70,13 @@ describe('IP reservation cache updates', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Reservar 192.0.2.18' }));
 
     expect(await screen.findByText('RESERVED / —')).toBeInTheDocument();
+    expect(persistedState).toBe('RESERVED');
     expect(screen.getByRole('button', { name: 'Libertar reserva de 192.0.2.18' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Reservar 192.0.2.18' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Libertar reserva de 192.0.2.18' }));
     expect(await screen.findByText('FREE / —')).toBeInTheDocument();
+    expect(persistedState).toBe('FREE');
     expect(screen.getByRole('button', { name: 'Reservar 192.0.2.18' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Libertar reserva de 192.0.2.18' })).not.toBeInTheDocument();
     expect(createReservation).toHaveBeenCalledOnce();
