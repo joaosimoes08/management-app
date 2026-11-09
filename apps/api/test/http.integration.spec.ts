@@ -203,6 +203,7 @@ test('enforces authentication and persona-level RBAC over HTTP', async () => {
 });
 
 test('requires a current planned-change impact preview before review submission', async () => {
+  await prisma.deviceConnection.create({ data: { siteId: ids.siteA, type: 'PHYSICAL', source: 'SNMP', sourceDeviceId: ids.deviceA2, targetDeviceId: ids.deviceSibling, label: 'Unrelated observed link' } });
   const start = new Date(Date.now() + 60 * 60 * 1000);
   const end = new Date(start.getTime() + 60 * 60 * 1000);
   const payload = {
@@ -242,6 +243,7 @@ test('requires a current planned-change impact preview before review submission'
   assert.equal(json(stalePreview).code, 'CHANGE_PLAN_PREVIEW_STALE');
   const finalPreview = await request('POST', `/api/v1/change-plans/${id}/impact-preview`, 'qa-admin', {});
   assert.equal(finalPreview.statusCode, 201, finalPreview.body);
+  await prisma.deviceConnection.create({ data: { siteId: ids.siteA, type: 'PHYSICAL', source: 'SNMP', sourceDeviceId: ids.deviceA2, targetDeviceId: ids.deviceSibling, label: 'Unrelated link added after preview' } });
 
   const submitted = await request('POST', `/api/v1/change-plans/${id}/submit`, 'qa-admin');
   assert.equal(submitted.statusCode, 201, submitted.body);
@@ -249,6 +251,18 @@ test('requires a current planned-change impact preview before review submission'
   const reviewed = await request('POST', `/api/v1/change-plans/${id}/review`, 'qa-admin', { status: 'APPROVED', reviewNote: 'Reviewed.' });
   assert.equal(reviewed.statusCode, 201, reviewed.body);
   assert.equal(json(reviewed).status, 'APPROVED');
+
+  await prisma.deviceConnection.create({ data: { siteId: ids.siteA, type: 'PHYSICAL', source: 'SNMP', sourceDeviceId: ids.deviceA, targetDeviceId: ids.deviceA2, label: 'Impacted observed link' } });
+  const impactedPlan = await request('POST', '/api/v1/change-plans', 'qa-admin', { ...payload, title: 'HTTP change with low-confidence impact' });
+  assert.equal(impactedPlan.statusCode, 201, impactedPlan.body);
+  const impactedId = json(impactedPlan).id as string;
+  const impactedPreview = await request('POST', `/api/v1/change-plans/${impactedId}/impact-preview`, 'qa-admin', {});
+  assert.equal(impactedPreview.statusCode, 201, impactedPreview.body);
+  assert.equal(json(impactedPreview).coverage.status, 'PARTIAL');
+  assert.equal(json(impactedPreview).knownImpacts.some((item: { entityId: string; confidence: string }) => item.entityId === ids.deviceA2 && item.confidence === 'LOW'), true);
+  const blocked = await request('POST', `/api/v1/change-plans/${impactedId}/submit`, 'qa-admin');
+  assert.equal(blocked.statusCode, 409);
+  assert.equal(json(blocked).code, 'CHANGE_PLAN_PREVIEW_INCOMPLETE');
 });
 
 test('applies scoped visibility, inherited reads, group union, and fail-closed access', async () => {

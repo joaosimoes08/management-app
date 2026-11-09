@@ -200,16 +200,16 @@ export class ChangePlansService {
   private async previewSnapshot(user: AuthenticatedUser, plan: any, targetAction: 'READ' | 'UPDATE') {
     await Promise.all(plan.items.map((item: any) => this.assertTarget(user, item.entityType, item.entityId, plan.siteId, targetAction)));
     const graph = await this.graph(plan.siteId, plan.items); const now = new Date();
-    type PathState = { key: string; depth: number; dependencyPath: string[]; confidence: 'RECORDED' | 'LOW' };
+    type PathState = { key: string; depth: number; dependencyPath: string[]; confidence: 'RECORDED' | 'LOW'; edgePath: GraphEdge[] };
     const reachable = new Map<string, Omit<PathState, 'key'>>();
-    const queue: PathState[] = graph.rootKeys.map((key) => ({ key, depth: 0, dependencyPath: [], confidence: 'RECORDED' }));
+    const queue: PathState[] = graph.rootKeys.map((key) => ({ key, depth: 0, dependencyPath: [], confidence: 'RECORDED', edgePath: [] }));
     const roots = new Set(graph.rootKeys);
     while (queue.length) {
       const current = queue.shift()!;
       if (current.depth >= 3) continue;
       for (const edge of graph.edges.filter((item) => item.from === current.key)) {
         if (roots.has(edge.to) || reachable.has(edge.to)) continue;
-        const next = { depth: current.depth + 1, dependencyPath: [...current.dependencyPath, edge.relationship], confidence: current.confidence === 'LOW' || edge.confidence === 'LOW' ? 'LOW' as const : 'RECORDED' as const };
+        const next = { depth: current.depth + 1, dependencyPath: [...current.dependencyPath, edge.relationship], confidence: current.confidence === 'LOW' || edge.confidence === 'LOW' ? 'LOW' as const : 'RECORDED' as const, edgePath: [...current.edgePath, edge] };
         reachable.set(edge.to, next); queue.push({ key: edge.to, ...next });
         if (reachable.size >= IMPACT_LIMIT) break;
       }
@@ -226,7 +226,11 @@ export class ChangePlansService {
       const freshness = ageHours === null ? 'UNKNOWN' : ageHours > 24 ? 'STALE' : 'CURRENT';
       return { ...node, ...route, freshness };
     }).sort((a, b) => a.depth - b.depth || a.label.localeCompare(b.label));
-    const visibleEdges = graph.edges.filter((edge) => visible.has(edge.from) && visible.has(edge.to));
+    // Only edges used by the selected root-to-impact paths affect coverage or the
+    // preview signature. Unrelated Site edges must not make a plan incomplete or stale.
+    const pathEdges = new Map<string, GraphEdge>();
+    for (const route of reachable.values()) for (const edge of route.edgePath) pathEdges.set(`${edge.from}>${edge.to}:${edge.relationship}`, edge);
+    const visibleEdges = [...pathEdges.values()].filter((edge) => visible.has(edge.from) && visible.has(edge.to));
     const windows = await this.prisma.maintenanceWindow.findMany({ where: { AND: [{ OR: [{ siteId: plan.siteId }, { siteId: null }] }, { startsAt: { lt: plan.plannedEndAt } }, { endsAt: { gt: plan.plannedStartAt } }] }, orderBy: { startsAt: 'asc' }, take: 100, select: { id: true, name: true, reason: true, siteId: true, startsAt: true, endsAt: true } });
     const overlappingPlans = await this.prisma.changePlan.findMany({ where: { siteId: plan.siteId, id: { not: plan.id }, status: { in: ACTIVE_CONFLICT_STATUSES }, plannedStartAt: { lt: plan.plannedEndAt }, plannedEndAt: { gt: plan.plannedStartAt } }, select: { id: true, title: true, plannedStartAt: true, plannedEndAt: true, status: true }, take: 100 });
     const capped = graph.maxed || reachable.size >= IMPACT_LIMIT || windows.length >= 100 || overlappingPlans.length >= 100;
