@@ -23,7 +23,7 @@ vi.mock('@/lib/site-context', () => ({ useSiteContext: () => ({ siteId: 'site-1'
 afterEach(() => { cleanup(); vi.clearAllMocks(); mocks.detail = null; });
 
 describe('ChangePlansPage impact preview transition', () => {
-  it('shows impacts and the calculated timestamp together after success despite an older detail refetch', async () => {
+  it('keeps the first calculation pending, then shows its saved timestamp and impacts together despite a stale detail refetch', async () => {
     const plan: ChangePlan = {
       id: 'plan-1', siteId: 'site-1', title: 'Calibration Change', reason: 'Test preview transition',
       plannedStartAt: '2026-11-10T10:00:00.000Z', plannedEndAt: '2026-11-10T11:00:00.000Z',
@@ -58,6 +58,8 @@ describe('ChangePlansPage impact preview transition', () => {
     render(<ChangePlansPage />);
     fireEvent.click(await screen.findByRole('button', { name: /Calibration Change/ }));
     await vi.waitFor(() => expect(mocks.getChangePlan).toHaveBeenCalledTimes(2));
+    expect(screen.getByText('Pré-visualização').closest('.change-summary-grid')).toHaveTextContent('Por calcular');
+    expect(screen.queryByText('Impacto conhecido')).not.toBeInTheDocument();
     fireEvent.click(await screen.findByRole('button', { name: 'Recalcular pré-visualização' }));
 
     expect(await screen.findAllByText('A calcular…')).toHaveLength(2);
@@ -78,6 +80,7 @@ describe('ChangePlansPage impact preview transition', () => {
     expect(detail?.querySelector('.impact-preview .change-summary-grid div strong')).toHaveTextContent('6');
     expect(detail?.querySelectorAll('.impact-group li')).toHaveLength(6);
     expect(detail).toHaveTextContent('Impacto conhecido');
+    expect(mocks.detail?.previewSnapshot).toBe(calculated);
     expect(screen.getByRole('button', { name: 'Recalcular pré-visualização' })).toBeInTheDocument();
     expect(screen.queryByText('A calcular…')).not.toBeInTheDocument();
     expect(screen.queryByText('Por calcular')).not.toBeInTheDocument();
