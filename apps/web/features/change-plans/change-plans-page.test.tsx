@@ -32,7 +32,7 @@ describe('ChangePlansPage impact preview transition', () => {
     };
     const generatedAt = '2026-11-09T15:00:00.000Z';
     const calculated: ImpactPreview = {
-      analysisStatus: 'COMPLETE', revision: 1, generatedAt, knownImpacts: Array.from({ length: 7 }, (_, index) => ({ entityType: 'DEVICE' as const, entityId: `device-${index + 2}`, label: `Affected device ${index + 1}`, href: '/infraestrutura', depth: 1, dependencyPath: ['Connection'], freshness: 'CURRENT' as const, confidence: 'RECORDED' as const })),
+      analysisStatus: 'COMPLETE', revision: 1, generatedAt, knownImpacts: Array.from({ length: 6 }, (_, index) => ({ entityType: 'DEVICE' as const, entityId: `device-${index + 2}`, label: `Affected device ${index + 1}`, href: '/infraestrutura', depth: 1, dependencyPath: ['Connection'], freshness: 'CURRENT' as const, confidence: 'RECORDED' as const })),
       maintenanceOverlaps: [], changeOverlaps: [], coverage: { status: 'COMPLETE', reason: 'Complete', latestInventoryUpdate: null, staleItems: 0, unknownFreshnessItems: 0 }, graphSignature: 'signature',
     };
     mocks.detail = plan;
@@ -71,12 +71,26 @@ describe('ChangePlansPage impact preview transition', () => {
     const detail = screen.getByText('Pré-visualização').closest('.change-detail');
     const expectedTimestamp = new Date(generatedAt).toLocaleString('pt-PT', { dateStyle: 'medium', timeStyle: 'short' });
     expect(detail).toHaveTextContent(`Calculada ${expectedTimestamp}`);
-    expect(detail?.querySelector('.impact-preview .change-summary-grid div strong')).toHaveTextContent('7');
-    expect(detail?.querySelectorAll('.impact-group li')).toHaveLength(7);
+    expect(detail).toHaveTextContent('Análise concluída');
+    expect(detail?.querySelector('.impact-preview .change-summary-grid div strong')).toHaveTextContent('6');
+    expect(detail?.querySelectorAll('.impact-group li')).toHaveLength(6);
     expect(detail).toHaveTextContent('Impacto conhecido');
 
     await act(async () => { resolveStaleDetail(plan); await staleDetail; });
     expect(detail).toHaveTextContent(`Calculada ${expectedTimestamp}`);
     expect(detail).toHaveTextContent('Affected device 1');
+
+    // A later refetch can still return an older persisted plan. Do not let the
+    // transition marker alone keep the new success state or impacts on screen.
+    mocks.detail = plan;
+    fireEvent.click(screen.getByRole('button', { name: 'Atualizar' }));
+    await vi.waitFor(() => {
+      expect(mocks.getChangePlan).toHaveBeenCalledTimes(3);
+      expect(detail).toHaveTextContent('Por calcular');
+    });
+    expect(detail).not.toHaveTextContent(`Calculada ${expectedTimestamp}`);
+    expect(detail?.querySelector('.impact-preview')).toBeNull();
+    expect(screen.queryByText(/Pré-visualização atualizada/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Recalcular pré-visualização' })).toBeInTheDocument();
   });
 });
