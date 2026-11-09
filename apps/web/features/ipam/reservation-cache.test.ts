@@ -38,6 +38,51 @@ describe('IP reservation cache updates', () => {
     expect(queryClient.getQueryData<{ items: IpAddressRow[] }>(matchingSearchKey)?.items[0]).toMatchObject({ state: 'FREE', reservation: null, reservations: [] });
   });
 
+  it('cancels overlapping stale list refetches before applying reserve and release results', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    clients.push(queryClient);
+    const allIpsKey = ['ipam', 'ips', 'subnet-1', ''];
+    const matchingSearchKey = ['ipam', 'ips', 'subnet-1', '192.0.2'];
+    queryClient.setQueryData(allIpsKey, { items: [ip] });
+    queryClient.setQueryData(matchingSearchKey, { items: [ip] });
+
+    let resolveAll!: (page: { items: IpAddressRow[] }) => void;
+    let resolveSearch!: (page: { items: IpAddressRow[] }) => void;
+    const staleAll = new Promise<{ items: IpAddressRow[] }>((resolve) => { resolveAll = resolve; });
+    const staleSearch = new Promise<{ items: IpAddressRow[] }>((resolve) => { resolveSearch = resolve; });
+    const fetchAll = vi.fn(() => staleAll);
+    const fetchSearch = vi.fn(() => staleSearch);
+    const pendingAll = queryClient.fetchQuery({ queryKey: allIpsKey, queryFn: fetchAll });
+    const pendingSearch = queryClient.fetchQuery({ queryKey: matchingSearchKey, queryFn: fetchSearch });
+    expect(fetchAll).toHaveBeenCalledOnce();
+    expect(fetchSearch).toHaveBeenCalledOnce();
+
+    await syncIpReservationCache(queryClient, ip.id, reservation, async () => undefined);
+    resolveAll({ items: [ip] });
+    resolveSearch({ items: [ip] });
+    await Promise.allSettled([pendingAll, pendingSearch]);
+    expect(queryClient.getQueryData<{ items: IpAddressRow[] }>(allIpsKey)?.items[0]).toMatchObject({ state: 'RESERVED', reservation });
+    expect(queryClient.getQueryData<{ items: IpAddressRow[] }>(matchingSearchKey)?.items[0]).toMatchObject({ state: 'RESERVED', reservation });
+
+    let resolveReservedAll!: (page: { items: IpAddressRow[] }) => void;
+    let resolveReservedSearch!: (page: { items: IpAddressRow[] }) => void;
+    const staleReservedAll = new Promise<{ items: IpAddressRow[] }>((resolve) => { resolveReservedAll = resolve; });
+    const staleReservedSearch = new Promise<{ items: IpAddressRow[] }>((resolve) => { resolveReservedSearch = resolve; });
+    const fetchReservedAll = vi.fn(() => staleReservedAll);
+    const fetchReservedSearch = vi.fn(() => staleReservedSearch);
+    const pendingReservedAll = queryClient.fetchQuery({ queryKey: allIpsKey, queryFn: fetchReservedAll });
+    const pendingReservedSearch = queryClient.fetchQuery({ queryKey: matchingSearchKey, queryFn: fetchReservedSearch });
+    expect(fetchReservedAll).toHaveBeenCalledOnce();
+    expect(fetchReservedSearch).toHaveBeenCalledOnce();
+
+    await syncIpReservationCache(queryClient, ip.id, null, async () => undefined);
+    resolveReservedAll({ items: [{ ...ip, state: 'RESERVED', reservation, reservations: [reservation] }] });
+    resolveReservedSearch({ items: [{ ...ip, state: 'RESERVED', reservation, reservations: [reservation] }] });
+    await Promise.allSettled([pendingReservedAll, pendingReservedSearch]);
+    expect(queryClient.getQueryData<{ items: IpAddressRow[] }>(allIpsKey)?.items[0]).toMatchObject({ state: 'FREE', reservation: null, reservations: [] });
+    expect(queryClient.getQueryData<{ items: IpAddressRow[] }>(matchingSearchKey)?.items[0]).toMatchObject({ state: 'FREE', reservation: null, reservations: [] });
+  });
+
   it('shows the updated row actions immediately after reserve and release without reloading', async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     clients.push(queryClient);
