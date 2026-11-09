@@ -23,7 +23,7 @@ vi.mock('@/lib/site-context', () => ({ useSiteContext: () => ({ siteId: 'site-1'
 afterEach(() => { cleanup(); vi.clearAllMocks(); mocks.detail = null; });
 
 describe('ChangePlansPage impact preview transition', () => {
-  it('keeps the impact section hidden while recalculation is pending, then reveals it with the matching timestamp', async () => {
+  it('shows impacts and the calculated timestamp together after success despite an older detail refetch', async () => {
     const plan: ChangePlan = {
       id: 'plan-1', siteId: 'site-1', title: 'Calibration Change', reason: 'Test preview transition',
       plannedStartAt: '2026-11-10T10:00:00.000Z', plannedEndAt: '2026-11-10T11:00:00.000Z',
@@ -38,7 +38,14 @@ describe('ChangePlansPage impact preview transition', () => {
     mocks.detail = plan;
     mocks.listChangePlans.mockResolvedValue([plan]);
     mocks.getChangeCandidates.mockResolvedValue({ groups: [[]], truncated: false });
-    mocks.getChangePlan.mockImplementation(async () => mocks.detail);
+    let detailCalls = 0;
+    let resolveStaleDetail!: (value: ChangePlan) => void;
+    const staleDetail = new Promise<ChangePlan>((resolve) => { resolveStaleDetail = resolve; });
+    mocks.getChangePlan.mockImplementation(async () => {
+      detailCalls += 1;
+      if (detailCalls === 2) return staleDetail;
+      return mocks.detail!;
+    });
 
     let resolvePreview!: (value: ImpactPreview) => void;
     const pendingPreview = new Promise<ImpactPreview>((resolve) => { resolvePreview = resolve; });
@@ -50,6 +57,7 @@ describe('ChangePlansPage impact preview transition', () => {
 
     render(<ChangePlansPage />);
     fireEvent.click(await screen.findByRole('button', { name: /Calibration Change/ }));
+    await vi.waitFor(() => expect(mocks.getChangePlan).toHaveBeenCalledTimes(2));
     fireEvent.click(await screen.findByRole('button', { name: 'Recalcular pré-visualização' }));
 
     expect(await screen.findAllByText('A calcular…')).toHaveLength(2);
@@ -57,8 +65,15 @@ describe('ChangePlansPage impact preview transition', () => {
 
     await act(async () => { resolvePreview(calculated); await pendingPreview; });
 
-    expect(await screen.findByText('Affected device')).toBeInTheDocument();
-    expect(screen.getByText(/^Calculada /)).toBeInTheDocument();
-    expect(screen.getByText('Impacto conhecido')).toBeInTheDocument();
+    const success = await screen.findByRole('status');
+    expect(success).toHaveTextContent('Pré-visualização atualizada');
+    const detail = screen.getByText('Pré-visualização').closest('.change-detail');
+    expect(detail).toHaveTextContent(/Calculada /);
+    expect(detail).toHaveTextContent('Affected device');
+    expect(detail).toHaveTextContent('Impacto conhecido');
+
+    await act(async () => { resolveStaleDetail(plan); await staleDetail; });
+    expect(detail).toHaveTextContent(/Calculada /);
+    expect(detail).toHaveTextContent('Affected device');
   });
 });

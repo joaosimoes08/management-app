@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppShell } from '@/components/layout/app-shell';
 import { useAuth } from '@/lib/auth';
 import { useSiteContext } from '@/lib/site-context';
@@ -21,13 +21,16 @@ export function ChangePlansPage() {
   const [selected, setSelected] = useState<ChangePlan | null>(null); const [draft, setDraft] = useState<ChangeDraft>(blankDraft()); const [editorOpen, setEditorOpen] = useState(false);
   const [targetType, setTargetType] = useState<ChangeEntityType>('DEVICE'); const [targetId, setTargetId] = useState(''); const [operation, setOperation] = useState(''); const [currentValue, setCurrentValue] = useState(''); const [proposedValue, setProposedValue] = useState('');
   const [reviewNote, setReviewNote] = useState(''); const [previewingPlanId, setPreviewingPlanId] = useState<string | null>(null); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
+  const selectedRequest = useRef(0);
   const visibleCandidates = useMemo(() => candidates.filter((item) => item.entityType === targetType), [candidates, targetType]);
   const load = useCallback(async () => {
+    const requestId = ++selectedRequest.current;
+    const selectedId = selected?.id;
     if (!siteId) { setPlans([]); setCandidates([]); setSelected(null); setPreviewingPlanId(null); return; }
     try {
       const [nextPlans, candidateResult] = await Promise.all([listChangePlans(siteId), getChangeCandidates(siteId)]);
       setPlans(nextPlans); setCandidates(candidateResult.groups.flat()); setCandidateLimit(candidateResult.truncated); setError('');
-      if (selected?.id) { const updated = nextPlans.find((item) => item.id === selected.id); if (updated) { const detail = await getChangePlan(updated.id); setSelected(detail); } else { setSelected(null); } }
+      if (selectedId) { const updated = nextPlans.find((item) => item.id === selectedId); if (updated) { const detail = await getChangePlan(updated.id); if (requestId === selectedRequest.current) setSelected(detail); } else if (requestId === selectedRequest.current) { setSelected(null); } }
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Não foi possível carregar as alterações deste Site.'); }
   }, [siteId, selected?.id]);
   useEffect(() => { void load(); }, [load]);
@@ -35,7 +38,7 @@ export function ChangePlansPage() {
 
   const openNew = () => { setSelected(null); setPreviewingPlanId(null); setDraft({ ...blankDraft(), siteId: siteId ?? '' }); setTargetType('DEVICE'); setTargetId(''); setOperation(''); setCurrentValue(''); setProposedValue(''); setError(''); setEditorOpen(true); };
   const openEdit = (plan: ChangePlan) => { setSelected(plan); setDraft({ siteId: plan.siteId, title: plan.title, reason: plan.reason, plannedStartAt: localInput(plan.plannedStartAt), plannedEndAt: localInput(plan.plannedEndAt), items: plan.items.map((item) => ({ ...item })) }); setEditorOpen(true); setError(''); };
-  const openPlan = async (plan: ChangePlan) => { setBusy(true); setError(''); try { const detail = await getChangePlan(plan.id); setSelected(detail); setEditorOpen(false); setReviewNote(''); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Não foi possível abrir a alteração.'); } finally { setBusy(false); } };
+  const openPlan = async (plan: ChangePlan) => { const requestId = ++selectedRequest.current; setPreviewingPlanId(null); setBusy(true); setError(''); try { const detail = await getChangePlan(plan.id); if (requestId === selectedRequest.current) { setSelected(detail); setEditorOpen(false); setReviewNote(''); } } catch (cause) { if (requestId === selectedRequest.current) setError(cause instanceof Error ? cause.message : 'Não foi possível abrir a alteração.'); } finally { if (requestId === selectedRequest.current) setBusy(false); } };
   const addTarget = () => {
     const candidate = candidates.find((item) => item.entityId === targetId && item.entityType === targetType);
     if (!candidate || !operation.trim() || draft.items.some((item) => item.entityId === targetId && item.entityType === targetType)) return;
@@ -56,20 +59,26 @@ export function ChangePlansPage() {
   const calculate = async () => {
     if (!selected) return;
     const planId = selected.id;
+    const planRevision = selected.revision;
+    const requestId = ++selectedRequest.current;
     setBusy(true); setPreviewingPlanId(planId); setError(''); setNotice('');
     try {
       const result = await previewChangePlan(planId);
-      const detail = await getChangePlan(planId);
-      if (!detail.previewSnapshot || detail.previewRevision !== detail.revision || detail.previewSnapshot.generatedAt !== result.generatedAt) throw new Error('A pré-visualização guardada não corresponde ao resultado calculado. Atualiza a alteração e tenta novamente.');
-      setSelected(detail);
+      if (requestId !== selectedRequest.current) return;
+      if (result.revision !== planRevision) throw new Error('A alteração mudou durante a análise. Atualiza a alteração e calcula novamente.');
+      setSelected((current) => current?.id === planId && current.revision === planRevision
+        ? { ...current, previewRevision: result.revision, previewSnapshot: result, previewedAt: result.generatedAt }
+        : current);
       setPreviewingPlanId(null);
       setNotice('Pré-visualização atualizada. Revê os impactos e a cobertura antes de submeter.');
     }
     catch (cause) {
-      setSelected((current) => current?.id === planId ? { ...current, previewRevision: null, previewSnapshot: null, previewedAt: null } : current);
-      setError(cause instanceof Error ? cause.message : 'Não foi possível calcular o impacto.');
+      if (requestId === selectedRequest.current) {
+        setSelected((current) => current?.id === planId ? { ...current, previewRevision: null, previewSnapshot: null, previewedAt: null } : current);
+        setError(cause instanceof Error ? cause.message : 'Não foi possível calcular o impacto.');
+      }
     }
-    finally { setPreviewingPlanId(null); setBusy(false); }
+    finally { if (requestId === selectedRequest.current) { setPreviewingPlanId(null); setBusy(false); } }
   };
   const submit = async () => {
     if (!selected) return;
