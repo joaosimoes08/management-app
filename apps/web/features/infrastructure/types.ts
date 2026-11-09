@@ -134,6 +134,7 @@ export interface Device {
   hostname?: string | null;
   managementIp?: string | null;
   notes?: string | null;
+  isCritical?: boolean;
   source?: string;
   status: AssetStatus | string;
   modelId?: string | null;

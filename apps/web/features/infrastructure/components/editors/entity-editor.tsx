@@ -56,6 +56,7 @@ export function EntityEditor({ modal, close, editingId, form, setForm, rooms, ra
       <label>Tipo<select value={form.device.type} onChange={(event) => setForm.device({ ...form.device, type: event.target.value })}>{EQUIPMENT_TYPES.map((option) => <option key={option}>{option}</option>)}</select></label>
       <label>Estado<select value={form.device.status} onChange={(event) => setForm.device({ ...form.device, status: event.target.value })}>{['UNKNOWN', 'ACTIVE', 'INACTIVE', 'MAINTENANCE', 'RETIRED'].map((option) => <option key={option}>{option}</option>)}</select></label>
     </div>
+    <label className="checkbox-label"><input type="checkbox" checked={form.device.isCritical} onChange={(event) => setForm.device({ ...form.device, isCritical: event.target.checked })} /> Ativo crítico · requer confirmação semanal</label>
     <label>Hostname<input value={form.device.hostname} onChange={(event) => setForm.device({ ...form.device, hostname: event.target.value })} /></label>
     <div className="form-row">
       <label>IP de gestão<input required={!!form.device.snmpEnabled} value={form.device.managementIp} onChange={(event) => setForm.device({ ...form.device, managementIp: event.target.value })} /></label>

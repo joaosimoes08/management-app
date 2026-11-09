@@ -27,6 +27,7 @@ export interface DeviceForm {
   rackUnitSize: string;
   modelId: string;
   status: string;
+  isCritical: boolean;
   frontAssetId: string;
   notes?: string;
   snmpEnabled?: boolean;
