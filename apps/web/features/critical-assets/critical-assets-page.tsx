@@ -24,7 +24,7 @@ export function CriticalAssetsPage() {
   const [notice, setNotice] = useState('');
   const { data, error } = useQuery({ queryKey: ['critical-assets', siteId], queryFn: () => apiFetch<Result>(`/api/v1/critical-assets?siteId=${encodeURIComponent(siteId)}`), enabled: Boolean(siteId) });
   const { data: groups = [] } = useQuery({ queryKey: ['critical-asset-groups', siteId], queryFn: () => apiFetch<Group[]>(`/api/v1/settings/access-groups?siteId=${encodeURIComponent(siteId)}`), enabled: Boolean(siteId) && hasRole('ADMIN') });
-  const assignedAssets = data?.assets ?? [];
+  const assignedAssets = (data?.assets ?? []).filter((asset) => asset.assignedGroup !== null && asset.assignedGroup !== undefined);
   useEffect(() => { if (data?.timezone) setTimezone(data.timezone); }, [data?.timezone]);
   const saveMapping = async (event: React.FormEvent) => {
     event.preventDefault(); setNotice('');
@@ -38,8 +38,8 @@ export function CriticalAssetsPage() {
       const saved = await apiFetch<Attestation>(`/api/v1/critical-assets/${row.id}/confirm`, { method: 'POST', body: JSON.stringify({ outcome, notes: notes || undefined }) });
       queryClient.setQueriesData<Result>({ queryKey: ['critical-assets'] }, (current) => current ? {
         ...current,
-        assets: current.assets.map((device) => ({ ...device, attestations: device.attestations.map((item) => item.id === saved.id ? { ...item, ...saved } : item) })),
-        unassigned: current.unassigned.map((device) => ({ ...device, attestations: device.attestations.map((item) => item.id === saved.id ? { ...item, ...saved } : item) })),
+        assets: current.assets.map((device) => ({ ...device, attestations: device.attestations.map((item) => item.id === row.id ? { ...item, ...saved, id: row.id } : item) })),
+        unassigned: current.unassigned.map((device) => ({ ...device, attestations: device.attestations.map((item) => item.id === row.id ? { ...item, ...saved, id: row.id } : item) })),
       } : current);
     }
     catch (e) { setNotice(e instanceof Error ? e.message : 'Não foi possível registar a revisão.'); }

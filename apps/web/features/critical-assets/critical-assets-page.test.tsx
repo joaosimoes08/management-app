@@ -15,7 +15,7 @@ const renderPage = (queryClient = new QueryClient({ defaultOptions: { queries: {
 beforeEach(() => {
   vi.mocked(apiFetch).mockImplementation(async (url: string) => {
     if (url.includes('/settings/access-groups')) return [{ id: 'group-1', name: 'Network Team' }] as never;
-    if (url.endsWith('/attest-1/confirm')) return { id: 'attest-1', weekStart: '2026-11-09T00:00:00.000Z', outcome: 'CONFIRMED', notes: null, confirmedAt: '2026-11-09T10:00:00.000Z', confirmedBy: 'reviewer-1' } as never;
+    if (url.endsWith('/attest-1/confirm')) return { id: 'attest-1', siteId: 'site-1', deviceId: 'device-2', weekStart: '2026-11-09T00:00:00.000Z', outcome: 'CONFIRMED', notes: null, confirmedAt: '2026-11-09T10:00:00.000Z', confirmedBy: 'reviewer-1', createdAt: '2026-11-09T09:00:00.000Z', updatedAt: '2026-11-09T10:00:00.000Z', inventoryChanged: false } as never;
     return pageData() as never;
   });
 });
