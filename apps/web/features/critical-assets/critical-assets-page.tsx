@@ -41,7 +41,6 @@ export function CriticalAssetsPage() {
         assets: current.assets.map((device) => ({ ...device, attestations: device.attestations.map((item) => item.id === saved.id ? { ...item, ...saved } : item) })),
         unassigned: current.unassigned.map((device) => ({ ...device, attestations: device.attestations.map((item) => item.id === saved.id ? { ...item, ...saved } : item) })),
       } : current);
-      await queryClient.invalidateQueries({ queryKey: ['critical-assets'] });
     }
     catch (e) { setNotice(e instanceof Error ? e.message : 'Não foi possível registar a revisão.'); }
   };

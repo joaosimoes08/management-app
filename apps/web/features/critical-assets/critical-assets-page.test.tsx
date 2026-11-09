@@ -13,13 +13,10 @@ afterEach(cleanup);
 const pageData = () => ({ timezone: 'Europe/Lisbon', mappings: [], unassigned: [{ id: 'device-1', name: 'Unassigned switch', type: 'SWITCH', attestations: [] }], assets: [{ id: 'device-2', name: 'Core switch', type: 'SWITCH', hostname: 'core-01', managementIp: '192.0.2.1', serialNumber: 'SN-1', assetTag: 'AT-1', status: 'ACTIVE', assignedGroup: { id: 'group-1', name: 'Network Team' }, attestations: [{ id: 'attest-1', weekStart: '2026-11-09T00:00:00.000Z', outcome: undefined as string | undefined, confirmedBy: undefined as string | undefined }] }] });
 const renderPage = (queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })) => ({ ...render(<QueryClientProvider client={queryClient}><CriticalAssetsPage /></QueryClientProvider>), queryClient });
 beforeEach(() => {
-  let confirmed = false;
   vi.mocked(apiFetch).mockImplementation(async (url: string) => {
     if (url.includes('/settings/access-groups')) return [{ id: 'group-1', name: 'Network Team' }] as never;
-    if (url.endsWith('/attest-1/confirm')) { confirmed = true; return { id: 'attest-1', weekStart: '2026-11-09T00:00:00.000Z', outcome: 'CONFIRMED', notes: null, confirmedAt: '2026-11-09T10:00:00.000Z', confirmedBy: 'reviewer-1' } as never; }
-    const data = pageData();
-    if (confirmed) data.assets[0].attestations[0] = { ...data.assets[0].attestations[0], outcome: 'CONFIRMED', confirmedBy: 'reviewer-1' };
-    return data as never;
+    if (url.endsWith('/attest-1/confirm')) return { id: 'attest-1', weekStart: '2026-11-09T00:00:00.000Z', outcome: 'CONFIRMED', notes: null, confirmedAt: '2026-11-09T10:00:00.000Z', confirmedBy: 'reviewer-1' } as never;
+    return pageData() as never;
   });
 });
 
@@ -33,13 +30,25 @@ describe('CriticalAssetsPage', () => {
     expect(await findByText(/Série: SN-1 · Etiqueta: AT-1 · Estado: ACTIVE/)).toBeInTheDocument();
   });
 
+  it('counts the assigned row when the API returns no unassigned assets', async () => {
+    const data = pageData();
+    data.unassigned = [];
+    vi.mocked(apiFetch).mockImplementation(async (url: string) => url.includes('/settings/access-groups') ? [{ id: 'group-1', name: 'Network Team' }] as never : data as never);
+    const { findByRole, findByText } = renderPage();
+    const heading = await findByRole('heading', { name: '1 ativos atribuídos' });
+    expect(await findByText('Core switch')).toBeInTheDocument();
+    expect(heading.closest('.panel')?.querySelectorAll('.audit-list > .audit-row')).toHaveLength(1);
+  });
+
   it('updates the review outcome immediately in the page and all cached site queries', async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     queryClient.setQueryData(['critical-assets', 'site-2'], pageData());
-    const { findByRole, findByText } = renderPage(queryClient);
+    const { findByRole, findByText, queryByText, queryByRole } = renderPage(queryClient);
     fireEvent.click(await findByRole('button', { name: 'Confirmar' }));
     await waitFor(() => expect(apiFetch).toHaveBeenCalledWith('/api/v1/critical-assets/attest-1/confirm', expect.objectContaining({ method: 'POST', body: JSON.stringify({ outcome: 'CONFIRMED', notes: undefined }) })));
     expect(await findByText(/CONFIRMED/)).toBeInTheDocument();
+    expect(queryByText(/Pendente/)).not.toBeInTheDocument();
+    expect(queryByRole('button', { name: 'Confirmar' })).not.toBeInTheDocument();
     const otherSite = queryClient.getQueryData<ReturnType<typeof pageData>>(['critical-assets', 'site-2']);
     expect(otherSite?.assets[0].attestations[0]).toMatchObject({ outcome: 'CONFIRMED', confirmedBy: 'reviewer-1' });
   });
