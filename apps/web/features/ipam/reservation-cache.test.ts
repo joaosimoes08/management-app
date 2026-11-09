@@ -1,12 +1,12 @@
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { createElement } from 'react';
+import { createElement, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SubnetsView } from './components/subnets-view';
 import type { IpAddressRow, IpReservation } from './types';
-import { setCachedIpReservation, syncIpReservationCache } from './reservation-cache';
+import { applyIpReservationOverrides, setCachedIpReservation, syncIpReservationCache, type IpReservationOverrides } from './reservation-cache';
 
-const ip: IpAddressRow = { id: 'ip-1', address: '192.0.2.18', subnetId: 'subnet-1', state: 'FREE' };
+const ip: IpAddressRow = { id: 'ip-1', address: '192.0.2.18', subnetId: 'subnet-1', state: 'FREE', observedState: 'UNKNOWN' };
 const subnet = { id: 'subnet-1', cidr: '192.0.2.0/24', version: 4, siteId: 'site-1' };
 const reservation: IpReservation = {
   id: 'reservation-1',
@@ -94,16 +94,27 @@ describe('IP reservation cache updates', () => {
 
     function InteractionHarness() {
       const { data } = useQuery({ queryKey, queryFn: async () => ({ items: [ip] }) });
+      const [overrides, setOverrides] = useState<IpReservationOverrides>({});
       const updateReservation = async (ipRow: IpAddressRow, nextReservation: IpReservation | null) => {
-        if (nextReservation) await createReservation();
-        else await releaseReservation();
-        await syncIpReservationCache(queryClient, ipRow.id, nextReservation, async () => {
-          // A refetch can still return an older list snapshot after the mutation persisted.
-          queryClient.setQueryData(queryKey, { items: [ip] });
-        });
+        if (nextReservation) {
+          const apiReservation = await createReservation();
+          expect(apiReservation).toEqual(reservation);
+          setOverrides((current) => ({ ...current, [ipRow.id]: apiReservation }));
+        } else {
+          const apiResponse = await releaseReservation();
+          expect(apiResponse).toMatchObject({ success: true, released: true });
+          setOverrides((current) => ({ ...current, [ipRow.id]: null }));
+        }
+        await syncIpReservationCache(queryClient, ipRow.id, nextReservation, async () => undefined);
+        // Simulate a stale list response arriving after the mutation and cache sync.
+        const staleRow = nextReservation
+          ? ip
+          : { ...ip, state: 'RESERVED', reservation, reservations: [reservation] };
+        queryClient.setQueryData(queryKey, { items: [staleRow] });
       };
+      const visibleIps = applyIpReservationOverrides(data?.items ?? [], overrides);
       return createElement(SubnetsView, {
-        selected: subnet, items: [subnet], usage: null, ips: data?.items ?? [], search: '', setSearch: vi.fn(), openSubnet: vi.fn(), openHost: vi.fn(),
+        selected: subnet, items: [subnet], usage: null, ips: visibleIps, search: '', setSearch: vi.fn(), openSubnet: vi.fn(), openHost: vi.fn(),
         canEdit: true, canReserve: true, canReleaseReservations: true, siteId: 'site-1', newSubnet: vi.fn(), editSubnet: vi.fn(), removeSubnet: vi.fn(),
         editIp: vi.fn(), newIp: vi.fn(), createHost: vi.fn(),
         reserveIp: (ipRow) => { void updateReservation(ipRow, reservation); },
@@ -114,14 +125,17 @@ describe('IP reservation cache updates', () => {
     render(createElement(QueryClientProvider, { client: queryClient }, createElement(InteractionHarness)));
     fireEvent.click(await screen.findByRole('button', { name: 'Reservar 192.0.2.18' }));
 
-    expect(await screen.findByText('RESERVED / —')).toBeInTheDocument();
+    expect(await screen.findByText('RESERVED / UNKNOWN')).toBeInTheDocument();
     expect(persistedState).toBe('RESERVED');
+    expect(queryClient.getQueryData<{ items: IpAddressRow[] }>(queryKey)?.items[0]?.state).toBe('FREE');
+    expect(queryClient.getQueryData<{ items: IpAddressRow[] }>(queryKey)?.items[0]?.reservation).toBeFalsy();
     expect(screen.getByRole('button', { name: 'Libertar reserva de 192.0.2.18' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Reservar 192.0.2.18' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Libertar reserva de 192.0.2.18' }));
-    expect(await screen.findByText('FREE / —')).toBeInTheDocument();
+    expect(await screen.findByText('FREE / UNKNOWN')).toBeInTheDocument();
     expect(persistedState).toBe('FREE');
+    expect(queryClient.getQueryData<{ items: IpAddressRow[] }>(queryKey)?.items[0]).toMatchObject({ state: 'RESERVED', reservation });
     expect(screen.getByRole('button', { name: 'Reservar 192.0.2.18' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Libertar reserva de 192.0.2.18' })).not.toBeInTheDocument();
     expect(createReservation).toHaveBeenCalledOnce();
