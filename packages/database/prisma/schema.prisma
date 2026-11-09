@@ -186,6 +186,7 @@ model User {
   roles                  UserRole[]
   accessGroupMemberships AccessGroupMember[]
   auditLogs              AuditLog[]
+  createdIpReservations  IpReservation[]
   roleRequests           RoleRequest[]
   reviewedRoleRequests   RoleRequest[]               @relation("RoleRequestReviewer")
   notifications          Notification[]
@@ -1193,10 +1194,28 @@ model IpAddress {
   device             Device?          @relation(fields: [deviceId], references: [id], onDelete: SetNull)
   interface          DeviceInterface? @relation(fields: [interfaceId], references: [id], onDelete: SetNull)
   host               Host?            @relation(fields: [hostId], references: [id], onDelete: SetNull)
+  reservations       IpReservation[]
 
   @@unique([subnetId, address])
   @@index([hostname])
   @@index([version, address])
+}
+
+model IpReservation {
+  id          String     @id @default(uuid()) @db.Uuid
+  ipAddressId String     @db.Uuid
+  createdById String     @db.Uuid
+  reason      String     @db.VarChar(500)
+  expiresAt   DateTime
+  status      String     @default("ACTIVE") @db.VarChar(16)
+  releasedAt  DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  ipAddress   IpAddress  @relation(fields: [ipAddressId], references: [id], onDelete: Cascade)
+  createdBy   User       @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([status, expiresAt])
+  @@index([ipAddressId, status])
 }
 
 model NatRule {

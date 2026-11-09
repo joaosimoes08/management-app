@@ -13,13 +13,14 @@ import { useToast } from '@/components/ui/toast';
 import { getEffectiveAccess } from '@/features/infrastructure/api';
 import {
   calculateSubnets,
-  getIpAddress,
+  createIpReservation,
   getHost,
   getNetworkMap,
   getSubnet,
   getSubnetUsage,
   listIpAddresses,
   listSubnets,
+  releaseIpReservation,
   searchHosts,
 } from './api';
 import type {
@@ -38,6 +39,7 @@ import { NetworkMap } from './components/network-map';
 import { SubnetsView } from './components/subnets-view';
 import { HostPanel } from './components/host-panel';
 import { IpAddressPanel } from './components/ip-address-panel';
+import { IpReservationModal } from './components/ip-reservation-modal';
 import { CentralIpamPermissions } from './components/central-permissions';
 
 const tabs: [string, string][] = [['map', 'Mapa'], ['subnets', 'Subnets'], ['planning', 'Planeamento'], ['vrfs', 'VRFs'], ['nat', 'NAT'], ['calculator', 'Calculadora'], ['imports', 'RIPE']];
@@ -74,6 +76,7 @@ export default function IpamPage() {
   const [selectedSubnetId, setSelectedSubnetId] = useState('');
   const [hostDetailId, setHostDetailId] = useState('');
   const [ipDetail, setIpDetail] = useState<IpAddressRow | null>(null);
+  const [reservationIp, setReservationIp] = useState<IpAddressRow | null>(null);
   const [modal, setModal] = useState('');
   const [error, setError] = useState('');
   const [origin, setOrigin] = useState<{ deviceId: string; interfaceId: string } | null>(null);
@@ -132,6 +135,8 @@ export default function IpamPage() {
   const canEdit = roleCanEdit && (effective?.ipamActions ?? []).some((action) => action !== 'READ');
   const canUpdateIp = roleCanEdit && (effective?.ipamActions ?? []).includes('UPDATE');
   const canCheckIp = roleCanEdit && (effective?.ipamActions ?? []).includes('DISCOVER');
+  const canReserve = roleCanEdit && (effective?.ipamActions ?? []).includes('UPDATE');
+  const canReleaseReservations = roleCanEdit && (effective?.ipamActions ?? []).includes('UPDATE');
   const unavailableIpamActions = [
     !(effective?.ipamActions ?? []).includes('CREATE') && t('ipam.action.create'),
     !(effective?.ipamActions ?? []).includes('UPDATE') && t('ipam.action.update'),
@@ -292,7 +297,7 @@ export default function IpamPage() {
         : tab === 'map'
           ? <NetworkMap vlans={visibleVlans} canEdit={canEdit} edit={(item) => { setVlan({ id: item.id, vlanId: item.vlanId, name: item.name, description: item.description ?? '' }); setModal('vlan'); }} remove={(item) => remove(`/api/v1/vlans/${item.id}`, `Eliminar VLAN ${item.vlanId} — ${item.name}?`)} associate={(item) => { setCurrentVlan(item); setModal('association'); }} detachSubnet={(item) => void detachSubnet(item)} openSubnet={openSubnet} newVlan={() => { setVlan({ ...blankVlan }); setModal('vlan'); }} newSubnet={openNewSubnet} />
             : tab === 'subnets'
-              ? <SubnetsView selected={selected ?? null} items={visibleSubnets} usage={usage ?? null} ips={ips} search={search} setSearch={setSearch} openSubnet={openSubnet} openHost={openHost} canEdit={canEdit} siteId={siteId} newSubnet={() => openNewSubnet()} editSubnet={editSubnet} removeSubnet={(item) => void removeSubnet(item)} editIp={(ip) => { setIpDetail(ip); updateUrl({ ipId: ip.id }); rememberRecentItem(user?.id, { id: `ip:${ip.id}`, kind: t('ipam.recent.ip'), label: ip.address, href: `/ipam?siteId=${encodeURIComponent(siteId)}&subnetId=${encodeURIComponent(selectedSubnetId)}&ipId=${encodeURIComponent(ip.id)}` }); }} newIp={() => { setHost({ ...blankHost }); setModal('ip'); }} createHost={(ip) => { setHost({ name: ip.hostname || `host-${ip.address.replace(/[:.]/g, '-')}`, hostname: ip.hostname ?? '', operatingSystem: '', macAddress: ip.macAddress ?? '', notes: ip.notes ?? '', status: 'UNKNOWN', ipAddressId: ip.id }); setModal('create-host'); }} />
+              ? <SubnetsView selected={selected ?? null} items={visibleSubnets} usage={usage ?? null} ips={ips} search={search} setSearch={setSearch} openSubnet={openSubnet} openHost={openHost} canEdit={canEdit} canReserve={canReserve} canReleaseReservations={canReleaseReservations} siteId={siteId} newSubnet={() => openNewSubnet()} editSubnet={editSubnet} removeSubnet={(item) => void removeSubnet(item)} editIp={(ip) => { setIpDetail(ip); updateUrl({ ipId: ip.id }); rememberRecentItem(user?.id, { id: `ip:${ip.id}`, kind: t('ipam.recent.ip'), label: ip.address, href: `/ipam?siteId=${encodeURIComponent(siteId)}&subnetId=${encodeURIComponent(selectedSubnetId)}&ipId=${encodeURIComponent(ip.id)}` }); }} newIp={() => { setHost({ ...blankHost }); setModal('ip'); }} createHost={(ip) => { setHost({ name: ip.hostname || `host-${ip.address.replace(/[:.]/g, '-')}`, hostname: ip.hostname ?? '', operatingSystem: '', macAddress: ip.macAddress ?? '', notes: ip.notes ?? '', status: 'UNKNOWN', ipAddressId: ip.id }); setModal('create-host'); }} reserveIp={setReservationIp} releaseReservation={(ip) => { const reservation = ip.reservation ?? ip.reservations?.find((item) => item.status === 'ACTIVE'); if (!reservation) return; void releaseIpReservation(reservation.id).then(() => { success('Reserva de IP libertada', `${ip.address} está disponível novamente.`); void invalidateIpam(); }).catch((cause) => toastError('Não foi possível libertar a reserva', cause instanceof Error ? cause.message : 'Tenta novamente.')); }} />
                 : tab === 'planning'
                   ? <SubnetPlanningView subnets={visibleSubnets} />
                 : tab === 'permissions' && effective?.tabs?.permissions
@@ -301,6 +306,7 @@ export default function IpamPage() {
                   ? <CalculatorView calc={calc} setCalc={setCalc} result={calcResult} clearResult={() => setCalcResult(null)} pending={calcPending} onSubmit={calculate} />
                   : <Empty title={tabLabel} text="Esta área do IPAM está preparada para a próxima configuração." />}
       {hostDetail && <HostPanel host={hostDetail} canEdit={canEdit} close={closeHost} reload={() => openHost(hostDetail.id)} success={success} toastError={toastError} />}
+      {reservationIp && <IpReservationModal ip={reservationIp} close={() => setReservationIp(null)} submit={async (durationHours, reason) => { await createIpReservation(reservationIp.id, { durationHours, reason }); setReservationIp(null); success('IP reservado', `${reservationIp.address} foi reservado por ${durationHours} horas.`); await invalidateIpam(); }} />}
       {ipDetail && <IpAddressPanel ip={ipDetail} canUpdate={canUpdateIp} canCheck={canCheckIp} close={() => { setIpDetail(null); updateUrl({ ipId: undefined }); }} updated={(item) => { setIpDetail(item); void invalidateIpam(); }} saved={() => success('IP atualizado', 'O endereço IP foi atualizado.')} error={(message) => toastError('Operação IPAM', message)} />}
 
       {modal === 'vlan' && <IpamModal title={vlan.id ? 'Editar VLAN' : 'Criar VLAN'} close={() => setModal('')}><form className="modal-form" onSubmit={(event) => { event.preventDefault(); void save(vlan.id ? `/api/v1/vlans/${vlan.id}` : '/api/v1/vlans', { vlanId: Number(vlan.vlanId), name: vlan.name, description: vlan.description, siteId }, vlan.id ? 'PATCH' : 'POST'); }}><label>VLAN ID<input required type="number" min="1" max="4094" value={vlan.vlanId} onChange={(event) => setVlan({ ...vlan, vlanId: event.target.value })} /></label><label>Nome<input required value={vlan.name} onChange={(event) => setVlan({ ...vlan, name: event.target.value })} /></label><label>Descrição<input value={vlan.description || ''} onChange={(event) => setVlan({ ...vlan, description: event.target.value })} /></label><button className="primary-button">Guardar</button></form></IpamModal>}

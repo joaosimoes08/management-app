@@ -72,6 +72,21 @@ export interface IpAddressRow {
   subnet?: { cidr: string } | null;
   host?: { id: string; name: string; _count?: { services?: number } } | null;
   interface?: { id: string; name: string; device?: { name: string } | null } | null;
+  reservation?: IpReservation | null;
+  reservations?: IpReservation[];
+}
+
+export interface IpReservation {
+  id: string;
+  expiresAt: string;
+  reason: string;
+  createdAt?: string;
+  status?: 'ACTIVE' | 'RELEASED' | 'EXPIRED';
+}
+
+export interface CreateIpReservationInput {
+  durationHours: number;
+  reason: string;
 }
 
 export interface IpAddressInput {
