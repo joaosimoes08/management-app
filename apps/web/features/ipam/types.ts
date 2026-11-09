@@ -46,13 +46,33 @@ export interface SubnetInput {
 export interface SubnetUsage {
   subnet: Subnet;
   version: number;
-  total: number | bigint | null;
-  theoreticalCapacity: number;
+  total: number | null;
+  usableCapacity: number | null;
   known: number;
   occupied: number;
+  reserved: number;
+  excluded: number;
   free: number | null;
   byState: Record<string, number>;
   utilizationPercent: number | null;
+}
+
+export interface SubnetCapacitySample {
+  sampledAt: string;
+  version: number;
+  usableCapacity: number | null;
+  trackedAddresses: number;
+  occupiedAddresses: number;
+  reservedAddresses: number;
+  allocatedAddresses: number;
+  freeAddresses: number | null;
+  utilizationPercent: number | null;
+}
+
+export interface SubnetCapacityHistory {
+  subnet: Pick<Subnet, 'id' | 'cidr' | 'version' | 'gateway'>;
+  samples: SubnetCapacitySample[];
+  forecast: { status: 'AVAILABLE' | 'AT_CAPACITY' | 'INSUFFICIENT_HISTORY' | 'NO_GROWTH' | 'LOW_CONFIDENCE' | 'BEYOND_FORECAST_WINDOW' | 'TRACKING_ONLY'; daysUntilFull: number | null; projectedFullAt: string | null; dailyGrowth: number | null };
 }
 
 // ── IP addresses ───────────────────────────────────────────────────────────
