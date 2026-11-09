@@ -22,8 +22,13 @@ export function CriticalAssetsPage() {
   const [groupId, setGroupId] = useState('');
   const [timezone, setTimezone] = useState('Europe/Lisbon');
   const [notice, setNotice] = useState('');
-  const { data, error } = useQuery({ queryKey: ['critical-assets', siteId], queryFn: () => apiFetch<Result>(`/api/v1/critical-assets?siteId=${encodeURIComponent(siteId)}`), enabled: Boolean(siteId) });
-  const { data: groups = [] } = useQuery({ queryKey: ['critical-asset-groups', siteId], queryFn: () => apiFetch<Group[]>(`/api/v1/settings/access-groups?siteId=${encodeURIComponent(siteId)}`), enabled: Boolean(siteId) && hasRole('ADMIN') });
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
+  const { data: queryData, error: queryError } = useQuery({ queryKey: ['critical-assets', siteId], queryFn: () => apiFetch<Result>(`/api/v1/critical-assets?siteId=${encodeURIComponent(siteId)}`), enabled: Boolean(siteId) });
+  const { data: queryGroups = [] } = useQuery({ queryKey: ['critical-asset-groups', siteId], queryFn: () => apiFetch<Group[]>(`/api/v1/settings/access-groups?siteId=${encodeURIComponent(siteId)}`), enabled: Boolean(siteId) && hasRole('ADMIN') });
+  const data = hydrated ? queryData : undefined;
+  const error = hydrated ? queryError : null;
+  const groups = hydrated ? queryGroups : [];
   const assignedAssets = (data?.assets ?? []).filter((asset) => asset.assignedGroup !== null && asset.assignedGroup !== undefined);
   useEffect(() => { if (data?.timezone) setTimezone(data.timezone); }, [data?.timezone]);
   const saveMapping = async (event: React.FormEvent) => {

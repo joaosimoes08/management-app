@@ -1,5 +1,7 @@
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { hydrateRoot } from 'react-dom/client';
+import { renderToString } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/api/client';
 import { CriticalAssetsPage } from './critical-assets-page';
@@ -38,6 +40,34 @@ describe('CriticalAssetsPage', () => {
     const heading = await findByRole('heading', { name: '1 ativos atribuídos' });
     expect(await findByText('Core switch')).toBeInTheDocument();
     expect(heading.closest('.panel')?.querySelectorAll('.audit-list > .audit-row')).toHaveLength(1);
+  });
+
+  it('updates the heading and row together when hydrated query data contains the assigned asset', async () => {
+    const serverClient = new QueryClient();
+    const markup = renderToString(<QueryClientProvider client={serverClient}><CriticalAssetsPage /></QueryClientProvider>);
+    const container = document.createElement('div');
+    container.innerHTML = markup;
+    document.body.appendChild(container);
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const data = pageData();
+    data.unassigned = [];
+    client.setQueryData(['critical-assets', 'site-1'], data);
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    let root: ReturnType<typeof hydrateRoot> | undefined;
+    try {
+      await act(async () => { root = hydrateRoot(container, <QueryClientProvider client={client}><CriticalAssetsPage /></QueryClientProvider>); });
+      await waitFor(() => {
+        const weeklyPanel = [...container.querySelectorAll('section.panel')].find((section) => section.querySelector('.section-kicker')?.textContent === 'REVISÃO SEMANAL');
+        expect(weeklyPanel?.querySelector('.panel-heading h2')?.textContent).toBe('1 ativos atribuídos');
+        expect(weeklyPanel?.querySelectorAll('.audit-list > .audit-row')).toHaveLength(1);
+      });
+      expect(consoleError.mock.calls.flat().join(' ')).not.toContain('Hydration failed');
+    } finally {
+      await act(async () => { root?.unmount(); });
+      container.remove();
+      consoleError.mockRestore();
+    }
   });
 
   it('updates the review outcome immediately in the page and all cached site queries', async () => {
