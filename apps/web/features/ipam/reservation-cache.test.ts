@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { createElement, useEffect, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SubnetsView } from './components/subnets-view';
+import { IpReservationModal } from './components/ip-reservation-modal';
 import type { IpAddressRow, IpReservation } from './types';
 import { applyIpReservationOverrides, reconcileIpReservationOverrides, setCachedIpReservation, syncIpReservationCache, type IpReservationOverrideState } from './reservation-cache';
 
@@ -49,13 +50,14 @@ describe('IP reservation cache updates', () => {
     function CacheDrivenRows() {
       const { data } = useQuery({ queryKey, queryFn: () => new Promise<{ items: IpAddressRow[] }>(() => undefined) });
       const rows = data?.items ?? [];
-      return createElement(SubnetsView, {
+      const table = createElement(SubnetsView, {
         selected: subnet, items: [subnet], usage: null, ips: rows, search: '', setSearch: vi.fn(), openSubnet: vi.fn(), openHost: vi.fn(),
         canEdit: true, canReserve: true, canReleaseReservations: true, siteId: 'site-1', newSubnet: vi.fn(), editSubnet: vi.fn(), removeSubnet: vi.fn(),
         editIp: vi.fn(), newIp: vi.fn(), createHost: vi.fn(),
         reserveIp: () => { void syncIpReservationCache(queryClient, ip.id, reservation, pendingRefresh); },
         releaseReservation: () => { void syncIpReservationCache(queryClient, ip.id, null, pendingRefresh); },
       });
+      return table;
     }
 
     render(createElement(QueryClientProvider, { client: queryClient }, createElement(CacheDrivenRows)));
@@ -129,19 +131,21 @@ describe('IP reservation cache updates', () => {
     queryClient.setQueryData(queryKey, { items: [ip] });
     let persistedState = 'FREE';
     let requestEpoch = 0;
-    const createReservation = vi.fn().mockImplementation(async () => { persistedState = 'RESERVED'; return reservation; });
+    const apiReservation = { ...reservation, ipAddress: { id: ip.id, address: ip.address } };
+    const createReservation = vi.fn().mockImplementation(async () => { persistedState = 'RESERVED'; return apiReservation; });
     const releaseReservation = vi.fn().mockImplementation(async () => { persistedState = 'FREE'; return { success: true, released: true }; });
 
     function InteractionHarness() {
       const { data } = useQuery({ queryKey, queryFn: async () => ({ items: [ip], reservationRequestEpoch: requestEpoch }) });
       const [overrideState, setOverrideState] = useState<IpReservationOverrideState>({ values: {}, epochs: {} });
+      const [reservationTarget, setReservationTarget] = useState<IpAddressRow | null>(null);
       useEffect(() => {
         if (data?.items) setOverrideState((current) => reconcileIpReservationOverrides(data.items, current, data.reservationRequestEpoch));
       }, [data?.items, data?.reservationRequestEpoch]);
       const updateReservation = async (ipRow: IpAddressRow, nextReservation: IpReservation | null) => {
         if (nextReservation) {
-          const apiReservation = await createReservation();
-          expect(apiReservation).toEqual(reservation);
+          const response = await createReservation();
+          expect(response).toMatchObject({ ...reservation, ipAddress: { id: ip.id, address: ip.address } });
         } else {
           const apiResponse = await releaseReservation();
           expect(apiResponse).toMatchObject({ success: true, released: true });
@@ -164,17 +168,27 @@ describe('IP reservation cache updates', () => {
         queryClient.setQueryData(queryKey, { items: [staleRow], reservationRequestEpoch: mutationEpoch - 1 });
       };
       const visibleIps = applyIpReservationOverrides(data?.items ?? [], overrideState.values);
-      return createElement(SubnetsView, {
+      const table = createElement(SubnetsView, {
         selected: subnet, items: [subnet], usage: null, ips: visibleIps, search: '', setSearch: vi.fn(), openSubnet: vi.fn(), openHost: vi.fn(),
         canEdit: true, canReserve: true, canReleaseReservations: true, siteId: 'site-1', newSubnet: vi.fn(), editSubnet: vi.fn(), removeSubnet: vi.fn(),
         editIp: vi.fn(), newIp: vi.fn(), createHost: vi.fn(),
-        reserveIp: (ipRow) => { void updateReservation(ipRow, reservation); },
+        reserveIp: (ipRow) => setReservationTarget(ipRow),
         releaseReservation: (ipRow) => { void updateReservation(ipRow, null); },
       });
+      return createElement('div', null,
+        table,
+        reservationTarget && createElement(IpReservationModal, {
+          ip: reservationTarget,
+          close: () => setReservationTarget(null),
+          submit: async () => { await updateReservation(reservationTarget, apiReservation); setReservationTarget(null); },
+        }),
+      );
     }
 
     render(createElement(QueryClientProvider, { client: queryClient }, createElement(InteractionHarness)));
     fireEvent.click(await screen.findByRole('button', { name: 'Reservar 192.0.2.18' }));
+    fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: 'Maintenance window' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Reservar IP' }));
 
     expect(await screen.findByText('RESERVED / UNKNOWN')).toBeInTheDocument();
     expect(persistedState).toBe('RESERVED');

@@ -196,6 +196,7 @@ const enUS: LegacyDictionary = {
   'Não foi possível carregar discovery.': 'Could not load discovery.',
   'Não foi possível carregar o dispositivo.': 'Could not load the device.',
   'Não foi possível carregar o IPAM.': 'Could not load IPAM.',
+  'Não foi possível atualizar os dados de IPAM': 'Could not refresh IPAM data',
   'Não foi possível carregar os Sites.': 'Could not load Sites.',
   'Não foi possível carregar permissões.': 'Could not load permissions.',
   'Não foi possível carregar resultados.': 'Could not load results.',
