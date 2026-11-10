@@ -12,7 +12,7 @@ vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: (role: string) => role
 vi.mock('@/lib/api/client', () => ({ apiFetch: vi.fn() }));
 
 afterEach(cleanup);
-const pageData = () => ({ timezone: 'Europe/Lisbon', mappings: [], unassigned: [{ id: 'device-1', name: 'Unassigned switch', type: 'SWITCH', attestations: [] }], assets: [{ id: 'device-2', name: 'Core switch', type: 'SWITCH', hostname: 'core-01', managementIp: '192.0.2.1', serialNumber: 'SN-1', assetTag: 'AT-1', status: 'ACTIVE', assignedGroup: { id: 'group-1', name: 'Network Team' }, attestations: [{ id: 'attest-1', weekStart: '2026-11-09T00:00:00.000Z', outcome: undefined as string | undefined, confirmedBy: undefined as string | undefined }] }] });
+const pageData = () => ({ timezone: 'Europe/Lisbon', mappings: [{ id: 'mapping-1', assetType: 'SWITCH', group: { id: 'group-1', name: 'Network Team' } }], unassigned: [{ id: 'device-1', name: 'Unassigned switch', type: 'SWITCH', attestations: [] }], assets: [{ id: 'device-2', name: 'Core switch', type: 'SWITCH', hostname: 'core-01', managementIp: '192.0.2.1', serialNumber: 'SN-1', assetTag: 'AT-1', status: 'ACTIVE', assignedGroup: { id: 'group-1', name: 'Network Team' }, attestations: [{ id: 'attest-1', weekStart: '2026-11-09T00:00:00.000Z', outcome: undefined as string | undefined, confirmedBy: undefined as string | undefined }] }] });
 const renderPage = (queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })) => ({ ...render(<QueryClientProvider client={queryClient}><CriticalAssetsPage /></QueryClientProvider>), queryClient });
 beforeEach(() => {
   vi.mocked(apiFetch).mockImplementation(async (url: string) => {
@@ -39,6 +39,21 @@ describe('CriticalAssetsPage', () => {
     const { findByRole, findByText } = renderPage();
     const heading = await findByRole('heading', { name: '1 ativos atribuídos' });
     expect(await findByText('Core switch')).toBeInTheDocument();
+    expect(heading.closest('.panel')?.querySelectorAll('.audit-list > .audit-row')).toHaveLength(1);
+  });
+
+  it('uses the API mapping as the source of truth when its asset row omits assignedGroup', async () => {
+    const data = pageData();
+    data.unassigned = [];
+    data.mappings = [{ id: 'mapping-1', assetType: 'SWITCH', group: { id: 'group-1', name: 'QA Attestation Group' } }];
+    data.assets[0].name = 'QA Critical Switch 01';
+    (data.assets[0] as { assignedGroup?: { id: string; name: string } | null }).assignedGroup = null;
+    vi.mocked(apiFetch).mockImplementation(async (url: string) => url.includes('/settings/access-groups') ? [{ id: 'group-1', name: 'QA Attestation Group' }] as never : data as never);
+
+    const { findByRole, findByText } = renderPage();
+    const heading = await findByRole('heading', { name: '1 ativos atribuídos' });
+    expect(await findByText('QA Critical Switch 01')).toBeInTheDocument();
+    expect(await findByText(/SWITCH · QA Attestation Group/)).toBeInTheDocument();
     expect(heading.closest('.panel')?.querySelectorAll('.audit-list > .audit-row')).toHaveLength(1);
   });
 

@@ -29,7 +29,9 @@ export function CriticalAssetsPage() {
   const data = hydrated ? queryData : undefined;
   const error = hydrated ? queryError : null;
   const groups = hydrated ? queryGroups : [];
-  const assignedAssets = (data?.assets ?? []).filter((asset) => asset.assignedGroup !== null && asset.assignedGroup !== undefined);
+  const assignedAssets = (data?.assets ?? [])
+    .map((asset) => ({ ...asset, assignedGroup: data?.mappings.find((mapping) => mapping.assetType === asset.type)?.group ?? null }))
+    .filter((asset) => asset.assignedGroup !== null);
   useEffect(() => { if (data?.timezone) setTimezone(data.timezone); }, [data?.timezone]);
   const saveMapping = async (event: React.FormEvent) => {
     event.preventDefault(); setNotice('');
