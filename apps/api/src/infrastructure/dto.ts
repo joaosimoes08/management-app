@@ -33,6 +33,7 @@ export class CreateDeviceDto {
   @IsOptional() @IsString() frontAssetId?: string;
   @IsOptional() @IsString() managementIpAddressId?: string;
   @IsOptional() @IsString() notes?: string;
+  @IsOptional() @IsBoolean() isCritical?: boolean;
 }
 export class UpdateDeviceDto extends CreateDeviceDto {}
 

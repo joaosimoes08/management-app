@@ -1,0 +1,104 @@
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { hydrateRoot } from 'react-dom/client';
+import { renderToString } from 'react-dom/server';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { apiFetch } from '@/lib/api/client';
+import { CriticalAssetsPage } from './critical-assets-page';
+
+vi.mock('@/components/layout/app-shell', () => ({ AppShell: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
+vi.mock('@/lib/site-context', () => ({ useSiteContext: () => ({ siteId: 'site-1' }) }));
+vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: (role: string) => role === 'ADMIN' }) }));
+vi.mock('@/lib/api/client', () => ({ apiFetch: vi.fn() }));
+
+afterEach(cleanup);
+const pageData = () => ({ timezone: 'Europe/Lisbon', mappings: [{ id: 'mapping-1', assetType: 'SWITCH', group: { id: 'group-1', name: 'Network Team' } }], unassigned: [{ id: 'device-1', name: 'Unassigned switch', type: 'SWITCH', attestations: [] }], assets: [{ id: 'device-2', name: 'Core switch', type: 'SWITCH', hostname: 'core-01', managementIp: '192.0.2.1', serialNumber: 'SN-1', assetTag: 'AT-1', status: 'ACTIVE', assignedGroup: { id: 'group-1', name: 'Network Team' }, attestations: [{ id: 'attest-1', weekStart: '2026-11-09T00:00:00.000Z', outcome: undefined as string | undefined, confirmedBy: undefined as string | undefined }] }] });
+const renderPage = (queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })) => ({ ...render(<QueryClientProvider client={queryClient}><CriticalAssetsPage /></QueryClientProvider>), queryClient });
+beforeEach(() => {
+  vi.mocked(apiFetch).mockImplementation(async (url: string) => {
+    if (url.includes('/settings/access-groups')) return [{ id: 'group-1', name: 'Network Team' }] as never;
+    if (url.endsWith('/attest-1/confirm')) return { id: 'attest-1', siteId: 'site-1', deviceId: 'device-2', weekStart: '2026-11-09T00:00:00.000Z', outcome: 'CONFIRMED', notes: null, confirmedAt: '2026-11-09T10:00:00.000Z', confirmedBy: 'reviewer-1', createdAt: '2026-11-09T09:00:00.000Z', updatedAt: '2026-11-09T10:00:00.000Z', inventoryChanged: false } as never;
+    return pageData() as never;
+  });
+});
+
+describe('CriticalAssetsPage', () => {
+  it('shows the unassigned queue and the fields reviewers are asked to verify', async () => {
+    const { findByText, findByRole } = renderPage();
+    expect(await findByRole('heading', { name: /Fila sem grupo atribuído/ })).toBeInTheDocument();
+    expect(await findByRole('heading', { name: '1 ativos atribuídos' })).toBeInTheDocument();
+    expect(await findByText('Unassigned switch')).toBeInTheDocument();
+    expect(await findByText(/Hostname: core-01 · IP: 192.0.2.1/)).toBeInTheDocument();
+    expect(await findByText(/Série: SN-1 · Etiqueta: AT-1 · Estado: ACTIVE/)).toBeInTheDocument();
+  });
+
+  it('counts the assigned row when the API returns no unassigned assets', async () => {
+    const data = pageData();
+    data.unassigned = [];
+    vi.mocked(apiFetch).mockImplementation(async (url: string) => url.includes('/settings/access-groups') ? [{ id: 'group-1', name: 'Network Team' }] as never : data as never);
+    const { findByRole, findByText } = renderPage();
+    const heading = await findByRole('heading', { name: '1 ativos atribuídos' });
+    expect(await findByText('Core switch')).toBeInTheDocument();
+    expect(heading.closest('.panel')?.querySelectorAll('.audit-list > .audit-row')).toHaveLength(1);
+  });
+
+  it('uses the API mapping as the source of truth when its asset row omits assignedGroup', async () => {
+    const data = pageData();
+    data.unassigned = [];
+    data.mappings = [{ id: 'mapping-1', assetType: 'SWITCH', group: { id: 'group-1', name: 'QA Attestation Group' } }];
+    data.assets[0].name = 'QA Critical Switch 01';
+    (data.assets[0] as { assignedGroup?: { id: string; name: string } | null }).assignedGroup = null;
+    vi.mocked(apiFetch).mockImplementation(async (url: string) => url.includes('/settings/access-groups') ? [{ id: 'group-1', name: 'QA Attestation Group' }] as never : data as never);
+
+    const { findByRole, findByText } = renderPage();
+    const heading = await findByRole('heading', { name: '1 ativos atribuídos' });
+    expect(await findByText('QA Critical Switch 01')).toBeInTheDocument();
+    expect(await findByText(/SWITCH · QA Attestation Group/)).toBeInTheDocument();
+    expect(heading.closest('.panel')?.querySelectorAll('.audit-list > .audit-row')).toHaveLength(1);
+  });
+
+  it('updates the heading and row together when hydrated query data contains the assigned asset', async () => {
+    const serverClient = new QueryClient();
+    const markup = renderToString(<QueryClientProvider client={serverClient}><CriticalAssetsPage /></QueryClientProvider>);
+    const container = document.createElement('div');
+    container.innerHTML = markup;
+    document.body.appendChild(container);
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const data = pageData();
+    data.unassigned = [];
+    client.setQueryData(['critical-assets', 'site-1'], data);
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    let root: ReturnType<typeof hydrateRoot> | undefined;
+    try {
+      await act(async () => { root = hydrateRoot(container, <QueryClientProvider client={client}><CriticalAssetsPage /></QueryClientProvider>); });
+      await waitFor(() => {
+        const weeklyPanel = [...container.querySelectorAll('section.panel')].find((section) => section.querySelector('.section-kicker')?.textContent === 'REVISÃO SEMANAL');
+        expect(weeklyPanel?.querySelector('.panel-heading h2')?.textContent).toBe('1 ativos atribuídos');
+        expect(weeklyPanel?.querySelectorAll('.audit-list > .audit-row')).toHaveLength(1);
+      });
+      expect(consoleError.mock.calls.flat().join(' ')).not.toContain('Hydration failed');
+    } finally {
+      await act(async () => { root?.unmount(); });
+      container.remove();
+      consoleError.mockRestore();
+    }
+  });
+
+  it('updates the review outcome immediately in the page and all cached site queries', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(['critical-assets', 'site-2'], pageData());
+    const { findByRole, findByText, queryByText, queryByRole } = renderPage(queryClient);
+    fireEvent.click(await findByRole('button', { name: 'Confirmar' }));
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith('/api/v1/critical-assets/attest-1/confirm', expect.objectContaining({ method: 'POST', body: JSON.stringify({ outcome: 'CONFIRMED', notes: undefined }) })));
+    expect(await findByText(/CONFIRMED/)).toBeInTheDocument();
+    expect(queryByText(/Pendente/)).not.toBeInTheDocument();
+    expect(queryByRole('button', { name: 'Confirmar' })).not.toBeInTheDocument();
+    const otherSite = queryClient.getQueryData<ReturnType<typeof pageData>>(['critical-assets', 'site-2']);
+    expect(otherSite?.assets[0].attestations[0]).toMatchObject({
+      outcome: 'CONFIRMED',
+      confirmedAt: '2026-11-09T10:00:00.000Z',
+      confirmedBy: 'reviewer-1',
+    });
+  });
+});

@@ -289,6 +289,7 @@ model Site {
   city                 String?
   region               String?
   country              String?
+  timezone             String                    @default("Europe/Lisbon")
   buildings            Building[]
   subnets              Subnet[]
   vlans                Vlan[]
@@ -305,7 +306,9 @@ model Site {
   topologyMaps         TopologyMap[]
   deviceConnections    DeviceConnection[]
   inventoryFindings    InventoryFinding[]
-  changePlans          ChangePlan[]
+  criticalAssetMappings    CriticalAssetGroupMapping[]
+  criticalAssetAttestations CriticalAssetAttestation[]
+  changePlans               ChangePlan[]
   netAppIntegration    NetAppIntegration?
   createdAt            DateTime                  @default(now())
   updatedAt            DateTime                  @updatedAt
@@ -438,6 +441,7 @@ model Device {
   hostname          String?
   managementIp      String?
   notes             String?
+  isCritical        Boolean            @default(false)
   source            SourceType         @default(MANUAL)
   status            AssetStatus        @default(UNKNOWN)
   modelId           String?            @db.Uuid
@@ -467,6 +471,7 @@ model Device {
   lldpObservations  LldpObservation[]
   snmpWriteRequests SnmpWriteRequest[]
   topologyNodes     TopologyMapNode[]
+  criticalAssetAttestations CriticalAssetAttestation[]
   sourceConnections DeviceConnection[] @relation("ConnectionSourceDevice")
   targetConnections DeviceConnection[] @relation("ConnectionTargetDevice")
   createdAt         DateTime           @default(now())
@@ -1362,10 +1367,42 @@ model AccessGroup {
   description               String?
   members                   AccessGroupMember[]
   siteAssignments           AccessGroupSite[]
+  criticalAssetMappings     CriticalAssetGroupMapping[]
   infrastructurePermissions InfrastructurePermission[]
   lifecycleDates            LifecycleDate[]
   createdAt                 DateTime                   @default(now())
   updatedAt                 DateTime                   @updatedAt
+}
+
+model CriticalAssetGroupMapping {
+  id        String      @id @default(uuid()) @db.Uuid
+  siteId    String      @db.Uuid
+  assetType String
+  groupId   String      @db.Uuid
+  site      Site        @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  group     AccessGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@unique([siteId, assetType])
+  @@index([groupId])
+}
+
+model CriticalAssetAttestation {
+  id          String   @id @default(uuid()) @db.Uuid
+  deviceId    String   @db.Uuid
+  siteId      String   @db.Uuid
+  weekStart   DateTime @db.Date
+  outcome     String?
+  notes       String?
+  confirmedAt DateTime?
+  confirmedBy String?  @db.Uuid
+  createdAt   DateTime @default(now())
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  site        Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, weekStart])
+  @@index([siteId, weekStart])
 }
 
 model AccessGroupMember {
