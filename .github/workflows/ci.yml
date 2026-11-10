@@ -74,3 +74,20 @@ jobs:
         run: npm run test:http
       - name: Build API and web
         run: npm run build
+      - name: Check Bash deployment scripts and guided-flow fixtures
+        run: |
+          bash -n deploy.sh scripts/test-deploy.sh
+          ./scripts/test-deploy.sh
+
+  powershell-syntax:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse PowerShell deployment script
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD/deploy.ps1", [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { $errors | Format-List; exit 1 }

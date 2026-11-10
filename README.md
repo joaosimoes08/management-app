@@ -4,80 +4,57 @@ Plataforma de gestão de infraestrutura, IPAM e ciberdefesa.
 
 ## Deploy com Docker Compose
 
-O Compose inicia a interface web, a API, PostgreSQL, Redis, Keycloak e o serviço SNMP (worker e listener de traps). PostgreSQL, Redis, Keycloak e ficheiros carregados pela aplicação usam volumes persistentes. A API aplica as migrações Prisma pendentes antes de iniciar. As migrações não apagam dados.
+A instalação usa imagens publicadas, sem compilar o código na máquina de destino. A versão beta inicial é `beta-1.0.0-release` para API, web e SNMP, publicada para `linux/amd64` e `linux/arm64`. `.env.example` acompanha a última versão estável/release verificada; não use `main` ou `latest` como referência de uma instalação.
 
-### Pré-requisitos
+### Requisitos
 
-- Docker Engine com o plugin Docker Compose v2.
-- Pelo menos 4 GB de memória disponível para Docker.
-- Node.js 22+ para gerar o cofre SNMP local.
+- Docker Engine e Docker Compose v2 atualizados, com acesso ao Docker Hub.
+- 4 GB de memória disponível para Docker; espaço adicional para PostgreSQL, Keycloak, Redis e backups.
+- Node.js 22+ apenas na primeira instalação, para criar o cofre SNMP; OpenSSL para gerar segredos e certificados.
+- PowerShell 7+ no Windows ou Bash 4+ em Linux/macOS.
 
-### Preparar a configuração
-
-Obtenha os ficheiros `docker-compose.yml`, `.env.example` e a pasta `deploy/` deste repositório para uma pasta de deploy. A pasta `deploy/` contém o realm Keycloak e um gerador autónomo do cofre SNMP; não é necessário descarregar o código-fonte ou instalar dependências npm. Execute:
-
-```sh
-cp .env.example .env
-node deploy/generate-snmp-keyring.mjs ./secrets/snmp-keyring.json
-```
-
-O Compose descarrega as imagens publicadas em Docker Hub: `joaosimoes08/mgmt-app-api`, `joaosimoes08/mgmt-app-web` e `joaosimoes08/mgmt-app-snmp`. Esta publicação usa a tag `release-2026-11-09` nos três serviços. `DOCKERHUB_NAMESPACE` seleciona a conta/organização e `APP_IMAGE_TAG` seleciona a mesma versão; ambos podem ser alterados em `.env` para usar outra publicação compatível. A instalação não precisa do código-fonte nem compila imagens localmente. As imagens registam a revisão exata do Git no label OCI `org.opencontainers.image.revision`.
-
-Edite `.env` e substitua as palavras-passe de exemplo por valores privados e fortes, em especial `POSTGRES_PASSWORD`, `KEYCLOAK_DB_PASSWORD` e `KEYCLOAK_ADMIN_PASSWORD`. Atualize também o segredo do cliente `simoes-settings-admin` em `KEYCLOAK_ADMIN_CLIENT_SECRET` e no campo `secret` correspondente em `deploy/realm-cociber.json`; os dois valores têm de coincidir. O cofre SNMP é criado localmente em `secrets/snmp-keyring.json` e não deve ser partilhado nem publicado.
-
-As portas web, API e Keycloak ficam ligadas a `127.0.0.1` por omissão. Para uma beta usada por funcionários, coloque um proxy reverso com TLS à frente da aplicação e exponha apenas esse proxy na rede/VPN. Configure `WEB_HOST`, `API_HOST` e `KEYCLOAK_HOST` como `127.0.0.1` para manter os serviços limitados ao próprio host; o proxy pode encaminhar para as portas 3000, 3001 e 8080. Não exponha PostgreSQL nem Redis à rede.
-
-Cada instalação escolhe o seu próprio hostname e termina TLS no proxy reverso. Configure os URLs públicos que o navegador usa em `.env` (`NEXT_PUBLIC_API_URL` e `NEXT_PUBLIC_KEYCLOAK_URL`) e configure o hostname público do Keycloak em `KEYCLOAK_HOSTNAME`. Estes valores são lidos quando o container web inicia; não é necessário reconstruir a imagem. Configure ainda:
-
-- `CORS_ORIGINS` em `.env` para a origem pública da interface;
-- `OIDC_ISSUER_URL` com o endereço público do realm; mantenha `OIDC_BACKCHANNEL_URL=http://keycloak:8080/realms/COCiber` para comunicação interna entre containers;
-- os `redirectUris`, `webOrigins` e URLs de logout do cliente `simoes-web` em `deploy/realm-cociber.json`, incluindo o hostname escolhido. O ficheiro é importado apenas na inicialização de uma base Keycloak vazia.
-
-`NEXT_PUBLIC_API_URL` e `NEXT_PUBLIC_KEYCLOAK_URL` devem ser acessíveis pelo navegador dos utilizadores; use os URLs HTTPS do proxy quando o hostname for público. Ajuste `CORS_ORIGINS` para a origem web correspondente. Os URLs específicos do cliente são públicos e são servidos pelo container web em runtime.
-
-### Iniciar e verificar
+Descarregue este repositório ou copie `deploy.sh`/`deploy.ps1`, `docker-compose.yml`, `docker-compose.proxy.yml`, `.env.example`, `deploy/` e `nginx/` para uma pasta persistente. Execute o assistente:
 
 ```sh
-docker compose pull
-docker compose up -d
-docker compose ps
+chmod +x deploy.sh
+./deploy.sh
 ```
 
-Esta instalação usa as imagens publicadas; não precisa do código-fonte para iniciar. Para atualizar, altere `APP_IMAGE_TAG` em `.env`, depois execute `docker compose pull && docker compose up -d`.
+No Windows, abra PowerShell 7 nessa pasta e execute `./deploy.ps1`. O assistente pergunta se é uma instalação nova ou atualização e permite `install`, `update` ou `check` como argumento. Verifica Docker/Compose, existência da tag nos três repositórios e manifestos AMD64/ARM64, renderiza a configuração antes de aplicar e pede confirmação. Para instalação inicial, copia `.env.example`, gera segredos locais fortes e cria o cofre SNMP. Numa atualização, faz cópia datada de `.env`, preserva valores existentes e acrescenta apenas as novas chaves de configuração. O tag alvo é apresentado para revisão.
 
-Abra <http://localhost:3000>. A consola Keycloak está em <http://localhost:8080>; a conta inicial usa `KEYCLOAK_ADMIN_USERNAME` e `KEYCLOAK_ADMIN_PASSWORD`. Crie os utilizadores da equipa no realm `COCiber` e atribua-lhes os papéis adequados. O endpoint de saúde público da API é <http://localhost:3001/api/v1/health> e o Swagger é <http://localhost:3001/api>.
+No primeiro arranque, o assistente cria `deploy/realm-cociber.generated.json` com o segredo de cliente que corresponde ao `.env`; o ficheiro é local, ignorado pelo Git e usado para importar o realm numa base Keycloak vazia. Proteja a pasta de deploy e guarde as cópias fora do servidor.
 
-Verificações rápidas:
+O modo `update` tenta criar cópias SQL da base da aplicação e do Keycloak antes de aplicar uma nova imagem. Se uma cópia falhar, a atualização para. Guarde também os backups fora do host. Não use `docker compose down -v`: isso apaga volumes persistentes.
 
-```sh
-docker compose ps
-curl -fsS http://localhost:3001/api/v1/health
-curl -fsS http://localhost:3000/ -o /dev/null
-curl -fsS http://localhost:8080/realms/COCiber/.well-known/openid-configuration -o /dev/null
-```
+### HTTPS e proxy reverso opcional
 
-`api` e `web` devem aparecer como `healthy`; PostgreSQL e Redis também têm health checks. Keycloak pode levar mais tempo a importar o realm na primeira execução. Consulte os logs com `docker compose logs -f api web keycloak`.
+O assistente pergunta se deve ativar nginx e, se sim, se quer HTTPS. Sem HTTPS, o proxy usa HTTP. Com HTTPS, escolha uma CA ou certificado self-signed. Para CA, é gerada uma chave privada local e um CSR com todos os SANs DNS/IP indicados; envie apenas o CSR à CA. Consulte o guia configurável por `CA_GUIDE_URL` (por omissão, esta secção do README), coloque a cadeia assinada em `certificates/fullchain.pem` e mantenha a chave correspondente em `certificates/privkey.pem`. A pasta é montada como somente leitura. O script valida validade, SAN do hostname e correspondência da chave antes de iniciar serviços. Não substitua uma chave/certificado existente sem cópia e revisão.
 
-### SNMP
+A opção self-signed gera um certificado de 365 dias com os SANs indicados. Navegadores e clientes não confiarão nele até o certificado ser adicionado ao respetivo trust store. Renovação e instalação de certificados emitidos por CA são operações manuais nesta versão. Configure DNS/firewall para encaminhar apenas o tráfego público necessário ao proxy; as bases de dados e Redis não são expostos à rede.
 
-O serviço SNMP partilha PostgreSQL, Redis e o cofre local `secrets/snmp-keyring.json` com a API. O listener recebe traps UDP na porta do host definida por `SNMP_TRAP_HOST_PORT` (por omissão 162) e expõe o health check apenas no host na porta 3002. A porta UDP 162 pode exigir permissões de administrador ou já estar ocupada; escolha uma porta livre (por exemplo 1162) e configure os equipamentos para a usar. O host agent de descoberta de interfaces continua a ser executado no host, pois depende das interfaces e do socket Docker do host; consulte a documentação SNMP em `docs/`.
+A configuração nginx atual encaminha a interface, `/api/` e `/realms/`. Se a instalação usar outros hostnames públicos para API ou Keycloak, configure-os no DNS/proxy e ajuste `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_KEYCLOAK_URL`, `KEYCLOAK_HOSTNAME`, `OIDC_ISSUER_URL` e `CORS_ORIGINS` no `.env`. O hostname/URLs do realm e os redirect URIs do cliente `simoes-web` devem corresponder ao domínio público. A importação de realm só ocorre quando a base Keycloak está vazia.
+
+### Atualizações, migrações e recuperação
+
+Revise as notas da versão e confirme backups recentes/testados antes de mudar `APP_IMAGE_TAG`. A API executa `prisma migrate deploy` ao arrancar; alterações de esquema podem não permitir reverter apenas as imagens. Se a atualização falhar, consulte `docker compose ps` e `docker compose logs --tail=200 api web keycloak`, corrija o problema e restaure backups compatíveis antes de reverter para a versão anterior. O assistente guarda uma cópia datada de `.env`; use-a para recuperar a configuração, mas não restaure uma base sem avaliar a compatibilidade com a versão-alvo. As cópias SQL ficam em `backups/` e devem ser transferidas para armazenamento protegido fora do servidor.
 
 ### Operação e resolução de problemas
 
-- Ver todos os serviços e estado: `docker compose ps`.
-- Ver logs: `docker compose logs -f [serviço]`.
-- Aplicar alterações de `.env`: `docker compose up -d`.
-- Atualizar as imagens: altere `APP_IMAGE_TAG`, execute `docker compose pull && docker compose up -d`; a API executa `prisma migrate deploy` antes de arrancar.
-- Parar sem apagar dados: `docker compose down`.
-- As bases de dados e assets persistem em volumes Docker. **Não use `docker compose down -v`** numa instalação com dados que queira manter.
-- Faça e teste backups de PostgreSQL e da base Keycloak antes de atualizar a aplicação. Exemplo de cópia SQL local: `mkdir -p backups && chmod 700 backups && docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > "backups/app-$(date +%F-%H%M%S).sql"`; repita com `keycloak-db` para guardar as contas e configuração de identidade. Guarde as cópias fora do host de execução.
-- Se uma porta já estiver ocupada, altere a porta correspondente no `.env` (`WEB_PORT`, `API_PORT_HOST`, `KEYCLOAK_PORT`, `SNMP_HEALTH_HOST_PORT` ou `SNMP_TRAP_HOST_PORT`).
-- Se a API não ficar saudável, veja `docker compose logs api postgres`; erros de migração normalmente indicam credenciais inválidas, PostgreSQL ainda indisponível ou uma migration incompleta.
-- Se o login falhar atrás de um hostname próprio, confirme issuer, hostname do Keycloak, URL pública, CORS e redirect URI do cliente `simoes-web` no realm importado.
+- Estado: `docker compose ps`.
+- Logs: `docker compose logs -f [serviço]`.
+- Reiniciar: `docker compose restart [serviço]`.
+- Atualizar imagens: `docker compose pull` e depois `docker compose up -d`; faça backup primeiro.
+- Parar sem apagar dados: `docker compose down`; os volumes nomeados são preservados.
+- Verificação: `curl -fsS http://localhost:3001/api/v1/health` e `curl -fsS http://localhost:3000/ -o /dev/null`.
+- Se a API não ficar saudável, veja logs de `api` e `postgres`; confirme também espaço em disco e credenciais de banco.
+- Se o login falhar, compare issuer, hostname, URLs públicos, CORS e redirect URIs do realm.
+- A porta UDP SNMP predefinida é 162 e pode exigir privilégios ou estar ocupada; escolha outra com `SNMP_TRAP_HOST_PORT` se necessário.
+
+A API, web, PostgreSQL e Redis têm verificações de saúde; o assistente apresenta o estado Compose após aplicar. Keycloak pode demorar a importar o realm na primeira execução. A instalação mantém portas web/API/Keycloak ligadas a localhost por omissão; para acesso público, use o proxy TLS e não exponha PostgreSQL ou Redis.
 
 ### Gate de segurança para a beta
 
-Antes de permitir acesso de funcionários, confirme que todas as palavras-passe e segredos de exemplo foram substituídos, `AUTH_DISABLED=false`, `SNMP_SELF_TEST_ENABLED=false` e `SNMP_SELF_TEST_ALLOW_TRANSLATED_SOURCE=false`. O lockfile atual ainda reporta dependências runtime vulneráveis em `npm audit --omit=dev` (incluindo alertas críticos); faça a atualização e validação dessas dependências antes de expor o serviço.
+Antes de permitir acesso de funcionários, confirme que todas as palavras-passe e segredos foram substituídos, `AUTH_DISABLED=false`, `SNMP_SELF_TEST_ENABLED=false` e `SNMP_SELF_TEST_ALLOW_TRANSLATED_SOURCE=false`. O lockfile atual ainda reporta dependências runtime vulneráveis em `npm audit --omit=dev` (incluindo alertas críticos); faça a atualização e validação dessas dependências antes de expor o serviço.
 
 ## Desenvolvimento local sem containers de aplicação
 

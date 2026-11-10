@@ -39,3 +39,6 @@ Thumbs.db
 # Private transfer bundle and local-only configuration
 transfer/
 secrets/
+deploy/realm-cociber.generated.json
+nginx/runtime.conf
+certificates/
