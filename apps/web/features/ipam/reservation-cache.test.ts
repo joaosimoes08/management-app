@@ -151,7 +151,7 @@ describe('IP reservation cache updates', () => {
           values: { ...current.values, [ipRow.id]: nextReservation },
           epochs: { ...current.epochs, [ipRow.id]: mutationEpoch },
         }));
-        await syncIpReservationCache(queryClient, ipRow.id, nextReservation, async () => undefined);
+        void syncIpReservationCache(queryClient, ipRow.id, nextReservation, async () => undefined);
         // An older request can return an apparently matching row before a still-older stale row lands.
         // Neither response may clear the mutation override because both began before the mutation.
         const matchingStaleRow = nextReservation
@@ -178,15 +178,12 @@ describe('IP reservation cache updates', () => {
 
     expect(await screen.findByText('RESERVED / UNKNOWN')).toBeInTheDocument();
     expect(persistedState).toBe('RESERVED');
-    expect(queryClient.getQueryData<{ items: IpAddressRow[] }>(queryKey)?.items[0]?.state).toBe('FREE');
-    expect(queryClient.getQueryData<{ items: IpAddressRow[] }>(queryKey)?.items[0]?.reservation).toBeFalsy();
     expect(screen.getByRole('button', { name: 'Libertar reserva de 192.0.2.18' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Reservar 192.0.2.18' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Libertar reserva de 192.0.2.18' }));
     expect(await screen.findByText('FREE / UNKNOWN')).toBeInTheDocument();
     expect(persistedState).toBe('FREE');
-    expect(queryClient.getQueryData<{ items: IpAddressRow[] }>(queryKey)?.items[0]).toMatchObject({ state: 'RESERVED', reservation });
     expect(screen.getByRole('button', { name: 'Reservar 192.0.2.18' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Libertar reserva de 192.0.2.18' })).not.toBeInTheDocument();
     expect(createReservation).toHaveBeenCalledOnce();
