@@ -6,7 +6,7 @@ import { decryptCredential, encryptCredential, loadKeyring, rewrapCredential, SN
 import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { InfrastructureAccessService } from '../infrastructure/infrastructure-access.service';
-import { AcceptSnmpEnrollmentDto, CreateSnmpCredentialDto, CreateSnmpTrapEnrollmentDto, CreateSnmpWritePreviewDto, ReviewSnmpDriftDto, SnmpCredentialSecretDto, SnmpOnboardingDeviceDto, UpsertSnmpConfigDto } from './dto';
+import { AcceptSnmpEnrollmentDto, AcknowledgeSnmpWriteImpactDto, CreateSnmpCredentialDto, CreateSnmpTrapEnrollmentDto, CreateSnmpWritePreviewDto, ReviewSnmpDriftDto, SnmpCredentialSecretDto, SnmpOnboardingDeviceDto, UpsertSnmpConfigDto } from './dto';
 import { interfaceTrafficRates } from './metrics';
 
 @Injectable()
@@ -226,32 +226,82 @@ export class SnmpService implements OnModuleDestroy, OnModuleInit {
   }
 
   async previewWrite(deviceId: string, dto: CreateSnmpWritePreviewDto, user: AuthenticatedUser) {
-    await this.device(deviceId, user, 'UPDATE');
+    const device = await this.device(deviceId, user, 'UPDATE');
     let template;
     try { template = validateSetTemplate({ operation: dto.operation, ...dto.parameters }); }
     catch { throw new BadRequestException({ code: 'SNMP_SET_TEMPLATE_INVALID', message: 'Os parâmetros do template SNMP SET são inválidos.' }); }
+    let impactPreview: Record<string, unknown>;
     if (template.operation === 'INTERFACE_ADMIN_STATUS') {
-      const belongsToDevice = await this.prisma.deviceInterface.count({ where: { id: template.interfaceId, deviceId } });
-      if (!belongsToDevice) throw new BadRequestException({ code: 'SNMP_INTERFACE_DEVICE_MISMATCH', message: 'A interface não pertence ao equipamento selecionado.' });
+      const iface = await this.prisma.deviceInterface.findUnique({ where: { id: template.interfaceId }, select: { id: true, name: true, deviceId: true } });
+      if (!iface || iface.deviceId !== deviceId) throw new BadRequestException({ code: 'SNMP_INTERFACE_DEVICE_MISMATCH', message: 'A interface não pertence ao equipamento selecionado.' });
+      impactPreview = await this.interfaceImpactPreview(device, iface, user);
+    } else {
+      impactPreview = { applicable: false, summary: 'Esta operação não altera o estado de uma interface.', knownImpacts: [], coverage: { status: 'NOT_APPLICABLE', reason: 'A alteração de identidade não afeta ligações de rede.' } };
     }
-    const item = await this.prisma.snmpWriteRequest.create({ data: { deviceId, operation: dto.operation, parameters: template as any, desiredValues: template as any, requestedBy: user.id, status: 'PREVIEW' } });
-    await this.log(user, 'SNMP_SET_PREVIEW_CREATED', 'SnmpWriteRequest', item.id, { deviceId, operation: dto.operation });
+    const item = await this.prisma.snmpWriteRequest.create({ data: { deviceId, operation: dto.operation, parameters: template as any, desiredValues: template as any, impactPreview: impactPreview as any, requestedBy: user.id, status: 'PREVIEW' } });
+    await this.log(user, 'SNMP_SET_PREVIEW_CREATED', 'SnmpWriteRequest', item.id, { deviceId, operation: dto.operation, impactStatus: impactPreview.coverage && (impactPreview.coverage as any).status });
     return item;
   }
 
-  async executeWrite(id: string, user: AuthenticatedUser) {
+  private async interfaceImpactPreview(device: { id: string; name: string; siteId: string | null }, iface: { id: string; name: string; deviceId: string }, user: AuthenticatedUser) {
+    const now = new Date();
+    const [snapshot, connections, observations] = await Promise.all([
+      this.prisma.snmpSnapshot.findFirst({ where: { deviceId: iface.deviceId }, orderBy: { observedAt: 'desc' }, select: { observedAt: true } }),
+      (this.prisma as any).deviceConnection.findMany({
+        where: { OR: [{ sourceInterfaceId: iface.id }, { targetInterfaceId: iface.id }] },
+        include: { sourceDevice: { select: { id: true, name: true, type: true } }, targetDevice: { select: { id: true, name: true, type: true } }, sourceInterface: { select: { name: true } }, targetInterface: { select: { name: true } } },
+      }),
+      (this.prisma as any).lldpObservation.findMany({ where: { deviceId: iface.deviceId, OR: [{ localPortId: iface.name }, { localPortDescription: iface.name }] }, orderBy: { observedAt: 'desc' }, take: 20, select: { resolvedDeviceId: true, remoteSystemName: true, observedAt: true } }),
+    ]);
+    const knownImpacts: Array<{ id: string; name: string; type: string; href: string; source: string; observedAt?: string }> = [];
+    let inaccessibleRelationships = 0;
+    for (const link of connections) {
+      const peer = link.sourceInterfaceId === iface.id ? link.targetDevice : link.sourceDevice;
+      const peerInterface = link.sourceInterfaceId === iface.id ? link.targetInterface : link.sourceInterface;
+      try {
+        await this.access.assertDevice(user, 'READ', peer.id);
+        knownImpacts.push({ id: peer.id, name: peer.name, type: peer.type, href: `/infraestrutura?siteId=${encodeURIComponent(device.siteId ?? '')}&tab=interfaces&deviceId=${encodeURIComponent(peer.id)}${peerInterface?.name ? `&interfaceName=${encodeURIComponent(peerInterface.name)}` : ''}`, source: 'DOCUMENTED_CONNECTION' });
+      } catch { inaccessibleRelationships++; }
+    }
+    for (const observation of observations) {
+      if (!observation.resolvedDeviceId || knownImpacts.some((item) => item.id === observation.resolvedDeviceId)) continue;
+      try { await this.access.assertDevice(user, 'READ', observation.resolvedDeviceId); }
+      catch { inaccessibleRelationships++; continue; }
+      knownImpacts.push({ id: observation.resolvedDeviceId, name: observation.remoteSystemName || 'Dispositivo observado por LLDP', type: 'NETWORK_DEVICE', href: `/infraestrutura?siteId=${encodeURIComponent(device.siteId ?? '')}&tab=devices&deviceId=${encodeURIComponent(observation.resolvedDeviceId)}`, source: 'LLDP_OBSERVATION', observedAt: observation.observedAt.toISOString() });
+    }
+    const snapshotAgeMs = snapshot ? now.getTime() - snapshot.observedAt.getTime() : null;
+    const stale = snapshotAgeMs === null || snapshotAgeMs > 24 * 60 * 60 * 1000;
+    const unresolvedLldp = observations.length > 0 && observations.some((item: any) => !item.resolvedDeviceId);
+    return {
+      applicable: true,
+      summary: knownImpacts.length ? `${knownImpacts.length} dispositivo(s) relacionado(s) identificado(s).` : 'Não foi possível confirmar que esta porta não afeta outros dispositivos.',
+      knownImpacts,
+      coverage: {
+        status: stale ? 'STALE' : knownImpacts.length || inaccessibleRelationships ? 'PARTIAL' : 'UNKNOWN',
+        source: 'SNMP_AND_TOPOLOGY',
+        lastObservedAt: snapshot?.observedAt?.toISOString() ?? null,
+        reason: stale ? 'A recolha SNMP não existe ou tem mais de 24 horas; a cobertura pode estar desatualizada.' : inaccessibleRelationships ? 'Existem relações que não podem ser apresentadas com o teu âmbito de acesso; a cobertura está incompleta.' : knownImpacts.length ? 'As ligações documentadas são apresentadas; a topologia pode não incluir todas as dependências.' : unresolvedLldp ? 'Há vizinhos observados que não foram associados a um dispositivo conhecido.' : 'Não há uma ligação documentada para confirmar o impacto. Ausência de ligações não significa impacto zero.',
+      },
+    };
+  }
+
+  async executeWrite(id: string, dto: AcknowledgeSnmpWriteImpactDto, user: AuthenticatedUser) {
     if (process.env.SNMP_SET_ENABLED !== 'true') throw new ForbiddenException({ code: 'SNMP_SET_DISABLED', message: 'As operações SNMP SET estão desativadas.' });
     const request = await this.prisma.snmpWriteRequest.findUnique({ where: { id } });
     if (!request) throw new NotFoundException('Pedido SNMP SET não encontrado');
     if (request.status !== 'PREVIEW') throw new ConflictException({ code: 'SNMP_SET_REQUEST_NOT_PREVIEW', message: 'O pedido já foi submetido.' });
     await this.device(request.deviceId, user, 'UPDATE');
+    if (!dto.impactAcknowledged) throw new ConflictException({ code: 'SNMP_SET_IMPACT_ACK_REQUIRED', message: 'Confirma que revesteu a pré-visualização de impacto antes de submeter.' });
+    if (!request.impactPreview) throw new ConflictException({ code: 'SNMP_SET_IMPACT_PREVIEW_MISSING', message: 'Cria novamente a pré-visualização de impacto antes de submeter.' });
+    if (Date.now() - request.requestedAt.getTime() > 15 * 60 * 1000) throw new ConflictException({ code: 'SNMP_SET_PREVIEW_EXPIRED', message: 'A pré-visualização expirou. Cria uma nova antes de submeter.' });
     const credential = await this.prisma.snmpCredential.findUnique({ where: { deviceId_purpose: { deviceId: request.deviceId, purpose: 'WRITE' } } });
     if (!credential) throw new ConflictException({ code: 'SNMP_WRITE_CREDENTIAL_REQUIRED', message: 'Configura uma credencial de escrita separada.' });
     const { job, updated } = await this.prisma.$transaction(async (tx) => {
-      const claimed = await tx.snmpWriteRequest.updateMany({ where: { id, status: 'PREVIEW' }, data: { status: 'PENDING' } });
+      const claimed = await tx.snmpWriteRequest.updateMany({ where: { id, status: 'PREVIEW' }, data: { status: 'PENDING', previewAcknowledgedAt: new Date(), previewAcknowledgedBy: user.id } });
       if (claimed.count !== 1) throw new ConflictException({ code: 'SNMP_SET_REQUEST_ALREADY_CLAIMED', message: 'O pedido já foi submetido.' });
       const job = await tx.snmpJob.create({ data: { deviceId: request.deviceId, credentialId: credential.id, type: 'SET', requestedBy: user.id } });
       const updated = await tx.snmpWriteRequest.update({ where: { id }, data: { jobId: job.id } });
+      await this.audit.recordInTransaction(tx, { userId: user.id, action: 'SNMP_SET_IMPACT_ACKNOWLEDGED', entityType: 'SnmpWriteRequest', entityId: id, metadata: { deviceId: request.deviceId, operation: request.operation, impactPreview: request.impactPreview } });
       return { job, updated };
     });
     await this.queue.add(SNMP_JOB_NAMES.set, snmpPayload(job.id), { jobId: job.id, attempts: 1, removeOnComplete: 100, removeOnFail: 100 });
