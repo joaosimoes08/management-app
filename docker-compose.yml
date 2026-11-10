@@ -65,15 +65,16 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USERNAME:-kc-admin}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-change-me-keycloak-admin}
       KC_HOSTNAME: ${KEYCLOAK_HOSTNAME:-http://localhost:8080}
+      KC_PROXY_HEADERS: xforwarded
       KC_HTTP_ENABLED: "true"
     command: ["start-dev", "--import-realm"]
     ports:
       - "${KEYCLOAK_HOST:-127.0.0.1}:${KEYCLOAK_PORT:-8080}:8080"
     volumes:
-      - ./deploy/realm-cociber.json:/opt/keycloak/data/import/realm-cociber.json:ro
+      - ${KEYCLOAK_REALM_FILE:-./deploy/realm-cociber.json}:/opt/keycloak/data/import/realm-cociber.json:ro
 
   api:
-    image: ${DOCKERHUB_NAMESPACE:-joaosimoes08}/mgmt-app-api:${APP_IMAGE_TAG:-release-2026-11-09}
+    image: ${DOCKERHUB_NAMESPACE:-joaosimoes08}/mgmt-app-api:${APP_IMAGE_TAG:-beta-1.0.0-release}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -113,7 +114,7 @@ services:
       start_period: 45s
 
   web:
-    image: ${DOCKERHUB_NAMESPACE:-joaosimoes08}/mgmt-app-web:${APP_IMAGE_TAG:-release-2026-11-09}
+    image: ${DOCKERHUB_NAMESPACE:-joaosimoes08}/mgmt-app-web:${APP_IMAGE_TAG:-beta-1.0.0-release}
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
       NEXT_PUBLIC_KEYCLOAK_URL: ${NEXT_PUBLIC_KEYCLOAK_URL:-http://localhost:8080}
@@ -138,7 +139,7 @@ services:
       start_period: 30s
 
   snmp:
-    image: ${DOCKERHUB_NAMESPACE:-joaosimoes08}/mgmt-app-snmp:${APP_IMAGE_TAG:-release-2026-11-09}
+    image: ${DOCKERHUB_NAMESPACE:-joaosimoes08}/mgmt-app-snmp:${APP_IMAGE_TAG:-beta-1.0.0-release}
     restart: unless-stopped
     depends_on:
       postgres:
