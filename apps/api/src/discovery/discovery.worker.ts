@@ -8,6 +8,7 @@ import { hostsFor } from './discovery-network';
 import { runAuditRetentionCleanup } from '../audit/audit-retention';
 import { assertDiscoveryAllowed, normalizeDiscoveryPorts, parseNetwork } from './discovery-policy';
 import { runInventoryQualityReconciliation } from '../inventory-quality/inventory-quality.service';
+import { deliverLifecycleReminders } from '../infrastructure/lifecycle-reminders';
 
 const execFileAsync = promisify(execFile);
 const prisma = new PrismaClient();
@@ -73,6 +74,7 @@ const worker = new Worker<DiscoveryData>('discovery', processJob, { connection, 
 const maintenanceWorker = new Worker('maintenance', async (job) => {
   if (job.name === 'audit-retention-cleanup') return runAuditRetentionCleanup(prisma);
   if (job.name === 'inventory-quality-reconcile') return runInventoryQualityReconciliation(prisma, typeof job.data?.siteId === 'string' ? job.data.siteId : undefined);
+  if (job.name === 'lifecycle-reminders') return deliverLifecycleReminders(prisma);
 }, { connection, concurrency: 1 });
 worker.on('completed', (job) => console.info(`[discovery-worker] concluído ${job.id}`));
 worker.on('failed', (job, error) => console.error(`[discovery-worker] falhou ${job?.id}:`, error.message));

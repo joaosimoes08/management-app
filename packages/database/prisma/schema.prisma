@@ -208,6 +208,8 @@ model User {
   roleRequests           RoleRequest[]
   reviewedRoleRequests   RoleRequest[]               @relation("RoleRequestReviewer")
   notifications          Notification[]
+  lifecycleDatesAssigned LifecycleDate[] @relation("LifecycleDateResponsibleUser")
+  lifecycleReminderDeliveries LifecycleReminderDelivery[]
   alertStates            OperationalAlertUserState[]
   acknowledgedAlerts     OperationalAlert[]          @relation("AlertAcknowledgedBy")
   resolvedAlerts         OperationalAlert[]          @relation("AlertResolvedBy")
@@ -287,6 +289,7 @@ model Site {
   city                 String?
   region               String?
   country              String?
+  timezone             String                    @default("Europe/Lisbon")
   buildings            Building[]
   subnets              Subnet[]
   vlans                Vlan[]
@@ -303,7 +306,9 @@ model Site {
   topologyMaps         TopologyMap[]
   deviceConnections    DeviceConnection[]
   inventoryFindings    InventoryFinding[]
-  changePlans          ChangePlan[]
+  criticalAssetMappings    CriticalAssetGroupMapping[]
+  criticalAssetAttestations CriticalAssetAttestation[]
+  changePlans               ChangePlan[]
   netAppIntegration    NetAppIntegration?
   createdAt            DateTime                  @default(now())
   updatedAt            DateTime                  @updatedAt
@@ -436,6 +441,7 @@ model Device {
   hostname          String?
   managementIp      String?
   notes             String?
+  isCritical        Boolean            @default(false)
   source            SourceType         @default(MANUAL)
   status            AssetStatus        @default(UNKNOWN)
   modelId           String?            @db.Uuid
@@ -451,6 +457,7 @@ model Device {
   site              Site?              @relation(fields: [siteId], references: [id], onDelete: SetNull)
   rack              Rack?              @relation(fields: [rackId], references: [id], onDelete: SetNull)
   interfaces        DeviceInterface[]
+  lifecycleDates   LifecycleDate[]
   ipAddresses       IpAddress[]
   host              Host?
   natRules          NatRule[]
@@ -464,6 +471,7 @@ model Device {
   lldpObservations  LldpObservation[]
   snmpWriteRequests SnmpWriteRequest[]
   topologyNodes     TopologyMapNode[]
+  criticalAssetAttestations CriticalAssetAttestation[]
   sourceConnections DeviceConnection[] @relation("ConnectionSourceDevice")
   targetConnections DeviceConnection[] @relation("ConnectionTargetDevice")
   createdAt         DateTime           @default(now())
@@ -472,6 +480,41 @@ model Device {
   @@unique([siteId, managementIp])
   @@index([type, status])
   @@index([siteId])
+}
+
+model LifecycleDate {
+  id                  String   @id @default(uuid()) @db.Uuid
+  deviceId            String   @db.Uuid
+  kind                String
+  dueDate             DateTime @db.Date
+  reminderDays        Json     @default("[30,7,0]")
+  responsibleUserId   String?  @db.Uuid
+  responsibleGroupId  String?  @db.Uuid
+  device              Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  responsibleUser     User?    @relation("LifecycleDateResponsibleUser", fields: [responsibleUserId], references: [id], onDelete: SetNull)
+  responsibleGroup   AccessGroup? @relation(fields: [responsibleGroupId], references: [id], onDelete: SetNull)
+  deliveries          LifecycleReminderDelivery[]
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([deviceId, kind])
+  @@index([dueDate, kind])
+  @@index([responsibleGroupId])
+  @@index([responsibleUserId])
+}
+
+model LifecycleReminderDelivery {
+  id              String        @id @default(uuid()) @db.Uuid
+  lifecycleDateId String        @db.Uuid
+  recipientUserId String        @db.Uuid
+  reminderDays    Int
+  dueDate         DateTime      @db.Date
+  deliveredAt     DateTime      @default(now())
+  lifecycleDate   LifecycleDate @relation(fields: [lifecycleDateId], references: [id], onDelete: Cascade)
+  recipientUser   User          @relation(fields: [recipientUserId], references: [id], onDelete: Cascade)
+
+  @@unique([lifecycleDateId, recipientUserId, reminderDays, dueDate])
+  @@index([deliveredAt])
 }
 
 model Host {
@@ -1342,9 +1385,42 @@ model AccessGroup {
   description               String?
   members                   AccessGroupMember[]
   siteAssignments           AccessGroupSite[]
+  criticalAssetMappings     CriticalAssetGroupMapping[]
   infrastructurePermissions InfrastructurePermission[]
+  lifecycleDates            LifecycleDate[]
   createdAt                 DateTime                   @default(now())
   updatedAt                 DateTime                   @updatedAt
+}
+
+model CriticalAssetGroupMapping {
+  id        String      @id @default(uuid()) @db.Uuid
+  siteId    String      @db.Uuid
+  assetType String
+  groupId   String      @db.Uuid
+  site      Site        @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  group     AccessGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@unique([siteId, assetType])
+  @@index([groupId])
+}
+
+model CriticalAssetAttestation {
+  id          String   @id @default(uuid()) @db.Uuid
+  deviceId    String   @db.Uuid
+  siteId      String   @db.Uuid
+  weekStart   DateTime @db.Date
+  outcome     String?
+  notes       String?
+  confirmedAt DateTime?
+  confirmedBy String?  @db.Uuid
+  createdAt   DateTime @default(now())
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  site        Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, weekStart])
+  @@index([siteId, weekStart])
 }
 
 model AccessGroupMember {
