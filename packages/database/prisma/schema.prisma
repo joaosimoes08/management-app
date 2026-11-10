@@ -24,6 +24,24 @@ enum IpState {
   UNKNOWN
 }
 
+enum ChangePlanStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum ChangeEntityType {
+  DEVICE
+  INTERFACE
+  VLAN
+  SUBNET
+  IP_ADDRESS
+  HOST
+  SERVICE
+}
+
 enum SourceType {
   MANUAL
   SNMP
@@ -186,6 +204,7 @@ model User {
   roles                  UserRole[]
   accessGroupMemberships AccessGroupMember[]
   auditLogs              AuditLog[]
+  createdIpReservations  IpReservation[]
   roleRequests           RoleRequest[]
   reviewedRoleRequests   RoleRequest[]               @relation("RoleRequestReviewer")
   notifications          Notification[]
@@ -199,6 +218,8 @@ model User {
   deviceConnections      DeviceConnection[]          @relation("DeviceConnectionCreatedBy")
   assignedFindings       InventoryFinding[]          @relation("FindingAssignee")
   acknowledgedFindings   InventoryFinding[]          @relation("FindingAcknowledgedBy")
+  createdChangePlans     ChangePlan[]                @relation("ChangePlanCreator")
+  reviewedChangePlans    ChangePlan[]                @relation("ChangePlanReviewer")
   createdAt              DateTime                    @default(now())
   updatedAt              DateTime                    @updatedAt
 }
@@ -283,8 +304,9 @@ model Site {
   topologyMaps         TopologyMap[]
   deviceConnections    DeviceConnection[]
   inventoryFindings    InventoryFinding[]
-  criticalAssetMappings CriticalAssetGroupMapping[]
+  criticalAssetMappings    CriticalAssetGroupMapping[]
   criticalAssetAttestations CriticalAssetAttestation[]
+  changePlans               ChangePlan[]
   netAppIntegration    NetAppIntegration?
   createdAt            DateTime                  @default(now())
   updatedAt            DateTime                  @updatedAt
@@ -481,18 +503,18 @@ model Host {
 }
 
 model LinuxAgent {
-  id                String   @id @default(uuid()) @db.Uuid
-  hostId            String   @unique @db.Uuid
-  host              Host     @relation(fields: [hostId], references: [id], onDelete: Cascade)
-  tokenHash         String   @unique
-  enrolledAt        DateTime @default(now())
+  id                String    @id @default(uuid()) @db.Uuid
+  hostId            String    @unique @db.Uuid
+  host              Host      @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  tokenHash         String    @unique
+  enrolledAt        DateTime  @default(now())
   revokedAt         DateTime?
   lastHeartbeatAt   DateTime?
   observedHostname  String?
   observedOs        String?
   observedOsVersion String?
   agentVersion      String?
-  updatedAt         DateTime @updatedAt
+  updatedAt         DateTime  @updatedAt
 
   @@index([revokedAt, lastHeartbeatAt])
 }
@@ -619,6 +641,49 @@ model MaintenanceWindow {
   createdBy   User?    @relation("MaintenanceWindowCreator", fields: [createdById], references: [id], onDelete: SetNull)
 
   @@index([siteId, startsAt, endsAt])
+}
+
+model ChangePlan {
+  id              String           @id @default(uuid()) @db.Uuid
+  siteId          String           @db.Uuid
+  title           String
+  reason          String
+  plannedStartAt  DateTime
+  plannedEndAt    DateTime
+  status          ChangePlanStatus @default(DRAFT)
+  revision        Int              @default(1)
+  previewRevision Int?
+  previewSnapshot Json?
+  previewedAt     DateTime?
+  submittedAt     DateTime?
+  reviewerId      String?          @db.Uuid
+  reviewedAt      DateTime?
+  reviewNote      String?
+  createdById     String?          @db.Uuid
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  site            Site             @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  creator         User?            @relation("ChangePlanCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  reviewer        User?            @relation("ChangePlanReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  items           ChangePlanItem[]
+
+  @@index([siteId, status, plannedStartAt])
+  @@index([createdById, createdAt])
+}
+
+model ChangePlanItem {
+  id               String           @id @default(uuid()) @db.Uuid
+  changePlanId     String           @db.Uuid
+  entityType       ChangeEntityType
+  entityId         String           @db.Uuid
+  operationSummary String
+  currentValue     Json?
+  proposedValue    Json?
+  createdAt        DateTime         @default(now())
+  changePlan       ChangePlan       @relation(fields: [changePlanId], references: [id], onDelete: Cascade)
+
+  @@unique([changePlanId, entityType, entityId])
+  @@index([entityType, entityId])
 }
 
 model DashboardLayout {
@@ -773,24 +838,24 @@ model SnmpDeviceConfig {
 }
 
 model NetAppIntegration {
-  id          String   @id @default(uuid()) @db.Uuid
-  siteId      String   @unique @db.Uuid
-  endpointUrl String
-  username    String
-  ciphertext  Bytes
-  iv          Bytes
-  authTag     Bytes
-  wrappedDek  Bytes
-  wrapIv      Bytes
-  wrapAuthTag Bytes
-  keyId       String
-  snapshot    Json?
+  id            String    @id @default(uuid()) @db.Uuid
+  siteId        String    @unique @db.Uuid
+  endpointUrl   String
+  username      String
+  ciphertext    Bytes
+  iv            Bytes
+  authTag       Bytes
+  wrappedDek    Bytes
+  wrapIv        Bytes
+  wrapAuthTag   Bytes
+  keyId         String
+  snapshot      Json?
   lastAttemptAt DateTime?
   lastSuccessAt DateTime?
   lastErrorCode String?
-  site        Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  site          Site      @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   @@index([lastSuccessAt])
 }
@@ -903,21 +968,21 @@ model SnmpJob {
 }
 
 model SnmpSnapshot {
-  id          String                     @id @default(uuid()) @db.Uuid
-  deviceId    String                     @db.Uuid
-  jobId       String                     @unique @db.Uuid
-  sysName     String?
-  sysDescr    String?
-  sysObjectId String?
-  sysLocation String?
-  uptimeTicks String?
-  observedAt  DateTime                   @default(now())
-  raw         Json?
-  device      Device                     @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  job         SnmpJob                    @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  interfaces  SnmpInterfaceObservation[]
-  drifts      SnmpDrift[]
-  proposals   TopologyProposal[]
+  id               String                     @id @default(uuid()) @db.Uuid
+  deviceId         String                     @db.Uuid
+  jobId            String                     @unique @db.Uuid
+  sysName          String?
+  sysDescr         String?
+  sysObjectId      String?
+  sysLocation      String?
+  uptimeTicks      String?
+  observedAt       DateTime                   @default(now())
+  raw              Json?
+  device           Device                     @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  job              SnmpJob                    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  interfaces       SnmpInterfaceObservation[]
+  drifts           SnmpDrift[]
+  proposals        TopologyProposal[]
   lldpObservations LldpObservation[]
 
   @@index([deviceId, observedAt])
@@ -1029,50 +1094,53 @@ model TopologyProposal {
 }
 
 model LldpObservation {
-  id                 String   @id @default(uuid()) @db.Uuid
-  deviceId           String   @db.Uuid
-  snapshotId         String?  @db.Uuid
-  source             SourceType @default(SNMP)
-  observedAt         DateTime @default(now())
-  confidence         Int
-  localPortNumber    Int?
-  localPortId        String?
-  localPortDescription String?
+  id                     String        @id @default(uuid()) @db.Uuid
+  deviceId               String        @db.Uuid
+  snapshotId             String?       @db.Uuid
+  source                 SourceType    @default(SNMP)
+  observedAt             DateTime      @default(now())
+  confidence             Int
+  localPortNumber        Int?
+  localPortId            String?
+  localPortDescription   String?
   remoteChassisIdSubtype Int?
-  remoteChassisId    String?
-  remotePortIdSubtype Int?
-  remotePortId       String?
-  remotePortDescription String?
-  remoteSystemName   String?
-  managementAddress  String?
-  vlanId             Int?
-  bridgePort         Int?
-  rawIdentifiers     Json
-  resolvedDeviceId   String?  @db.Uuid
-  device             Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  snapshot           SnmpSnapshot? @relation(fields: [snapshotId], references: [id], onDelete: SetNull)
+  remoteChassisId        String?
+  remotePortIdSubtype    Int?
+  remotePortId           String?
+  remotePortDescription  String?
+  remoteSystemName       String?
+  managementAddress      String?
+  vlanId                 Int?
+  bridgePort             Int?
+  rawIdentifiers         Json
+  resolvedDeviceId       String?       @db.Uuid
+  device                 Device        @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  snapshot               SnmpSnapshot? @relation(fields: [snapshotId], references: [id], onDelete: SetNull)
 
   @@index([deviceId, observedAt])
   @@index([resolvedDeviceId, observedAt])
 }
 
 model SnmpWriteRequest {
-  id             String             @id @default(uuid()) @db.Uuid
-  deviceId       String             @db.Uuid
-  jobId          String?            @unique @db.Uuid
-  operation      SnmpWriteOperation
-  parameters     Json
-  beforeValues   Json?
-  desiredValues  Json
-  verifiedValues Json?
-  status         SnmpWriteStatus    @default(PREVIEW)
-  requestedBy    String             @db.Uuid
-  errorCode      String?
-  requestedAt    DateTime           @default(now())
-  startedAt      DateTime?
-  completedAt    DateTime?
-  device         Device             @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  job            SnmpJob?           @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  id                    String             @id @default(uuid()) @db.Uuid
+  deviceId              String             @db.Uuid
+  jobId                 String?            @unique @db.Uuid
+  operation             SnmpWriteOperation
+  parameters            Json
+  beforeValues          Json?
+  desiredValues         Json
+  impactPreview         Json?
+  previewAcknowledgedAt DateTime?
+  previewAcknowledgedBy String?            @db.Uuid
+  verifiedValues        Json?
+  status                SnmpWriteStatus    @default(PREVIEW)
+  requestedBy           String             @db.Uuid
+  errorCode             String?
+  requestedAt           DateTime           @default(now())
+  startedAt             DateTime?
+  completedAt           DateTime?
+  device                Device             @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  job                   SnmpJob?           @relation(fields: [jobId], references: [id], onDelete: SetNull)
 
   @@index([deviceId, requestedAt])
   @@index([status, requestedAt])
@@ -1198,10 +1266,28 @@ model IpAddress {
   device             Device?          @relation(fields: [deviceId], references: [id], onDelete: SetNull)
   interface          DeviceInterface? @relation(fields: [interfaceId], references: [id], onDelete: SetNull)
   host               Host?            @relation(fields: [hostId], references: [id], onDelete: SetNull)
+  reservations       IpReservation[]
 
   @@unique([subnetId, address])
   @@index([hostname])
   @@index([version, address])
+}
+
+model IpReservation {
+  id          String     @id @default(uuid()) @db.Uuid
+  ipAddressId String     @db.Uuid
+  createdById String     @db.Uuid
+  reason      String     @db.VarChar(500)
+  expiresAt   DateTime
+  status      String     @default("ACTIVE") @db.VarChar(16)
+  releasedAt  DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  ipAddress   IpAddress  @relation(fields: [ipAddressId], references: [id], onDelete: Cascade)
+  createdBy   User       @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([status, expiresAt])
+  @@index([ipAddressId, status])
 }
 
 model NatRule {

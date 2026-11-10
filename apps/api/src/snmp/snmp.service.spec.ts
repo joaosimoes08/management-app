@@ -73,3 +73,47 @@ describe('SNMP credential policy and redaction', () => {
     assert.equal(service.mostSpecificSubnet('192.0.2.1', [{ id: 'site', cidr: '10.20.30.0/24' }]), undefined);
   });
 });
+
+describe('SNMP interface change impact preview', () => {
+  it('does not report zero impact when no related connection is known', async () => {
+    const impactService = Object.create(SnmpService.prototype) as any;
+    impactService.prisma = {
+      snmpSnapshot: { findFirst: async () => ({ observedAt: new Date() }) },
+      deviceConnection: { findMany: async () => [] },
+      lldpObservation: { findMany: async () => [] },
+    };
+    impactService.access = { assertDevice: async () => undefined };
+    const result = await impactService.interfaceImpactPreview({ siteId: 'site' }, { id: 'interface', name: 'Gi0/1', deviceId: 'switch' }, { id: 'operator' });
+    assert.deepEqual(result.knownImpacts, []);
+    assert.equal(result.coverage.status, 'UNKNOWN');
+    assert.match(result.coverage.reason, /não significa impacto zero/);
+  });
+
+  it('links documented neighbors and labels stale observation coverage', async () => {
+    const impactService = Object.create(SnmpService.prototype) as any;
+    impactService.prisma = {
+      snmpSnapshot: { findFirst: async () => ({ observedAt: new Date(Date.now() - 48 * 60 * 60 * 1000) }) },
+      deviceConnection: { findMany: async () => [{ sourceInterfaceId: 'interface', targetDevice: { id: 'peer', name: 'edge-1', type: 'SWITCH' }, targetInterface: { name: 'Gi0/2' } }] },
+      lldpObservation: { findMany: async () => [] },
+    };
+    impactService.access = { assertDevice: async () => undefined };
+    const result = await impactService.interfaceImpactPreview({ siteId: 'site one' }, { id: 'interface', name: 'Gi0/1', deviceId: 'switch' }, { id: 'operator' });
+    assert.equal(result.knownImpacts[0].id, 'peer');
+    assert.match(result.knownImpacts[0].href, /deviceId=peer/);
+    assert.equal(result.coverage.status, 'STALE');
+  });
+
+  it('requires acknowledgement before a preview can be submitted', async () => {
+    const previousFlag = process.env.SNMP_SET_ENABLED;
+    process.env.SNMP_SET_ENABLED = 'true';
+    const impactService = Object.create(SnmpService.prototype) as any;
+    impactService.prisma = { snmpWriteRequest: { findUnique: async () => ({ id: 'request', deviceId: 'switch', status: 'PREVIEW', impactPreview: { coverage: { status: 'UNKNOWN' } }, requestedAt: new Date() }) } };
+    impactService.device = async () => ({ id: 'switch' });
+    try {
+      await assert.rejects(impactService.executeWrite('request', { impactAcknowledged: false }, { id: 'operator' }), (error: any) => error.getResponse().code === 'SNMP_SET_IMPACT_ACK_REQUIRED');
+    } finally {
+      if (previousFlag === undefined) delete process.env.SNMP_SET_ENABLED;
+      else process.env.SNMP_SET_ENABLED = previousFlag;
+    }
+  });
+});
