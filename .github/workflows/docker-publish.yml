@@ -30,9 +30,9 @@ jobs:
       - name: Publish API, web and SNMP images for AMD64 and ARM64
         env:
           IMAGE_TAG: ${{ github.event.inputs.image_tag || github.ref_name }}
-          VCS_REF: ${{ github.sha }}
         run: |
           set -euo pipefail
+          VCS_REF="$(git rev-parse HEAD)"
           for service in api web snmp; do
             docker buildx build \
               --platform linux/amd64,linux/arm64 \

@@ -31,8 +31,12 @@ if (Test-Path $EnvPath) {
 foreach ($line in (Get-Content (Join-Path $Root '.env.example'))) {
   if ($line -match '^([^#=]+)=') { $key = $Matches[1]; if (-not (Get-Content $EnvPath | Where-Object { $_ -match "^$([regex]::Escape($key))=" })) { Add-Content $EnvPath $line } }
 }
-$current = Read-Env 'APP_IMAGE_TAG' $TagDefault
-$tag = Read-Host "Image release tag [$current]"; if (-not $tag) { $tag = $current }
+$configured = Read-Env 'APP_IMAGE_TAG' $TagDefault
+$imageRows = docker compose images --format json 2>$null | ConvertFrom-Json
+$installed = @($imageRows | ForEach-Object { $_.Tag } | Where-Object { $_ } | Sort-Object -Unique) -join ','
+if (-not $installed) { $installed = 'not detected' }
+Write-Host "Installed image version: $installed; configured version: $configured; target default: $TagDefault (enter a custom tag to keep using it)."
+$tag = Read-Host "Target image release tag [$TagDefault]"; if (-not $tag) { $tag = $TagDefault }
 if ($tag -notmatch '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$') { throw 'Invalid Docker tag.' }
 Set-Env 'APP_IMAGE_TAG' $tag
 foreach ($key in @('POSTGRES_PASSWORD','KEYCLOAK_DB_PASSWORD','KEYCLOAK_ADMIN_PASSWORD','KEYCLOAK_ADMIN_CLIENT_SECRET')) {

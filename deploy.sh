@@ -43,8 +43,11 @@ fi
 
 while IFS= read -r line; do [[ "$line" == *=* ]] || continue; key="${line%%=*}"; grep -qE "^${key}=" "$ENV_FILE" || printf '%s\n' "$line" >> "$ENV_FILE"; done < .env.example
 NGINX_CONFIG="$(get_env NGINX_CONFIG_FILE ./nginx/runtime.conf)"
-current="$(get_env APP_IMAGE_TAG "$TAG_DEFAULT")"
-tag="$(ask 'Image release tag' "$current")"
+configured="$(get_env APP_IMAGE_TAG "$TAG_DEFAULT")"
+current="$(docker compose images --format json 2>/dev/null | sed -n 's/.*"Tag":"\([^"]*\)".*/\1/p' | grep -v '^[[:space:]]*$' | sort -u | paste -sd, - || true)"
+[[ -n "$current" ]] || current="not detected"
+say "Installed image version: $current; configured version: $configured; target default: $TAG_DEFAULT (enter a custom tag to keep using it)."
+tag="$(ask 'Target image release tag' "$TAG_DEFAULT")"
 [[ "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || fail 'Invalid Docker tag.'
 set_env APP_IMAGE_TAG "$tag"
 for spec in 'POSTGRES_PASSWORD:PostgreSQL password' 'KEYCLOAK_DB_PASSWORD:Keycloak database password' 'KEYCLOAK_ADMIN_PASSWORD:Keycloak admin password' 'KEYCLOAK_ADMIN_CLIENT_SECRET:Keycloak app client secret'; do
