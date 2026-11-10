@@ -92,6 +92,26 @@ export interface IpAddressRow {
   subnet?: { cidr: string } | null;
   host?: { id: string; name: string; _count?: { services?: number } } | null;
   interface?: { id: string; name: string; device?: { name: string } | null } | null;
+  reservation?: IpReservation | null;
+  reservations?: IpReservation[];
+}
+
+export interface IpReservation {
+  id: string;
+  ipAddressId?: string;
+  createdById?: string;
+  expiresAt: string;
+  reason: string;
+  releasedAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  status?: 'ACTIVE' | 'RELEASED' | 'EXPIRED';
+  ipAddress?: Pick<IpAddressRow, 'id' | 'address'>;
+}
+
+export interface CreateIpReservationInput {
+  durationHours: number;
+  reason: string;
 }
 
 export interface IpAddressInput {

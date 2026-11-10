@@ -2,14 +2,17 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req } from '@
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { Roles } from '../auth/roles.decorator';
-import { CalculatorDto, CreateDiscoveryJobDto, CreateHostDto, CreateIpDto, CreateNatRuleDto, CreateServiceDto, CreateSiteDto, CreateSubnetDto, CreateVlanDto, CreateVrfDto, RipeImportDto, RipePreviewDto, ReviewDiscoveryResultDto, UpdateDiscoveryScheduleDto, UpdateHostDto, UpdateIpDto, UpdateNatRuleDto, UpdateServiceDto, UpdateSiteDto, UpdateSubnetDto, UpdateSubnetScanDto, UpdateVlanDto, UpdateVrfDto } from './dto';
+import { CalculatorDto, CreateDiscoveryJobDto, CreateHostDto, CreateIpDto, CreateIpReservationDto, CreateNatRuleDto, CreateServiceDto, CreateSiteDto, CreateSubnetDto, CreateVlanDto, CreateVrfDto, RipeImportDto, RipePreviewDto, ReviewDiscoveryResultDto, UpdateDiscoveryScheduleDto, UpdateHostDto, UpdateIpDto, UpdateNatRuleDto, UpdateServiceDto, UpdateSiteDto, UpdateSubnetDto, UpdateSubnetScanDto, UpdateVlanDto, UpdateVrfDto } from './dto';
 import { IpamService } from './ipam.service';
 import { IpamAdvancedService } from './ipam-advanced.service';
+import { IpReservationService } from './ip-reservation.service';
 import { SubnetCapacityService } from './subnet-capacity.service';
 
 @ApiTags('ipam') @ApiBearerAuth() @Controller({ version: '1' })
 export class IpamController {
-  constructor(private readonly service: IpamService, private readonly advanced: IpamAdvancedService, private readonly capacity: SubnetCapacityService) {}
+  constructor(private readonly service: IpamService, private readonly advanced: IpamAdvancedService, private readonly reservations: IpReservationService, private readonly capacity: SubnetCapacityService) {}
+  @Post('ip-reservations') @Roles('ADMIN', 'NETWORK_OPERATOR') createIpReservation(@Body() dto: CreateIpReservationDto, @Req() req: { user: AuthenticatedUser }) { return this.reservations.create(dto, req.user); }
+  @Post('ip-reservations/:id/release') @Roles('ADMIN', 'NETWORK_OPERATOR') releaseIpReservation(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.reservations.release(id, req.user); }
   @Get('sites') sites(@Req() req: { user: AuthenticatedUser }, @Query('search') search?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) { return this.service.listSites(req.user, search, page, pageSize); }
   @Get('sites/:siteId/network-map') networkMap(@Param('siteId') siteId: string, @Req() req: { user: AuthenticatedUser }) { return this.service.networkMap(req.user, siteId); }
   @Post('sites') @Roles('ADMIN') createSite(@Body() dto: CreateSiteDto, @Req() req: { user: AuthenticatedUser }) { return this.service.createSite(dto, req.user); }

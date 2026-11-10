@@ -8,6 +8,8 @@ import type {
   HostInput,
   IpAddressInput,
   IpAddressRow,
+  IpReservation,
+  CreateIpReservationInput,
   NetworkMapVlan,
   Subnet,
   SubnetCapacityHistory,
@@ -112,6 +114,14 @@ export function createIpAddress(body: IpAddressInput): Promise<IpAddressRow> {
 
 export function updateIpAddress(id: string, body: Partial<IpAddressInput>): Promise<IpAddressRow> {
   return apiFetch<IpAddressRow>(`/api/v1/ip-addresses/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
+export function createIpReservation(ipAddressId: string, body: CreateIpReservationInput): Promise<IpReservation> {
+  return apiFetch<IpReservation>('/api/v1/ip-reservations', { method: 'POST', body: JSON.stringify({ ipAddressId, ...body }) });
+}
+
+export function releaseIpReservation(id: string): Promise<{ success: boolean; released: boolean }> {
+  return apiFetch<{ success: boolean; released: boolean }>(`/api/v1/ip-reservations/${id}/release`, { method: 'POST' });
 }
 
 export function createHost(body: HostInput): Promise<HostDetail> {

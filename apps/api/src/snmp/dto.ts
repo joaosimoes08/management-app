@@ -30,6 +30,10 @@ export class CreateSnmpWritePreviewDto {
   @IsObject() parameters!: Record<string, unknown>;
 }
 
+export class AcknowledgeSnmpWriteImpactDto {
+  @IsBoolean() impactAcknowledged!: boolean;
+}
+
 export class ReviewSnmpDriftDto {
   @IsIn(['ACCEPTED', 'IGNORED']) status!: 'ACCEPTED' | 'IGNORED';
 }

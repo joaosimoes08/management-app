@@ -12,7 +12,7 @@ const messages: Record<AppLocale, Record<string, string>> = {
     'profile.menu': 'Definições do perfil', 'profile.title': 'Perfil', 'profile.kicker': 'CONTA E ACESSOS', 'profile.tabs.profile': 'Perfil', 'profile.tabs.roles': 'Solicitar roles', 'profile.username': 'Utilizador', 'profile.roles': 'Roles atuais', 'profile.rolesTitle': 'Solicitar acesso adicional', 'profile.rolesDescription': 'Seleciona as roles que precisas. Um administrador irá analisar o pedido.', 'profile.submit': 'Enviar pedido', 'profile.pending': 'Pedido pendente', 'profile.processing': 'Pedido em processamento', 'profile.alreadyAssigned': 'Já atribuída', 'profile.requestSent': 'Pedido enviado', 'profile.loadError': 'Não foi possível carregar o perfil.', 'profile.submitError': 'Não foi possível enviar o pedido.', 'profile.history': 'Histórico de pedidos', 'profile.noHistory': 'Ainda não existem pedidos.', 'profile.status.PENDING': 'Pendente', 'profile.status.PROCESSING': 'Em processamento', 'profile.status.APPROVED': 'Aprovado', 'profile.status.REJECTED': 'Rejeitado', 'settings.requested': 'Solicitou', 'settings.requestProcessing': 'Pedido em processamento', 'settings.accept': 'Aceitar', 'settings.reject': 'Rejeitar', 'settings.requestApproved': 'Pedido aprovado', 'settings.requestRejected': 'Pedido rejeitado', 'settings.requestDecisionError': 'Não foi possível decidir o pedido.',
     'common.save': 'Guardar alterações', 'common.cancel': 'Cancelar', 'common.edit': 'Editar', 'common.delete': 'Eliminar', 'common.refresh': 'Atualizar', 'common.loading': 'A carregar…', 'common.previous': 'Anterior', 'common.next': 'Seguinte',
     'ipam.action.create': 'criação', 'ipam.action.update': 'edição', 'ipam.action.delete': 'remoção', 'ipam.action.discover': 'descoberta', 'ipam.action.import': 'importação', 'ipam.recent.ip': 'Endereço IP', 'ipam.scope.limited': 'Âmbito ativo: Site {site}. As permissões atuais não permitem {actions}.',
-    'nav.dashboard': 'Dashboard', 'nav.infrastructure': 'Infraestrutura', 'nav.topology': 'Topologia', 'nav.quality': 'Qualidade', 'nav.portal': 'Portal interno', 'nav.ipam': 'IPAM', 'nav.discovery': 'Descoberta', 'nav.snmp': 'SNMP', 'nav.netapp': 'NetApp', 'nav.audit': 'Auditoria', 'nav.settings': 'Definições', 'nav.help': 'Ajuda e suporte', 'dashboard.editLayout': 'Editar layout', 'dashboard.finishEditing': 'Concluir edição', 'dashboard.siteOperations': 'Estado operacional do Site', 'dashboard.runningProcesses': 'Processos em execução', 'dashboard.discoveryReview': 'Discovery a rever ou falhado', 'dashboard.snmpDrifts': 'Divergências SNMP',
+    'nav.dashboard': 'Dashboard', 'nav.infrastructure': 'Infraestrutura', 'nav.topology': 'Topologia', 'nav.quality': 'Qualidade', 'nav.changes': 'Alterações', 'nav.portal': 'Portal interno', 'nav.ipam': 'IPAM', 'nav.discovery': 'Descoberta', 'nav.snmp': 'SNMP', 'nav.netapp': 'NetApp', 'nav.audit': 'Auditoria', 'nav.settings': 'Definições', 'nav.help': 'Ajuda e suporte', 'dashboard.editLayout': 'Editar layout', 'dashboard.finishEditing': 'Concluir edição', 'dashboard.siteOperations': 'Estado operacional do Site', 'dashboard.runningProcesses': 'Processos em execução', 'dashboard.discoveryReview': 'Discovery a rever ou falhado', 'dashboard.snmpDrifts': 'Divergências SNMP',
     'shell.activeSite': 'Site ativo', 'shell.allSites': 'Todos os Sites', 'shell.globalView': 'Visão global da organização', 'shell.createSite': 'Criar novo Site', 'shell.addLocation': 'Adicionar uma localização operacional', 'shell.nextSteps': 'Próximos passos', 'shell.continueIpam': 'Continue a configurar o inventário IPAM.',
     'shell.operational': 'Ambiente operacional', 'shell.degraded': 'Ambiente degradado', 'shell.unavailable': 'Ambiente indisponível', 'shell.setup': 'Configuração inicial', 'shell.setupComplete': 'Concluída', 'shell.setupPending': 'Pendente', 'shell.updated': 'Atualizado',
     'audit.userFilterPlaceholder': 'Nome ou username',
@@ -30,7 +30,7 @@ const messages: Record<AppLocale, Record<string, string>> = {
     'profile.menu': 'Profile settings', 'profile.title': 'Profile', 'profile.kicker': 'ACCOUNT AND ACCESS', 'profile.tabs.profile': 'Profile', 'profile.tabs.roles': 'Request roles', 'profile.username': 'User', 'profile.roles': 'Current roles', 'profile.rolesTitle': 'Request additional access', 'profile.rolesDescription': 'Select the roles you need. An administrator will review your request.', 'profile.submit': 'Send request', 'profile.pending': 'Pending request', 'profile.processing': 'Request processing', 'profile.alreadyAssigned': 'Already assigned', 'profile.requestSent': 'Request sent', 'profile.loadError': 'Could not load your profile.', 'profile.submitError': 'Could not submit the request.', 'profile.history': 'Request history', 'profile.noHistory': 'No requests yet.', 'profile.status.PENDING': 'Pending', 'profile.status.PROCESSING': 'Processing', 'profile.status.APPROVED': 'Approved', 'profile.status.REJECTED': 'Rejected', 'settings.requested': 'Requested', 'settings.requestProcessing': 'Request processing', 'settings.accept': 'Accept', 'settings.reject': 'Reject', 'settings.requestApproved': 'Request approved', 'settings.requestRejected': 'Request rejected', 'settings.requestDecisionError': 'Could not decide the request.',
     'common.save': 'Save changes', 'common.cancel': 'Cancel', 'common.edit': 'Edit', 'common.delete': 'Delete', 'common.refresh': 'Refresh', 'common.loading': 'Loading…', 'common.previous': 'Previous', 'common.next': 'Next',
     'ipam.action.create': 'creation', 'ipam.action.update': 'editing', 'ipam.action.delete': 'deletion', 'ipam.action.discover': 'discovery', 'ipam.action.import': 'import', 'ipam.recent.ip': 'IP address', 'ipam.scope.limited': 'Active scope: Site {site}. Current permissions do not allow {actions}.',
-    'nav.dashboard': 'Dashboard', 'nav.infrastructure': 'Infrastructure', 'nav.topology': 'Topology', 'nav.quality': 'Quality', 'nav.portal': 'Internal portal', 'nav.ipam': 'IPAM', 'nav.discovery': 'Discovery', 'nav.snmp': 'SNMP', 'nav.netapp': 'NetApp', 'nav.audit': 'Audit', 'nav.settings': 'Settings', 'nav.help': 'Help and support', 'dashboard.editLayout': 'Edit layout', 'dashboard.finishEditing': 'Finish editing', 'dashboard.siteOperations': 'Site operational status', 'dashboard.runningProcesses': 'Running processes', 'dashboard.discoveryReview': 'Discovery pending or failed', 'dashboard.snmpDrifts': 'SNMP discrepancies',
+    'nav.dashboard': 'Dashboard', 'nav.infrastructure': 'Infrastructure', 'nav.topology': 'Topology', 'nav.quality': 'Quality', 'nav.changes': 'Changes', 'nav.portal': 'Internal portal', 'nav.ipam': 'IPAM', 'nav.discovery': 'Discovery', 'nav.snmp': 'SNMP', 'nav.netapp': 'NetApp', 'nav.audit': 'Audit', 'nav.settings': 'Settings', 'nav.help': 'Help and support', 'dashboard.editLayout': 'Edit layout', 'dashboard.finishEditing': 'Finish editing', 'dashboard.siteOperations': 'Site operational status', 'dashboard.runningProcesses': 'Running processes', 'dashboard.discoveryReview': 'Discovery pending or failed', 'dashboard.snmpDrifts': 'SNMP discrepancies',
     'shell.activeSite': 'Active site', 'shell.allSites': 'All Sites', 'shell.globalView': 'Organization-wide view', 'shell.createSite': 'Create new Site', 'shell.addLocation': 'Add an operational location', 'shell.nextSteps': 'Next steps', 'shell.continueIpam': 'Continue configuring the IPAM inventory.',
     'shell.operational': 'Operational environment', 'shell.degraded': 'Degraded environment', 'shell.unavailable': 'Environment unavailable', 'shell.setup': 'Initial setup', 'shell.setupComplete': 'Completed', 'shell.setupPending': 'Pending', 'shell.updated': 'Updated',
     'audit.userFilterPlaceholder': 'Name or username',
@@ -57,24 +57,38 @@ const I18nContext = createContext<I18nValue | undefined>(undefined);
 
 const originalText = new WeakMap<Text, string>();
 const originalAttributes = new WeakMap<Element, Map<string, string>>();
+const translatedText = new WeakMap<Text, string>();
+const translatedAttributeValues = new WeakMap<Element, Map<string, string>>();
 const translatedAttributes = ['aria-label', 'placeholder', 'title'] as const;
 
 function translateLegacyDom(locale: AppLocale, root: Node) {
   const translateNode = (node: Text) => {
-    const source = originalText.get(node) ?? node.nodeValue ?? '';
-    if (!originalText.has(node)) originalText.set(node, source);
+    const current = node.nodeValue ?? '';
+    const previousTranslation = translatedText.get(node);
+    if (!originalText.has(node) || (previousTranslation !== undefined && current !== previousTranslation)) {
+      // React may reuse a text node for new state. Treat that value as the new
+      // source instead of restoring the text that was first rendered here.
+      originalText.set(node, current);
+    }
+    const source = originalText.get(node) ?? current;
     const next = translateLegacyText(locale, source);
-    if (node.nodeValue !== next) node.nodeValue = next;
+    if (current !== next) node.nodeValue = next;
+    translatedText.set(node, next);
   };
   const translateElement = (element: Element) => {
     let saved = originalAttributes.get(element);
     if (!saved) { saved = new Map(); originalAttributes.set(element, saved); }
+    let translated = translatedAttributeValues.get(element);
+    if (!translated) { translated = new Map(); translatedAttributeValues.set(element, translated); }
     for (const attribute of translatedAttributes) {
       if (!element.hasAttribute(attribute)) continue;
-      if (!saved.has(attribute)) saved.set(attribute, element.getAttribute(attribute) ?? '');
+      const current = element.getAttribute(attribute) ?? '';
+      const previousTranslation = translated.get(attribute);
+      if (!saved.has(attribute) || (previousTranslation !== undefined && current !== previousTranslation)) saved.set(attribute, current);
       const source = saved.get(attribute) ?? '';
       const next = translateLegacyText(locale, source);
-      if (element.getAttribute(attribute) !== next) element.setAttribute(attribute, next);
+      if (current !== next) element.setAttribute(attribute, next);
+      translated.set(attribute, next);
     }
   };
   if (root.nodeType === Node.TEXT_NODE) translateNode(root as Text);
