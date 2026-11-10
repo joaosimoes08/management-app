@@ -30,9 +30,9 @@ describe('ChangePlansPage impact preview transition', () => {
       status: 'DRAFT', revision: 1, previewRevision: null, previewSnapshot: null, previewedAt: null, submittedAt: null,
       items: [{ entityType: 'DEVICE', entityId: 'device-1', operationSummary: 'Upgrade' }],
     };
-    const generatedAt = '2026-11-09T15:00:00.000Z';
+    const generatedAt = '2026-11-10T10:39:11.580Z';
     const calculated: ImpactPreview = {
-      analysisStatus: 'COMPLETE', revision: 1, generatedAt, knownImpacts: Array.from({ length: 6 }, (_, index) => ({ entityType: 'DEVICE' as const, entityId: `device-${index + 2}`, label: `Affected device ${index + 1}`, href: '/infraestrutura', depth: 1, dependencyPath: ['Connection'], freshness: 'CURRENT' as const, confidence: 'RECORDED' as const })),
+      analysisStatus: 'COMPLETE', revision: 1, generatedAt, knownImpacts: Array.from({ length: 7 }, (_, index) => ({ entityType: 'DEVICE' as const, entityId: `device-${index + 2}`, label: `Affected device ${index + 1}`, href: '/infraestrutura', depth: 1, dependencyPath: ['Connection'], freshness: 'CURRENT' as const, confidence: 'RECORDED' as const })),
       maintenanceOverlaps: [], changeOverlaps: [], coverage: { status: 'COMPLETE', reason: 'Complete', latestInventoryUpdate: null, staleItems: 0, unknownFreshnessItems: 0 }, graphSignature: 'signature',
     };
     mocks.detail = plan;
@@ -78,8 +78,8 @@ describe('ChangePlansPage impact preview transition', () => {
     const expectedTimestamp = new Date(generatedAt).toLocaleString('pt-PT', { dateStyle: 'medium', timeStyle: 'short' });
     expect(detail).toHaveTextContent(`Calculada ${expectedTimestamp}`);
     expect(detail).toHaveTextContent('Análise concluída');
-    expect(detail?.querySelector('.impact-preview .change-summary-grid div strong')).toHaveTextContent('6');
-    expect(detail?.querySelectorAll('.impact-group li')).toHaveLength(6);
+    expect(detail?.querySelector('.impact-preview .change-summary-grid div strong')).toHaveTextContent('7');
+    expect(detail?.querySelectorAll('.impact-group li')).toHaveLength(7);
     expect(detail).toHaveTextContent('Impacto conhecido');
     expect(screen.getByRole('button', { name: /Calibration Change/ })).toHaveTextContent(`Pré-visualização: Calculada ${expectedTimestamp}`);
     expect(mocks.detail?.previewSnapshot).toBe(calculated);
@@ -101,7 +101,7 @@ describe('ChangePlansPage impact preview transition', () => {
       expect(detail).toHaveTextContent(`Calculada ${expectedTimestamp}`);
     });
     expect(detail).toHaveTextContent('Análise concluída');
-    expect(detail?.querySelectorAll('.impact-group li')).toHaveLength(6);
+    expect(detail?.querySelectorAll('.impact-group li')).toHaveLength(7);
     expect(screen.getByRole('status')).toHaveTextContent('Pré-visualização atualizada');
     expect(screen.getByRole('button', { name: 'Recalcular pré-visualização' })).toBeInTheDocument();
 
@@ -109,7 +109,7 @@ describe('ChangePlansPage impact preview transition', () => {
     fireEvent.click(screen.getByRole('button', { name: /Calibration Change/ }));
     await vi.waitFor(() => expect(mocks.getChangePlan).toHaveBeenCalledTimes(4));
     expect(detail).toHaveTextContent(`Calculada ${expectedTimestamp}`);
-    expect(detail?.querySelectorAll('.impact-group li')).toHaveLength(6);
+    expect(detail?.querySelectorAll('.impact-group li')).toHaveLength(7);
     expect(screen.getByRole('button', { name: /Calibration Change/ })).toHaveTextContent(`Pré-visualização: Calculada ${expectedTimestamp}`);
   });
 });
