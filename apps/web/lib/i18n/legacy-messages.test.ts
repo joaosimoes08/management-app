@@ -84,7 +84,7 @@ describe('legacy DOM translation updates', () => {
     function ReservationRow() {
       const [ip, setIp] = useState(availableIp);
       return createElement(SubnetsView, {
-        selected: subnet, items: [subnet], usage: null, ips: [ip], search: '', setSearch: vi.fn(), openSubnet: vi.fn(), openHost: vi.fn(),
+        selected: subnet, items: [subnet], usage: null, capacityHistory: null, ips: [ip], search: '', setSearch: vi.fn(), openSubnet: vi.fn(), openHost: vi.fn(),
         canEdit: true, canReserve: true, canReleaseReservations: true, siteId: 'site-1', newSubnet: vi.fn(), editSubnet: vi.fn(), removeSubnet: vi.fn(),
         editIp: vi.fn(), newIp: vi.fn(), createHost: vi.fn(),
         reserveIp: () => setIp(reservedIp),

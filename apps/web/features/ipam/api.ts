@@ -12,6 +12,7 @@ import type {
   CreateIpReservationInput,
   NetworkMapVlan,
   Subnet,
+  SubnetCapacityHistory,
   SubnetInput,
   SubnetUsage,
   Vlan,
@@ -47,6 +48,10 @@ export function getSubnet(id: string): Promise<Subnet> {
 
 export function getSubnetUsage(id: string): Promise<SubnetUsage> {
   return apiFetch<SubnetUsage>(`/api/v1/subnets/${id}/usage`);
+}
+
+export function getSubnetCapacityHistory(id: string): Promise<SubnetCapacityHistory> {
+  return apiFetch<SubnetCapacityHistory>(`/api/v1/subnets/${id}/capacity-history`);
 }
 
 export type SubnetPlanning = { subnet: Subnet; version: number; network?: string; broadcast?: string; usableRange?: { start: string; end: string } | null; usableTotal?: number; unavailable?: number; free?: number; utilizationPercent: number | null; usableGaps: Array<{ start: string; end: string; count: number }>; unavailableAddresses?: string[]; message?: string };

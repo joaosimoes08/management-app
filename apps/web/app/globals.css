@@ -1604,3 +1604,17 @@ html[lang='en-US'] .environment-trigger.operational::after { content:'· Setup c
 .change-plans-page :focus-visible { outline:3px solid #637ff0; outline-offset:2px; }
 @media (max-width:850px) { .change-layout { grid-template-columns:minmax(0,1fr); }.change-plan-list { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media (max-width:560px) { .change-plan-list,.change-form-grid,.change-target-builder,.change-summary-grid { grid-template-columns:minmax(0,1fr); }.change-form-grid label:nth-child(2) { grid-column:auto; }.change-page-actions { width:100%; }.change-page-actions button { flex:1; }.change-target-item { align-items:flex-start; }.change-actions > button { flex:1 1 100%; } }
+
+/* Subnet capacity history */
+.subnet-capacity-trend { margin:18px 0; padding:18px; }
+.subnet-capacity-trend .panel-heading { margin-bottom:8px; }
+.subnet-capacity-trend h3 { margin:5px 0; font-size:14px; }
+.subnet-capacity-chart-wrap { position:relative; padding:10px 0 0; }
+.subnet-capacity-value { color:#252525; font-size:12px; font-weight:600; }
+.subnet-capacity-chart { display:block; width:100%; height:110px; overflow:visible; }
+.subnet-capacity-chart line { stroke:#e7e4e3; stroke-width:.5; }
+.subnet-capacity-chart polyline { fill:none; stroke:#247b70; stroke-width:1.5; vector-effect:non-scaling-stroke; }
+.subnet-capacity-chart circle { fill:#247b70; }
+.subnet-capacity-dates { display:flex; justify-content:space-between; color:var(--muted); font-size:10px; }
+.subnet-capacity-forecast { margin:14px 0 0; color:#333; font-size:12px; }
+.subnet-capacity-growth { display:block; margin-top:5px; color:var(--muted); font-size:10px; }

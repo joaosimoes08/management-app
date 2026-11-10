@@ -51,7 +51,7 @@ describe('IP reservation cache updates', () => {
       const { data } = useQuery({ queryKey, queryFn: () => new Promise<{ items: IpAddressRow[] }>(() => undefined) });
       const rows = data?.items ?? [];
       const table = createElement(SubnetsView, {
-        selected: subnet, items: [subnet], usage: null, ips: rows, search: '', setSearch: vi.fn(), openSubnet: vi.fn(), openHost: vi.fn(),
+        selected: subnet, items: [subnet], usage: null, capacityHistory: null, ips: rows, search: '', setSearch: vi.fn(), openSubnet: vi.fn(), openHost: vi.fn(),
         canEdit: true, canReserve: true, canReleaseReservations: true, siteId: 'site-1', newSubnet: vi.fn(), editSubnet: vi.fn(), removeSubnet: vi.fn(),
         editIp: vi.fn(), newIp: vi.fn(), createHost: vi.fn(),
         reserveIp: () => { void syncIpReservationCache(queryClient, ip.id, reservation, pendingRefresh); },
@@ -169,7 +169,7 @@ describe('IP reservation cache updates', () => {
       };
       const visibleIps = applyIpReservationOverrides(data?.items ?? [], overrideState.values);
       const table = createElement(SubnetsView, {
-        selected: subnet, items: [subnet], usage: null, ips: visibleIps, search: '', setSearch: vi.fn(), openSubnet: vi.fn(), openHost: vi.fn(),
+        selected: subnet, items: [subnet], usage: null, capacityHistory: null, ips: visibleIps, search: '', setSearch: vi.fn(), openSubnet: vi.fn(), openHost: vi.fn(),
         canEdit: true, canReserve: true, canReleaseReservations: true, siteId: 'site-1', newSubnet: vi.fn(), editSubnet: vi.fn(), removeSubnet: vi.fn(),
         editIp: vi.fn(), newIp: vi.fn(), createHost: vi.fn(),
         reserveIp: (ipRow) => setReservationTarget(ipRow),

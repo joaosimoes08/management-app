@@ -21,7 +21,9 @@ describe('IPAM subnet actions', () => {
     const openSubnet = vi.fn();
     const editSubnet = vi.fn();
     const removeSubnet = vi.fn();
-    render(createElement(SubnetsView, { selected: null, items: [subnet], usage: null, ips: [], search: '', setSearch: vi.fn(), openSubnet, openHost: vi.fn(), canEdit: true, canReserve: true, canReleaseReservations: true, siteId: 'site-1', newSubnet: vi.fn(), editSubnet, removeSubnet, editIp: vi.fn(), newIp: vi.fn(), createHost: vi.fn(), reserveIp: vi.fn(), releaseReservation: vi.fn() }));
+
+    render(createElement(SubnetsView, { selected: null, items: [subnet], usage: null, capacityHistory: null, ips: [], search: '', setSearch: vi.fn(), openSubnet, openHost: vi.fn(), canEdit: true, canReserve: true, canReleaseReservations: true, siteId: 'site-1', newSubnet: vi.fn(), editSubnet, removeSubnet, editIp: vi.fn(), newIp: vi.fn(), createHost: vi.fn(), reserveIp: vi.fn(), releaseReservation: vi.fn() }));
+
 
     fireEvent.click(screen.getByRole('button', { name: 'Editar subnet 10.0.0.0/24' }));
     fireEvent.click(screen.getByRole('button', { name: 'Eliminar subnet 10.0.0.0/24' }));

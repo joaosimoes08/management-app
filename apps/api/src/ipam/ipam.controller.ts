@@ -6,10 +6,11 @@ import { CalculatorDto, CreateDiscoveryJobDto, CreateHostDto, CreateIpDto, Creat
 import { IpamService } from './ipam.service';
 import { IpamAdvancedService } from './ipam-advanced.service';
 import { IpReservationService } from './ip-reservation.service';
+import { SubnetCapacityService } from './subnet-capacity.service';
 
 @ApiTags('ipam') @ApiBearerAuth() @Controller({ version: '1' })
 export class IpamController {
-  constructor(private readonly service: IpamService, private readonly advanced: IpamAdvancedService, private readonly reservations: IpReservationService) {}
+  constructor(private readonly service: IpamService, private readonly advanced: IpamAdvancedService, private readonly reservations: IpReservationService, private readonly capacity: SubnetCapacityService) {}
   @Post('ip-reservations') @Roles('ADMIN', 'NETWORK_OPERATOR') createIpReservation(@Body() dto: CreateIpReservationDto, @Req() req: { user: AuthenticatedUser }) { return this.reservations.create(dto, req.user); }
   @Post('ip-reservations/:id/release') @Roles('ADMIN', 'NETWORK_OPERATOR') releaseIpReservation(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.reservations.release(id, req.user); }
   @Get('sites') sites(@Req() req: { user: AuthenticatedUser }, @Query('search') search?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) { return this.service.listSites(req.user, search, page, pageSize); }
@@ -26,7 +27,8 @@ export class IpamController {
   @Patch('subnets/:id') @Roles('ADMIN', 'NETWORK_OPERATOR') updateSubnet(@Param('id') id: string, @Body() dto: UpdateSubnetDto, @Req() req: { user: AuthenticatedUser }) { return this.advanced.updateSubnet(id, dto, req.user); }
   @Delete('subnets/:id') @Roles('ADMIN', 'NETWORK_OPERATOR') deleteSubnet(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.service.deleteSubnet(id, req.user); }
   @Get('subnets/:id') subnet(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.advanced.getSubnet(id, req.user); }
-  @Get('subnets/:id/usage') subnetUsage(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.advanced.subnetUsage(id, req.user); }
+  @Get('subnets/:id/usage') subnetUsage(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.capacity.usage(id, req.user); }
+  @Get('subnets/:id/capacity-history') subnetCapacityHistory(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.capacity.history(id, req.user); }
   @Get('subnets/:id/planning') subnetPlanning(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.advanced.subnetPlanning(id, req.user); }
   @Get('subnets/:id/tree') subnetTree(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.advanced.subnetTree(id, req.user); }
   @Patch('subnets/:id/scan-config') @Roles('ADMIN', 'NETWORK_OPERATOR') updateSubnetScan(@Param('id') id: string, @Body() dto: UpdateSubnetScanDto, @Req() req: { user: AuthenticatedUser }) { return this.advanced.updateSubnetScan(id, dto, req.user); }
