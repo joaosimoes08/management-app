@@ -80,6 +80,10 @@ describe('CriticalAssetsPage', () => {
     expect(queryByText(/Pendente/)).not.toBeInTheDocument();
     expect(queryByRole('button', { name: 'Confirmar' })).not.toBeInTheDocument();
     const otherSite = queryClient.getQueryData<ReturnType<typeof pageData>>(['critical-assets', 'site-2']);
-    expect(otherSite?.assets[0].attestations[0]).toMatchObject({ outcome: 'CONFIRMED', confirmedBy: 'reviewer-1' });
+    expect(otherSite?.assets[0].attestations[0]).toMatchObject({
+      outcome: 'CONFIRMED',
+      confirmedAt: '2026-11-09T10:00:00.000Z',
+      confirmedBy: 'reviewer-1',
+    });
   });
 });
