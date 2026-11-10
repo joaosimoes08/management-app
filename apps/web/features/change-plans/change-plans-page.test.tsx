@@ -104,5 +104,12 @@ describe('ChangePlansPage impact preview transition', () => {
     expect(detail?.querySelectorAll('.impact-group li')).toHaveLength(6);
     expect(screen.getByRole('status')).toHaveTextContent('Pré-visualização atualizada');
     expect(screen.getByRole('button', { name: 'Recalcular pré-visualização' })).toBeInTheDocument();
+
+    // Reopening the plan after stale list/detail reads still uses the saved result.
+    fireEvent.click(screen.getByRole('button', { name: /Calibration Change/ }));
+    await vi.waitFor(() => expect(mocks.getChangePlan).toHaveBeenCalledTimes(4));
+    expect(detail).toHaveTextContent(`Calculada ${expectedTimestamp}`);
+    expect(detail?.querySelectorAll('.impact-group li')).toHaveLength(6);
+    expect(screen.getByRole('button', { name: /Calibration Change/ })).toHaveTextContent(`Pré-visualização: Calculada ${expectedTimestamp}`);
   });
 });
