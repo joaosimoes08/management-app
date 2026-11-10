@@ -3,6 +3,11 @@ import type { IpAddressRow, IpReservation } from './types';
 
 type IpAddressPage = { items: IpAddressRow[] };
 export type IpReservationOverrides = Record<string, IpReservation | null>;
+export type IpReservationOverrideEpochs = Record<string, number>;
+export type IpReservationOverrideState = {
+  values: IpReservationOverrides;
+  epochs: IpReservationOverrideEpochs;
+};
 
 export function applyIpReservationOverride(ip: IpAddressRow, reservation: IpReservation | null): IpAddressRow {
   return { ...ip, state: reservation ? 'RESERVED' : 'FREE', reservation, reservations: reservation ? [reservation] : [] };
@@ -19,6 +24,24 @@ export function serverRowMatchesReservation(ip: IpAddressRow, reservation: IpRes
   return reservation
     ? activeReservation?.id === reservation.id
     : !activeReservation && ip.state === 'FREE';
+}
+
+/** Only reconcile from a list request that began after the mutation response. */
+export function reconcileIpReservationOverrides(
+  rows: IpAddressRow[],
+  state: IpReservationOverrideState,
+  requestEpoch: number,
+): IpReservationOverrideState {
+  let next: IpReservationOverrideState | undefined;
+  for (const row of rows) {
+    if (!Object.prototype.hasOwnProperty.call(state.values, row.id)) continue;
+    const overrideEpoch = state.epochs[row.id];
+    if (overrideEpoch === undefined || requestEpoch < overrideEpoch || !serverRowMatchesReservation(row, state.values[row.id])) continue;
+    next ??= { values: { ...state.values }, epochs: { ...state.epochs } };
+    delete next.values[row.id];
+    delete next.epochs[row.id];
+  }
+  return next ?? state;
 }
 
 /** Update every cached search result containing this IP before the background refetch. */

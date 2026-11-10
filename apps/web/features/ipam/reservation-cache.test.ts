@@ -1,10 +1,10 @@
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { createElement, useState } from 'react';
+import { createElement, useEffect, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SubnetsView } from './components/subnets-view';
 import type { IpAddressRow, IpReservation } from './types';
-import { applyIpReservationOverrides, setCachedIpReservation, syncIpReservationCache, type IpReservationOverrides } from './reservation-cache';
+import { applyIpReservationOverrides, reconcileIpReservationOverrides, setCachedIpReservation, syncIpReservationCache, type IpReservationOverrideState } from './reservation-cache';
 
 const ip: IpAddressRow = { id: 'ip-1', address: '192.0.2.18', subnetId: 'subnet-1', state: 'FREE', observedState: 'UNKNOWN' };
 const subnet = { id: 'subnet-1', cidr: '192.0.2.0/24', version: 4, siteId: 'site-1' };
@@ -83,36 +83,56 @@ describe('IP reservation cache updates', () => {
     expect(queryClient.getQueryData<{ items: IpAddressRow[] }>(matchingSearchKey)?.items[0]).toMatchObject({ state: 'FREE', reservation: null, reservations: [] });
   });
 
+  it('does not clear an override from a matching response that started before the mutation', () => {
+    const state: IpReservationOverrideState = { values: { [ip.id]: reservation }, epochs: { [ip.id]: 4 } };
+    const staleRequestThatHappenedToMatch = { ...ip, state: 'RESERVED' as const, reservation, reservations: [reservation] };
+
+    expect(reconcileIpReservationOverrides([staleRequestThatHappenedToMatch], state, 3)).toBe(state);
+    expect(reconcileIpReservationOverrides([staleRequestThatHappenedToMatch], state, 4)).toEqual({ values: {}, epochs: {} });
+  });
+
   it('shows the updated row actions immediately after reserve and release without reloading', async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     clients.push(queryClient);
     const queryKey = ['ipam', 'ips', subnet.id, ''];
     queryClient.setQueryData(queryKey, { items: [ip] });
     let persistedState = 'FREE';
+    let requestEpoch = 0;
     const createReservation = vi.fn().mockImplementation(async () => { persistedState = 'RESERVED'; return reservation; });
     const releaseReservation = vi.fn().mockImplementation(async () => { persistedState = 'FREE'; return { success: true, released: true }; });
 
     function InteractionHarness() {
-      const { data } = useQuery({ queryKey, queryFn: async () => ({ items: [ip] }) });
-      const [overrides, setOverrides] = useState<IpReservationOverrides>({});
+      const { data } = useQuery({ queryKey, queryFn: async () => ({ items: [ip], reservationRequestEpoch: requestEpoch }) });
+      const [overrideState, setOverrideState] = useState<IpReservationOverrideState>({ values: {}, epochs: {} });
+      useEffect(() => {
+        if (data?.items) setOverrideState((current) => reconcileIpReservationOverrides(data.items, current, data.reservationRequestEpoch));
+      }, [data?.items, data?.reservationRequestEpoch]);
       const updateReservation = async (ipRow: IpAddressRow, nextReservation: IpReservation | null) => {
         if (nextReservation) {
           const apiReservation = await createReservation();
           expect(apiReservation).toEqual(reservation);
-          setOverrides((current) => ({ ...current, [ipRow.id]: apiReservation }));
         } else {
           const apiResponse = await releaseReservation();
           expect(apiResponse).toMatchObject({ success: true, released: true });
-          setOverrides((current) => ({ ...current, [ipRow.id]: null }));
         }
+        const mutationEpoch = ++requestEpoch;
+        setOverrideState((current) => ({
+          values: { ...current.values, [ipRow.id]: nextReservation },
+          epochs: { ...current.epochs, [ipRow.id]: mutationEpoch },
+        }));
         await syncIpReservationCache(queryClient, ipRow.id, nextReservation, async () => undefined);
-        // Simulate a stale list response arriving after the mutation and cache sync.
+        // An older request can return an apparently matching row before a still-older stale row lands.
+        // Neither response may clear the mutation override because both began before the mutation.
+        const matchingStaleRow = nextReservation
+          ? { ...ip, state: 'RESERVED' as const, reservation, reservations: [reservation] }
+          : ip;
+        queryClient.setQueryData(queryKey, { items: [matchingStaleRow], reservationRequestEpoch: mutationEpoch - 1 });
         const staleRow = nextReservation
           ? ip
           : { ...ip, state: 'RESERVED', reservation, reservations: [reservation] };
-        queryClient.setQueryData(queryKey, { items: [staleRow] });
+        queryClient.setQueryData(queryKey, { items: [staleRow], reservationRequestEpoch: mutationEpoch - 1 });
       };
-      const visibleIps = applyIpReservationOverrides(data?.items ?? [], overrides);
+      const visibleIps = applyIpReservationOverrides(data?.items ?? [], overrideState.values);
       return createElement(SubnetsView, {
         selected: subnet, items: [subnet], usage: null, ips: visibleIps, search: '', setSearch: vi.fn(), openSubnet: vi.fn(), openHost: vi.fn(),
         canEdit: true, canReserve: true, canReleaseReservations: true, siteId: 'site-1', newSubnet: vi.fn(), editSubnet: vi.fn(), removeSubnet: vi.fn(),
