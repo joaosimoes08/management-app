@@ -30,5 +30,6 @@ export const saveSnmpCredential = (deviceId: string, body: Record<string, unknow
 export const testSnmpCredential = (deviceId: string, purpose: SnmpCredentialPurpose) => apiFetch(`/api/v1/snmp/devices/${deviceId}/credentials/${purpose}/test`, { method: 'POST' });
 export const runSnmpPoll = (deviceId: string) => apiFetch(`/api/v1/snmp/devices/${deviceId}/poll`, { method: 'POST' });
 export const reviewSnmpDrift = (id: string, status: 'ACCEPTED' | 'IGNORED') => apiFetch(`/api/v1/snmp/drifts/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
-export const previewSnmpWrite = (deviceId: string, operation: string, parameters: Record<string, unknown>) => apiFetch<{ id: string; status: string }>(`/api/v1/snmp/devices/${deviceId}/write-requests/preview`, { method: 'POST', body: JSON.stringify({ operation, parameters }) });
-export const executeSnmpWrite = (id: string) => apiFetch(`/api/v1/snmp/write-requests/${id}/execute`, { method: 'POST' });
+export type SnmpImpactPreview = { applicable: boolean; summary: string; knownImpacts: { id: string; name: string; type: string; href: string; source: string; observedAt?: string }[]; coverage: { status: string; source?: string; lastObservedAt?: string | null; reason: string } };
+export const previewSnmpWrite = (deviceId: string, operation: string, parameters: Record<string, unknown>) => apiFetch<{ id: string; status: string; impactPreview: SnmpImpactPreview }>(`/api/v1/snmp/devices/${deviceId}/write-requests/preview`, { method: 'POST', body: JSON.stringify({ operation, parameters }) });
+export const executeSnmpWrite = (id: string, impactAcknowledged: boolean) => apiFetch(`/api/v1/snmp/write-requests/${id}/execute`, { method: 'POST', body: JSON.stringify({ impactAcknowledged }) });
