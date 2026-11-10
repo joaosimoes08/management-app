@@ -196,31 +196,32 @@ enum InventoryFindingStatus {
 }
 
 model User {
-  id                        String                      @id @default(uuid()) @db.Uuid
-  externalId                String                      @unique
-  username                  String                      @unique
-  displayName               String?
-  email                     String?
-  roles                     UserRole[]
-  accessGroupMemberships    AccessGroupMember[]
-  auditLogs                 AuditLog[]
-  roleRequests              RoleRequest[]
-  reviewedRoleRequests      RoleRequest[]               @relation("RoleRequestReviewer")
-  notifications             Notification[]
-  alertStates               OperationalAlertUserState[]
-  acknowledgedAlerts        OperationalAlert[]          @relation("AlertAcknowledgedBy")
-  resolvedAlerts            OperationalAlert[]          @relation("AlertResolvedBy")
-  createdMaintenanceWindows MaintenanceWindow[]         @relation("MaintenanceWindowCreator")
-  dashboardLayouts          DashboardLayout[]           @relation("DashboardLayoutUpdatedBy")
-  dashboardPreferences      UserDashboardPreference[]
-  topologyMaps              TopologyMap[]               @relation("TopologyMapCreatedBy")
-  deviceConnections         DeviceConnection[]          @relation("DeviceConnectionCreatedBy")
-  assignedFindings          InventoryFinding[]          @relation("FindingAssignee")
-  acknowledgedFindings      InventoryFinding[]          @relation("FindingAcknowledgedBy")
-  createdChangePlans        ChangePlan[]                @relation("ChangePlanCreator")
-  reviewedChangePlans       ChangePlan[]                @relation("ChangePlanReviewer")
-  createdAt                 DateTime                    @default(now())
-  updatedAt                 DateTime                    @updatedAt
+  id                     String                      @id @default(uuid()) @db.Uuid
+  externalId             String                      @unique
+  username               String                      @unique
+  displayName            String?
+  email                  String?
+  roles                  UserRole[]
+  accessGroupMemberships AccessGroupMember[]
+  auditLogs              AuditLog[]
+  createdIpReservations  IpReservation[]
+  roleRequests           RoleRequest[]
+  reviewedRoleRequests   RoleRequest[]               @relation("RoleRequestReviewer")
+  notifications          Notification[]
+  alertStates            OperationalAlertUserState[]
+  acknowledgedAlerts     OperationalAlert[]          @relation("AlertAcknowledgedBy")
+  resolvedAlerts         OperationalAlert[]          @relation("AlertResolvedBy")
+  createdMaintenanceWindows MaintenanceWindow[]      @relation("MaintenanceWindowCreator")
+  dashboardLayouts       DashboardLayout[]           @relation("DashboardLayoutUpdatedBy")
+  dashboardPreferences   UserDashboardPreference[]
+  topologyMaps           TopologyMap[]               @relation("TopologyMapCreatedBy")
+  deviceConnections      DeviceConnection[]          @relation("DeviceConnectionCreatedBy")
+  assignedFindings       InventoryFinding[]          @relation("FindingAssignee")
+  acknowledgedFindings   InventoryFinding[]          @relation("FindingAcknowledgedBy")
+  createdChangePlans     ChangePlan[]                @relation("ChangePlanCreator")
+  reviewedChangePlans    ChangePlan[]                @relation("ChangePlanReviewer")
+  createdAt              DateTime                    @default(now())
+  updatedAt              DateTime                    @updatedAt
 }
 
 model RoleRequest {
@@ -1260,10 +1261,28 @@ model IpAddress {
   device             Device?          @relation(fields: [deviceId], references: [id], onDelete: SetNull)
   interface          DeviceInterface? @relation(fields: [interfaceId], references: [id], onDelete: SetNull)
   host               Host?            @relation(fields: [hostId], references: [id], onDelete: SetNull)
+  reservations       IpReservation[]
 
   @@unique([subnetId, address])
   @@index([hostname])
   @@index([version, address])
+}
+
+model IpReservation {
+  id          String     @id @default(uuid()) @db.Uuid
+  ipAddressId String     @db.Uuid
+  createdById String     @db.Uuid
+  reason      String     @db.VarChar(500)
+  expiresAt   DateTime
+  status      String     @default("ACTIVE") @db.VarChar(16)
+  releasedAt  DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  ipAddress   IpAddress  @relation(fields: [ipAddressId], references: [id], onDelete: Cascade)
+  createdBy   User       @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([status, expiresAt])
+  @@index([ipAddressId, status])
 }
 
 model NatRule {
