@@ -57,24 +57,32 @@ const I18nContext = createContext<I18nValue | undefined>(undefined);
 
 const originalText = new WeakMap<Text, string>();
 const originalAttributes = new WeakMap<Element, Map<string, string>>();
+const translatedText = new WeakMap<Text, string>();
+const translatedAttributesCache = new WeakMap<Element, Map<string, string>>();
 const translatedAttributes = ['aria-label', 'placeholder', 'title'] as const;
 
-function translateLegacyDom(locale: AppLocale, root: Node) {
+export function translateLegacyDom(locale: AppLocale, root: Node) {
   const translateNode = (node: Text) => {
-    const source = originalText.get(node) ?? node.nodeValue ?? '';
-    if (!originalText.has(node)) originalText.set(node, source);
+    const current = node.nodeValue ?? '';
+    if (!originalText.has(node) || !translatedText.has(node) || current !== translatedText.get(node)) originalText.set(node, current);
+    const source = originalText.get(node) ?? current;
     const next = translateLegacyText(locale, source);
-    if (node.nodeValue !== next) node.nodeValue = next;
+    translatedText.set(node, next);
+    if (current !== next) node.nodeValue = next;
   };
   const translateElement = (element: Element) => {
     let saved = originalAttributes.get(element);
     if (!saved) { saved = new Map(); originalAttributes.set(element, saved); }
+    let translated = translatedAttributesCache.get(element);
+    if (!translated) { translated = new Map(); translatedAttributesCache.set(element, translated); }
     for (const attribute of translatedAttributes) {
       if (!element.hasAttribute(attribute)) continue;
-      if (!saved.has(attribute)) saved.set(attribute, element.getAttribute(attribute) ?? '');
+      const current = element.getAttribute(attribute) ?? '';
+      if (!saved.has(attribute) || !translated.has(attribute) || current !== translated.get(attribute)) saved.set(attribute, current);
       const source = saved.get(attribute) ?? '';
       const next = translateLegacyText(locale, source);
-      if (element.getAttribute(attribute) !== next) element.setAttribute(attribute, next);
+      translated.set(attribute, next);
+      if (current !== next) element.setAttribute(attribute, next);
     }
   };
   if (root.nodeType === Node.TEXT_NODE) translateNode(root as Text);
@@ -85,6 +93,27 @@ function translateLegacyDom(locale: AppLocale, root: Node) {
     if (current.nodeType === Node.TEXT_NODE) translateNode(current as Text);
     else translateElement(current as Element);
   }
+}
+
+export function observeLegacyDom(locale: AppLocale, root: Node) {
+  let translating = false;
+  const apply = (node: Node) => {
+    if (translating) return;
+    translating = true;
+    translateLegacyDom(locale, node);
+    translating = false;
+  };
+  apply(root);
+  const observer = new MutationObserver((mutations) => {
+    if (translating) return;
+    for (const mutation of mutations) {
+      if (mutation.type === 'characterData') apply(mutation.target);
+      if (mutation.type === 'attributes') apply(mutation.target);
+      for (const node of mutation.addedNodes) apply(node);
+    }
+  });
+  observer.observe(root, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: [...translatedAttributes] });
+  return () => observer.disconnect();
 }
 
 export function I18nProvider({ children }: { children: React.ReactNode }) {
@@ -104,24 +133,7 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     return () => window.cancelAnimationFrame(frame);
   }, [locale]);
   useEffect(() => {
-    let translating = false;
-    const apply = (root: Node) => {
-      if (translating) return;
-      translating = true;
-      translateLegacyDom(locale, root);
-      translating = false;
-    };
-    apply(document.body);
-    const observer = new MutationObserver((mutations) => {
-      if (translating) return;
-      for (const mutation of mutations) {
-        if (mutation.type === 'characterData') apply(mutation.target);
-        if (mutation.type === 'attributes') apply(mutation.target);
-        for (const node of mutation.addedNodes) apply(node);
-      }
-    });
-    observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: [...translatedAttributes] });
-    return () => observer.disconnect();
+    return observeLegacyDom(locale, document.body);
   }, [locale]);
   const value = useMemo<I18nValue>(() => ({
     locale,
