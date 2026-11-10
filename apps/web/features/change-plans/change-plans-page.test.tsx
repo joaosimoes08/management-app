@@ -58,6 +58,7 @@ describe('ChangePlansPage impact preview transition', () => {
     render(<ChangePlansPage />);
     fireEvent.click(await screen.findByRole('button', { name: /Calibration Change/ }));
     await vi.waitFor(() => expect(mocks.getChangePlan).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole('button', { name: /Calibration Change/ })).toHaveTextContent('Pré-visualização: Por calcular');
     expect(screen.getByText('Pré-visualização').closest('.change-summary-grid')).toHaveTextContent('Por calcular');
     expect(screen.queryByText('Impacto conhecido')).not.toBeInTheDocument();
     fireEvent.click(await screen.findByRole('button', { name: 'Recalcular pré-visualização' }));
@@ -80,6 +81,7 @@ describe('ChangePlansPage impact preview transition', () => {
     expect(detail?.querySelector('.impact-preview .change-summary-grid div strong')).toHaveTextContent('6');
     expect(detail?.querySelectorAll('.impact-group li')).toHaveLength(6);
     expect(detail).toHaveTextContent('Impacto conhecido');
+    expect(screen.getByRole('button', { name: /Calibration Change/ })).toHaveTextContent(`Pré-visualização: Calculada ${expectedTimestamp}`);
     expect(mocks.detail?.previewSnapshot).toBe(calculated);
     expect(screen.getByRole('button', { name: 'Recalcular pré-visualização' })).toBeInTheDocument();
     expect(screen.queryByText('A calcular…')).not.toBeInTheDocument();
