@@ -78,10 +78,15 @@ export interface IpAddressRow {
 
 export interface IpReservation {
   id: string;
+  ipAddressId?: string;
+  createdById?: string;
   expiresAt: string;
   reason: string;
+  releasedAt?: string | null;
   createdAt?: string;
+  updatedAt?: string;
   status?: 'ACTIVE' | 'RELEASED' | 'EXPIRED';
+  ipAddress?: Pick<IpAddressRow, 'id' | 'address'>;
 }
 
 export interface CreateIpReservationInput {

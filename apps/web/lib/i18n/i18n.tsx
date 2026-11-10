@@ -57,24 +57,38 @@ const I18nContext = createContext<I18nValue | undefined>(undefined);
 
 const originalText = new WeakMap<Text, string>();
 const originalAttributes = new WeakMap<Element, Map<string, string>>();
+const translatedText = new WeakMap<Text, string>();
+const translatedAttributeValues = new WeakMap<Element, Map<string, string>>();
 const translatedAttributes = ['aria-label', 'placeholder', 'title'] as const;
 
 function translateLegacyDom(locale: AppLocale, root: Node) {
   const translateNode = (node: Text) => {
-    const source = originalText.get(node) ?? node.nodeValue ?? '';
-    if (!originalText.has(node)) originalText.set(node, source);
+    const current = node.nodeValue ?? '';
+    const previousTranslation = translatedText.get(node);
+    if (!originalText.has(node) || (previousTranslation !== undefined && current !== previousTranslation)) {
+      // React may reuse a text node for new state. Treat that value as the new
+      // source instead of restoring the text that was first rendered here.
+      originalText.set(node, current);
+    }
+    const source = originalText.get(node) ?? current;
     const next = translateLegacyText(locale, source);
-    if (node.nodeValue !== next) node.nodeValue = next;
+    if (current !== next) node.nodeValue = next;
+    translatedText.set(node, next);
   };
   const translateElement = (element: Element) => {
     let saved = originalAttributes.get(element);
     if (!saved) { saved = new Map(); originalAttributes.set(element, saved); }
+    let translated = translatedAttributeValues.get(element);
+    if (!translated) { translated = new Map(); translatedAttributeValues.set(element, translated); }
     for (const attribute of translatedAttributes) {
       if (!element.hasAttribute(attribute)) continue;
-      if (!saved.has(attribute)) saved.set(attribute, element.getAttribute(attribute) ?? '');
+      const current = element.getAttribute(attribute) ?? '';
+      const previousTranslation = translated.get(attribute);
+      if (!saved.has(attribute) || (previousTranslation !== undefined && current !== previousTranslation)) saved.set(attribute, current);
       const source = saved.get(attribute) ?? '';
       const next = translateLegacyText(locale, source);
-      if (element.getAttribute(attribute) !== next) element.setAttribute(attribute, next);
+      if (current !== next) element.setAttribute(attribute, next);
+      translated.set(attribute, next);
     }
   };
   if (root.nodeType === Node.TEXT_NODE) translateNode(root as Text);
