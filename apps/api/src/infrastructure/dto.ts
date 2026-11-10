@@ -1,4 +1,4 @@
-import { ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, Min, MinLength } from 'class-validator';
+import { ArrayMinSize, ArrayMaxSize, IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, Max, Min, MinLength } from 'class-validator';
 
 const deviceTypes = ['SWITCH', 'ROUTER', 'FIREWALL', 'SERVER', 'STORAGE', 'OTHER'];
 const statuses = ['ACTIVE', 'INACTIVE', 'MAINTENANCE', 'RETIRED', 'UNKNOWN'];
@@ -35,6 +35,21 @@ export class CreateDeviceDto {
   @IsOptional() @IsString() notes?: string;
 }
 export class UpdateDeviceDto extends CreateDeviceDto {}
+
+export class CreateLifecycleDateDto {
+  @IsIn(['LICENSE', 'WARRANTY', 'SUPPORT']) kind!: string;
+  @IsDateString() @Matches(/^\d{4}-\d{2}-\d{2}$/) dueDate!: string;
+  @IsOptional() @IsArray() @ArrayMaxSize(4) @IsInt({ each: true }) @Min(0, { each: true }) @Max(365, { each: true }) reminderDays?: number[];
+  @IsOptional() @IsUUID() responsibleUserId?: string | null;
+  @IsOptional() @IsUUID() responsibleGroupId?: string | null;
+}
+export class UpdateLifecycleDateDto {
+  @IsOptional() @IsIn(['LICENSE', 'WARRANTY', 'SUPPORT']) kind?: string;
+  @IsOptional() @IsDateString() @Matches(/^\d{4}-\d{2}-\d{2}$/) dueDate?: string;
+  @IsOptional() @IsArray() @ArrayMaxSize(4) @IsInt({ each: true }) @Min(0, { each: true }) @Max(365, { each: true }) reminderDays?: number[];
+  @IsOptional() @IsUUID() responsibleUserId?: string | null;
+  @IsOptional() @IsUUID() responsibleGroupId?: string | null;
+}
 
 export class CreateInterfaceDto {
   @IsString() @MinLength(1) name!: string;

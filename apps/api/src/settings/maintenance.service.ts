@@ -9,6 +9,7 @@ export class MaintenanceService implements OnModuleInit, OnModuleDestroy {
     await Promise.all([
       this.queue.upsertJobScheduler('audit-retention-daily', { every: 24 * 60 * 60 * 1000 }, { name: 'audit-retention-cleanup', data: {} }),
       this.queue.upsertJobScheduler('inventory-quality-daily', { every: 24 * 60 * 60 * 1000 }, { name: 'inventory-quality-reconcile', data: {} }),
+      this.queue.upsertJobScheduler('lifecycle-reminders-daily', { every: 24 * 60 * 60 * 1000 }, { name: 'lifecycle-reminders', data: {} }),
     ]).catch(() => undefined);
   }
   async onModuleDestroy() { await this.queue.disconnect(); }
