@@ -51,6 +51,11 @@ export class UpdateIpDto {
   @IsOptional() @IsUUID() deviceId?: string | null;
   @IsOptional() @IsUUID() interfaceId?: string;
 }
+export class CreateIpReservationDto {
+  @IsUUID() ipAddressId!: string;
+  @IsOptional() @IsInt() @Min(1) @Max(720) durationHours = 24;
+  @IsString() @MinLength(1) @MaxLength(500) reason!: string;
+}
 export class UpdateSubnetScanDto {
   @IsBoolean() enabled!: boolean;
   @IsArray() @IsIn(['ICMP', 'TCP'], { each: true }) methods!: string[];

@@ -20,6 +20,7 @@ import { TopologyModule } from './topology/topology.module';
 import { LinuxAgentModule } from './linux-agent/linux-agent.module';
 import { ExportsModule } from './settings/exports.module';
 import { NetAppModule } from './netapp/netapp.module';
+import { ChangePlansModule } from './change-plans/change-plans.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { NetAppModule } from './netapp/netapp.module';
     LinuxAgentModule,
     ExportsModule,
     NetAppModule,
+    ChangePlansModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
