@@ -38,6 +38,37 @@ describe('IP reservation cache updates', () => {
     expect(queryClient.getQueryData<{ items: IpAddressRow[] }>(matchingSearchKey)?.items[0]).toMatchObject({ state: 'FREE', reservation: null, reservations: [] });
   });
 
+  it('renders reserve and release from the mutation cache write while background refresh is pending', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    clients.push(queryClient);
+    const queryKey = ['ipam', 'ips', subnet.id, ''];
+    queryClient.setQueryData(queryKey, { items: [ip] });
+    const finishRefreshes: Array<() => void> = [];
+    const pendingRefresh = () => new Promise<void>((resolve) => { finishRefreshes.push(resolve); });
+
+    function CacheDrivenRows() {
+      const { data } = useQuery({ queryKey, queryFn: () => new Promise<{ items: IpAddressRow[] }>(() => undefined) });
+      const rows = data?.items ?? [];
+      return createElement(SubnetsView, {
+        selected: subnet, items: [subnet], usage: null, ips: rows, search: '', setSearch: vi.fn(), openSubnet: vi.fn(), openHost: vi.fn(),
+        canEdit: true, canReserve: true, canReleaseReservations: true, siteId: 'site-1', newSubnet: vi.fn(), editSubnet: vi.fn(), removeSubnet: vi.fn(),
+        editIp: vi.fn(), newIp: vi.fn(), createHost: vi.fn(),
+        reserveIp: () => { void syncIpReservationCache(queryClient, ip.id, reservation, pendingRefresh); },
+        releaseReservation: () => { void syncIpReservationCache(queryClient, ip.id, null, pendingRefresh); },
+      });
+    }
+
+    render(createElement(QueryClientProvider, { client: queryClient }, createElement(CacheDrivenRows)));
+    fireEvent.click(await screen.findByRole('button', { name: 'Reservar 192.0.2.18' }));
+    expect(await screen.findByText('RESERVED / UNKNOWN')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Libertar reserva de 192.0.2.18' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Libertar reserva de 192.0.2.18' }));
+    expect(await screen.findByText('FREE / UNKNOWN')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reservar 192.0.2.18' })).toBeInTheDocument();
+    finishRefreshes.forEach((finish) => finish());
+  });
+
   it('cancels overlapping stale list refetches before applying reserve and release results', async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     clients.push(queryClient);

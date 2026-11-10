@@ -64,9 +64,12 @@ export async function syncIpReservationCache(
   reservation: IpReservation | null,
   refresh: () => Promise<unknown>,
 ): Promise<void> {
-  // A list request that started before the mutation can finish with a stale row.
-  // Cancel it before writing the mutation result so it cannot replace the cache.
+  // Publish the mutation result synchronously so mounted rows update as soon as
+  // the mutation resolves. Then cancel any list request that could overwrite it.
+  setCachedIpReservation(queryClient, ipAddressId, reservation);
   await queryClient.cancelQueries({ queryKey: ['ipam', 'ips'] });
+  // Cancellation can restore a request's previous snapshot, so reapply the
+  // authoritative mutation result before starting background refreshes.
   setCachedIpReservation(queryClient, ipAddressId, reservation);
   await refresh();
   setCachedIpReservation(queryClient, ipAddressId, reservation);
