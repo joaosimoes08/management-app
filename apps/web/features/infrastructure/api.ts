@@ -78,6 +78,13 @@ export function createRack(body: { name: string; roomId: string }): Promise<Rack
   return apiFetch<Rack>('/api/v1/racks', { method: 'POST', body: JSON.stringify(body) });
 }
 
+export function reorderRacks(roomId: string, rackIds: string[]): Promise<Rack[]> {
+  return apiFetch<Rack[]>(`/api/v1/rooms/${encodeURIComponent(roomId)}/racks/order`, {
+    method: 'PATCH',
+    body: JSON.stringify({ rackIds }),
+  });
+}
+
 export function updateRack(id: string, body: { name?: string; roomId?: string }): Promise<Rack> {
   return apiFetch<Rack>(`/api/v1/racks/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
