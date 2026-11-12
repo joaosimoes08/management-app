@@ -5,7 +5,7 @@ LABEL org.opencontainers.image.source="https://github.com/joaosimoes08/managemen
 WORKDIR /app
 RUN test -n "$VCS_REF"
 
-ARG NEXT_PUBLIC_API_URL=http://localhost:3001
+ARG NEXT_PUBLIC_API_URL=
 ARG NEXT_PUBLIC_KEYCLOAK_URL=http://localhost:8080
 ARG NEXT_PUBLIC_KEYCLOAK_REALM=COCiber
 ARG NEXT_PUBLIC_KEYCLOAK_CLIENT_ID=simoes-web

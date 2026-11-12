@@ -19,8 +19,6 @@ export function setApiUnauthorizedHandler(handler: (() => void) | null): void {
   onUnauthorized = handler;
 }
 
-const apiUrl = getPublicRuntimeConfig().apiUrl;
-
 declare global {
   interface Window {
     __cociberApiFetch?: typeof apiFetch;
@@ -41,7 +39,7 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
     'Accept-Language': typeof window !== 'undefined' ? (window.localStorage.getItem('cociber.locale') ?? 'pt-PT') : 'pt-PT',
     ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
   };
-  const response = await fetch(`${apiUrl}${path}`, {
+  const response = await fetch(`${getPublicRuntimeConfig().apiUrl}${path}`, {
     ...init,
     headers,
   });
@@ -67,7 +65,7 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
 export async function apiDownload(path: string, filename: string): Promise<void> {
   if (!tokenProvider) throw new Error('O cliente da API não está inicializado.');
   const accessToken = await tokenProvider();
-  const response = await fetch(`${apiUrl}${path}`, { headers: { Authorization: `Bearer ${accessToken}`, 'Accept-Language': window.localStorage.getItem('cociber.locale') ?? 'pt-PT' } });
+  const response = await fetch(`${getPublicRuntimeConfig().apiUrl}${path}`, { headers: { Authorization: `Bearer ${accessToken}`, 'Accept-Language': window.localStorage.getItem('cociber.locale') ?? 'pt-PT' } });
   if (!response.ok) throw new Error(`Export falhou (${response.status})`);
   const url = URL.createObjectURL(await response.blob()); const link = document.createElement('a'); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url);
 }

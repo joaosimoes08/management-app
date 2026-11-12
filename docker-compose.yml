@@ -118,7 +118,7 @@ services:
   web:
     image: ${DOCKERHUB_NAMESPACE:-joaosimoes08}/mgmt-app-web:${APP_IMAGE_TAG:-beta-1.0.3-release}
     environment:
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
       NEXT_PUBLIC_KEYCLOAK_URL: ${NEXT_PUBLIC_KEYCLOAK_URL:-http://localhost:8080}
       NEXT_PUBLIC_KEYCLOAK_REALM: ${KEYCLOAK_REALM:-COCiber}
       NEXT_PUBLIC_KEYCLOAK_CLIENT_ID: ${NEXT_PUBLIC_KEYCLOAK_CLIENT_ID:-simoes-web}

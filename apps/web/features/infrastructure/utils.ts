@@ -7,10 +7,8 @@ export const RACK_VIEWPORT = { left: 49 / 304, top: 45 / 820, width: 206 / 304, 
 export const EQUIPMENT_TYPES = ['SWITCH', 'ROUTER', 'FIREWALL', 'SERVER', 'STORAGE', 'OTHER'] as const;
 export const PORT_TYPES = ['FAST_ETHERNET', 'ETHERNET', 'GIGABIT_ETHERNET', 'SFP', 'SFP_PLUS', 'QSFP', 'MANAGEMENT', 'CONSOLE', 'FIBRE_CHANNEL', 'OTHER'] as const;
 
-const API = getPublicRuntimeConfig().apiUrl;
-
 export function assetFileUrl(asset: Pick<AssetFile, 'id'>): string {
-  return `${API}/api/v1/assets/${asset.id}/file`;
+  return `${getPublicRuntimeConfig().apiUrl}/api/v1/assets/${asset.id}/file`;
 }
 
 export function assetDisplayName(asset?: AssetFile | null): string {

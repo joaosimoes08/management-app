@@ -16,8 +16,11 @@ declare global {
 
 export function getPublicRuntimeConfig(): Required<PublicRuntimeConfig> {
   const runtime = typeof window === 'undefined' ? undefined : window.__COCIBER_CONFIG__;
+  const configuredApiUrl = runtime?.apiUrl || process.env.NEXT_PUBLIC_API_URL;
+  const hostname = typeof window === 'undefined' ? '' : window.location.hostname;
+  const localApiUrl = ['localhost', '127.0.0.1', '::1'].includes(hostname) ? 'http://localhost:3001' : '';
   return {
-    apiUrl: runtime?.apiUrl ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001',
+    apiUrl: configuredApiUrl || localApiUrl,
     keycloakUrl: runtime?.keycloakUrl ?? process.env.NEXT_PUBLIC_KEYCLOAK_URL ?? 'http://localhost:8080',
     keycloakRealm: runtime?.keycloakRealm ?? process.env.NEXT_PUBLIC_KEYCLOAK_REALM ?? 'COCiber',
     keycloakClientId: runtime?.keycloakClientId ?? process.env.NEXT_PUBLIC_KEYCLOAK_CLIENT_ID ?? 'simoes-web',

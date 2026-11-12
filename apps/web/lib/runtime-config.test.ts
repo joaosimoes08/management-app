@@ -4,6 +4,27 @@ import { getConfiguredLocale, getPublicOrganizationName, getPublicRuntimeConfig,
 describe('public runtime branding configuration', () => {
   afterEach(() => { delete window.__COCIBER_CONFIG__; });
 
+  it('keeps the direct API port for local development', () => {
+    expect(getPublicRuntimeConfig().apiUrl).toBe('http://localhost:3001');
+  });
+
+  it('uses a same-origin API for production hosts when no API URL is configured', () => {
+    const originalLocation = window.location;
+    try {
+      Object.defineProperty(window, 'location', { configurable: true, value: { ...originalLocation, hostname: 'management.example.com' } });
+      window.__COCIBER_CONFIG__ = {};
+
+      expect(getPublicRuntimeConfig().apiUrl).toBe('');
+    } finally {
+      Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
+    }
+  });
+
+  it('honors an explicitly configured API URL', () => {
+    window.__COCIBER_CONFIG__ = { apiUrl: 'https://api.example.com' };
+    expect(getPublicRuntimeConfig().apiUrl).toBe('https://api.example.com');
+  });
+
   it('uses deployment branding and locale when configured', () => {
     window.__COCIBER_CONFIG__ = { keycloakRealm: 'SIMONEDA', organizationName: 'SIMONEDA', locale: 'en-US' };
     expect(getPublicOrganizationName()).toBe('SIMONEDA');

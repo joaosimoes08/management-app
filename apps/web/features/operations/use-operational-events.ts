@@ -5,8 +5,6 @@ import { getPublicRuntimeConfig } from '@/lib/runtime-config';
 import { parseSseChunk, pubSubAvailability, type OperationEvent } from './sse';
 
 type Options<T> = { url?: string; fallback?: (signal?: AbortSignal) => Promise<T>; onEvent?: (event: OperationEvent) => void; intervalMs?: number };
-const apiUrl = getPublicRuntimeConfig().apiUrl;
-
 export function useOperationalEvents<T>({ url = '/api/v1/operations/events', fallback, onEvent, intervalMs = 30_000 }: Options<T>) {
   const { token } = useAuth();
   const [data, setData] = useState<T | undefined>(); const [connected, setConnected] = useState(false); const [error, setError] = useState<Error | null>(null);
@@ -21,7 +19,7 @@ export function useOperationalEvents<T>({ url = '/api/v1/operations/events', fal
     const reconnect = () => { if (!disposed && reconnectTimer === undefined) reconnectTimer = window.setTimeout(() => { reconnectTimer = undefined; void connect(); }, 5_000); };
     const connect = async () => {
       let response: Response;
-      try { response = await fetch(`${apiUrl}${url}`, { headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' }, cache: 'no-store', signal: controller.signal }); if (!response.ok || !response.body) throw new Error(`SSE indisponível (${response.status})`); }
+      try { response = await fetch(`${getPublicRuntimeConfig().apiUrl}${url}`, { headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' }, cache: 'no-store', signal: controller.signal }); if (!response.ok || !response.body) throw new Error(`SSE indisponível (${response.status})`); }
       catch (reason) { if (!disposed && !controller.signal.aborted) { setConnected(false); setError(reason instanceof Error ? reason : new Error('SSE indisponível.')); startPolling(); reconnect(); } return; }
       if (disposed) return; setConnected(true); setError(null); stopPolling();
       const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = '';
