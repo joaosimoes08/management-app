@@ -4,7 +4,7 @@ Plataforma de gestão de infraestrutura, IPAM e ciberdefesa.
 
 ## Deploy com Docker Compose
 
-A instalação usa imagens publicadas, sem compilar o código na máquina de destino. A versão beta atual é `beta-1.0.2` para API, web e SNMP, publicada para `linux/amd64` e `linux/arm64`. `.env.example` acompanha a última versão estável/release verificada; não use `main` ou `latest` como referência de uma instalação.
+A instalação usa imagens publicadas, sem compilar o código na máquina de destino. A versão beta atual é `beta-1.0.2-release` para API, web e SNMP, publicada para `linux/amd64` e `linux/arm64`. `.env.example` acompanha a última versão estável/release verificada; não use `main` ou `latest` como referência de uma instalação.
 
 ### Requisitos
 
@@ -22,7 +22,7 @@ chmod +x deploy.sh
 
 No Windows, abra PowerShell 7 nessa pasta e execute `./deploy.ps1`. O assistente permite `install`, `update` ou `check` como argumento. Verifica Docker/Compose, existência da tag nos três repositórios e manifestos AMD64/ARM64, renderiza a configuração antes de aplicar e pede confirmação. Na primeira execução, copia `.env.example`, gera segredos locais fortes e cria o cofre SNMP. Também cria o utilizador da aplicação `admin@admin.test` dentro do realm `COCiber`, com role `ADMIN`, palavra-passe aleatória temporária e alteração obrigatória no primeiro login. Este utilizador é separado da conta master/bootstrap local do Keycloak, que não é alterada. A palavra-passe só é apresentada quando a conta da aplicação é criada e fica guardada em `.env` com permissões restritas; proteja também as cópias de `.env` em `backups/`.
 
-Numa atualização, o assistente faz cópias datadas de `.env` e das bases PostgreSQL, preserva volumes e acrescenta as novas chaves sem apagar dados. O destino predefinido passa de `beta-1.0.0-release` ou `beta-1.0.1-release` para `beta-1.0.2`. A atualização direta de 1.0.0 para 1.0.2 é suportada; não é necessário instalar 1.0.1 primeiro. Pode indicar uma tag anterior explicitamente para uma transição gradual. Se algum backup falhar ou o PostgreSQL não estiver ativo, o assistente interrompe antes de descarregar ou aplicar imagens.
+Numa atualização, o assistente faz cópias datadas de `.env` e das bases PostgreSQL, preserva volumes e acrescenta as novas chaves sem apagar dados. O destino predefinido passa de `beta-1.0.0-release` ou `beta-1.0.1-release` para `beta-1.0.2-release`. A atualização de 1.0.0 para 1.0.1 continua disponível ao indicar essa tag; a atualização direta de 1.0.0 para 1.0.2 também é suportada, sem instalar 1.0.1 primeiro. Em ambos os percursos, os backups da aplicação e do Keycloak são condição para aplicar as imagens. Se algum backup falhar ou o PostgreSQL não estiver ativo, o assistente interrompe antes de descarregar ou aplicar imagens. Volumes não são apagados; migrações executadas no arranque podem exigir restaurar uma cópia compatível antes de reverter a versão.
 
 O assistente configura `KEYCLOAK_HOSTNAME` e `OIDC_ISSUER_URL` a partir da URL pública usada pelo browser. A API continua a validar tokens pelo endereço interno `http://keycloak:8080/realms/COCiber`, evitando dependência do DNS público entre containers.
 
