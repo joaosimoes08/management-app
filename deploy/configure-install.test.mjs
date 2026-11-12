@@ -22,7 +22,11 @@ test('creates a realm with matching organization, client credentials, and public
   assert.equal(webClient.redirectUris[0], 'https://login.example.test/*');
   assert.equal(webClient.webOrigins[0], 'https://login.example.test');
   assert.equal(adminClient.secret, 'fresh-client-secret');
-  assert.equal(fs.statSync(realmPath).mode & 0o777, 0o600);
+  assert.equal(fs.statSync(realmPath).mode & 0o777, 0o640);
+  if (typeof process.getuid === 'function' && process.getuid() === 0) {
+    assert.equal(fs.statSync(realmPath).uid, 0);
+    assert.equal(fs.statSync(realmPath).gid, 0);
+  }
   fs.rmSync(root, { recursive: true, force: true });
 });
 
@@ -30,11 +34,30 @@ test('preserves an existing realm file and refuses to replace it with a differen
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'management-deploy-'));
   const realmPath = path.join(root, 'realm.json');
   const existing = JSON.parse(fs.readFileSync(templatePath, 'utf8'));
-  fs.writeFileSync(realmPath, JSON.stringify(existing));
+  const existingContent = `${JSON.stringify(existing, null, 2)}\n`;
+  fs.writeFileSync(realmPath, existingContent, { mode: 0o600 });
 
   assert.equal(writeRealmFile({ templatePath, realmPath, organization: 'COCiber', locale: 'pt-PT', clientSecret: 'secret', publicBaseUrl: 'http://localhost:8080' }), false);
+  assert.equal(fs.statSync(realmPath).mode & 0o777, 0o640);
+  assert.equal(fs.readFileSync(realmPath, 'utf8'), existingContent);
   assert.throws(() => writeRealmFile({ templatePath, realmPath, organization: 'SIMONEDA', locale: 'pt-PT', clientSecret: 'secret', publicBaseUrl: 'http://localhost:8080' }), /Refusing to overwrite realm file/);
-  assert.equal(JSON.parse(fs.readFileSync(realmPath, 'utf8')).realm, 'COCiber');
+  assert.equal(fs.readFileSync(realmPath, 'utf8'), existingContent);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('rejects symbolic links and non-regular paths for the generated realm file', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'management-deploy-'));
+  const targetPath = path.join(root, 'target.json');
+  const symlinkPath = path.join(root, 'realm-symlink.json');
+  const directoryPath = path.join(root, 'realm-directory');
+  fs.writeFileSync(targetPath, JSON.stringify(JSON.parse(fs.readFileSync(templatePath, 'utf8'))));
+  fs.symlinkSync(targetPath, symlinkPath);
+  fs.mkdirSync(directoryPath);
+
+  const options = { templatePath, organization: 'COCiber', locale: 'pt-PT', clientSecret: 'secret', publicBaseUrl: 'http://localhost:8080' };
+  assert.throws(() => writeRealmFile({ ...options, realmPath: symlinkPath }), /symbolic link/);
+  assert.throws(() => writeRealmFile({ ...options, realmPath: directoryPath }), /non-regular/);
+  assert.equal(fs.lstatSync(symlinkPath).isSymbolicLink(), true);
   fs.rmSync(root, { recursive: true, force: true });
 });
 

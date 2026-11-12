@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 20
     services:
       postgres:
@@ -79,10 +79,12 @@ jobs:
           ./scripts/test-deploy.sh
 
   powershell-syntax:
-    runs-on: windows-latest
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+      - name: Check PowerShell Core is available
+        run: command -v pwsh
       - name: Parse PowerShell deployment script
         shell: pwsh
         run: |
