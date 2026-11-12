@@ -31,6 +31,21 @@ if (Test-Path $EnvPath) {
 foreach ($line in (Get-Content (Join-Path $Root '.env.example'))) {
   if ($line -match '^([^#=]+)=') { $key = $Matches[1]; if (-not (Get-Content $EnvPath | Where-Object { $_ -match "^$([regex]::Escape($key))=" })) { Add-Content $EnvPath $line } }
 }
+$currentRealm = Read-Env 'KEYCLOAK_REALM' 'COCiber'
+$organization = Read-Host "Deployment organization and Keycloak realm [$currentRealm]"; if (-not $organization) { $organization = $currentRealm }
+if ($organization -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$') { throw 'Organization/realm must be 1-64 letters, numbers, underscores, or hyphens, and start with a letter or number.' }
+$currentLocale = Read-Env 'NEXT_PUBLIC_APP_LOCALE' 'pt-PT'
+$locale = Read-Host "Startup language (pt-PT or en-US) [$currentLocale]"; if (-not $locale) { $locale = $currentLocale }
+if ($locale -notin @('pt-PT','en-US')) { throw 'Startup language must be pt-PT or en-US.' }
+$project = if ($env:COMPOSE_PROJECT_NAME) { $env:COMPOSE_PROJECT_NAME } else { Read-Env 'COMPOSE_PROJECT_NAME' 'simoes-mgmtapp' }
+docker volume inspect "${project}_keycloak_postgres_data" *> $null
+if ($LASTEXITCODE -eq 0 -and $organization -ne $currentRealm) { throw "Refusing to switch the realm of existing Keycloak data ($currentRealm). Keep it for this installation or use a separate COMPOSE_PROJECT_NAME for a fresh install." }
+Set-Env 'KEYCLOAK_REALM' $organization; Set-Env 'NEXT_PUBLIC_KEYCLOAK_REALM' $organization; Set-Env 'KEYCLOAK_ADMIN_REALM' $organization
+Set-Env 'NEXT_PUBLIC_ORGANIZATION_NAME' $organization; Set-Env 'NEXT_PUBLIC_APP_LOCALE' $locale
+Set-Env 'OIDC_BACKCHANNEL_URL' "http://keycloak:8080/realms/$organization"
+$realmPath = Read-Env 'KEYCLOAK_REALM_FILE' './deploy/realm-cociber.generated.json'
+if ($organization -ne 'COCiber' -and $realmPath -eq './deploy/realm-cociber.generated.json') { $realmPath = "./deploy/realm-$organization.generated.json" }
+Set-Env 'KEYCLOAK_REALM_FILE' $realmPath
 $configured = Read-Env 'APP_IMAGE_TAG' $TagDefault
 $imageRows = docker compose images --format json 2>$null | ConvertFrom-Json
 $installed = @($imageRows | ForEach-Object { $_.Tag } | Where-Object { $_ } | Sort-Object -Unique) -join ','
@@ -83,20 +98,19 @@ if ($proxy -match '^(?i:y|yes)$') {
 if ($proxy -match '^(?i:y|yes)$') {
   $scheme = if ($https -match '^(?i:y|yes)$') { 'https' } else { 'http' }
   Set-Env 'PUBLIC_SCHEME' $scheme
-  Set-Env 'NEXT_PUBLIC_API_URL' "$($scheme)://$hostName"; Set-Env 'NEXT_PUBLIC_KEYCLOAK_URL' "$($scheme)://$hostName"; Set-Env 'KEYCLOAK_HOSTNAME' "$($scheme)://$hostName"; Set-Env 'OIDC_ISSUER_URL' "$($scheme)://$hostName/realms/COCiber"; Set-Env 'CORS_ORIGINS' "$($scheme)://$hostName"
+  Set-Env 'NEXT_PUBLIC_API_URL' "$($scheme)://$hostName"; Set-Env 'NEXT_PUBLIC_KEYCLOAK_URL' "$($scheme)://$hostName"; Set-Env 'KEYCLOAK_HOSTNAME' "$($scheme)://$hostName"; Set-Env 'OIDC_ISSUER_URL' "$($scheme)://$hostName/realms/$organization"; Set-Env 'CORS_ORIGINS' "$($scheme)://$hostName"
 } else {
   $publicUrl = Read-Env 'NEXT_PUBLIC_KEYCLOAK_URL' 'http://localhost:8080'
   if ($publicUrl -in @('http://localhost:8080','http://127.0.0.1:8080')) { $publicUrl = 'https://mgmt.ciberdefesa.dev' }
   $publicUrlInput = Read-Host "Public application URL (used by the browser and Keycloak) [$publicUrl]"; if ($publicUrlInput) { $publicUrl = $publicUrlInput }
   if ($publicUrl -notmatch '^https?://[A-Za-z0-9.-]+(:[0-9]+)?$') { throw 'Public application URL must be an http(s) origin without a path.' }
   $scheme = $publicUrl.Substring(0, $publicUrl.IndexOf('://')); $hostName = $publicUrl.Substring($publicUrl.IndexOf('://') + 3)
-  Set-Env 'PUBLIC_HOSTNAME' $hostName; Set-Env 'PUBLIC_SCHEME' $scheme; Set-Env 'NEXT_PUBLIC_API_URL' $publicUrl; Set-Env 'NEXT_PUBLIC_KEYCLOAK_URL' $publicUrl; Set-Env 'KEYCLOAK_HOSTNAME' $publicUrl; Set-Env 'OIDC_ISSUER_URL' "$publicUrl/realms/COCiber"; Set-Env 'CORS_ORIGINS' $publicUrl
+  Set-Env 'PUBLIC_HOSTNAME' $hostName; Set-Env 'PUBLIC_SCHEME' $scheme; Set-Env 'NEXT_PUBLIC_API_URL' $publicUrl; Set-Env 'NEXT_PUBLIC_KEYCLOAK_URL' $publicUrl; Set-Env 'KEYCLOAK_HOSTNAME' $publicUrl; Set-Env 'OIDC_ISSUER_URL' "$publicUrl/realms/$organization"; Set-Env 'CORS_ORIGINS' $publicUrl
 }
-$realmPath = Read-Env 'KEYCLOAK_REALM_FILE' './deploy/realm-cociber.generated.json'
-if (-not (Test-Path $realmPath)) {
-  node -e 'const fs=require("fs"),path=require("path");const env=fs.readFileSync(".env","utf8"),get=k=>env.match(new RegExp("^"+k+"=(.*)$","m"))?.[1],secret=get("KEYCLOAK_ADMIN_CLIENT_SECRET"),p=get("KEYCLOAK_REALM_FILE")||"./deploy/realm-cociber.generated.json";if(!secret)process.exit(1);const r=JSON.parse(fs.readFileSync("deploy/realm-cociber.json","utf8")),c=r.clients.find(x=>x.clientId==="simoes-settings-admin");if(c&&c.secret.startsWith("change-me"))c.secret=secret;const host=get("PUBLIC_HOSTNAME"),scheme=get("PUBLIC_SCHEME");if(host&&scheme){const base=`${scheme}://${host}`,web=r.clients.find(x=>x.clientId==="simoes-web");if(web){web.redirectUris=[`${base}/*`];web.webOrigins=[base];web.attributes={...web.attributes,"post.logout.redirect.uris":`${base}/*`}}}fs.mkdirSync(path.dirname(p),{recursive:true});fs.writeFileSync(p,JSON.stringify(r,null,2)+"\n",{mode:0o600})}'
-  if ($LASTEXITCODE -ne 0) { throw 'Keycloak realm configuration generation failed.' }
-}
+$publicKeycloakUrl = Read-Env 'NEXT_PUBLIC_KEYCLOAK_URL' 'http://localhost:8080'
+Set-Env 'OIDC_ISSUER_URL' "$($publicKeycloakUrl.TrimEnd('/'))/realms/$organization"
+node deploy/configure-install.mjs --template deploy/realm-cociber.json --realm-file "$realmPath" --organization "$organization" --locale "$locale" --client-secret "$(Read-Env 'KEYCLOAK_ADMIN_CLIENT_SECRET' '')" --public-base-url "$publicKeycloakUrl"
+if ($LASTEXITCODE -ne 0) { throw 'Keycloak realm configuration generation failed.' }
 Protect-File $realmPath
 if ($https -match '^(?i:y|yes)$') {
   openssl x509 -in certificates/fullchain.pem -noout -checkend 0 *> $null; if ($LASTEXITCODE -ne 0) { throw 'Certificate is missing, invalid, or expired.' }
@@ -124,7 +138,7 @@ docker compose @composeArgs pull; if ($LASTEXITCODE -ne 0) { throw 'Image pull f
 docker compose @composeArgs up -d; if ($LASTEXITCODE -ne 0) { throw 'Compose apply failed.' }
 $bootstrapOutput = node --env-file=.env infra/keycloak/bootstrap-admin.mjs
 if ($LASTEXITCODE -ne 0) { throw 'The stack started but the initial application administrator could not be provisioned; rerun ./deploy.ps1 update after checking Keycloak health.' }
-if ($bootstrapOutput -eq 'CREATED') { Write-Host "Created COCiber application administrator: $(Read-Env 'BOOTSTRAP_ADMIN_USERNAME' 'admin@admin.test') (role ADMIN).`nThis is separate from the Keycloak master/bootstrap account, which was not changed.`nTemporary password (shown once; change it at first login): $bootstrapAdminPassword" }
+if ($bootstrapOutput -eq 'CREATED') { Write-Host "Created $organization application administrator: $(Read-Env 'BOOTSTRAP_ADMIN_USERNAME' 'admin@admin.test') (role ADMIN).`nThis is separate from the Keycloak master/bootstrap account, which was not changed.`nTemporary password (shown once; change it at first login): $bootstrapAdminPassword" }
 elseif ($bootstrapAdminPasswordGenerated) { Write-Host 'The application administrator already exists; its password was not changed. A new password was generated locally but was not displayed.' }
 Write-Host 'Waiting up to 180 seconds for API, web, and SNMP health checks.'
 $healthy = $false

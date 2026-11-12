@@ -42,6 +42,27 @@ else
 fi
 
 while IFS= read -r line; do [[ "$line" == *=* ]] || continue; key="${line%%=*}"; grep -qE "^${key}=" "$ENV_FILE" || printf '%s\n' "$line" >> "$ENV_FILE"; done < .env.example
+current_realm="$(get_env KEYCLOAK_REALM COCiber)"
+organization="$(ask 'Deployment organization and Keycloak realm' "$current_realm")"
+[[ "$organization" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$ ]] || fail 'Organization/realm must be 1-64 letters, numbers, underscores, or hyphens, and start with a letter or number.'
+current_locale="$(get_env NEXT_PUBLIC_APP_LOCALE pt-PT)"
+locale="$(ask 'Startup language (pt-PT or en-US)' "$current_locale")"
+[[ "$locale" == pt-PT || "$locale" == en-US ]] || fail 'Startup language must be pt-PT or en-US.'
+project="${COMPOSE_PROJECT_NAME:-$(get_env COMPOSE_PROJECT_NAME simoes-mgmtapp)}"
+if docker volume inspect "${project}_keycloak_postgres_data" >/dev/null 2>&1 && [[ "$organization" != "$current_realm" ]]; then
+  fail "Refusing to switch the realm of existing Keycloak data ($current_realm). Keep $current_realm for this installation or use a separate COMPOSE_PROJECT_NAME for a fresh install."
+fi
+set_env KEYCLOAK_REALM "$organization"
+set_env NEXT_PUBLIC_KEYCLOAK_REALM "$organization"
+set_env KEYCLOAK_ADMIN_REALM "$organization"
+set_env NEXT_PUBLIC_ORGANIZATION_NAME "$organization"
+set_env NEXT_PUBLIC_APP_LOCALE "$locale"
+set_env OIDC_BACKCHANNEL_URL "http://keycloak:8080/realms/$organization"
+realm_file="$(get_env KEYCLOAK_REALM_FILE ./deploy/realm-cociber.generated.json)"
+if [[ "$organization" != COCiber && "$realm_file" == ./deploy/realm-cociber.generated.json ]]; then
+  realm_file="./deploy/realm-${organization}.generated.json"
+fi
+set_env KEYCLOAK_REALM_FILE "$realm_file"
 NGINX_CONFIG="$(get_env NGINX_CONFIG_FILE ./nginx/runtime.conf)"
 configured="$(get_env APP_IMAGE_TAG "$TAG_DEFAULT")"
 current="$(docker compose images --format json 2>/dev/null | sed -n 's/.*"Tag":"\([^"]*\)".*/\1/p' | grep -v '^[[:space:]]*$' | sort -u | paste -sd, - || true)"
@@ -117,7 +138,7 @@ if [[ "${proxy:-no}" =~ ^([Yy]|yes)$ ]]; then
   set_env NEXT_PUBLIC_API_URL "$public_scheme://$hostname"
   set_env NEXT_PUBLIC_KEYCLOAK_URL "$public_scheme://$hostname"
   set_env KEYCLOAK_HOSTNAME "$public_scheme://$hostname"
-  set_env OIDC_ISSUER_URL "$public_scheme://$hostname/realms/COCiber"
+  set_env OIDC_ISSUER_URL "$public_scheme://$hostname/realms/$organization"
   set_env CORS_ORIGINS "$public_scheme://$hostname"
 fi
 
@@ -135,19 +156,14 @@ if [[ -z "${hostname:-}" ]]; then
   set_env NEXT_PUBLIC_API_URL "$public_url"
   set_env NEXT_PUBLIC_KEYCLOAK_URL "$public_url"
   set_env KEYCLOAK_HOSTNAME "$public_url"
-  set_env OIDC_ISSUER_URL "$public_url/realms/COCiber"
+  set_env OIDC_ISSUER_URL "$public_url/realms/$organization"
   set_env CORS_ORIGINS "$public_url"
 fi
 public_keycloak_url="$(get_env NEXT_PUBLIC_KEYCLOAK_URL http://localhost:8080)"
 set_env KEYCLOAK_HOSTNAME "$public_keycloak_url"
-set_env OIDC_ISSUER_URL "${public_keycloak_url%/}/realms/COCiber"
-realm_file="$(get_env KEYCLOAK_REALM_FILE ./deploy/realm-cociber.generated.json)"
-if [[ ! -f "$realm_file" ]]; then
-  command -v node >/dev/null || fail 'Node.js is required to prepare the Keycloak realm on first install.'
-  node <<'NODE'
-const fs=require('fs'),path=require('path'); const env=fs.readFileSync('.env','utf8'); const get=k=>env.match(new RegExp('^'+k+'=(.*)$','m'))?.[1]; const secret=get('KEYCLOAK_ADMIN_CLIENT_SECRET'); if(!secret) process.exit(1); const p=get('KEYCLOAK_REALM_FILE')||'./deploy/realm-cociber.generated.json'; const realm=JSON.parse(fs.readFileSync('deploy/realm-cociber.json','utf8')); const admin=realm.clients.find(c=>c.clientId==='simoes-settings-admin'); if(admin && admin.secret.startsWith('change-me')) admin.secret=secret; const host=get('PUBLIC_HOSTNAME'),scheme=get('PUBLIC_SCHEME'); if(host&&scheme){const base=`${scheme}://${host}`,web=realm.clients.find(c=>c.clientId==='simoes-web'); if(web){web.redirectUris=[`${base}/*`];web.webOrigins=[base];web.attributes={...web.attributes,'post.logout.redirect.uris':`${base}/*`};}} fs.mkdirSync(path.dirname(p),{recursive:true}); fs.writeFileSync(p,JSON.stringify(realm,null,2)+'\n',{mode:0o600});
-NODE
-fi
+set_env OIDC_ISSUER_URL "${public_keycloak_url%/}/realms/$organization"
+command -v node >/dev/null || fail 'Node.js is required to prepare the Keycloak realm on first install.'
+node deploy/configure-install.mjs --template deploy/realm-cociber.json --realm-file "$realm_file" --organization "$organization" --locale "$locale" --client-secret "$(get_env KEYCLOAK_ADMIN_CLIENT_SECRET '')" --public-base-url "$public_keycloak_url" || fail 'Keycloak realm configuration generation failed.'
 if [[ "${use_https:-no}" =~ ^([Yy]|yes)$ ]]; then
   openssl x509 -in certificates/fullchain.pem -noout -checkend 0 >/dev/null 2>&1 || fail 'Certificate is missing, invalid, or expired.'
   cert_sans="$(openssl x509 -in certificates/fullchain.pem -noout -ext subjectAltName)"
@@ -181,7 +197,7 @@ docker compose "${compose_files[@]}" pull
 docker compose "${compose_files[@]}" up -d
 bootstrap_output="$(node --env-file=.env infra/keycloak/bootstrap-admin.mjs)" || fail 'The stack started but the initial application administrator could not be provisioned; rerun ./deploy.sh update after checking Keycloak health.'
 if [[ "$bootstrap_output" == CREATED ]]; then
-  printf '\nCreated COCiber application administrator: %s (role ADMIN)\nThis is separate from the Keycloak master/bootstrap account, which was not changed.\nTemporary password (shown once; change it at first login): %s\n\n' "$(get_env BOOTSTRAP_ADMIN_USERNAME admin@admin.test)" "$(get_env BOOTSTRAP_ADMIN_PASSWORD '')"
+  printf '\nCreated %s application administrator: %s (role ADMIN)\nThis is separate from the Keycloak master/bootstrap account, which was not changed.\nTemporary password (shown once; change it at first login): %s\n\n' "$organization" "$(get_env BOOTSTRAP_ADMIN_USERNAME admin@admin.test)" "$(get_env BOOTSTRAP_ADMIN_PASSWORD '')"
 elif [[ "${bootstrap_admin_password_generated:-0}" == 1 ]]; then
   say 'The application administrator already exists; its password was not changed. A new password was generated locally but was not displayed.'
 fi
