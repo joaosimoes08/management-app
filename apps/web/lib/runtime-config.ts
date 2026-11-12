@@ -35,3 +35,15 @@ export function getPublicOrganizationName() {
 export function getConfiguredLocale(): 'pt-PT' | 'en-US' {
   return getPublicRuntimeConfig().locale === 'en-US' ? 'en-US' : 'pt-PT';
 }
+
+export function hasSavedOrganizationLocale(status: { setupCompleted: boolean; organizationName?: string | null }) {
+  return status.setupCompleted || Boolean(status.organizationName?.trim());
+}
+
+export function resolveOrganizationLocale(
+  status: { setupCompleted: boolean; organizationName?: string | null; locale?: string | null },
+  deploymentLocale: 'pt-PT' | 'en-US',
+): 'pt-PT' | 'en-US' {
+  if (hasSavedOrganizationLocale(status) && (status.locale === 'pt-PT' || status.locale === 'en-US')) return status.locale;
+  return deploymentLocale;
+}

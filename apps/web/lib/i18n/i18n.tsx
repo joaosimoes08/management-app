@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { useAuth } from '@/lib/auth';
 import { translateLegacyText } from './legacy-messages';
 import { apiFetch } from '@/lib/api/client';
-import { getConfiguredLocale } from '@/lib/runtime-config';
+import { getConfiguredLocale, hasSavedOrganizationLocale } from '@/lib/runtime-config';
 
 export type AppLocale = 'pt-PT' | 'en-US';
 const messages: Record<AppLocale, Record<string, string>> = {
@@ -129,7 +129,17 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   const [locale, setLocaleState] = useState<AppLocale>('pt-PT'); const [loading, setLoading] = useState(false);
   const setLocale = useCallback((next: AppLocale) => { setLocaleState(next); if (typeof window !== 'undefined') window.localStorage.setItem('cociber.locale', next); }, []);
   useEffect(() => { const stored = window.localStorage.getItem('cociber.locale'); setLocaleState(stored === 'pt-PT' || stored === 'en-US' ? stored : getConfiguredLocale()); }, []);
-  useEffect(() => { if (!authenticated) return; let active = true; setLoading(true); void apiFetch<{ settings: { locale?: string } }>('/api/v1/settings/organization').then((result) => { if (active && (result.settings.locale === 'pt-PT' || result.settings.locale === 'en-US')) setLocale(result.settings.locale); }).catch(() => undefined).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, [apiFetch, authenticated, setLocale]);
+  useEffect(() => {
+    if (!authenticated) return;
+    let active = true;
+    setLoading(true);
+    void apiFetch<{ setupCompleted: boolean; organizationName?: string | null }>('/api/v1/setup/status')
+      .then((status) => hasSavedOrganizationLocale(status) ? apiFetch<{ settings: { locale?: string } }>('/api/v1/settings/organization') : null)
+      .then((result) => { if (active && result && (result.settings.locale === 'pt-PT' || result.settings.locale === 'en-US')) setLocale(result.settings.locale); })
+      .catch(() => undefined)
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [apiFetch, authenticated, setLocale]);
   useEffect(() => {
     document.documentElement.lang = locale;
     const applyMetadata = () => {
