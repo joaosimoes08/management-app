@@ -4,7 +4,7 @@ import type { KeycloakProfile } from 'keycloak-js';
 import { createContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { setApiTokenProvider, setApiUnauthorizedHandler } from '@/lib/api/client';
 import { getPublicRuntimeConfig } from '@/lib/runtime-config';
-import { keycloak, initializeKeycloak } from './keycloak';
+import { getKeycloakInstance, initializeKeycloak } from './keycloak';
 import type { ApiUser, AuthContextValue } from './types';
 
 export const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -18,6 +18,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string>();
   const refreshTimer = useRef<number | undefined>(undefined);
   const tokenRefreshPromise = useRef<Promise<string> | null>(null);
+  const keycloakRef = useRef<ReturnType<typeof getKeycloakInstance> | null>(null);
 
   const loadIdentity = useCallback(async (accessToken: string) => {
     const apiUrl = getPublicRuntimeConfig().apiUrl;
@@ -30,7 +31,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refreshToken = useCallback(async (): Promise<string> => {
-    if (!keycloak.authenticated || !keycloak.token) throw new Error('Sessão não autenticada.');
+    const keycloak = keycloakRef.current;
+    if (!keycloak?.authenticated || !keycloak.token) throw new Error('Sessão não autenticada.');
     if (!tokenRefreshPromise.current) {
       tokenRefreshPromise.current = (async () => {
         let refreshed: boolean;
@@ -58,7 +60,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setApiTokenProvider(refreshToken);
     setApiUnauthorizedHandler(() => {
-      void keycloak.login({ redirectUri: window.location.href, scope: 'openid profile email' });
+      const keycloak = keycloakRef.current;
+      if (keycloak) void keycloak.login({ redirectUri: window.location.href, scope: 'openid profile email' });
     });
     return () => {
       setApiTokenProvider(null);
@@ -74,12 +77,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setLoading(false);
       }
     }, 10000);
-    keycloak.onTokenExpired = () => { void refreshToken().catch(() => undefined); };
-    keycloak.onAuthLogout = () => { setAuthenticated(false); setUser(null); setToken(undefined); };
-
     void initializeKeycloak()
       .then(async (isAuthenticated) => {
         if (!active) return;
+        const keycloak = getKeycloakInstance();
+        keycloakRef.current = keycloak;
+        keycloak.onTokenExpired = () => { void refreshToken().catch(() => undefined); };
+        keycloak.onAuthLogout = () => { setAuthenticated(false); setUser(null); setToken(undefined); };
         setAuthError(null);
         setAuthenticated(isAuthenticated);
         setToken(keycloak.token);
@@ -112,11 +116,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [loadIdentity, refreshToken]);
 
-  const login = useCallback(() => keycloak.login({ redirectUri: window.location.origin, scope: 'openid profile email' }), []);
-  const logout = useCallback(() => keycloak.logout({ redirectUri: window.location.origin }), []);
+  const login = useCallback(async () => {
+    await initializeKeycloak();
+    const keycloak = keycloakRef.current ?? getKeycloakInstance();
+    await keycloak.login({ redirectUri: window.location.origin, scope: 'openid profile email' });
+  }, []);
+  const logout = useCallback(async () => {
+    await initializeKeycloak();
+    const keycloak = keycloakRef.current ?? getKeycloakInstance();
+    await keycloak.logout({ redirectUri: window.location.origin });
+  }, []);
   const retry = useCallback(() => window.location.reload(), []);
   const hasRole = useCallback((role: string) => user?.roles.includes(role) ?? false, [user]);
 
-  const value = useMemo(() => ({ keycloak, user, profile, token, loading, authError, authenticated, login, logout, retry, hasRole }), [user, profile, token, loading, authError, authenticated, login, logout, retry, hasRole]);
+  const value = useMemo(() => ({ keycloak: keycloakRef.current, user, profile, token, loading, authError, authenticated, login, logout, retry, hasRole }), [user, profile, token, loading, authError, authenticated, login, logout, retry, hasRole]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
