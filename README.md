@@ -4,7 +4,7 @@ Plataforma de gestão de infraestrutura, IPAM e ciberdefesa.
 
 ## Deploy com Docker Compose
 
-A instalação usa imagens publicadas, sem compilar o código na máquina de destino. A versão beta atual é `beta-1.0.1-release` para API, web e SNMP, publicada para `linux/amd64` e `linux/arm64`. `.env.example` acompanha a última versão estável/release verificada; não use `main` ou `latest` como referência de uma instalação.
+A instalação usa imagens publicadas, sem compilar o código na máquina de destino. A versão beta atual é `beta-1.0.2` para API, web e SNMP, publicada para `linux/amd64` e `linux/arm64`. `.env.example` acompanha a última versão estável/release verificada; não use `main` ou `latest` como referência de uma instalação.
 
 ### Requisitos
 
@@ -20,7 +20,11 @@ chmod +x deploy.sh
 ./deploy.sh
 ```
 
-No Windows, abra PowerShell 7 nessa pasta e execute `./deploy.ps1`. O assistente pergunta se é uma instalação nova ou atualização e permite `install`, `update` ou `check` como argumento. Verifica Docker/Compose, existência da tag nos três repositórios e manifestos AMD64/ARM64, renderiza a configuração antes de aplicar e pede confirmação. Para instalação inicial, copia `.env.example`, gera segredos locais fortes e cria o cofre SNMP. Numa atualização, faz cópia datada de `.env`, preserva valores existentes e acrescenta apenas as novas chaves de configuração. Em instalação e atualização, o alvo predefinido é sempre `beta-1.0.1-release`; numa atualização, o assistente mostra as tags instaladas e configurada antes de pedir o alvo. O valor predefinido do novo alvo é `beta-1.0.1-release`; introduza uma tag personalizada para continuar numa versão própria. O `.env` existente é preservado até confirmar o alvo apresentado. Só `APP_IMAGE_TAG` muda por esta regra; os restantes valores personalizados de `.env` são preservados. O alvo é apresentado para revisão.
+No Windows, abra PowerShell 7 nessa pasta e execute `./deploy.ps1`. O assistente permite `install`, `update` ou `check` como argumento. Verifica Docker/Compose, existência da tag nos três repositórios e manifestos AMD64/ARM64, renderiza a configuração antes de aplicar e pede confirmação. Na primeira execução, copia `.env.example`, gera segredos locais fortes e cria o cofre SNMP. Também cria o utilizador da aplicação `admin@admin.test` dentro do realm `COCiber`, com role `ADMIN`, palavra-passe aleatória temporária e alteração obrigatória no primeiro login. Este utilizador é separado da conta master/bootstrap local do Keycloak, que não é alterada. A palavra-passe só é apresentada quando a conta da aplicação é criada e fica guardada em `.env` com permissões restritas; proteja também as cópias de `.env` em `backups/`.
+
+Numa atualização, o assistente faz cópias datadas de `.env` e das bases PostgreSQL, preserva volumes e acrescenta as novas chaves sem apagar dados. O destino predefinido passa de `beta-1.0.0-release` ou `beta-1.0.1-release` para `beta-1.0.2`. A atualização direta de 1.0.0 para 1.0.2 é suportada; não é necessário instalar 1.0.1 primeiro. Pode indicar uma tag anterior explicitamente para uma transição gradual. Se algum backup falhar ou o PostgreSQL não estiver ativo, o assistente interrompe antes de descarregar ou aplicar imagens.
+
+O assistente configura `KEYCLOAK_HOSTNAME` e `OIDC_ISSUER_URL` a partir da URL pública usada pelo browser. A API continua a validar tokens pelo endereço interno `http://keycloak:8080/realms/COCiber`, evitando dependência do DNS público entre containers.
 
 No primeiro arranque, o assistente cria `deploy/realm-cociber.generated.json` com o segredo de cliente que corresponde ao `.env`; o ficheiro é local, ignorado pelo Git e usado para importar o realm numa base Keycloak vazia. Proteja a pasta de deploy e guarde as cópias fora do servidor.
 

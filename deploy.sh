@@ -7,7 +7,7 @@ ENV_FILE="$ROOT/.env"
 BACKUP_DIR="$ROOT/backups"
 GUIDE_URL="${CA_GUIDE_URL:-https://github.com/joaosimoes08/management-app/blob/main/README.md#https-and-reverse-proxy}"
 NGINX_CONFIG=""
-TAG_DEFAULT="beta-1.0.1-release"
+TAG_DEFAULT="beta-1.0.2"
 
 say() { printf '\n==> %s\n' "$*"; }
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
@@ -36,7 +36,7 @@ if [[ "$MODE" == check ]]; then docker compose config --quiet; docker compose ps
 
 if [[ -f "$ENV_FILE" ]]; then
   say 'Existing .env found. It will be backed up and kept; only the selected image tag and newly required defaults are updated.'
-  mkdir -p "$BACKUP_DIR"; cp -p "$ENV_FILE" "$BACKUP_DIR/.env.$(date +%Y%m%d-%H%M%S).bak"
+  mkdir -p "$BACKUP_DIR"; cp -p "$ENV_FILE" "$BACKUP_DIR/.env.$(date +%Y%m%d-%H%M%S).bak"; chmod 600 "$BACKUP_DIR"/.env.*.bak 2>/dev/null || true
 else
   cp .env.example "$ENV_FILE"; chmod 600 "$ENV_FILE" 2>/dev/null || true
 fi
@@ -58,6 +58,13 @@ for spec in 'POSTGRES_PASSWORD:PostgreSQL password' 'KEYCLOAK_DB_PASSWORD:Keyclo
     say "$label generated locally and saved with restrictive permissions."
   fi
 done
+bootstrap_admin_password="$(get_env BOOTSTRAP_ADMIN_PASSWORD '')"
+if [[ -z "$bootstrap_admin_password" ]]; then
+  bootstrap_admin_password="$(openssl rand -hex 32 2>/dev/null)" || fail 'OpenSSL is required to generate the initial application administrator password.'
+  set_env BOOTSTRAP_ADMIN_PASSWORD "$bootstrap_admin_password"
+  unset bootstrap_admin_password
+  bootstrap_admin_password_generated=1
+fi
 keyring="$(get_env SNMP_KEYRING_HOST_FILE ./secrets/snmp-keyring.json)"
 if [[ ! -f "$keyring" ]]; then command -v node >/dev/null || fail 'Node.js is required once to create the SNMP keyring.'; node deploy/generate-snmp-keyring.mjs "$keyring"; fi
 
@@ -113,11 +120,32 @@ if [[ "${proxy:-no}" =~ ^([Yy]|yes)$ ]]; then
   set_env OIDC_ISSUER_URL "$public_scheme://$hostname/realms/COCiber"
   set_env CORS_ORIGINS "$public_scheme://$hostname"
 fi
+
+# The browser must use the externally reachable Keycloak URL. The installer may
+# run behind an existing reverse proxy, so configure this even without nginx.
+if [[ -z "${hostname:-}" ]]; then
+  configured_public_url="$(get_env NEXT_PUBLIC_KEYCLOAK_URL http://localhost:8080)"
+  if [[ "$configured_public_url" == http://localhost:8080 || "$configured_public_url" == http://127.0.0.1:8080 ]]; then configured_public_url='https://mgmt.ciberdefesa.dev'; fi
+  public_url="$(ask 'Public application URL (used by the browser and Keycloak)' "$configured_public_url")"
+  [[ "$public_url" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]+)?$ ]] || fail 'Public application URL must be an http(s) origin without a path.'
+  public_scheme="${public_url%%://*}"
+  hostname="${public_url#*://}"
+  set_env PUBLIC_HOSTNAME "$hostname"
+  set_env PUBLIC_SCHEME "$public_scheme"
+  set_env NEXT_PUBLIC_API_URL "$public_url"
+  set_env NEXT_PUBLIC_KEYCLOAK_URL "$public_url"
+  set_env KEYCLOAK_HOSTNAME "$public_url"
+  set_env OIDC_ISSUER_URL "$public_url/realms/COCiber"
+  set_env CORS_ORIGINS "$public_url"
+fi
+public_keycloak_url="$(get_env NEXT_PUBLIC_KEYCLOAK_URL http://localhost:8080)"
+set_env KEYCLOAK_HOSTNAME "$public_keycloak_url"
+set_env OIDC_ISSUER_URL "${public_keycloak_url%/}/realms/COCiber"
 realm_file="$(get_env KEYCLOAK_REALM_FILE ./deploy/realm-cociber.generated.json)"
 if [[ ! -f "$realm_file" ]]; then
   command -v node >/dev/null || fail 'Node.js is required to prepare the Keycloak realm on first install.'
   node <<'NODE'
-const fs=require('fs'),path=require('path'); const env=fs.readFileSync('.env','utf8'); const get=k=>env.match(new RegExp('^'+k+'=(.*)$','m'))?.[1]; const secret=get('KEYCLOAK_ADMIN_CLIENT_SECRET'); if(!secret) process.exit(0); const p=get('KEYCLOAK_REALM_FILE')||'./deploy/realm-cociber.generated.json'; const realm=JSON.parse(fs.readFileSync('deploy/realm-cociber.json','utf8')); const admin=realm.clients.find(c=>c.clientId==='simoes-settings-admin'); if(admin && admin.secret.startsWith('change-me')) admin.secret=secret; const host=get('PUBLIC_HOSTNAME'),scheme=get('PUBLIC_SCHEME'); if(host&&scheme){const base=`${scheme}://${host}`,web=realm.clients.find(c=>c.clientId==='simoes-web'); if(web){web.redirectUris=[`${base}/*`];web.webOrigins=[base];web.attributes={...web.attributes,'post.logout.redirect.uris':`${base}/*`};}} fs.mkdirSync(path.dirname(p),{recursive:true}); fs.writeFileSync(p,JSON.stringify(realm,null,2)+'\n',{mode:0o600});
+const fs=require('fs'),path=require('path'); const env=fs.readFileSync('.env','utf8'); const get=k=>env.match(new RegExp('^'+k+'=(.*)$','m'))?.[1]; const secret=get('KEYCLOAK_ADMIN_CLIENT_SECRET'); if(!secret) process.exit(1); const p=get('KEYCLOAK_REALM_FILE')||'./deploy/realm-cociber.generated.json'; const realm=JSON.parse(fs.readFileSync('deploy/realm-cociber.json','utf8')); const admin=realm.clients.find(c=>c.clientId==='simoes-settings-admin'); if(admin && admin.secret.startsWith('change-me')) admin.secret=secret; const host=get('PUBLIC_HOSTNAME'),scheme=get('PUBLIC_SCHEME'); if(host&&scheme){const base=`${scheme}://${host}`,web=realm.clients.find(c=>c.clientId==='simoes-web'); if(web){web.redirectUris=[`${base}/*`];web.webOrigins=[base];web.attributes={...web.attributes,'post.logout.redirect.uris':`${base}/*`};}} fs.mkdirSync(path.dirname(p),{recursive:true}); fs.writeFileSync(p,JSON.stringify(realm,null,2)+'\n',{mode:0o600});
 NODE
 fi
 if [[ "${use_https:-no}" =~ ^([Yy]|yes)$ ]]; then
@@ -151,6 +179,12 @@ if [[ "$MODE" == update ]] && [[ -n "$(docker compose ps --services 2>/dev/null)
 fi
 docker compose "${compose_files[@]}" pull
 docker compose "${compose_files[@]}" up -d
+bootstrap_output="$(node --env-file=.env infra/keycloak/bootstrap-admin.mjs)" || fail 'The stack started but the initial application administrator could not be provisioned; rerun ./deploy.sh update after checking Keycloak health.'
+if [[ "$bootstrap_output" == CREATED ]]; then
+  printf '\nCreated COCiber application administrator: %s (role ADMIN)\nThis is separate from the Keycloak master/bootstrap account, which was not changed.\nTemporary password (shown once; change it at first login): %s\n\n' "$(get_env BOOTSTRAP_ADMIN_USERNAME admin@admin.test)" "$(get_env BOOTSTRAP_ADMIN_PASSWORD '')"
+elif [[ "${bootstrap_admin_password_generated:-0}" == 1 ]]; then
+  say 'The application administrator already exists; its password was not changed. A new password was generated locally but was not displayed.'
+fi
 say 'Waiting up to 180 seconds for services to settle.'
 ready=0
 for _ in $(seq 1 60); do

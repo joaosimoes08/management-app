@@ -4,7 +4,7 @@ $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $Root
 $EnvPath = Join-Path $Root '.env'
-$TagDefault = 'beta-1.0.1-release'
+$TagDefault = 'beta-1.0.2'
 $GuideUrl = if ($env:CA_GUIDE_URL) { $env:CA_GUIDE_URL } else { 'https://github.com/joaosimoes08/management-app/blob/main/README.md#https-and-reverse-proxy' }
 function Read-Env([string]$Key, [string]$Default) {
   if (Test-Path $EnvPath) { $line = Get-Content $EnvPath | Where-Object { $_ -match "^$([regex]::Escape($Key))=" } | Select-Object -Last 1; if ($line) { return $line.Substring($Key.Length + 1) } }
@@ -26,7 +26,7 @@ docker compose version *> $null; if ($LASTEXITCODE -ne 0) { throw 'Docker Compos
 if ($Mode -eq 'check') { docker compose config --quiet; if ($LASTEXITCODE -ne 0) { throw 'Compose preflight failed.' }; docker compose ps; exit $LASTEXITCODE }
 if (Test-Path $EnvPath) {
   $backupDir = Join-Path $Root 'backups'; New-Item -ItemType Directory -Force $backupDir | Out-Null
-  Copy-Item $EnvPath (Join-Path $backupDir ('.env.' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.bak'))
+  $envBackup = Join-Path $backupDir ('.env.' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.bak'); Copy-Item $EnvPath $envBackup; Protect-File $envBackup
 } else { Copy-Item (Join-Path $Root '.env.example') $EnvPath }
 foreach ($line in (Get-Content (Join-Path $Root '.env.example'))) {
   if ($line -match '^([^#=]+)=') { $key = $Matches[1]; if (-not (Get-Content $EnvPath | Where-Object { $_ -match "^$([regex]::Escape($key))=" })) { Add-Content $EnvPath $line } }
@@ -43,6 +43,9 @@ foreach ($key in @('POSTGRES_PASSWORD','KEYCLOAK_DB_PASSWORD','KEYCLOAK_ADMIN_PA
   $v = Read-Env $key ''
   if (-not $v -or $v -like 'change-me*' -or $v -eq 'keycloak-local-password') { $secret = -join ((1..48 | ForEach-Object { '0123456789abcdef'[(Get-Random -Maximum 16)] })); Set-Env $key $secret }
 }
+$bootstrapAdminPassword = Read-Env 'BOOTSTRAP_ADMIN_PASSWORD' ''
+$bootstrapAdminPasswordGenerated = $false
+if (-not $bootstrapAdminPassword) { $randomBytes = [byte[]]::new(32); [Security.Cryptography.RandomNumberGenerator]::Fill($randomBytes); $bootstrapAdminPassword = [Convert]::ToHexString($randomBytes).ToLowerInvariant(); Set-Env 'BOOTSTRAP_ADMIN_PASSWORD' $bootstrapAdminPassword; $bootstrapAdminPasswordGenerated = $true }
 $keyringPath = Read-Env 'SNMP_KEYRING_HOST_FILE' './secrets/snmp-keyring.json'
 if (-not (Test-Path $keyringPath)) { if (-not (Get-Command node -ErrorAction SilentlyContinue)) { throw 'Node.js is required once to create the SNMP keyring.' }; node deploy/generate-snmp-keyring.mjs $keyringPath; if ($LASTEXITCODE -ne 0) { throw 'SNMP keyring generation failed.' } }
 Protect-File $EnvPath; if (Test-Path $keyringPath) { Protect-File $keyringPath }
@@ -81,10 +84,17 @@ if ($proxy -match '^(?i:y|yes)$') {
   $scheme = if ($https -match '^(?i:y|yes)$') { 'https' } else { 'http' }
   Set-Env 'PUBLIC_SCHEME' $scheme
   Set-Env 'NEXT_PUBLIC_API_URL' "$($scheme)://$hostName"; Set-Env 'NEXT_PUBLIC_KEYCLOAK_URL' "$($scheme)://$hostName"; Set-Env 'KEYCLOAK_HOSTNAME' "$($scheme)://$hostName"; Set-Env 'OIDC_ISSUER_URL' "$($scheme)://$hostName/realms/COCiber"; Set-Env 'CORS_ORIGINS' "$($scheme)://$hostName"
+} else {
+  $publicUrl = Read-Env 'NEXT_PUBLIC_KEYCLOAK_URL' 'http://localhost:8080'
+  if ($publicUrl -in @('http://localhost:8080','http://127.0.0.1:8080')) { $publicUrl = 'https://mgmt.ciberdefesa.dev' }
+  $publicUrlInput = Read-Host "Public application URL (used by the browser and Keycloak) [$publicUrl]"; if ($publicUrlInput) { $publicUrl = $publicUrlInput }
+  if ($publicUrl -notmatch '^https?://[A-Za-z0-9.-]+(:[0-9]+)?$') { throw 'Public application URL must be an http(s) origin without a path.' }
+  $scheme = $publicUrl.Substring(0, $publicUrl.IndexOf('://')); $hostName = $publicUrl.Substring($publicUrl.IndexOf('://') + 3)
+  Set-Env 'PUBLIC_HOSTNAME' $hostName; Set-Env 'PUBLIC_SCHEME' $scheme; Set-Env 'NEXT_PUBLIC_API_URL' $publicUrl; Set-Env 'NEXT_PUBLIC_KEYCLOAK_URL' $publicUrl; Set-Env 'KEYCLOAK_HOSTNAME' $publicUrl; Set-Env 'OIDC_ISSUER_URL' "$publicUrl/realms/COCiber"; Set-Env 'CORS_ORIGINS' $publicUrl
 }
 $realmPath = Read-Env 'KEYCLOAK_REALM_FILE' './deploy/realm-cociber.generated.json'
 if (-not (Test-Path $realmPath)) {
-  node -e 'const fs=require("fs"),path=require("path");const env=fs.readFileSync(".env","utf8"),get=k=>env.match(new RegExp("^"+k+"=(.*)$","m"))?.[1],secret=get("KEYCLOAK_ADMIN_CLIENT_SECRET"),p=get("KEYCLOAK_REALM_FILE")||"./deploy/realm-cociber.generated.json";if(secret){const r=JSON.parse(fs.readFileSync("deploy/realm-cociber.json","utf8")),c=r.clients.find(x=>x.clientId==="simoes-settings-admin");if(c&&c.secret.startsWith("change-me"))c.secret=secret;const host=get("PUBLIC_HOSTNAME"),scheme=get("PUBLIC_SCHEME");if(host&&scheme){const base=`${scheme}://${host}`,web=r.clients.find(x=>x.clientId==="simoes-web");if(web){web.redirectUris=[`${base}/*`];web.webOrigins=[base];web.attributes={...web.attributes,"post.logout.redirect.uris":`${base}/*`}}}fs.mkdirSync(path.dirname(p),{recursive:true});fs.writeFileSync(p,JSON.stringify(r,null,2)+"\n",{mode:0o600})}'
+  node -e 'const fs=require("fs"),path=require("path");const env=fs.readFileSync(".env","utf8"),get=k=>env.match(new RegExp("^"+k+"=(.*)$","m"))?.[1],secret=get("KEYCLOAK_ADMIN_CLIENT_SECRET"),p=get("KEYCLOAK_REALM_FILE")||"./deploy/realm-cociber.generated.json";if(!secret)process.exit(1);const r=JSON.parse(fs.readFileSync("deploy/realm-cociber.json","utf8")),c=r.clients.find(x=>x.clientId==="simoes-settings-admin");if(c&&c.secret.startsWith("change-me"))c.secret=secret;const host=get("PUBLIC_HOSTNAME"),scheme=get("PUBLIC_SCHEME");if(host&&scheme){const base=`${scheme}://${host}`,web=r.clients.find(x=>x.clientId==="simoes-web");if(web){web.redirectUris=[`${base}/*`];web.webOrigins=[base];web.attributes={...web.attributes,"post.logout.redirect.uris":`${base}/*`}}}fs.mkdirSync(path.dirname(p),{recursive:true});fs.writeFileSync(p,JSON.stringify(r,null,2)+"\n",{mode:0o600})}'
   if ($LASTEXITCODE -ne 0) { throw 'Keycloak realm configuration generation failed.' }
 }
 Protect-File $realmPath
@@ -112,10 +122,14 @@ if ($Mode -eq 'update' -and (docker compose ps --services)) {
 }
 docker compose @composeArgs pull; if ($LASTEXITCODE -ne 0) { throw 'Image pull failed.' }
 docker compose @composeArgs up -d; if ($LASTEXITCODE -ne 0) { throw 'Compose apply failed.' }
+$bootstrapOutput = node --env-file=.env infra/keycloak/bootstrap-admin.mjs
+if ($LASTEXITCODE -ne 0) { throw 'The stack started but the initial application administrator could not be provisioned; rerun ./deploy.ps1 update after checking Keycloak health.' }
+if ($bootstrapOutput -eq 'CREATED') { Write-Host "Created COCiber application administrator: $(Read-Env 'BOOTSTRAP_ADMIN_USERNAME' 'admin@admin.test') (role ADMIN).`nThis is separate from the Keycloak master/bootstrap account, which was not changed.`nTemporary password (shown once; change it at first login): $bootstrapAdminPassword" }
+elseif ($bootstrapAdminPasswordGenerated) { Write-Host 'The application administrator already exists; its password was not changed. A new password was generated locally but was not displayed.' }
 Write-Host 'Waiting up to 180 seconds for API, web, and SNMP health checks.'
 $healthy = $false
 for ($i = 0; $i -lt 60; $i++) { $health = docker compose @composeArgs ps --format '{{.Service}} {{.Health}}' | Out-String; if ($health -match '(?m)^api healthy$' -and $health -match '(?m)^web healthy$' -and $health -match '(?m)^snmp healthy$') { $healthy = $true; break }; Start-Sleep -Seconds 3 }
 docker compose @composeArgs ps
 if (-not $healthy) { throw 'Application health checks did not pass within 180 seconds. Inspect docker compose logs --tail=200 api web snmp postgres keycloak; no volumes were removed.' }
 Write-Host 'Commands: docker compose ps; docker compose logs -f api web; docker compose restart <service>; docker compose stop/start; docker compose down (preserves named volumes).'
-Write-Host 'Back up application and Keycloak PostgreSQL before upgrades. Prisma migrations may require a compatible database restore before image rollback.'
+Write-Host 'Back up application and Keycloak PostgreSQL before upgrades. Direct upgrades from beta-1.0.0 to beta-1.0.2 are supported; the installer creates protected backups first and preserves named volumes. Prisma migrations may require a compatible database restore before image rollback.'
