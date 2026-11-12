@@ -37,8 +37,14 @@ if ($organization -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$') { throw 'Organiz
 $currentLocale = Read-Env 'NEXT_PUBLIC_APP_LOCALE' 'pt-PT'
 $locale = Read-Host "Startup language (pt-PT or en-US) [$currentLocale]"; if (-not $locale) { $locale = $currentLocale }
 if ($locale -notin @('pt-PT','en-US')) { throw 'Startup language must be pt-PT or en-US.' }
-$project = if ($env:COMPOSE_PROJECT_NAME) { $env:COMPOSE_PROJECT_NAME } else { Read-Env 'COMPOSE_PROJECT_NAME' 'simoes-mgmtapp' }
-docker volume inspect "${project}_keycloak_postgres_data" *> $null
+$keycloakDbVolume = docker compose config --format json | node deploy/compose-volume.mjs
+if ($LASTEXITCODE -ne 0 -or -not $keycloakDbVolume) { throw 'Could not resolve the Keycloak database volume from Compose configuration.' }
+$keycloakDbContainer = docker compose ps -q keycloak-db | Select-Object -First 1
+if ($keycloakDbContainer) {
+  $mountedKeycloakDbVolume = docker inspect --format '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Name}}{{end}}{{end}}' $keycloakDbContainer 2>$null
+  if ($LASTEXITCODE -eq 0 -and $mountedKeycloakDbVolume) { $keycloakDbVolume = $mountedKeycloakDbVolume }
+}
+docker volume inspect $keycloakDbVolume *> $null
 if ($LASTEXITCODE -eq 0 -and $organization -ne $currentRealm) { throw "Refusing to switch the realm of existing Keycloak data ($currentRealm). Keep it for this installation or use a separate COMPOSE_PROJECT_NAME for a fresh install." }
 Set-Env 'KEYCLOAK_REALM' $organization; Set-Env 'NEXT_PUBLIC_KEYCLOAK_REALM' $organization; Set-Env 'KEYCLOAK_ADMIN_REALM' $organization
 Set-Env 'NEXT_PUBLIC_ORGANIZATION_NAME' $organization; Set-Env 'NEXT_PUBLIC_APP_LOCALE' $locale

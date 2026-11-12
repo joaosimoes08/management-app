@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { createRealm, validateDeployment, writeRealmFile } from './configure-install.mjs';
+import { resolveKeycloakDatabaseVolume } from './compose-volume.mjs';
 
 const templatePath = new URL('./realm-cociber.json', import.meta.url);
 
@@ -49,4 +50,23 @@ test('realm generation preserves source clients and leaves the template unchange
   assert.equal(customized.clients.length, source.clients.length);
   assert.equal(customized.clients.find((client) => client.clientId === 'simoes-web').clientId, 'simoes-web');
   assert.equal(source.realm, 'COCiber');
+});
+
+test('resolves the effective Keycloak volume from Compose config for a non-default project', () => {
+  const config = {
+    services: {
+      'keycloak-db': {
+        volumes: [{ type: 'volume', source: 'keycloak_postgres_data', target: '/var/lib/postgresql/data' }],
+      },
+    },
+    volumes: {
+      keycloak_postgres_data: { name: 'customer-prod-pflag_keycloak_postgres_data' },
+    },
+  };
+
+  assert.equal(resolveKeycloakDatabaseVolume(config), 'customer-prod-pflag_keycloak_postgres_data');
+});
+
+test('rejects Compose config when the Keycloak database mount cannot be resolved', () => {
+  assert.throws(() => resolveKeycloakDatabaseVolume({ services: { 'keycloak-db': { volumes: [] } } }), /does not define a named volume/);
 });
