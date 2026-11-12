@@ -4,7 +4,7 @@ $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $Root
 $EnvPath = Join-Path $Root '.env'
-$TagDefault = 'beta-1.0.2-release'
+$TagDefault = 'beta-1.0.3-release'
 $GuideUrl = if ($env:CA_GUIDE_URL) { $env:CA_GUIDE_URL } else { 'https://github.com/joaosimoes08/management-app/blob/main/README.md#https-and-reverse-proxy' }
 function Read-Env([string]$Key, [string]$Default) {
   if (Test-Path $EnvPath) { $line = Get-Content $EnvPath | Where-Object { $_ -match "^$([regex]::Escape($Key))=" } | Select-Object -Last 1; if ($line) { return $line.Substring($Key.Length + 1) } }
@@ -152,4 +152,4 @@ for ($i = 0; $i -lt 60; $i++) { $health = docker compose @composeArgs ps --forma
 docker compose @composeArgs ps
 if (-not $healthy) { throw 'Application health checks did not pass within 180 seconds. Inspect docker compose logs --tail=200 api web snmp postgres keycloak; no volumes were removed.' }
 Write-Host 'Commands: docker compose ps; docker compose logs -f api web; docker compose restart <service>; docker compose stop/start; docker compose down (preserves named volumes).'
-Write-Host 'Back up application and Keycloak PostgreSQL before upgrades. Direct upgrades from beta-1.0.0 to beta-1.0.2-release are supported; the installer creates protected backups first and preserves named volumes. Prisma migrations may require a compatible database restore before image rollback.'
+Write-Host 'Back up application and Keycloak PostgreSQL before upgrades. Direct upgrades from beta-1.0.0 through beta-1.0.2-release to beta-1.0.3-release are supported; the installer creates protected backups first and preserves named volumes. Prisma migrations may require a compatible database restore before image rollback.'

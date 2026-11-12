@@ -7,7 +7,7 @@ ENV_FILE="$ROOT/.env"
 BACKUP_DIR="$ROOT/backups"
 GUIDE_URL="${CA_GUIDE_URL:-https://github.com/joaosimoes08/management-app/blob/main/README.md#https-and-reverse-proxy}"
 NGINX_CONFIG=""
-TAG_DEFAULT="beta-1.0.2-release"
+TAG_DEFAULT="beta-1.0.3-release"
 
 say() { printf '\n==> %s\n' "$*"; }
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
