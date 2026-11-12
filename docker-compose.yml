@@ -74,7 +74,7 @@ services:
       - ${KEYCLOAK_REALM_FILE:-./deploy/realm-cociber.json}:/opt/keycloak/data/import/realm-cociber.json:ro
 
   api:
-    image: ${DOCKERHUB_NAMESPACE:-joaosimoes08}/mgmt-app-api:${APP_IMAGE_TAG:-beta-1.0.2-release}
+    image: ${DOCKERHUB_NAMESPACE:-joaosimoes08}/mgmt-app-api:${APP_IMAGE_TAG:-beta-1.0.3-release}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -89,12 +89,14 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-simoes}:${POSTGRES_PASSWORD:-change-me-local}@postgres:5432/${POSTGRES_DB:-simoes}
       REDIS_URL: redis://redis:6379
       AUTH_DISABLED: ${AUTH_DISABLED:-false}
-      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-http://localhost:8080/realms/COCiber}
-      OIDC_BACKCHANNEL_URL: ${OIDC_BACKCHANNEL_URL:-http://keycloak:8080/realms/COCiber}
+      APP_ORGANIZATION_NAME: ${NEXT_PUBLIC_ORGANIZATION_NAME:-COCiber}
+      APP_LOCALE: ${NEXT_PUBLIC_APP_LOCALE:-pt-PT}
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-http://localhost:8080/realms/${KEYCLOAK_REALM:-COCiber}}
+      OIDC_BACKCHANNEL_URL: ${OIDC_BACKCHANNEL_URL:-http://keycloak:8080/realms/${KEYCLOAK_REALM:-COCiber}}
       OIDC_AUDIENCE: ${OIDC_AUDIENCE:-simoes-api}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
       KEYCLOAK_ADMIN_URL: http://keycloak:8080
-      KEYCLOAK_ADMIN_REALM: ${KEYCLOAK_ADMIN_REALM:-COCiber}
+      KEYCLOAK_ADMIN_REALM: ${KEYCLOAK_ADMIN_REALM:-${KEYCLOAK_REALM:-COCiber}}
       KEYCLOAK_ADMIN_CLIENT_ID: ${KEYCLOAK_ADMIN_CLIENT_ID:-simoes-settings-admin}
       KEYCLOAK_ADMIN_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET:-change-me-settings-admin-secret}
       ASSET_STORAGE_PATH: /app/data/assets
@@ -114,12 +116,14 @@ services:
       start_period: 45s
 
   web:
-    image: ${DOCKERHUB_NAMESPACE:-joaosimoes08}/mgmt-app-web:${APP_IMAGE_TAG:-beta-1.0.2-release}
+    image: ${DOCKERHUB_NAMESPACE:-joaosimoes08}/mgmt-app-web:${APP_IMAGE_TAG:-beta-1.0.3-release}
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
       NEXT_PUBLIC_KEYCLOAK_URL: ${NEXT_PUBLIC_KEYCLOAK_URL:-http://localhost:8080}
-      NEXT_PUBLIC_KEYCLOAK_REALM: ${NEXT_PUBLIC_KEYCLOAK_REALM:-COCiber}
+      NEXT_PUBLIC_KEYCLOAK_REALM: ${KEYCLOAK_REALM:-COCiber}
       NEXT_PUBLIC_KEYCLOAK_CLIENT_ID: ${NEXT_PUBLIC_KEYCLOAK_CLIENT_ID:-simoes-web}
+      NEXT_PUBLIC_ORGANIZATION_NAME: ${NEXT_PUBLIC_ORGANIZATION_NAME:-COCiber}
+      NEXT_PUBLIC_APP_LOCALE: ${NEXT_PUBLIC_APP_LOCALE:-pt-PT}
       NEXT_PUBLIC_BOOKSTACK_URL: ${NEXT_PUBLIC_BOOKSTACK_URL:-}
       NEXT_PUBLIC_ZABBIX_URL: ${NEXT_PUBLIC_ZABBIX_URL:-}
       NEXT_PUBLIC_ZAMMAD_URL: ${NEXT_PUBLIC_ZAMMAD_URL:-}
@@ -139,7 +143,7 @@ services:
       start_period: 30s
 
   snmp:
-    image: ${DOCKERHUB_NAMESPACE:-joaosimoes08}/mgmt-app-snmp:${APP_IMAGE_TAG:-beta-1.0.2-release}
+    image: ${DOCKERHUB_NAMESPACE:-joaosimoes08}/mgmt-app-snmp:${APP_IMAGE_TAG:-beta-1.0.3-release}
     restart: unless-stopped
     depends_on:
       postgres:

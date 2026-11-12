@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, Check, MapPin, ShieldCheck, Sparkles } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { AppLocale, useI18n } from '@/lib/i18n';
+import { getConfiguredLocale, resolveOrganizationLocale } from '@/lib/runtime-config';
 import { completeSetup, createSetupOrganization, createSetupSite, getSetupStatus, type SetupStatus } from './api';
 
 type SetupForm = { organizationName: string; organizationCode: string; timezone: string; locale: AppLocale; siteName: string; siteCode: string; address: string; city: string; region: string; country: string; buildingName: string; roomName: string; rackName: string };
@@ -25,8 +26,9 @@ export default function SetupPage() {
   useEffect(() => {
     if (!status) return;
     if (status.setupCompleted) window.location.replace('/');
-    if (status.locale) setLocale(status.locale);
-    setForm((value) => ({ ...value, organizationName: status.organizationName ?? '', organizationCode: status.organizationCode ?? '', locale: status.locale ?? value.locale }));
+    const locale = resolveOrganizationLocale(status, getConfiguredLocale());
+    setLocale(locale);
+    setForm((value) => ({ ...value, organizationName: status.organizationName ?? '', organizationCode: status.organizationCode ?? '', locale }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
 

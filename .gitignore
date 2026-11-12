@@ -17,6 +17,7 @@ packages/database/generated/
 .env.*
 !.env.example
 !.env*.example
+deploy/*.generated.json
 AGENTS.md
 
 # Runtime data, temporary files and generated local assets
@@ -39,6 +40,6 @@ Thumbs.db
 # Private transfer bundle and local-only configuration
 transfer/
 secrets/
-deploy/realm-cociber.generated.json
+deploy/*.generated.json
 nginx/runtime.conf
 certificates/

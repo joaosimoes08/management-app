@@ -4,7 +4,7 @@ Plataforma de gestão de infraestrutura, IPAM e ciberdefesa.
 
 ## Deploy com Docker Compose
 
-A instalação usa imagens publicadas, sem compilar o código na máquina de destino. A versão beta atual é `beta-1.0.2-release` para API, web e SNMP, publicada para `linux/amd64` e `linux/arm64`. `.env.example` acompanha a última versão estável/release verificada; não use `main` ou `latest` como referência de uma instalação.
+A instalação usa imagens publicadas, sem compilar o código na máquina de destino. A próxima versão beta é `beta-1.0.3-release` para API, web e SNMP, publicada para `linux/amd64` e `linux/arm64` quando a release do GitHub for publicada. `.env.example` acompanha a versão de release prevista; não use `main` ou `latest` como referência de uma instalação.
 
 ### Requisitos
 
@@ -20,13 +20,17 @@ chmod +x deploy.sh
 ./deploy.sh
 ```
 
-No Windows, abra PowerShell 7 nessa pasta e execute `./deploy.ps1`. O assistente permite `install`, `update` ou `check` como argumento. Verifica Docker/Compose, existência da tag nos três repositórios e manifestos AMD64/ARM64, renderiza a configuração antes de aplicar e pede confirmação. Na primeira execução, copia `.env.example`, gera segredos locais fortes e cria o cofre SNMP. Também cria o utilizador da aplicação `admin@admin.test` dentro do realm `COCiber`, com role `ADMIN`, palavra-passe aleatória temporária e alteração obrigatória no primeiro login. Este utilizador é separado da conta master/bootstrap local do Keycloak, que não é alterada. A palavra-passe só é apresentada quando a conta da aplicação é criada e fica guardada em `.env` com permissões restritas; proteja também as cópias de `.env` em `backups/`.
+Nos modos `install` e `update`, o assistente pergunta a organização/realm Keycloak e o idioma inicial (`pt-PT` ou `en-US`). Ambos têm por omissão `COCiber` e `pt-PT`, também para instalações antigas sem estas chaves. O nome deve conter apenas letras, números, `_` ou `-`; é usado como realm, nome da organização e branding inicial. Por exemplo, `SIMONEDA` cria o realm `SIMONEDA` e apresenta “Bem-vindo ao SIMONEDA” em português.
 
-Numa atualização, o assistente faz cópias datadas de `.env` e das bases PostgreSQL, preserva volumes e acrescenta as novas chaves sem apagar dados. O destino predefinido passa de `beta-1.0.0-release` ou `beta-1.0.1-release` para `beta-1.0.2-release`. A atualização de 1.0.0 para 1.0.1 continua disponível ao indicar essa tag; a atualização direta de 1.0.0 para 1.0.2 também é suportada, sem instalar 1.0.1 primeiro. Em ambos os percursos, os backups da aplicação e do Keycloak são condição para aplicar as imagens. Se algum backup falhar ou o PostgreSQL não estiver ativo, o assistente interrompe antes de descarregar ou aplicar imagens. Volumes não são apagados; migrações executadas no arranque podem exigir restaurar uma cópia compatível antes de reverter a versão.
+Uma base Keycloak existente mantém o realm e os dados atuais. O assistente recusa trocar o realm se encontrar o volume atual; para uma nova organização, use um `COMPOSE_PROJECT_NAME` separado para criar volumes independentes. O import de Keycloak só prepara o realm quando o respetivo ficheiro gerado ainda não existe e o Keycloak só importa realms numa base vazia; a configuração de atualização nunca apaga nem substitui o realm existente. Idioma e branding podem ser ajustados sem migrar identidades.
 
-O assistente configura `KEYCLOAK_HOSTNAME` e `OIDC_ISSUER_URL` a partir da URL pública usada pelo browser. A API continua a validar tokens pelo endereço interno `http://keycloak:8080/realms/COCiber`, evitando dependência do DNS público entre containers.
+No Windows, abra PowerShell 7 nessa pasta e execute `./deploy.ps1`. O assistente permite `install`, `update` ou `check` como argumento. Verifica Docker/Compose, existência da tag nos três repositórios e manifestos AMD64/ARM64, renderiza a configuração antes de aplicar e pede confirmação. Na primeira execução, copia `.env.example`, gera segredos locais fortes e cria o cofre SNMP. Também cria o utilizador da aplicação `admin@admin.test` no realm selecionado, com role `ADMIN`, palavra-passe aleatória temporária e alteração obrigatória no primeiro login. Este utilizador é separado da conta master/bootstrap local do Keycloak, que não é alterada. A palavra-passe só é apresentada quando a conta da aplicação é criada e fica guardada em `.env` com permissões restritas; proteja também as cópias de `.env` em `backups/`.
 
-No primeiro arranque, o assistente cria `deploy/realm-cociber.generated.json` com o segredo de cliente que corresponde ao `.env`; o ficheiro é local, ignorado pelo Git e usado para importar o realm numa base Keycloak vazia. Proteja a pasta de deploy e guarde as cópias fora do servidor.
+Numa atualização, o assistente faz cópias datadas de `.env` e das bases PostgreSQL, preserva volumes e acrescenta as novas chaves sem apagar dados. O destino predefinido passa de `beta-1.0.0-release`, `beta-1.0.1-release` ou `beta-1.0.2-release` para `beta-1.0.3-release`. As versões anteriores continuam disponíveis ao indicar a tag correspondente; a atualização direta para 1.0.3 é suportada, sem instalar cada versão intermédia primeiro. Em ambos os percursos, os backups da aplicação e do Keycloak são condição para aplicar as imagens. Se algum backup falhar ou o PostgreSQL não estiver ativo, o assistente interrompe antes de descarregar ou aplicar imagens. Volumes não são apagados; migrações executadas no arranque podem exigir restaurar uma cópia compatível antes de reverter a versão.
+
+O assistente configura `KEYCLOAK_HOSTNAME` e `OIDC_ISSUER_URL` a partir da URL pública usada pelo browser. A API valida tokens pelo endereço interno `http://keycloak:8080/realms/<realm-escolhido>`, evitando dependência do DNS público entre containers. O nome e idioma são passados à API (`APP_ORGANIZATION_NAME`, `APP_LOCALE`) e à interface (`NEXT_PUBLIC_ORGANIZATION_NAME`, `NEXT_PUBLIC_APP_LOCALE`) em runtime.
+
+No primeiro arranque, o assistente cria um ficheiro `deploy/realm-<organização>.generated.json` com o realm, segredo de cliente e URLs que correspondem ao `.env`; o ficheiro é local, ignorado pelo Git e usado para importar o realm numa base Keycloak vazia. O ficheiro existente não é substituído. Proteja a pasta de deploy e guarde as cópias fora do servidor.
 
 O modo `update` tenta criar cópias SQL da base da aplicação e do Keycloak antes de aplicar uma nova imagem. Se uma cópia falhar, a atualização para. Guarde também os backups fora do host. Não use `docker compose down -v`: isso apaga volumes persistentes.
 
@@ -66,6 +70,7 @@ Para executar API e frontend no host, mantendo PostgreSQL, Redis e Keycloak no D
 
 ```sh
 cp .env.example .env
+node deploy/configure-install.mjs --template deploy/realm-cociber.json --realm-file ./deploy/realm-cociber.generated.json --organization COCiber --locale pt-PT --client-secret change-me-settings-admin-secret --public-base-url http://localhost:8080
 docker compose up -d postgres redis keycloak-db keycloak
 npm install
 npm run db:generate
