@@ -1701,3 +1701,36 @@ html[lang='en-US'] .environment-trigger.operational::after { content:'· Setup c
 .subnet-capacity-dates { display:flex; justify-content:space-between; color:var(--muted); font-size:10px; }
 .subnet-capacity-forecast { margin:14px 0 0; color:#333; font-size:12px; }
 .subnet-capacity-growth { display:block; margin-top:5px; color:var(--muted); font-size:10px; }
+
+
+/* Infrastructure: compact location and tab controls with page actions in the shared toolbar. */
+.app-shell:has(.infrastructure-workspace) .context-toolbar { position:relative; z-index:8; display:flex; align-items:center; justify-content:space-between; gap:14px; min-height:74px; padding:10px 24px; background:#f4f7fc; border-bottom:1px solid #dce4ef; }
+.app-shell:has(.infrastructure-workspace) .context-toolbar-navigation { display:grid; flex:1 1 auto; gap:8px; min-width:0; }
+.app-shell:has(.infrastructure-workspace) .context-toolbar-actions { display:flex; flex:0 1 auto; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:8px; min-width:0; }
+.context-toolbar-contribution { display:flex; align-items:center; gap:8px; min-width:0; }
+.context-toolbar-navigation .infra-context-bar { display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin:0; padding:0; border:0; background:transparent; }
+.context-toolbar-navigation .infra-context-bar > label { display:flex; align-items:center; gap:6px; min-width:0; color:#586982; font-size:11px; font-weight:650; white-space:nowrap; }
+.context-toolbar-navigation .infra-context-bar > label svg { display:none; }
+.context-toolbar-navigation .infra-context-bar > label select { width:clamp(132px,14vw,184px); min-width:0; min-height:38px; padding:0 28px 0 10px; border:1px solid #d4deec; border-radius:10px; color:#20334f; background:#fff; font-size:11px; }
+.context-toolbar-navigation .infra-menu { display:flex; flex:0 0 auto; gap:4px; width:max-content; max-width:100%; margin:0; padding:4px; overflow-x:auto; border:1px solid #dce4ef; border-radius:12px; background:#eaf0f8; scrollbar-width:thin; }
+.context-toolbar-navigation .infra-menu button { min-height:36px; padding:0 10px; color:#586982; border:0; border-radius:9px; background:transparent; font-size:11px; white-space:nowrap; }
+.context-toolbar-navigation .infra-menu button.active { color:#18315d; background:#fff; box-shadow:0 1px 4px rgba(28,49,82,.13); }
+.context-toolbar .primary-button,.context-toolbar .secondary-button { min-height:38px; border-radius:10px; white-space:nowrap; }
+.context-toolbar-contribution .lifecycle-toolbar-actions,.context-toolbar-contribution .rack-order-actions,.context-toolbar-contribution .asset-list-toolbar,.context-toolbar-contribution .interface-toolbar-controls { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.context-toolbar-contribution .device-bulk-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.context-toolbar-contribution .interface-toolbar-controls select { min-height:38px; min-width:200px; padding:0 10px; border:1px solid #d4deec; border-radius:9px; background:#fff; }
+.context-toolbar :where(button,select):focus-visible { outline:3px solid #4778da; outline-offset:2px; }
+@media (max-width:980px) {
+  .app-shell:has(.infrastructure-workspace) .context-toolbar { align-items:stretch; flex-direction:column; gap:10px; padding:10px 16px; }
+  .app-shell:has(.infrastructure-workspace) .context-toolbar-actions { justify-content:flex-start; padding-top:8px; border-top:1px solid #dce4ef; }
+}
+@media (max-width:780px) {
+  .app-shell:has(.infrastructure-workspace) .context-toolbar-navigation .infra-context-bar { width:100%; }
+  .app-shell:has(.infrastructure-workspace) .context-toolbar-actions,.context-toolbar-contribution { width:100%; }
+  .context-toolbar-navigation .infra-menu { width:100%; }
+}
+@media (max-width:560px) {
+  .context-toolbar-navigation .infra-context-bar { display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto; gap:6px; }
+  .context-toolbar-navigation .infra-context-bar > label { display:grid; grid-template-columns:1fr; gap:3px; min-width:0; font-size:10px; }
+  .context-toolbar-navigation .infra-context-bar > label select { width:100%; }
+}

@@ -1,16 +1,24 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { AppHeader } from './app-header';
 import { AppSidebar } from './app-sidebar';
 import { GlobalSearchPalette } from './global-search';
 import { UserMenu } from './user-menu';
 
 export type TopbarSearchConfig = { value: string; onChange: (value: string) => void; placeholder: string; ariaLabel?: string };
-export type AppShellProps = { children: ReactNode; section: string; context?: string[]; search?: TopbarSearchConfig; globalSearch?: boolean; actions?: ReactNode };
+export type AppShellProps = { children: ReactNode; section: string; context?: string[]; search?: TopbarSearchConfig; globalSearch?: boolean; toolbar?: ReactNode; toolbarKey?: string; actions?: ReactNode };
+const PageToolbarContext = createContext<HTMLElement | null>(null);
+
+export function PageToolbarPortal({ children }: { children: ReactNode }) {
+  const target = useContext(PageToolbarContext);
+  return target ? createPortal(<div className="context-toolbar-contribution">{children}</div>, target) : <div className="context-toolbar-contribution">{children}</div>;
+}
 
 /** Application chrome: sidebar + topbar + global search palette around page content. */
-export function AppShell({ children, section, context, search, globalSearch = false, actions }: AppShellProps) {
+export function AppShell({ children, section, context, search, globalSearch = false, toolbar, actions }: AppShellProps) {
+  const [toolbarActionsElement, setToolbarActionsElement] = useState<HTMLDivElement | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
@@ -41,7 +49,7 @@ export function AppShell({ children, section, context, search, globalSearch = fa
     return next;
   });
 
-  return <main className={`site-shell app-shell ${sidebarOpen ? 'sidebar-visible' : ''} ${collapsed ? 'sidebar-collapsed' : ''}`}><div className="dashboard-frame"><AppSidebar collapsed={collapsed} onToggle={toggleCollapsed} onClose={() => setSidebarOpen(false)} /><button className="sidebar-backdrop" aria-label="Fechar menu" onClick={() => setSidebarOpen(false)} /><section className="content-area"><AppHeader section={section} context={context} search={search} globalSearch={globalSearch} actions={actions} onOpenSidebar={() => setSidebarOpen((value) => !value)} onOpenGlobalSearch={() => setGlobalSearchOpen(true)} /><div className="app-shell-content">{children}</div></section><GlobalSearchPalette open={globalSearchOpen} onClose={() => setGlobalSearchOpen(false)} /></div></main>;
+  return <main className={`site-shell app-shell ${sidebarOpen ? 'sidebar-visible' : ''} ${collapsed ? 'sidebar-collapsed' : ''}`}><div className="dashboard-frame"><AppSidebar collapsed={collapsed} onToggle={toggleCollapsed} onClose={() => setSidebarOpen(false)} /><button className="sidebar-backdrop" aria-label="Fechar menu" onClick={() => setSidebarOpen(false)} /><section className="content-area"><PageToolbarContext.Provider value={toolbarActionsElement}><AppHeader section={section} context={context} search={search} globalSearch={globalSearch} actions={actions} onOpenSidebar={() => setSidebarOpen((value) => !value)} onOpenGlobalSearch={() => setGlobalSearchOpen(true)} /><div className="context-toolbar" role="region" aria-label="Controlos da página"><div className="context-toolbar-navigation">{toolbar}</div><div className="context-toolbar-actions" ref={setToolbarActionsElement} /></div><div className="app-shell-content">{children}</div></PageToolbarContext.Provider></section><GlobalSearchPalette open={globalSearchOpen} onClose={() => setGlobalSearchOpen(false)} /></div></main>;
 }
 
 export { UserMenu };

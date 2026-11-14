@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { PageToolbarPortal } from '@/components/layout/app-shell';
 import { ChevronLeft, ChevronRight, Edit3, Filter, Plus } from 'lucide-react';
 import { EquipmentTypeIcon } from '../equipment-type-icon';
 import { EQUIPMENT_TYPES, modelPortLayoutCount } from '../../utils';
@@ -27,7 +28,7 @@ export function ModelList({ models, onEdit, onLayout, canEdit }: ModelListProps)
   useEffect(() => setModelPage((current) => Math.min(current, pageCount - 1)), [pageCount]);
 
   return <section className="ipam-card model-catalog">
-    <div className="panel-heading"><div><span className="section-kicker">CATÁLOGO</span><h2>Modelos</h2></div><div className="model-catalog-toolbar"><label className={`model-type-filter${equipmentType === 'ALL' ? '' : ' active'}`}><Filter size={14} /><select aria-label="Filtrar modelos por tipo de equipamento" value={equipmentType} onChange={(event) => { setEquipmentType(event.target.value); setModelPage(0); }}><option value="ALL">Todos os tipos</option>{EQUIPMENT_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>{canEdit && <button className="primary-button" type="button" onClick={create}><Plus size={14} /> Novo modelo</button>}</div></div>
+    <div className="panel-heading"><div><span className="section-kicker">CATÁLOGO</span><h2>Modelos</h2></div></div><PageToolbarPortal><div className="model-catalog-toolbar"><label className={`model-type-filter${equipmentType === 'ALL' ? '' : ' active'}`}><Filter size={14} /><select aria-label="Filtrar modelos por tipo de equipamento" value={equipmentType} onChange={(event) => { setEquipmentType(event.target.value); setModelPage(0); }}><option value="ALL">Todos os tipos</option>{EQUIPMENT_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>{canEdit && <button className="primary-button" type="button" onClick={create}><Plus size={14} /> Novo modelo</button>}</div></PageToolbarPortal>
     {visibleModels.map((model) => <div className="host-row" key={model.id}>
       <span className="host-icon equipment-type-icon-frame"><EquipmentTypeIcon type={model.type} /></span>
       <span><strong>{model.manufacturer} {model.model}</strong><small>{model.type ?? 'OTHER'} · {modelPortLayoutCount(model) > 0 ? `${modelPortLayoutCount(model)} portas mapeadas` : 'sem portas mapeadas'} · {model.frontAsset ? 'imagem configurada' : 'aguarda imagem'}</small></span>

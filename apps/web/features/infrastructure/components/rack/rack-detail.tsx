@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { Check, Edit3, Trash2 } from 'lucide-react';
 import { RACK_UNITS } from '../../utils';
+import { PageToolbarPortal } from '@/components/layout/app-shell';
 import type { Device, Rack, RackEditDraft, RackPlacementPlan } from '../../types';
 import { RackDeviceZoom } from './rack-device-zoom';
 import { RackEquipmentOverlay } from './rack-equipment-overlay';
@@ -98,7 +99,7 @@ export function RackDetail({ rack, onOut, onDevice, onEdit, onDelete, deleting, 
   const maximumCorrectedUnit = pending ? (rack.units ?? RACK_UNITS) - pending.target.rackUnitSize + 1 : RACK_UNITS;
 
   return <section className="ipam-card rack-view">
-    <div className="rack-zoom-toolbar"><button className="secondary-button" onClick={onOut}>Voltar aos bastidores</button><span>{rack.room?.building?.name} / {rack.room?.name} / <strong>{rack.name}</strong></span><div className="button-row rack-detail-actions">{onEdit && <button type="button" className="secondary-button" onClick={() => onEdit(rack)}><Edit3 size={14}/> Editar bastidor</button>}{onDelete && <button type="button" className="secondary-button danger-button" disabled={deleting} onClick={() => onDelete(rack)}><Trash2 size={14}/> {deleting ? 'A eliminar…' : 'Eliminar bastidor'}</button>}</div></div>
+    <div className="rack-zoom-toolbar"><span>{rack.room?.building?.name} / {rack.room?.name} / <strong>{rack.name}</strong></span></div><PageToolbarPortal><div className="button-row rack-detail-actions"><button type="button" className="secondary-button" onClick={onOut}>Voltar aos bastidores</button>{onEdit && <button type="button" className="secondary-button" onClick={() => onEdit(rack)}><Edit3 size={14}/> Editar bastidor</button>}{onDelete && <button type="button" className="secondary-button danger-button" disabled={deleting} onClick={() => onDelete(rack)}><Trash2 size={14}/> {deleting ? 'A eliminar…' : 'Eliminar bastidor'}</button>}</div></PageToolbarPortal>
     <div className="panel-heading"><div><span className="section-kicker">BASTIDOR VISUAL</span><h2>{rack.name}</h2><p>{rack.devices?.length ?? 0} equipamentos · Bastidor padrão · 42U{canEdit ? <>{' · '}<span>Arrasta um equipamento para o mover</span></> : null}</p></div></div>
     <div className="rack-stage"><div className="rack-frame"><img src="/assets/rack-empty-42u.png" alt={`Bastidor ${rack.name}`} draggable={false} /><RackEquipmentOverlay rack={displayRack} onSelect={setZoomDeviceId} onDropDevice={preview} draggingDeviceId={draggingDeviceId} onDragging={setDraggingDeviceId} canEdit={canEdit && !pending} pendingDeviceId={pending?.target?.id} /></div>{zoomDeviceId && <RackDeviceZoom deviceId={zoomDeviceId} onBack={() => setZoomDeviceId('')} onInterfaces={onDevice} onEditDevice={onEditDevice} />}</div>
     {pending && <aside className="rack-placement-confirmation" aria-live="polite">

@@ -1,10 +1,10 @@
 'use client';
 
 import { Edit3, Layers, Plus, Server } from 'lucide-react';
-import { EquipmentTypeIcon } from '../equipment-type-icon';
 import type { Device, DeviceInterface } from '../../types';
 import { deviceFrontImage, normalizedPortLayoutPorts } from '../../utils';
 import { AssetImage } from '../asset-image';
+import { PageToolbarPortal } from '@/components/layout/app-shell';
 
 export interface InterfaceWorkspaceProps {
   devices: Device[];
@@ -33,8 +33,7 @@ function renderHotspots(device: Device, interfaces: DeviceInterface[], onInterfa
 export function InterfaceWorkspace({ devices, selected, interfaces, selectedInterface, onDevice, onInterface, onGenerate, onEditDevice }: InterfaceWorkspaceProps) {
   const selectedImage = selected ? deviceFrontImage(selected) : null;
   return <section className="ipam-card interfaces-workspace">
-    <div className="panel-heading"><div><span className="section-kicker">PORTAS E CONFIGURAÇÃO</span><h2>Interfaces de rede</h2></div>{selected && <div className="button-row"><button className="secondary-button" onClick={onGenerate}><Plus size={14} /> Gerar interfaces</button><button className="secondary-button" onClick={onEditDevice}><Edit3 size={14} /> Editar equipamento</button></div>}</div>
-    <div className="interface-device-list">{devices.map((device) => <button key={device.id} className={`interface-device ${selected?.id === device.id ? 'active' : ''}`} onClick={() => onDevice(device)}><EquipmentTypeIcon type={device.type} className="interface-device-type-icon" /><span><strong>{device.name}</strong><small>{device.model ? `${device.model.manufacturer} ${device.model.model}` : device.type} · {device.managementIp || 'sem IP'}</small></span><em>{device.status}</em></button>)}</div>
+    <div className="panel-heading"><div><span className="section-kicker">PORTAS E CONFIGURAÇÃO</span><h2>Interfaces de rede</h2></div></div><PageToolbarPortal><div className="interface-toolbar-controls"><label>Equipamento<select aria-label="Equipamento para gerir interfaces" value={selected?.id ?? ''} onChange={(event) => { const device = devices.find((item) => item.id === event.target.value); if (device) onDevice(device); }}><option value="">Seleciona um equipamento</option>{devices.map((device) => <option key={device.id} value={device.id}>{device.name} · {device.managementIp || 'sem IP'}</option>)}</select></label>{selected && <><button className="secondary-button" onClick={onGenerate}><Plus size={14} /> Gerar interfaces</button><button className="secondary-button" onClick={onEditDevice}><Edit3 size={14} /> Editar equipamento</button></>}</div></PageToolbarPortal>
     {!selected && <div className="empty-context"><Layers size={26} /><strong>Seleciona um equipamento</strong><span>Todos os equipamentos ativos com interfaces configuráveis aparecem aqui.</span></div>}
     {selected && <div className="interface-detail">
       <div className="switch-face-container">{selectedImage ? <div className="switch-face-image"><AssetImage asset={selectedImage} alt={`Imagem de ${selected.name}`} />{renderHotspots(selected, interfaces, onInterface)}</div> : <div className="switch-face-fallback"><Server size={28} /><strong>{selected.name}</strong><span>Associa uma imagem e mapeia as portas no modelo.</span></div>}</div>

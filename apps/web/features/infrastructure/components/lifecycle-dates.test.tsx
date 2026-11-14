@@ -59,3 +59,17 @@ describe('LifecycleDates read-only access', () => {
     expect(screen.queryByRole('button', { name: /Adicionar data em/ })).not.toBeInTheDocument();
   });
 });
+
+describe('LifecycleDates create access', () => {
+  beforeEach(() => apiFetch.mockReset().mockResolvedValue({ items: [lifecycleItem] }));
+  afterEach(cleanup);
+
+  it('keeps the create action available to editors', async () => {
+    renderCalendar(true);
+    fireEvent.click(await screen.findByRole('button', { name: 'Nova data' }));
+
+    expect(await screen.findByRole('dialog', { name: 'Registar cobertura' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Equipamento')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Guardar' })).toBeEnabled();
+  });
+});
