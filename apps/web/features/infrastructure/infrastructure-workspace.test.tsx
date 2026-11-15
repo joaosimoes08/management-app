@@ -1,6 +1,5 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { rememberRecentItem } from '@/lib/recent-items';
 import { InfrastructureWorkspace } from './infrastructure-workspace';
 
 vi.mock('@tanstack/react-query', () => ({
@@ -41,18 +40,9 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
-describe('InfrastructureWorkspace recent items', () => {
-  it('renders the current user’s recent items in the regular workspace view', async () => {
-    rememberRecentItem('user-1', {
-      id: 'device-1',
-      kind: 'Equipamento',
-      label: 'Core switch',
-      href: '/infraestrutura?deviceId=device-1',
-    });
-
+describe('InfrastructureWorkspace', () => {
+  it('does not add a recent items panel to the regular workspace view', () => {
     render(<InfrastructureWorkspace />);
-
-    expect(await screen.findByRole('heading', { name: 'Vistos recentemente' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'EquipamentoCore switch' })).toHaveAttribute('href', '/infraestrutura?deviceId=device-1');
+    expect(screen.queryByRole('heading', { name: 'Vistos recentemente' })).not.toBeInTheDocument();
   });
 });

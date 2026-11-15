@@ -1,7 +1,7 @@
 'use client';
 
 import { isValidElement, useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
-import { Activity, AlertTriangle, Bell, CheckCircle2, ChevronRight, Clock3, Menu, Search, X } from 'lucide-react';
+import { Activity, AlertTriangle, Bell, CheckCircle2, ChevronRight, Menu, Search, X } from 'lucide-react';
 import { apiFetch } from '@/lib/api/client';
 import { SiteSwitcher } from './site-switcher';
 import { unavailableTopbarState, type TopbarState } from './topbar-state';
@@ -36,17 +36,13 @@ function PopoverHeading({ eyebrow, title, action, onClose }: { eyebrow: string; 
 /** Shared shell header: brand, active-module tabs and global tools. */
 export function AppHeader({ section, moduleTabs, onOpenSidebar, onOpenGlobalSearch }: AppHeaderProps) {
   const [alertsOpen, setAlertsOpen] = useState(false);
-  const [statusOpen, setStatusOpen] = useState(false);
   const [topbarState, setTopbarState] = useState<TopbarState>(unavailableTopbarState);
   const [dismissedAlertIds, setDismissedAlertIds] = useState<Set<string>>(() => new Set());
   const { t } = useI18n();
   const { hasRole } = useAuth();
   const alertsRef = useRef<HTMLDivElement>(null);
-  const statusRef = useRef<HTMLDivElement>(null);
-  const closeStatus = useCallback(() => setStatusOpen(false), []);
   const closeAlerts = useCallback(() => setAlertsOpen(false), []);
   useOutsideClose(alertsRef, closeAlerts, alertsOpen);
-  useOutsideClose(statusRef, closeStatus, statusOpen);
 
   const loadTopbarState = useCallback(async () => { try { const state = await apiFetch<TopbarState>('/api/v1/dashboard/topbar-state'); setTopbarState(state); return state; } catch { const state = unavailableTopbarState(); setTopbarState(state); return state; } }, []);
   useOperationalEvents({ fallback: loadTopbarState, onEvent: (event) => { const alertId = (event.data as { alertId?: string } | null)?.alertId; if (alertId) setDismissedAlertIds((current) => { const next = new Set(current); next.delete(alertId); return next; }); void loadTopbarState(); } });
@@ -67,7 +63,6 @@ export function AppHeader({ section, moduleTabs, onOpenSidebar, onOpenGlobalSear
   } : null;
   const alerts = [...(nextStepsAlert ? [nextStepsAlert] : []), ...topbarState.alerts];
   const visibleAlerts = alerts.filter((alert) => alert.persistent || !dismissedAlertIds.has(alert.id));
-  const stateLabel = topbarState.environment.state === 'OPERATIONAL' ? t('shell.operational') : topbarState.environment.state === 'DEGRADED' ? t('shell.degraded') : t('shell.unavailable');
   const clearAlerts = () => {
     setDismissedAlertIds((current) => new Set([...current, ...alerts.filter((alert) => !alert.persistent).map((alert) => alert.id)]));
     void Promise.allSettled([readAllOperationalAlerts(), apiFetch('/api/v1/dashboard/notifications/read-all', { method: 'PATCH' })]);
@@ -79,12 +74,8 @@ export function AppHeader({ section, moduleTabs, onOpenSidebar, onOpenGlobalSear
     <div className="module-tabs-slot" aria-label={`Secções de ${section}`}>{isValidElement(moduleTabs) && moduleTabs.type === 'nav' ? <ResponsiveTabNavigation navigation={moduleTabs as ReactElement<{ children?: ReactNode; className?: string }>} /> : moduleTabs}</div>
     <div className="topbar-globals">
       <button className="topbar-search-trigger" onClick={onOpenGlobalSearch} aria-label="Pesquisar na aplicação ou neste separador"><Search size={15} /><span>Pesquisar</span><kbd>⌘ K</kbd></button>
-      <div className="topbar-popover-anchor" ref={statusRef}>
-        <button className={`environment-trigger ${topbarState.environment.state.toLowerCase()}`} onClick={() => { setStatusOpen((value) => !value); setAlertsOpen(false); }} aria-label={stateLabel} aria-expanded={statusOpen} aria-haspopup="dialog"><i /><span>{stateLabel}</span></button>
-        {statusOpen && <section className="topbar-popover status-popover" role="dialog" aria-label="Estado do ambiente"><PopoverHeading eyebrow="ESTADO GLOBAL" title={stateLabel} onClose={closeStatus} /><div className="service-list">{topbarState.environment.services.map((service) => <div key={service.key}><span className={service.state.toLowerCase()}>{service.state === 'OPERATIONAL' ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}</span><strong>{service.label}</strong><small>{service.state === 'OPERATIONAL' ? 'Operacional' : service.state === 'UNKNOWN' ? 'Estado desconhecido' : 'Indisponível'}</small></div>)}</div><div className="popover-updated"><Clock3 size={12} /> Atualizado {new Date(topbarState.updatedAt).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}</div></section>}
-      </div>
       <div className="topbar-popover-anchor" ref={alertsRef}>
-        <button className="icon-button alerts-trigger" onClick={() => { setAlertsOpen((value) => !value); setStatusOpen(false); }} aria-label={`${visibleAlerts.length} ${visibleAlerts.length === 1 ? 'alerta ativo' : 'alertas ativos'}`} aria-expanded={alertsOpen} aria-haspopup="dialog"><Bell size={17} />{visibleAlerts.length > 0 && <span className="alert-count">{visibleAlerts.length > 9 ? '9+' : visibleAlerts.length}</span>}</button>
+        <button className="icon-button alerts-trigger" onClick={() => setAlertsOpen((value) => !value)} aria-label={`${visibleAlerts.length} ${visibleAlerts.length === 1 ? 'alerta ativo' : 'alertas ativos'}`} aria-expanded={alertsOpen} aria-haspopup="dialog"><Bell size={17} />{visibleAlerts.length > 0 && <span className="alert-count">{visibleAlerts.length > 9 ? '9+' : visibleAlerts.length}</span>}</button>
         {alertsOpen && <section className="topbar-popover alerts-popover" role="dialog" aria-label="Centro de alertas"><PopoverHeading eyebrow="CENTRO DE ALERTAS" title={`${visibleAlerts.length} ${visibleAlerts.length === 1 ? 'ativo' : 'ativos'}`} onClose={closeAlerts} action={visibleAlerts.length ? <button className="clear-alerts-button" type="button" onClick={clearAlerts}>Limpar todos</button> : undefined} />{topbarState.processes.length > 0 && <div className="running-processes"><span><Activity size={13} /> Em execução</span>{topbarState.processes.map((process) => <a href={process.href} key={process.id}><i /><span><strong>{process.label}</strong><small>{process.detail} · {process.state}</small></span><ChevronRight size={13} /></a>)}</div>}<div className="alert-list">{visibleAlerts.length ? visibleAlerts.map((alert) => <a href={alert.href} className={`${alert.severity.toLowerCase()}${alert.persistent ? ' persistent' : ''}`} key={alert.id}><span className="alert-severity">{alert.severity === 'INFO' ? <Activity size={14} /> : <AlertTriangle size={14} />}</span><span><strong>{alert.title}</strong><small>{alert.detail}</small>{!alert.persistent && <time>{new Date(alert.occurredAt).toLocaleString('pt-PT')}</time>}</span><ChevronRight size={13} /></a>) : <div className="alerts-empty"><CheckCircle2 size={20} /><strong>Sem alertas ativos</strong><span>O ambiente não requer atenção.</span></div>}</div></section>}
       </div>
     </div>

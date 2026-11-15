@@ -19,21 +19,17 @@ afterEach(() => {
 });
 
 describe('AppHeader persistent Next Steps alert', () => {
-  it.each(['Dashboard', 'Infraestrutura'])('keeps global service availability available on %s', async (section) => {
+  it('keeps global search available and removes the environment status trigger', async () => {
     mocks.hasRole.mockReturnValue(false);
     mocks.apiFetch.mockResolvedValue(state);
     mocks.load.mockReturnValue(undefined);
+    const onOpenGlobalSearch = vi.fn();
 
-    render(<AppHeader section={section} onOpenSidebar={vi.fn()} onOpenGlobalSearch={vi.fn()} />);
-    const statusButton = await screen.findByRole('button', { name: 'Operacional' });
-    fireEvent.click(statusButton);
-    const status = screen.getByRole('dialog', { name: 'Estado do ambiente' });
-    expect(status).toHaveTextContent('API');
-    expect(status).toHaveTextContent('PostgreSQL');
-
-    fireEvent.click(screen.getByRole('button', { name: '0 alertas ativos' }));
-    expect(screen.queryByRole('dialog', { name: 'Estado do ambiente' })).not.toBeInTheDocument();
-    expect(screen.getByRole('dialog', { name: 'Centro de alertas' })).toBeInTheDocument();
+    render(<AppHeader section="Infraestrutura" onOpenSidebar={vi.fn()} onOpenGlobalSearch={onOpenGlobalSearch} />);
+    expect(await screen.findByRole('button', { name: 'Pesquisar na aplicação ou neste separador' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Operacional' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Pesquisar na aplicação ou neste separador' }));
+    expect(onOpenGlobalSearch).toHaveBeenCalledOnce();
   });
 
   it('keeps the IPAM action at the top of Alerts after Clear All', async () => {
