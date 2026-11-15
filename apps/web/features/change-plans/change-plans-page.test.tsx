@@ -24,6 +24,19 @@ vi.mock('@/lib/site-context', () => ({ useSiteContext: () => ({ siteId: 'site-1'
 afterEach(() => { cleanup(); vi.clearAllMocks(); mocks.detail = null; });
 
 describe('ChangePlansPage impact preview transition', () => {
+  it('renders the list-card title without a decorative site eyebrow and keeps its count badge', async () => {
+    mocks.listChangePlans.mockResolvedValue([]);
+    mocks.getChangeCandidates.mockResolvedValue({ groups: [[]], truncated: false });
+
+    render(<ChangePlansPage />);
+    const title = await screen.findByRole('heading', { name: 'Alterações Planeadas' });
+    const card = title.closest('.change-list-card');
+
+    expect(card).toBeInTheDocument();
+    expect(card?.querySelector('.section-kicker')).not.toBeInTheDocument();
+    expect(card?.querySelector('.change-count')).toHaveTextContent('0');
+  });
+
   it('creates a draft in a dialog, shows its details, and returns to all alterations', async () => {
     const created: ChangePlan = {
       id: 'new-plan', siteId: 'site-1', title: 'Switch maintenance', reason: 'Replace hardware',
