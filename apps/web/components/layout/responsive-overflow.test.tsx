@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { ResponsiveOverflowMenu, visibleActionIndexes, visibleEqualSlotIndexes, visibleOverflowIndexes } from './responsive-overflow';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { ResponsiveOverflowMenu, ResponsiveToolbarActions, visibleActionIndexes, visibleEqualSlotIndexes, visibleOverflowIndexes } from './responsive-overflow';
 
 afterEach(cleanup);
 
@@ -45,6 +45,42 @@ describe('responsive shell overflow priorities', () => {
 
   it('preserves primary toolbar actions and moves secondary actions into the menu first', () => {
     expect(visibleActionIndexes([60, 70, 90], [false, true, false], 150)).toEqual([1]);
+  });
+
+  it('keeps the primary Dashboard discovery action visible ahead of secondary actions when space is tight', () => {
+    const widths = [92, 74, 82, 116, 145];
+    const primary = [false, false, false, true, false];
+    expect(visibleActionIndexes(widths, primary, 155)).toEqual([3]);
+  });
+
+  it('keeps Dashboard discovery visible and operable in a narrow 360px actions row', async () => {
+    const discovery = vi.fn();
+    const originalClientWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth');
+    const originalRect = HTMLElement.prototype.getBoundingClientRect;
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get() { return this.classList.contains('responsive-toolbar-actions') ? 360 : 0; } });
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      const measured = this.classList.contains('responsive-overflow-measure-item');
+      const control = this.firstElementChild as HTMLElement | null;
+      const widths: Record<string, number> = { Refresh: 92, Settings: 74, 'Nova descoberta': 145, 'Mais ações': 50 };
+      const width = measured && control ? widths[control.textContent?.trim() ?? ''] ?? 120 : 0;
+      return { x: 0, y: 0, top: 0, left: 0, right: width, bottom: 36, width, height: 36, toJSON: () => ({}) } as DOMRect;
+    };
+    try {
+      render(<div style={{ width: 360 }}><ResponsiveToolbarActions>{[
+        <button key="refresh" className="secondary-button">Refresh</button>,
+        <button key="settings" className="secondary-button">Settings</button>,
+        <button key="discovery" className="primary-button" onClick={discovery}>Nova descoberta</button>,
+        <button key="add" className="secondary-button">Adicionar equipamento</button>,
+      ]}</ResponsiveToolbarActions></div>);
+      const actions = document.querySelector('.responsive-toolbar-actions') as HTMLElement;
+      await waitFor(() => expect(within(actions).getByRole('button', { name: 'Nova descoberta' })).toBeVisible());
+      fireEvent.click(within(actions).getByRole('button', { name: 'Nova descoberta' }));
+      expect(discovery).toHaveBeenCalledOnce();
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = originalRect;
+      if (originalClientWidth) Object.defineProperty(HTMLElement.prototype, 'clientWidth', originalClientWidth);
+      else delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
+    }
   });
 
   it('keeps all toolbar actions inline when they fit', () => {

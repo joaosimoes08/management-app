@@ -47,7 +47,7 @@ export default function NetAppPage() {
   };
 
   return <AppShell section="NetApp" actions={<><button className="topbar-action secondary-button" disabled={!siteId || siteLoading || integrationQuery.isFetching} onClick={() => void integrationQuery.refetch()}><RefreshCw size={14} className={integrationQuery.isFetching ? 'spin' : ''} /> Atualizar</button>{integration && canRefresh && <button className="primary-button" disabled={refreshMutation.isPending} onClick={() => { setActionError(''); setNotice(''); refreshMutation.mutate(); }}><RefreshCw size={14} className={refreshMutation.isPending ? 'spin' : ''} />{refreshMutation.isPending ? 'A consultar…' : 'Atualizar snapshot'}</button>}</>}>
-    <main className="module-page snmp-workspace">
+    <main className="module-page snmp-workspace aligned-workspace">
       <header className="workspace-head"><div><span className="section-kicker">STORAGE INVENTORY</span><h1>NetApp ONTAP</h1><p>Inventário de storage, capacidade e saúde, isolado ao Site selecionado.</p></div></header>
       {actionError && <div role="alert" className="ipam-alert error"><X size={15} />{actionError}</div>}
       {notice && <div role="status" className="ipam-alert"><Check size={15} />{notice}</div>}

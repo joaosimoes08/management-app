@@ -2456,3 +2456,46 @@ body { color:var(--ink); background:#e9eef5; }
 @media (prefers-reduced-motion:reduce) {
   .app-shell .sidebar.app-sidebar { transition:none !important; }
 }
+
+/* Match the shared Infrastructure content frame on these operational workspaces.
+   Scoped by an explicit page class so specialized full-viewport screens keep their own layout. */
+.app-shell-content .aligned-workspace {
+  box-sizing:border-box;
+  width:100%;
+  max-width:1600px;
+  min-height:0;
+  margin:0 auto;
+  padding:30px 32px 56px;
+  background:transparent;
+}
+.app-shell .dashboard-context-toolbar .context-toolbar-actions {
+  margin-left:auto;
+  justify-content:flex-end;
+}
+@media (max-width:780px) {
+  .app-shell-content .aligned-workspace { padding:22px 16px 42px; }
+  .app-shell .dashboard-context-toolbar {
+    align-items:stretch;
+    flex-direction:column;
+    flex-wrap:nowrap;
+    white-space:normal;
+  }
+  .app-shell .dashboard-context-toolbar .context-toolbar-title,
+  .app-shell .dashboard-context-toolbar .context-toolbar-navigation,
+  .app-shell .dashboard-context-toolbar .context-toolbar-actions {
+    box-sizing:border-box;
+    flex:0 0 auto;
+    width:100%;
+    min-width:0;
+  }
+  .app-shell .dashboard-context-toolbar .context-toolbar-actions {
+    box-sizing:border-box;
+    flex:0 0 auto;
+    margin-left:0;
+    justify-content:flex-start;
+  }
+  .app-shell .dashboard-context-toolbar .responsive-toolbar-actions {
+    width:100%;
+    min-width:0;
+  }
+}

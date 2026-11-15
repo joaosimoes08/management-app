@@ -316,7 +316,7 @@ export default function IpamPage() {
   const tabLabel = visibleTabs.find(([value]) => value === tab)?.[1] ?? tab;
 
   return <AppShell section="IPAM" toolbarKey={tab} context={[siteName, tabLabel, ...(selected ? [selected.cidr] : []), ...(hostDetail ? [hostDetail.name] : [])]} search={tab === 'calculator' ? undefined : { value: search, onChange: setSearch, placeholder: selected ? 'Pesquisar IP ou hostname…' : tab === 'map' ? 'Pesquisar VLAN ou subnet…' : 'Pesquisar subnets…', scopeLabel: selected ? 'Endereços IP' : tabLabel }} actions={<><button className="secondary-button" onClick={() => void invalidateIpam()} disabled={busy}><RefreshCw size={14} className={busy ? 'spin' : ''} /> Atualizar</button>{origin && <a className="secondary-button" href={`/infraestrutura?siteId=${encodeURIComponent(siteId)}&tab=interfaces&deviceId=${encodeURIComponent(origin.deviceId)}&interfaceId=${encodeURIComponent(origin.interfaceId || '')}`}>← Voltar à porta</a>}</>} moduleTabs={siteId ? <nav className="ipam-tabs ipam-feature-tabs" aria-label={t('nav.ipam')}>{visibleTabs.map(([value, label]) => <button key={value} className={tab === value ? 'active' : ''} aria-current={tab === value ? 'page' : undefined} onClick={() => { setTab(value); setSearch(''); }}>{label}</button>)}</nav> : null}>
-    <main className="ipam-workspace">
+    <main className="ipam-workspace aligned-workspace">
       <header className="workspace-head"><div><span className="section-kicker">IP ADDRESS MANAGEMENT</span><h1>IPAM</h1><p>Site → VLAN → subnet → IP → Host → Service.</p></div></header>
       <RecentItems userId={user?.id} />
       {error && <div className="ipam-alert error"><X size={15} />{error}</div>}

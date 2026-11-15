@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppShell } from './app-shell';
 
@@ -25,5 +25,28 @@ describe('AppShell sidebar preference', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Expandir' }));
     await waitFor(() => expect(container.querySelector('.app-shell')).not.toHaveClass('sidebar-collapsed'));
     expect(localStorage.getItem('cociber.sidebar.collapsed')).toBe('false');
+  });
+});
+
+describe('Dashboard AppShell toolbar layout', () => {
+  it('keeps Workspace navigation and actions in separate toolbar regions at a narrow viewport', () => {
+    const previousWidth = window.innerWidth;
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+    const discovery = vi.fn();
+    try {
+      render(<AppShell section="Dashboard" toolbar={<label>Workspace<select aria-label="Workspace"><option>Site A</option></select></label>} actions={<><button className="secondary-button">Atualizar</button><button className="primary-button" onClick={discovery}>Nova descoberta</button></>}><div /></AppShell>);
+      const toolbar = document.querySelector('.dashboard-context-toolbar') as HTMLElement;
+      expect(toolbar).toBeInTheDocument();
+      const navigation = toolbar.querySelector('.context-toolbar-navigation') as HTMLElement;
+      const actions = toolbar.querySelector('.context-toolbar-actions') as HTMLElement;
+      expect(navigation).toContainElement(screen.getByRole('combobox', { name: 'Workspace' }));
+      expect(actions).toContainElement(screen.getByRole('button', { name: 'Nova descoberta' }));
+      expect(toolbar.children[1]).toBe(navigation);
+      expect(toolbar.children[2]).toBe(actions);
+      fireEvent.click(within(actions).getByRole('button', { name: 'Nova descoberta' }));
+      expect(discovery).toHaveBeenCalledOnce();
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: previousWidth });
+    }
   });
 });
