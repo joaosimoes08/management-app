@@ -27,6 +27,12 @@ describe('LifecycleDates read-only access', () => {
   beforeEach(() => apiFetch.mockReset().mockResolvedValue({ items: [lifecycleItem] }));
   afterEach(cleanup);
 
+  it('uses the shared tab heading treatment for the lifecycle description', () => {
+    renderCalendar(false);
+    expect(screen.getByRole('heading', { level: 2, name: 'Licenças, garantias e suporte por equipamento.' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 2, name: 'Datas de ciclo de vida' })).not.toBeInTheDocument();
+  });
+
   it('lets read-only users view a calendar event and reminders without edit or delete controls', async () => {
     renderCalendar(false);
     const event = await screen.findByRole('button', { name: /Garantia: Core switch/ });

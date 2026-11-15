@@ -11,6 +11,7 @@ export interface EntityEditorProps {
   modal: string;
   close: () => void;
   editingId: string;
+  animateDeviceEntry?: boolean;
   form: { rack: RackForm; device: DeviceForm; model: ModelForm };
   setForm: {
     rack: React.Dispatch<React.SetStateAction<RackForm>>;
@@ -26,12 +27,12 @@ export interface EntityEditorProps {
 }
 
 /** Device, rack and model create/edit modals (the interface modal lives in InterfaceEditor). */
-export function EntityEditor({ modal, close, editingId, form, setForm, rooms, racks, models, assets, ips, save }: EntityEditorProps) {
+export function EntityEditor({ modal, close, editingId, animateDeviceEntry = false, form, setForm, rooms, racks, models, assets, ips, save }: EntityEditorProps) {
   const { hasRole } = useAuth();
   const admin = hasRole('ADMIN');
   if (!modal || modal === 'layout') return null;
 
-  if (modal === 'device') return <Modal title={editingId ? 'Gerir equipamento' : 'Novo equipamento'} close={close}><form className="modal-form" onSubmit={(event) => {
+  if (modal === 'device') return <Modal title={editingId ? 'Gerir equipamento' : 'Novo equipamento'} close={close} entryMotion={editingId !== '' && animateDeviceEntry}><form className="modal-form" onSubmit={(event) => {
     event.preventDefault();
     const { snmpEnabled, snmpVersion, snmpReadUsername, snmpReadCommunity, snmpReadAuthKey, snmpReadPrivKey, snmpTrapEnabled, snmpTrapUsername, snmpTrapCommunity, snmpTrapAuthKey, snmpTrapPrivKey, snmpAuthProtocol, snmpPrivProtocol, snmpCompatibilitySha1, snmpPort, snmpIntervalMinutes, snmpTimeoutMs, snmpRetries, ...devicePayload } = form.device;
     if (!editingId && snmpEnabled) {

@@ -19,7 +19,7 @@ export interface AssetListProps {
 export function AssetList({ assets, onDelete, onUpload, canEdit, canDelete = canEdit }: AssetListProps) {
   const upload = onUpload ?? (() => window.dispatchEvent(new Event('asset-upload-request')));
   return <section className="ipam-card">
-    <div className="panel-heading"><div><h2>Assets visuais</h2><p className="form-help">Imagens de frente dos equipamentos usadas no mapeamento de portas.</p></div></div>{canEdit && <PageToolbarPortal><div className="asset-list-toolbar"><button className="secondary-button" type="button" onClick={upload}><Upload size={14} /> Importar imagem</button></div></PageToolbarPortal>}
+    <div className="panel-heading"><div><h2>Imagens de frente dos equipamentos usadas no mapeamento de portas.</h2></div></div>{canEdit && <PageToolbarPortal><div className="asset-list-toolbar"><button className="secondary-button" type="button" onClick={upload}><Upload size={14} /> Importar imagem</button></div></PageToolbarPortal>}
     <div className="asset-grid">{assets.map((asset) => <article className="asset-card" key={asset.id}>
       <AssetImage asset={asset} alt={assetDisplayName(asset)} />
       <strong>{assetDisplayName(asset)}</strong>

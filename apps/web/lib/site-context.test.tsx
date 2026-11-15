@@ -51,25 +51,27 @@ describe('SiteProvider', () => {
     expect(navigation.replace).toHaveBeenCalledWith('/ipam?siteId=beta', { scroll: false });
   });
 
-  it('shows the newly selected Site in the sidebar selector', async () => {
+  it('shows and changes the active Site in the combined COCIBER selector', async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(createElement(QueryClientProvider, { client: queryClient }, createElement(SiteProvider, null, createElement(SiteSwitcher))));
 
     const switcher = screen.getByRole('button', { name: /Site ativo/i });
     await waitFor(() => expect(within(switcher).getByText('Alpha')).toBeInTheDocument());
-    const previousCopy = switcher.querySelector('.workspace-switcher-copy');
-    const previousAvatar = switcher.querySelector('.workspace-avatar');
-    expect(previousAvatar).toHaveTextContent('A');
+    expect(switcher).toHaveAttribute('aria-expanded', 'false');
+    expect(switcher.querySelector('.workspace-switcher-shield')).toHaveAttribute('aria-hidden', 'true');
+    expect(switcher.querySelector('.workspace-avatar')).not.toBeInTheDocument();
     fireEvent.click(switcher);
+    expect(switcher).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('menuitemradio', { name: /Alpha/i })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('menuitemradio', { name: /Beta/i })).toHaveAttribute('aria-checked', 'false');
     fireEvent.click(screen.getByRole('menuitemradio', { name: /Beta/i }));
     await act(async () => undefined);
 
-    const currentCopy = switcher.querySelector('.workspace-switcher-copy');
-    const currentAvatar = switcher.querySelector('.workspace-avatar');
-    expect(currentCopy).not.toBe(previousCopy);
-    expect(currentAvatar).not.toBe(previousAvatar);
-    expect(currentAvatar).toHaveTextContent('B');
-    expect(currentCopy).toHaveTextContent('Site ativoBeta');
+    await waitFor(() => expect(within(switcher).getByText('Beta')).toBeInTheDocument());
+    expect(switcher).toHaveAttribute('aria-expanded', 'false');
+    expect(switcher.querySelector('.workspace-switcher-shield')).toHaveAttribute('aria-hidden', 'true');
+    expect(window.location.search).toBe('?siteId=beta');
+    expect(navigation.replace).toHaveBeenCalledWith('/ipam?siteId=beta', { scroll: false });
     expect(within(switcher).queryByText('Todos os Sites')).not.toBeInTheDocument();
   });
 });

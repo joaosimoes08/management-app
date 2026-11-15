@@ -3,6 +3,7 @@
 import { ChevronRight, Edit3, Network, Plus, Trash2 } from 'lucide-react';
 import type { IpAddressRow, Subnet, SubnetCapacityHistory, SubnetUsage } from '../types';
 import { Empty } from './ipam-modal';
+import { PageToolbarPortal } from '@/components/layout/app-shell';
 import { SubnetCapacityTrend } from './subnet-capacity-trend';
 
 export interface SubnetsViewProps {
@@ -33,13 +34,13 @@ export interface SubnetsViewProps {
 export function SubnetsView({ selected, items, usage, capacityHistory, ips, search, setSearch, openSubnet, openHost, canEdit, canReserve, canReleaseReservations, newSubnet, editSubnet, removeSubnet, editIp, newIp, createHost, reserveIp, releaseReservation }: SubnetsViewProps) {
 
   if (!selected) return <section className="ipam-card">
-    <div className="panel-heading"><h2>Subnets do Site</h2>{canEdit && <button className="primary-button" onClick={newSubnet}><Plus size={14} /> Nova subnet</button>}</div>
+    <div className="panel-heading"><h2>Subnets do Site</h2></div>{canEdit && <PageToolbarPortal><button className="primary-button" onClick={newSubnet}><Plus size={14} /> Nova subnet</button></PageToolbarPortal>}
     {items.map((subnet) => <div className="subnet-list-item" key={subnet.id}><button className="subnet-list-row" onClick={() => openSubnet(subnet.id)}><Network size={17} /><span><strong>{subnet.cidr}</strong><small>IPv{subnet.version} · {subnet.vlan?.name || 'Sem VLAN'} · {subnet._count?.ips ?? 0} IPs</small></span><ChevronRight size={16} /></button>{canEdit && <div className="subnet-actions"><button className="icon-button subtle" title={`Editar subnet ${subnet.cidr}`} aria-label={`Editar subnet ${subnet.cidr}`} onClick={() => editSubnet(subnet)}><Edit3 size={14} /></button><button className="icon-button subtle danger" title={`Eliminar subnet ${subnet.cidr}`} aria-label={`Eliminar subnet ${subnet.cidr}`} onClick={() => removeSubnet(subnet)}><Trash2 size={14} /></button></div>}</div>)}
     {!items.length && <Empty title={search ? 'Sem subnets correspondentes' : 'Este Site ainda não tem subnets'} text={search ? 'Experimenta outra pesquisa.' : 'Cria uma subnet diretamente nesta página.'} />}
   </section>;
 
   return <section className="ipam-card">
-    <div className="panel-heading"><div><button className="text-button" onClick={() => { setSearch(''); location.href = `/ipam?siteId=${selected.siteId}` }}>← Todas as subnets</button><span className="section-kicker">SUBNET SELECIONADA</span><h2>{selected.cidr}</h2></div>{canEdit && <div className="subnet-actions"><button className="secondary-button" onClick={() => editSubnet(selected)}><Edit3 size={14} /> Editar subnet</button><button className="secondary-button danger" onClick={() => removeSubnet(selected)}><Trash2 size={14} /> Eliminar subnet</button><button className="primary-button" onClick={newIp}><Plus size={14} /> Novo endereço IP</button></div>}</div>
+    <div className="panel-heading"><div><span className="section-kicker">SUBNET SELECIONADA</span><h2>{selected.cidr}</h2></div></div><PageToolbarPortal><div className="subnet-actions"><button className="secondary-button" onClick={() => { setSearch(''); location.href = `/ipam?siteId=${selected.siteId}` }}>← Todas as subnets</button>{canEdit && <><button className="secondary-button" onClick={() => editSubnet(selected)}><Edit3 size={14} /> Editar subnet</button><button className="secondary-button danger" onClick={() => removeSubnet(selected)}><Trash2 size={14} /> Eliminar subnet</button><button className="primary-button" onClick={newIp}><Plus size={14} /> Novo endereço IP</button></>}</div></PageToolbarPortal>
     <div className="usage-summary">{usage?.version === 6
       ? <><strong>{usage.known} endereços geridos</strong><span>{usage.occupied} ocupados · {usage.reserved} reservados · {usage.excluded} excluídos</span><span>Capacidade livre do prefixo não enumerada</span></>
       : usage?.version === 4

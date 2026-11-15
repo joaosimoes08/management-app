@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AppShell } from '@/components/layout/app-shell';
+import { AppShell, PageToolbarPortal } from '@/components/layout/app-shell';
 import { useAuth } from '@/lib/auth';
 import { useSiteContext } from '@/lib/site-context';
 import { cancelChangePlan, createChangePlan, getChangeCandidates, getChangePlan, listChangePlans, previewChangePlan, reviewChangePlan, submitChangePlan, updateChangePlan, type ChangeCandidate, type ChangeDraft, type ChangeEntityType, type ChangeItem, type ChangePlan, type ImpactNode, type ImpactPreview } from './api';
@@ -127,7 +127,7 @@ export function ChangePlansPage() {
     return [...grouped.entries()];
   }, [savedPreview]);
 
-  return <AppShell section="Alterações"><main className="module-page change-plans-page"><header className="workspace-head"><div><span className="section-kicker">PLANEAMENTO OPERACIONAL</span><h1>Alterações planeadas</h1><p>{activeSite ? `${activeSite.name} · ` : ''}Avalia as dependências registadas antes de submeter uma alteração para revisão.</p></div><div className="change-page-actions"><button className="secondary-button" disabled={!siteId || busy} onClick={() => void load()}>Atualizar</button>{canDraft && <button className="primary-button" disabled={!siteId || busy} onClick={openNew}>＋ Criar alteração</button>}</div></header>
+  return <AppShell section="Alterações"><main className="module-page change-plans-page"><PageToolbarPortal><div className="change-page-actions"><button className="secondary-button" disabled={!siteId || busy} onClick={() => void load()}>Atualizar</button>{canDraft && <button className="primary-button" disabled={!siteId || busy} onClick={openNew}>＋ Criar alteração</button>}</div></PageToolbarPortal><header className="workspace-head"><div><span className="section-kicker">PLANEAMENTO OPERACIONAL</span><h1>Alterações planeadas</h1><p>{activeSite ? `${activeSite.name} · ` : ''}Avalia as dependências registadas antes de submeter uma alteração para revisão.</p></div></header>
     {error && <div className="ipam-alert error" role="alert">{error}</div>}{notice && <div className="ipam-alert change-success" role="status">{notice}</div>}
     {selected && currentPreviewState?.status === 'calculating' && <div className="ipam-alert" role="status">A calcular a pré-visualização…</div>}
     {selected && currentPreviewState?.status === 'complete' && savedPreview === currentPreviewState.snapshot && <div className="ipam-alert change-success" role="status">Pré-visualização atualizada. Revê os impactos e a cobertura antes de submeter.</div>}
