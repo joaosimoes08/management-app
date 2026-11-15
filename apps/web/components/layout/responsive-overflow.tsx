@@ -145,7 +145,7 @@ export function ResponsiveToolbarActions({ children }: { children: ReactNode }) 
   const items = flatten(Children.toArray(children).filter(Boolean));
   const containerRef = useRef<HTMLDivElement>(null);
   const { available, widths, measureRef } = useMeasuredWidths(containerRef, items.length);
-  const primary = (item: ReactNode) => isValidElement(item) && String((item.props as { className?: string }).className ?? '').split(' ').includes('primary-button');
+  const primary = (item: ReactNode) => isValidElement(item) && String((item.props as { className?: string }).className ?? '').split(' ').some((className) => className === 'primary-button' || className === 'toolbar-action-primary');
   const isPrimary = items.map(primary);
   const visibleIndexes = new Set(widths.length === items.length ? visibleActionIndexes(widths, isPrimary, available) : items.map((_, index) => index));
   const hidden = items.filter((_, index) => !visibleIndexes.has(index));

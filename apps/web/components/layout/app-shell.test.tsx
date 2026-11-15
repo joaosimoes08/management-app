@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AppShell } from './app-shell';
+import { AppShell, PageToolbarPortal } from './app-shell';
 
 vi.mock('next/navigation', () => ({ usePathname: () => '/infraestrutura' }));
 vi.mock('./app-header', () => ({ AppHeader: () => <header /> }));
@@ -48,5 +48,22 @@ describe('Dashboard AppShell toolbar layout', () => {
     } finally {
       Object.defineProperty(window, 'innerWidth', { configurable: true, value: previousWidth });
     }
+  });
+});
+
+describe('AppShell utility action alignment slot', () => {
+  it('keeps page actions and portal contributions in the dedicated trailing toolbar region', async () => {
+    render(<AppShell section="Qualidade" actions={<button>Atualizar</button>}>
+      <PageToolbarPortal><button>Exportar</button></PageToolbarPortal>
+    </AppShell>);
+
+    const toolbar = document.querySelector('.context-toolbar') as HTMLElement;
+    const navigation = toolbar.querySelector('.context-toolbar-navigation') as HTMLElement;
+    const actions = toolbar.querySelector('.context-toolbar-actions') as HTMLElement;
+    await waitFor(() => expect(within(actions).getByRole('button', { name: 'Exportar' })).toBeInTheDocument());
+
+    expect(toolbar.children[1]).toBe(navigation);
+    expect(toolbar.children[2]).toBe(actions);
+    expect(within(actions).getByRole('button', { name: 'Atualizar' })).toBeInTheDocument();
   });
 });

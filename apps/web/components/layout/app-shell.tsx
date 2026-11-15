@@ -21,8 +21,8 @@ export function PageToolbarPortal({ children }: { children: ReactNode }) {
   return target ? createPortal(<div className="context-toolbar-contribution">{children}</div>, target) : <div className="context-toolbar-contribution">{children}</div>;
 }
 
-export function ToolbarMore({ children, label = 'Mais ações' }: { children: ReactNode; label?: string }) {
-  return <details className="context-toolbar-more"><summary><MoreHorizontal size={16} /><span>{label}</span></summary><div className="context-toolbar-more-menu">{children}</div></details>;
+export function ToolbarMore({ children, label = 'Mais ações', className = '' }: { children: ReactNode; label?: string; className?: string }) {
+  return <details className={`context-toolbar-more ${className}`.trim()}><summary><MoreHorizontal size={16} /><span>{label}</span></summary><div className="context-toolbar-more-menu">{children}</div></details>;
 }
 
 /** Application chrome: sidebar + topbar + global search palette around page content. */

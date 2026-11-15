@@ -83,6 +83,30 @@ describe('responsive shell overflow priorities', () => {
     }
   });
 
+  it('keeps a primary disclosure in the visible action row instead of nesting it in overflow', async () => {
+    const originalClientWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth');
+    const originalRect = HTMLElement.prototype.getBoundingClientRect;
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get() { return this.classList.contains('responsive-toolbar-actions') ? 60 : 0; } });
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      const measured = this.classList.contains('responsive-overflow-measure-item');
+      const control = this.firstElementChild as HTMLElement | null;
+      const width = measured && control?.classList.contains('toolbar-action-primary') ? 100 : 0;
+      return { x: 0, y: 0, top: 0, left: 0, right: width, bottom: 36, width, height: 36, toJSON: () => ({}) } as DOMRect;
+    };
+    try {
+      render(<ResponsiveToolbarActions>{[
+        <details key="mapping" className="context-toolbar-more toolbar-action-primary"><summary>Mapear responsabilidades</summary></details>,
+      ]}</ResponsiveToolbarActions>);
+      const visible = document.querySelector('.responsive-toolbar-actions-visible') as HTMLElement;
+      await waitFor(() => expect(within(visible).getByText('Mapear responsabilidades')).toBeInTheDocument());
+      expect(screen.queryByRole('button', { name: 'Mais ações' })).not.toBeInTheDocument();
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = originalRect;
+      if (originalClientWidth) Object.defineProperty(HTMLElement.prototype, 'clientWidth', originalClientWidth);
+      else delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
+    }
+  });
+
   it('keeps all toolbar actions inline when they fit', () => {
     expect(visibleActionIndexes([60, 70, 90], [false, true, false], 240)).toEqual([0, 1, 2]);
   });

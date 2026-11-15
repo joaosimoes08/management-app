@@ -5,6 +5,7 @@ import type { ChangePlan, ImpactPreview } from './api';
 
 const mocks = vi.hoisted(() => ({
   listChangePlans: vi.fn(),
+  createChangePlan: vi.fn(),
   getChangeCandidates: vi.fn(),
   getChangePlan: vi.fn(),
   previewChangePlan: vi.fn(),
@@ -12,7 +13,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('./api', () => ({
-  cancelChangePlan: vi.fn(), createChangePlan: vi.fn(), getChangeCandidates: mocks.getChangeCandidates,
+  cancelChangePlan: vi.fn(), createChangePlan: mocks.createChangePlan, getChangeCandidates: mocks.getChangeCandidates,
   getChangePlan: mocks.getChangePlan, listChangePlans: mocks.listChangePlans, previewChangePlan: mocks.previewChangePlan,
   reviewChangePlan: vi.fn(), submitChangePlan: vi.fn(), updateChangePlan: vi.fn(),
 }));
@@ -23,6 +24,43 @@ vi.mock('@/lib/site-context', () => ({ useSiteContext: () => ({ siteId: 'site-1'
 afterEach(() => { cleanup(); vi.clearAllMocks(); mocks.detail = null; });
 
 describe('ChangePlansPage impact preview transition', () => {
+  it('creates a draft in a dialog, shows its details, and returns to all alterations', async () => {
+    const created: ChangePlan = {
+      id: 'new-plan', siteId: 'site-1', title: 'Switch maintenance', reason: 'Replace hardware',
+      plannedStartAt: '2026-11-20T10:00:00.000Z', plannedEndAt: '2026-11-20T11:00:00.000Z',
+      status: 'DRAFT', revision: 1, previewRevision: null, previewSnapshot: null, previewedAt: null, submittedAt: null,
+      items: [{ entityType: 'DEVICE', entityId: 'device-1', operationSummary: 'Replace switch' }],
+    };
+    mocks.listChangePlans.mockResolvedValue([]);
+    mocks.getChangeCandidates.mockResolvedValue({ groups: [[{ entityType: 'DEVICE', entityId: 'device-1', label: 'Core switch' }]], truncated: false });
+    mocks.createChangePlan.mockResolvedValue(created);
+    mocks.getChangePlan.mockResolvedValue(created);
+
+    render(<ChangePlansPage />);
+    await act(async () => { await Promise.resolve(); });
+    fireEvent.click(await screen.findByRole('button', { name: /Criar alteração/ }));
+    expect(screen.getByRole('dialog', { name: 'Criar alteração' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Título'), { target: { value: created.title } });
+    fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: created.reason } });
+    fireEvent.change(screen.getByLabelText('Início planeado'), { target: { value: '2026-11-20T10:00' } });
+    fireEvent.change(screen.getByLabelText('Fim planeado'), { target: { value: '2026-11-20T11:00' } });
+    fireEvent.change(screen.getByLabelText('Alvo'), { target: { value: 'device-1' } });
+    fireEvent.change(screen.getByLabelText('Operação proposta'), { target: { value: 'Replace switch' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Adicionar alvo' }));
+    expect(screen.getByRole('button', { name: 'Guardar rascunho' })).not.toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar rascunho' }));
+    expect(mocks.createChangePlan).toHaveBeenCalled();
+    await vi.waitFor(() => expect(mocks.getChangePlan).toHaveBeenCalledWith('new-plan'));
+    await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+    expect(await screen.findByRole('heading', { name: 'Switch maintenance' })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '← Todas as alterações' })).toBeInTheDocument();
+    expect(mocks.createChangePlan).toHaveBeenCalledWith(expect.objectContaining({ title: created.title, items: [expect.objectContaining({ entityId: 'device-1' })] }));
+    fireEvent.click(screen.getByRole('button', { name: '← Todas as alterações' }));
+    expect(await screen.findByRole('heading', { name: 'Alterações Planeadas' })).toBeInTheDocument();
+  });
+
   it('keeps the first calculation pending, then shows its saved timestamp and impacts together despite a stale detail refetch', async () => {
     const plan: ChangePlan = {
       id: 'plan-1', siteId: 'site-1', title: 'Calibration Change', reason: 'Test preview transition',
@@ -58,7 +96,7 @@ describe('ChangePlansPage impact preview transition', () => {
     render(<ChangePlansPage />);
     fireEvent.click(await screen.findByRole('button', { name: /Calibration Change/ }));
     await vi.waitFor(() => expect(mocks.getChangePlan).toHaveBeenCalledTimes(2));
-    expect(screen.getByRole('button', { name: /Calibration Change/ })).toHaveTextContent('Pré-visualização: Por calcular');
+    expect(screen.getByRole('button', { name: '← Todas as alterações' })).toBeInTheDocument();
     expect(screen.getByText('Pré-visualização').closest('.change-summary-grid')).toHaveTextContent('Por calcular');
     expect(screen.queryByText('Impacto conhecido')).not.toBeInTheDocument();
     fireEvent.click(await screen.findByRole('button', { name: 'Recalcular pré-visualização' }));
@@ -81,7 +119,6 @@ describe('ChangePlansPage impact preview transition', () => {
     expect(detail?.querySelector('.impact-preview .change-summary-grid div strong')).toHaveTextContent('7');
     expect(detail?.querySelectorAll('.impact-group li')).toHaveLength(7);
     expect(detail).toHaveTextContent('Impacto conhecido');
-    expect(screen.getByRole('button', { name: /Calibration Change/ })).toHaveTextContent(`Pré-visualização: Calculada ${expectedTimestamp}`);
     expect(mocks.detail?.previewSnapshot).toBe(calculated);
     expect(screen.getByRole('button', { name: 'Recalcular pré-visualização' })).toBeInTheDocument();
     expect(screen.queryByText('A calcular…')).not.toBeInTheDocument();
@@ -106,10 +143,10 @@ describe('ChangePlansPage impact preview transition', () => {
     expect(screen.getByRole('button', { name: 'Recalcular pré-visualização' })).toBeInTheDocument();
 
     // Reopening the plan after stale list/detail reads still uses the saved result.
-    fireEvent.click(screen.getByRole('button', { name: /Calibration Change/ }));
-    await vi.waitFor(() => expect(mocks.getChangePlan).toHaveBeenCalledTimes(4));
-    expect(detail).toHaveTextContent(`Calculada ${expectedTimestamp}`);
-    expect(detail?.querySelectorAll('.impact-group li')).toHaveLength(7);
-    expect(screen.getByRole('button', { name: /Calibration Change/ })).toHaveTextContent(`Pré-visualização: Calculada ${expectedTimestamp}`);
+    fireEvent.click(screen.getByRole('button', { name: '← Todas as alterações' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Calibration Change/ }));
+    await vi.waitFor(() => expect(mocks.getChangePlan).toHaveBeenCalledTimes(6));
+    expect(screen.getByText('Pré-visualização').closest('.change-detail')).toHaveTextContent(`Calculada ${expectedTimestamp}`);
+    expect(screen.getByText('Pré-visualização').closest('.change-detail')?.querySelectorAll('.impact-group li')).toHaveLength(7);
   });
 });

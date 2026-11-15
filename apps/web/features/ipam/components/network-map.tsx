@@ -20,7 +20,7 @@ export interface NetworkMapProps {
 /** VLAN map of the active site: subnet and associated device ports per VLAN. */
 export function NetworkMap({ vlans, canEdit, newVlan, newSubnet, edit, remove, associate, detachSubnet, openSubnet }: NetworkMapProps) {
   return <section className="ipam-card">
-    <div className="panel-heading"><div><span className="section-kicker">SITE → VLAN → SUBNET</span><h2>Mapa de rede</h2><p className="panel-description">Seleciona uma VLAN para consultar as subnets associadas.</p></div></div>{canEdit && <PageToolbarPortal><button className="primary-button" onClick={newVlan}><Plus size={14} /> Nova VLAN</button></PageToolbarPortal>}
+    <div className="panel-heading"><div><h2>Mapa de Rede</h2><p className="panel-description">Seleciona uma VLAN para consultar as subnets associadas.</p></div></div>{canEdit && <PageToolbarPortal><button className="primary-button" onClick={newVlan}><Plus size={14} /> Nova VLAN</button></PageToolbarPortal>}
     {!vlans.length
       ? <Empty title="Este Site ainda não tem VLANs" text="Cria a tua primeira VLAN para começares." />
       : <div className="vlan-map-grid">{vlans.map((vlan) => <article className="vlan-card" key={vlan.id}>

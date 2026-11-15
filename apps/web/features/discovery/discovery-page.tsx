@@ -4,7 +4,6 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Check, ChevronRight, KeyRound, Play, RefreshCw, Search, Trash2, X } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppShell } from '@/components/layout/app-shell';
-import { PageHeadingCard } from '@/components/layout/page-heading-card';
 import { useAuth } from '@/lib/auth';
 import { useSiteContext } from '@/lib/site-context';
 import { listAllDevices, listDeviceModels } from '@/features/infrastructure/api';
@@ -59,13 +58,13 @@ export default function DiscoveryPage() {
 
   const pageActions = <div className="workspace-head-actions"><button className="secondary-button" onClick={() => void refresh()} disabled={busy}><RefreshCw size={14} className={busy ? 'spin' : ''} /> Atualizar</button>{tab === 'network' && canEdit && <button className="primary-button" onClick={() => setNetworkModal(true)}><Play size={14} /> Nova descoberta</button>}{tab === 'snmp' && admin && <button className="primary-button" onClick={() => { setEnrollmentForm({ ...emptyEnrollment, siteId }); setEnrollmentModal(true); }}><KeyRound size={14} /> Pré-registar IP</button>}</div>;
   return <AppShell section="Descoberta" toolbarKey={tab} search={{ value: search, onChange: setSearch, placeholder: tab === 'snmp' ? 'Pesquisar IP, identidade ou trap…' : 'Pesquisar execuções…', scopeLabel: tab === 'snmp' ? 'SNMP' : 'Rede' }} actions={pageActions} moduleTabs={<nav className="infra-menu" aria-label="Tipo de descoberta"><button className={tab === 'network' ? 'active' : ''} aria-pressed={tab === 'network'} onClick={() => switchTab('network')}><Search size={15} /> Rede</button><button className={tab === 'snmp' ? 'active' : ''} aria-pressed={tab === 'snmp'} onClick={() => switchTab('snmp')}><KeyRound size={15} /> SNMP</button></nav>}><main className="module-page discovery-workspace aligned-workspace">
-    <PageHeadingCard kicker="NETWORK DISCOVERY" title="Descoberta" description="Descoberta ativa de rede e onboarding passivo por traps SNMP." />
+    <section className="ipam-card page-primary-card"><div className="panel-heading"><div><h1>Descoberta</h1><p className="panel-description">Descoberta ativa de rede e onboarding passivo por traps SNMP.</p></div></div><div className="page-primary-content">
     {error && <div className="ipam-alert error"><X size={15} />{error}</div>}
     {tab === 'network' ? <><NetworkDiscovery jobs={visibleJobs} allJobs={jobs} results={results} selectedJob={selectedJob} selectJob={setSelectedJob} canEdit={canEdit} review={review} searching={Boolean(normalized)} /><DiscoverySchedulePanel subnets={subnets} canEdit={canEdit} onError={setError} /></> : <SnmpDiscovery devices={snmpDevices} siteId={siteId} waiting={waiting} discovered={discovered} admin={admin} canEdit={canEdit} renew={renew} cancel={cancel} accept={openCandidate} searching={Boolean(normalized)} />}
     {networkModal && <NetworkModal form={networkForm} setForm={setNetworkForm} subnets={subnets} profiles={defaults?.profiles ?? []} close={() => setNetworkModal(false)} submit={createNetwork} />}
     {enrollmentModal && <EnrollmentModal form={enrollmentForm} setForm={setEnrollmentForm} close={() => setEnrollmentModal(false)} submit={saveEnrollment} />}
     {candidate && <AcceptModal candidate={candidate} form={acceptForm} setForm={setAcceptForm} models={models.filter((model) => model.type === acceptForm.type)} close={() => setCandidate(null)} submit={accept} />}
-  </main></AppShell>;
+  </div></section></main></AppShell>;
 }
 
 function NetworkDiscovery({ jobs, allJobs, results, selectedJob, selectJob, canEdit, review, searching }: { jobs: DiscoveryJob[]; allJobs: DiscoveryJob[]; results: DiscoveryResult[]; selectedJob: string; selectJob: (id: string) => void; canEdit: boolean; review: (id: string, status: 'APPROVED' | 'IGNORED') => Promise<void>; searching: boolean }) {
