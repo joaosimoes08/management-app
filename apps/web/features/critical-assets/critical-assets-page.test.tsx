@@ -26,6 +26,8 @@ describe('CriticalAssetsPage', () => {
   it('shows the unassigned queue and the fields reviewers are asked to verify', async () => {
     const { findByText, findByRole } = renderPage();
     expect(await findByRole('heading', { name: /Fila sem grupo atribuído/ })).toBeInTheDocument();
+    const pageTitle = await findByRole('heading', { name: 'Ativos críticos' });
+    expect(pageTitle.closest('.ipam-card')).toHaveClass('page-heading-card');
     expect(await findByRole('heading', { name: '1 ativos atribuídos' })).toBeInTheDocument();
     expect(await findByText('Unassigned switch')).toBeInTheDocument();
     expect(await findByText(/Hostname: core-01 · IP: 192.0.2.1/)).toBeInTheDocument();
@@ -39,7 +41,7 @@ describe('CriticalAssetsPage', () => {
     const { findByRole, findByText } = renderPage();
     const heading = await findByRole('heading', { name: '1 ativos atribuídos' });
     expect(await findByText('Core switch')).toBeInTheDocument();
-    expect(heading.closest('.panel')?.querySelectorAll('.audit-list > .audit-row')).toHaveLength(1);
+    expect(heading.closest('.ipam-card')?.querySelectorAll('.audit-list > .audit-row')).toHaveLength(1);
   });
 
   it('uses the API mapping as the source of truth when its asset row omits assignedGroup', async () => {
@@ -54,7 +56,7 @@ describe('CriticalAssetsPage', () => {
     const heading = await findByRole('heading', { name: '1 ativos atribuídos' });
     expect(await findByText('QA Critical Switch 01')).toBeInTheDocument();
     expect(await findByText(/SWITCH · QA Attestation Group/)).toBeInTheDocument();
-    expect(heading.closest('.panel')?.querySelectorAll('.audit-list > .audit-row')).toHaveLength(1);
+    expect(heading.closest('.ipam-card')?.querySelectorAll('.audit-list > .audit-row')).toHaveLength(1);
   });
 
   it('updates the heading and row together when hydrated query data contains the assigned asset', async () => {
@@ -73,7 +75,7 @@ describe('CriticalAssetsPage', () => {
     try {
       await act(async () => { root = hydrateRoot(container, <QueryClientProvider client={client}><CriticalAssetsPage /></QueryClientProvider>); });
       await waitFor(() => {
-        const weeklyPanel = [...container.querySelectorAll('section.panel')].find((section) => section.querySelector('.section-kicker')?.textContent === 'REVISÃO SEMANAL');
+        const weeklyPanel = [...container.querySelectorAll('section.ipam-card')].find((section) => section.querySelector('.section-kicker')?.textContent === 'REVISÃO SEMANAL');
         expect(weeklyPanel?.querySelector('.panel-heading h2')?.textContent).toBe('1 ativos atribuídos');
         expect(weeklyPanel?.querySelectorAll('.audit-list > .audit-row')).toHaveLength(1);
       });

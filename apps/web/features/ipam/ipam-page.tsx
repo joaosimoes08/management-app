@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw, Server, X } from 'lucide-react';
 import { AppShell } from '@/components/layout/app-shell';
+import { PageHeadingCard } from '@/components/layout/page-heading-card';
 import { useAuth } from '@/lib/auth';
 import { rememberRecentItem, RecentItems } from '@/lib/recent-items';
 import { useI18n } from '@/lib/i18n';
@@ -317,7 +318,7 @@ export default function IpamPage() {
 
   return <AppShell section="IPAM" toolbarKey={tab} context={[siteName, tabLabel, ...(selected ? [selected.cidr] : []), ...(hostDetail ? [hostDetail.name] : [])]} search={tab === 'calculator' ? undefined : { value: search, onChange: setSearch, placeholder: selected ? 'Pesquisar IP ou hostname…' : tab === 'map' ? 'Pesquisar VLAN ou subnet…' : 'Pesquisar subnets…', scopeLabel: selected ? 'Endereços IP' : tabLabel }} actions={<><button className="secondary-button" onClick={() => void invalidateIpam()} disabled={busy}><RefreshCw size={14} className={busy ? 'spin' : ''} /> Atualizar</button>{origin && <a className="secondary-button" href={`/infraestrutura?siteId=${encodeURIComponent(siteId)}&tab=interfaces&deviceId=${encodeURIComponent(origin.deviceId)}&interfaceId=${encodeURIComponent(origin.interfaceId || '')}`}>← Voltar à porta</a>}</>} moduleTabs={siteId ? <nav className="ipam-tabs ipam-feature-tabs" aria-label={t('nav.ipam')}>{visibleTabs.map(([value, label]) => <button key={value} className={tab === value ? 'active' : ''} aria-current={tab === value ? 'page' : undefined} onClick={() => { setTab(value); setSearch(''); }}>{label}</button>)}</nav> : null}>
     <main className="ipam-workspace aligned-workspace">
-      <header className="workspace-head"><div><span className="section-kicker">IP ADDRESS MANAGEMENT</span><h1>IPAM</h1><p>Site → VLAN → subnet → IP → Host → Service.</p></div></header>
+      <PageHeadingCard kicker="IP ADDRESS MANAGEMENT" title="IPAM" description="Site → VLAN → subnet → IP → Host → Service." />
       <RecentItems userId={user?.id} />
       {error && <div className="ipam-alert error"><X size={15} />{error}</div>}
       {siteId && unavailableIpamActions.length > 0 && !fetchingAccess && <p className="ipam-scope-note">{t('ipam.scope.limited', undefined, { site: siteName, actions: unavailableIpamActions.join(', ') })}</p>}
