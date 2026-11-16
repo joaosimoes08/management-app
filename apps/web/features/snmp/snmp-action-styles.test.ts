@@ -5,6 +5,17 @@ import { describe, expect, it } from 'vitest';
 const styles = readFileSync(resolve(process.cwd(), 'app/globals.css'), 'utf8');
 
 describe('SNMP action button styles', () => {
+  it('uses functional headings without section eyebrows', () => {
+    const source = readFileSync(resolve(process.cwd(), 'features/snmp/snmp-page.tsx'), 'utf8');
+    expect(source).not.toContain('section-kicker');
+    expect(source).toContain('Polling e segurança');
+    expect(source).toContain('Credenciais por finalidade');
+    expect(source).toContain('Disponibilidade e tráfego');
+    expect(source).toContain('Traps recentes');
+    expect(source).toContain('Divergências');
+    expect(source).toContain('Pré-visualização da alteração');
+  });
+
   it('uses one shared 160×35px size and lets toolbar actions fit narrow screens', () => {
     expect(styles).toMatch(/\.snmp-workspace \.snmp-action-button,\.app-shell \.context-toolbar-actions \.snmp-action-button\s*\{[\s\S]*?width:\s*160px;[\s\S]*?height:\s*35px;/);
     expect(styles).toMatch(/@media\s*\(max-width:\s*780px\)\s*\{\s*\.app-shell \.context-toolbar-actions \.snmp-action-button\s*\{\s*width:\s*160px;\s*min-width:\s*0;/);

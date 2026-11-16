@@ -23,5 +23,7 @@ describe('Discovery selector styling', () => {
     expect(sharedRule).toMatch(/border-radius:\s*8px/);
     expect(styles).toContain('.schedule-subnet-select select,.schedule-form select');
     expect(styles).toContain('.modal-form input,.modal-form select');
+    expect(page).not.toContain('HISTÓRICO');
+    expect(schedule).not.toContain('AUTOMAÇÃO');
   });
 });

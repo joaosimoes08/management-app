@@ -133,6 +133,7 @@ describe('ChangePlansPage impact preview transition', () => {
     expect(detail?.querySelector('.impact-preview .change-summary-grid div strong')).toHaveTextContent('7');
     expect(detail?.querySelectorAll('.impact-group li')).toHaveLength(7);
     expect(detail).toHaveTextContent('Impacto conhecido');
+    expect(detail?.querySelector('.impact-preview .section-kicker')).not.toBeInTheDocument();
     expect(mocks.detail?.previewSnapshot).toBe(calculated);
     expect(screen.getByRole('button', { name: 'Recalcular pré-visualização' })).toBeInTheDocument();
     expect(screen.queryByText('A calcular…')).not.toBeInTheDocument();

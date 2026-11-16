@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronLeft, ChevronRight, Edit3, Plus, Trash2, Users } from 'lucide-react';
 import type { Site } from '@/features/infrastructure/types';
 import { listAccessGroups, listAccessGroupUsers, mutateSettings, settingsKeys } from '../api';
+import { PageToolbarPortal } from '@/components/layout/app-shell';
 
 const emptyForm = { id: '', name: '', description: '', siteSelection: '' };
 const membersPerPage = 8;
@@ -43,15 +44,16 @@ export function AccessGroupsSettings({ sites }: { sites: Site[] }) {
   const setMemberPage = (groupId: string, page: number) => setMemberPages((current) => ({ ...current, [groupId]: page }));
 
   return <section className="ipam-card settings-panel permissions-panel">
-    <div className="panel-heading"><div><span className="section-kicker">ORGANIZAÇÃO</span><h2>Grupos de acesso</h2><p className="panel-description">Cria os grupos, define os membros e associa-os aos Sites. As permissões são configuradas nas tabs Permissões do IPAM e da Infraestrutura.</p></div></div>
+    <div className="panel-heading"><div><h2>Grupos de acesso</h2><p className="panel-description">Cria os grupos, define os membros e associa-os aos Sites. As permissões são configuradas nas tabs Permissões do IPAM e da Infraestrutura.</p></div></div>
     {error && <div className="ipam-alert error">{error}</div>}
-    <form className="inline-create group-create-form" onSubmit={submit}>
+    <form className="inline-create group-create-form" id="settings-access-groups-form" onSubmit={submit}>
       <input required placeholder="Nome do grupo" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
       <input placeholder="Descrição" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
       {!form.id && <select required value={form.siteSelection} onChange={(event) => setForm({ ...form, siteSelection: event.target.value })}><option value="">Associar ao Site…</option><option value="__all__">Todos os sites</option>{sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</select>}
-      <button className="primary-button" disabled={saving}><Check size={14} />{form.id ? 'Guardar' : 'Criar grupo'}</button>
+
       {form.id && <button type="button" className="secondary-button" onClick={() => setForm(emptyForm)}>Cancelar</button>}
     </form>
+    <PageToolbarPortal><button type="submit" form="settings-access-groups-form" className="primary-button" disabled={saving}><Check size={14} />{form.id ? 'Guardar' : 'Criar grupo'}</button></PageToolbarPortal>
 
     <div className="group-accordion">
       {groups.map((group) => {

@@ -59,7 +59,7 @@ export function DiscoverySchedulePanel({ subnets, canEdit, onError }: { subnets:
   };
 
   return <section className="ipam-card discovery-schedule-card">
-    <div className="panel-heading"><div><span className="section-kicker">AUTOMAÇÃO</span><h2>Schedules de Discovery</h2><p className="panel-description">Uma configuração por subnet. O intervalo permitido é de 1 a 168 horas.</p></div><CalendarClock size={18} /></div>
+    <div className="panel-heading"><div><h2>Schedules de Discovery</h2><p className="panel-description">Uma configuração por subnet. O intervalo permitido é de 1 a 168 horas.</p></div><CalendarClock size={18} /></div>
     {!subnets.length ? <div className="no-data">Não há subnets disponíveis neste Site.</div> : <>
       <label className="schedule-subnet-select">Subnet<select className="context-toolbar-selector" value={subnetId} onChange={(event) => setSubnetId(event.target.value)}>{subnets.map((subnet) => <option key={subnet.id} value={subnet.id}>{subnet.cidr}</option>)}</select></label>
       {scheduleQuery.isPending ? <div className="no-data">A carregar schedule…</div> : scheduleQuery.isError ? <div className="ipam-alert error">Não foi possível consultar o schedule desta subnet.</div> : <>

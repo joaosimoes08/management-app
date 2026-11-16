@@ -2539,7 +2539,7 @@ body { color:var(--ink); background:#e9eef5; }
 /* IPAM's topbar tabs share the complete navigation slot. The overflow component
    measures natural label widths separately, so visible tabs can safely grow. */
 .app-shell .global-topbar .ipam-feature-tabs { flex:1 1 auto; width:100%; min-width:0; }
-.app-shell .global-topbar .ipam-feature-tabs > button { flex:1 1 max-content; }
+.app-shell .global-topbar .ipam-feature-tabs > button { display:flex; flex:1 1 max-content; align-items:center; justify-content:center; text-align:center; }
 
 /* Keep SNMP actions aligned across cards and the utility bar. */
 .snmp-workspace .snmp-action-button,.app-shell .context-toolbar-actions .snmp-action-button {
