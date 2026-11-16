@@ -67,6 +67,7 @@ describe('ChangePlansPage impact preview transition', () => {
     await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
 
     expect(await screen.findByRole('heading', { name: 'Switch maintenance' })).toBeInTheDocument();
+    expect(document.querySelector('.change-detail .change-section-heading .section-kicker')).not.toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '← Todas as alterações' })).toBeInTheDocument();
     expect(mocks.createChangePlan).toHaveBeenCalledWith(expect.objectContaining({ title: created.title, items: [expect.objectContaining({ entityId: 'device-1' })] }));

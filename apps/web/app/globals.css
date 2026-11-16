@@ -1888,7 +1888,7 @@ body { color:var(--ink); background:#e9eef5; }
 .context-toolbar-contribution .observed-device-select select,.context-toolbar-contribution .snmp-topbar-controls select { min-width:160px; }
 .snmp-topbar-controls { display:flex; align-items:center; flex-wrap:wrap; gap:9px; }
 .snmp-topbar-controls label { display:flex; align-items:center; gap:7px; color:#586982; font-size:11px; font-weight:700; }
-.context-toolbar .context-toolbar-selector,.context-toolbar-contribution .context-toolbar-selector { box-sizing:border-box; height:35px; min-height:35px; padding:0 12px; color:#20334f; border:1px solid #dce4ef; border-radius:8px; background:#fff; font-size:11px; font-weight:400; }
+.context-toolbar-selector,.context-toolbar .context-toolbar-selector,.context-toolbar-contribution .context-toolbar-selector,.discovery-compare-select .context-toolbar-selector,.app-shell .context-toolbar-selector { box-sizing:border-box; height:35px; min-height:35px; padding:0 12px; color:#20334f; border:1px solid #dce4ef; border-radius:8px; background:#fff; font-size:11px; font-weight:400; }
 .context-toolbar-contribution .snmp-device-actions { display:flex; align-items:center; gap:8px; }
 .context-toolbar-contribution .asset-list-toolbar { display:flex; gap:8px; }
 .context-toolbar-contribution .lifecycle-toolbar-actions { display:flex; gap:8px; }
@@ -2435,8 +2435,9 @@ body { color:var(--ink); background:#e9eef5; }
   .app-shell .sidebar-bottom-row .sidebar-collapse-toggle { transition:none !important; transform:none !important; }
 }
 @media (max-width:780px) {
-  .app-shell .context-toolbar { flex-wrap:wrap; }
-  .app-shell .context-toolbar-title,.app-shell .context-toolbar-navigation,.app-shell .context-toolbar-actions { flex:1 1 100%; }
+  .app-shell .context-toolbar { flex-direction:column; flex-wrap:nowrap; align-items:stretch; }
+  .app-shell .context-toolbar-title,.app-shell .context-toolbar-navigation,.app-shell .context-toolbar-actions { box-sizing:border-box; flex:0 0 auto; width:100%; min-width:0; }
+  .app-shell .context-toolbar-actions { margin-left:0; }
   .app-shell .sidebar-bottom-row { display:flex; width:100%; margin-inline:0; }
   .app-shell .sidebar-bottom-row .sidebar-profile-control { flex:1 1 auto; }
   .app-shell .sidebar-bottom-row .profile-mini { width:100%; height:38px; min-height:38px; padding:4px 6px; justify-content:flex-start; }
@@ -2534,3 +2535,25 @@ body { color:var(--ink); background:#e9eef5; }
   .change-list-card .change-plan-list { grid-template-columns:1fr; }
 }
 .change-layout { grid-template-columns:minmax(0,1fr); }
+
+/* IPAM's topbar tabs share the complete navigation slot. The overflow component
+   measures natural label widths separately, so visible tabs can safely grow. */
+.app-shell .global-topbar .ipam-feature-tabs { flex:1 1 auto; width:100%; min-width:0; }
+.app-shell .global-topbar .ipam-feature-tabs > button { flex:1 1 max-content; }
+
+/* Keep SNMP actions aligned across cards and the utility bar. */
+.snmp-workspace .snmp-action-button,.app-shell .context-toolbar-actions .snmp-action-button {
+  box-sizing:border-box;
+  width:160px;
+  min-width:160px;
+  max-width:100%;
+  height:35px;
+  min-height:35px;
+  padding:0 10px;
+  justify-content:center;
+  white-space:nowrap;
+}
+.snmp-workspace .snmp-form-grid > .snmp-action-button { align-self:start; justify-self:start; }
+@media (max-width:780px) {
+  .app-shell .context-toolbar-actions .snmp-action-button { width:160px; min-width:0; max-width:100%; }
+}
