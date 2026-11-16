@@ -3,6 +3,13 @@ import { describe, expect, it } from 'vitest';
 import { SubnetCapacityTrend } from './subnet-capacity-trend';
 
 describe('SubnetCapacityTrend', () => {
+  it('shows a shaped loading state while capacity history is being fetched', () => {
+    render(<SubnetCapacityTrend history={null} loading />);
+    expect(screen.getByLabelText('A carregar tendência da capacidade da subnet')).toHaveAttribute('aria-busy', 'true');
+    expect(document.querySelector('.subnet-capacity-chart-skeleton')).toBeTruthy();
+    expect(screen.queryByText('A carregar histórico…')).toBeNull();
+  });
+
   it('shows IPv4 usage history and only a supported exhaustion forecast', () => {
     render(<SubnetCapacityTrend history={{
       subnet: { id: 's1', cidr: '192.0.2.0/24', version: 4, gateway: '192.0.2.1' },

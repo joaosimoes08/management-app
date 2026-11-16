@@ -106,7 +106,7 @@ export default function IpamPage() {
     queryFn: () => getEffectiveAccess(siteId),
     enabled: Boolean(siteId),
   });
-  const { data: subnetsData } = useQuery({
+  const { data: subnetsData, isLoading: loadingSubnets } = useQuery({
     queryKey: ['ipam', 'subnets', siteId],
     queryFn: () => listSubnets(siteId),
     enabled: Boolean(siteId),
@@ -116,17 +116,17 @@ export default function IpamPage() {
     queryFn: () => getSubnet(selectedSubnetId),
     enabled: Boolean(selectedSubnetId),
   });
-  const { data: usage } = useQuery({
+  const { data: usage, isLoading: loadingUsage } = useQuery({
     queryKey: ['ipam', 'usage', selectedSubnetId],
     queryFn: () => getSubnetUsage(selectedSubnetId),
     enabled: Boolean(selectedSubnetId),
   });
-  const { data: capacityHistory } = useQuery({
+  const { data: capacityHistory, isLoading: loadingCapacityHistory } = useQuery({
     queryKey: ['ipam', 'capacity-history', selectedSubnetId],
     queryFn: () => getSubnetCapacityHistory(selectedSubnetId),
     enabled: Boolean(selectedSubnetId),
   });
-  const { data: ipsData } = useQuery({
+  const { data: ipsData, isLoading: loadingIps } = useQuery({
     queryKey: ['ipam', 'ips', selectedSubnetId, search],
     queryFn: async () => {
       const requestEpoch = reservationMutationEpoch.current;
@@ -315,16 +315,16 @@ export default function IpamPage() {
   const visibleTabs: [string, string][] = [...tabs, ...(effective?.tabs?.permissions ? [['permissions', 'Permissões'] as [string, string]] : [])];
   const tabLabel = visibleTabs.find(([value]) => value === tab)?.[1] ?? tab;
 
-  return <AppShell section="IPAM" toolbarKey={tab} context={[siteName, ...(tab === 'map' ? [] : [tabLabel]), ...(selected ? [selected.cidr] : []), ...(hostDetail ? [hostDetail.name] : [])]} search={tab === 'calculator' ? undefined : { value: search, onChange: setSearch, placeholder: selected ? 'Pesquisar IP ou hostname…' : tab === 'map' ? 'Pesquisar VLAN ou subnet…' : 'Pesquisar subnets…', scopeLabel: selected ? 'Endereços IP' : tabLabel }} actions={<><button className="secondary-button" onClick={() => void invalidateIpam()} disabled={busy}><RefreshCw size={14} className={busy ? 'spin' : ''} /> Atualizar</button>{origin && <a className="secondary-button" href={`/infraestrutura?siteId=${encodeURIComponent(siteId)}&tab=interfaces&deviceId=${encodeURIComponent(origin.deviceId)}&interfaceId=${encodeURIComponent(origin.interfaceId || '')}`}>← Voltar à porta</a>}</>} moduleTabs={siteId ? <nav className="ipam-tabs ipam-feature-tabs" aria-label={t('nav.ipam')}>{visibleTabs.map(([value, label]) => <button key={value} className={tab === value ? 'active' : ''} aria-current={tab === value ? 'page' : undefined} onClick={() => { setTab(value); setSearch(''); }}>{label}</button>)}</nav> : null}>
+  return <AppShell section="IPAM" toolbarKey={tab} context={[siteName, ...(tab === 'map' ? [] : [tabLabel]), ...(selected ? [selected.cidr] : []), ...(hostDetail ? [hostDetail.name] : [])]} search={tab === 'calculator' ? undefined : { value: search, onChange: setSearch, placeholder: selected ? 'Pesquisar IP ou hostname…' : tab === 'map' ? 'Pesquisar VLAN ou subnet…' : 'Pesquisar subnets…', scopeLabel: selected ? 'Endereços IP' : tabLabel }} actions={<><button className="secondary-button" onClick={() => void invalidateIpam()} disabled={busy}><RefreshCw size={14} /> Atualizar</button>{origin && <a className="secondary-button" href={`/infraestrutura?siteId=${encodeURIComponent(siteId)}&tab=interfaces&deviceId=${encodeURIComponent(origin.deviceId)}&interfaceId=${encodeURIComponent(origin.interfaceId || '')}`}>← Voltar à porta</a>}</>} moduleTabs={siteId ? <nav className="ipam-tabs ipam-feature-tabs" aria-label={t('nav.ipam')}>{visibleTabs.map(([value, label]) => <button key={value} className={tab === value ? 'active' : ''} aria-current={tab === value ? 'page' : undefined} onClick={() => { setTab(value); setSearch(''); }}>{label}</button>)}</nav> : null}>
     <main className="ipam-workspace aligned-workspace">
       {error && <div className="ipam-alert error"><X size={15} />{error}</div>}
       {siteId && unavailableIpamActions.length > 0 && !fetchingAccess && <p className="ipam-scope-note">{t('ipam.scope.limited', undefined, { site: siteName, actions: unavailableIpamActions.join(', ') })}</p>}
       {!siteId
         ? <Empty title="Escolhe um Site para começar" text="O mapa mostra as VLANs e subnets do Site selecionado." />
         : tab === 'map'
-          ? <NetworkMap vlans={visibleVlans} canEdit={canEdit} edit={(item) => { setVlan({ id: item.id, vlanId: item.vlanId, name: item.name, description: item.description ?? '' }); setModal('vlan'); }} remove={(item) => remove(`/api/v1/vlans/${item.id}`, `Eliminar VLAN ${item.vlanId} — ${item.name}?`)} associate={(item) => { setCurrentVlan(item); setModal('association'); }} detachSubnet={(item) => void detachSubnet(item)} openSubnet={openSubnet} newVlan={() => { setVlan({ ...blankVlan }); setModal('vlan'); }} newSubnet={openNewSubnet} />
+          ? <NetworkMap vlans={visibleVlans} loading={fetchingMap && !mapData} canEdit={canEdit} edit={(item) => { setVlan({ id: item.id, vlanId: item.vlanId, name: item.name, description: item.description ?? '' }); setModal('vlan'); }} remove={(item) => remove(`/api/v1/vlans/${item.id}`, `Eliminar VLAN ${item.vlanId} — ${item.name}?`)} associate={(item) => { setCurrentVlan(item); setModal('association'); }} detachSubnet={(item) => void detachSubnet(item)} openSubnet={openSubnet} newVlan={() => { setVlan({ ...blankVlan }); setModal('vlan'); }} newSubnet={openNewSubnet} />
             : tab === 'subnets'
-              ? <SubnetsView selected={selected ?? null} items={visibleSubnets} usage={usage ?? null} capacityHistory={capacityHistory ?? null} ips={ips} search={search} setSearch={setSearch} openSubnet={openSubnet} openHost={openHost} canEdit={canEdit} canReserve={canReserve} canReleaseReservations={canReleaseReservations} siteId={siteId} newSubnet={() => openNewSubnet()} editSubnet={editSubnet} removeSubnet={(item) => void removeSubnet(item)} editIp={(ip) => { setIpDetail(ip); updateUrl({ ipId: ip.id }); rememberRecentItem(user?.id, { id: `ip:${ip.id}`, kind: t('ipam.recent.ip'), label: ip.address, href: `/ipam?siteId=${encodeURIComponent(siteId)}&subnetId=${encodeURIComponent(selectedSubnetId)}&ipId=${encodeURIComponent(ip.id)}` }); }} newIp={() => { setHost({ ...blankHost }); setModal('ip'); }} createHost={(ip) => { setHost({ name: ip.hostname || `host-${ip.address.replace(/[:.]/g, '-')}`, hostname: ip.hostname ?? '', operatingSystem: '', macAddress: ip.macAddress ?? '', notes: ip.notes ?? '', status: 'UNKNOWN', ipAddressId: ip.id }); setModal('create-host'); }} reserveIp={setReservationIp} releaseReservation={(ip) => { const reservation = ip.reservation ?? ip.reservations?.find((item) => item.status === 'ACTIVE'); if (!reservation) return; void releaseIpReservation(reservation.id).then(() => { setReservationOverride(ip.id, null); void syncIpReservationCache(queryClient, ip.id, null, invalidateReservationRelatedIpam).catch((cause) => toastError('Não foi possível atualizar os dados de IPAM', cause instanceof Error ? cause.message : 'Tenta novamente.')); success('Reserva de IP libertada', `${ip.address} está disponível novamente.`); }).catch((cause) => toastError('Não foi possível libertar a reserva', cause instanceof Error ? cause.message : 'Tenta novamente.')); }} />
+              ? <SubnetsView selected={selected ?? null} items={visibleSubnets} loading={loadingSubnets} usage={usage ?? null} usageLoading={loadingUsage} capacityHistory={capacityHistory ?? null} capacityHistoryLoading={loadingCapacityHistory} ips={ips} loadingIps={loadingIps} search={search} setSearch={setSearch} openSubnet={openSubnet} openHost={openHost} canEdit={canEdit} canReserve={canReserve} canReleaseReservations={canReleaseReservations} siteId={siteId} newSubnet={() => openNewSubnet()} editSubnet={editSubnet} removeSubnet={(item) => void removeSubnet(item)} editIp={(ip) => { setIpDetail(ip); updateUrl({ ipId: ip.id }); rememberRecentItem(user?.id, { id: `ip:${ip.id}`, kind: t('ipam.recent.ip'), label: ip.address, href: `/ipam?siteId=${encodeURIComponent(siteId)}&subnetId=${encodeURIComponent(selectedSubnetId)}&ipId=${encodeURIComponent(ip.id)}` }); }} newIp={() => { setHost({ ...blankHost }); setModal('ip'); }} createHost={(ip) => { setHost({ name: ip.hostname || `host-${ip.address.replace(/[:.]/g, '-')}`, hostname: ip.hostname ?? '', operatingSystem: '', macAddress: ip.macAddress ?? '', notes: ip.notes ?? '', status: 'UNKNOWN', ipAddressId: ip.id }); setModal('create-host'); }} reserveIp={setReservationIp} releaseReservation={(ip) => { const reservation = ip.reservation ?? ip.reservations?.find((item) => item.status === 'ACTIVE'); if (!reservation) return; void releaseIpReservation(reservation.id).then(() => { setReservationOverride(ip.id, null); void syncIpReservationCache(queryClient, ip.id, null, invalidateReservationRelatedIpam).catch((cause) => toastError('Não foi possível atualizar os dados de IPAM', cause instanceof Error ? cause.message : 'Tenta novamente.')); success('Reserva de IP libertada', `${ip.address} está disponível novamente.`); }).catch((cause) => toastError('Não foi possível libertar a reserva', cause instanceof Error ? cause.message : 'Tenta novamente.')); }} />
                 : tab === 'planning'
                   ? <SubnetPlanningView subnets={visibleSubnets} />
                 : tab === 'permissions' && effective?.tabs?.permissions

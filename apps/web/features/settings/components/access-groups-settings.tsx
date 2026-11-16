@@ -55,8 +55,10 @@ export function AccessGroupsSettings({ sites }: { sites: Site[] }) {
     </form>
     <PageToolbarPortal><button type="submit" form="settings-access-groups-form" className="primary-button" disabled={saving}><Check size={14} />{form.id ? 'Guardar' : 'Criar grupo'}</button></PageToolbarPortal>
 
-    <div className="group-accordion">
-      {groups.map((group) => {
+    <div className="group-accordion" aria-busy={groupsQuery.isLoading}>
+      {groupsQuery.isLoading
+        ? <div className="settings-group-skeletons" aria-label="A carregar grupos de acesso">{[0, 1, 2].map((item) => <div className="content-skeleton settings-group-skeleton" key={item}><i/><span><i/><i/></span><i/></div>)}</div>
+        : groups.map((group) => {
         const expanded = expandedGroupId === group.id;
         const availableUsers = users.filter((user) => !group.members.some((member) => member.userId === user.id));
         const pageCount = Math.max(1, Math.ceil(group.members.length / membersPerPage));

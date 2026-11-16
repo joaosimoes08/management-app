@@ -24,4 +24,24 @@ describe('Settings page structure', () => {
       expect(settings + groups + directory).toContain(`id="${formId}"`);
     }
   });
+
+  it('puts site creation, single-user editing, and backup operations in utility actions', () => {
+    expect(settings).toContain("tab === 'sites' && <PageToolbarPortal>");
+    expect(settings).toContain("tab === 'users' && selectedUser && <PageToolbarPortal>");
+    expect(settings).toContain('className="settings-user-select"');
+    expect(settings).toContain('nextSingleUserSelection(current, item.externalId');
+    expect(settings).not.toContain('className="secondary-button" onClick={() => { setEditingUser(item)');
+    expect(backup).toContain('<PageToolbarPortal>');
+    expect(backup).toContain('form="settings-backup-check-form"');
+    expect(backup).toContain('onClick={() => void downloadAnsible()}');
+  });
+
+  it('uses shaped skeletons for Settings, user-list, and backup loading states', () => {
+    expect(settings).toContain('className="content-skeleton settings-loading-title"');
+    expect(settings).toContain('settings-user-skeletons');
+    expect(settings).not.toContain("className=\"spin\"/>");
+    expect(backup).toContain('settings-loading-value');
+    expect(groups).toContain('settings-group-skeletons');
+    expect(directory).toContain('settings-status-skeleton');
+  });
 });
