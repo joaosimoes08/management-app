@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { RefreshCw, Server, X } from 'lucide-react';
+import { ArrowLeftRight, Calculator, CalendarRange, KeyRound, Map, Network, RefreshCw, Route, Server, Upload, X } from 'lucide-react';
 import { AppShell } from '@/components/layout/app-shell';
 import { useAuth } from '@/lib/auth';
 import { rememberRecentItem } from '@/lib/recent-items';
@@ -45,7 +45,7 @@ import { IpReservationModal } from './components/ip-reservation-modal';
 import { CentralIpamPermissions } from './components/central-permissions';
 import { applyIpReservationOverrides, reconcileIpReservationOverrides, syncIpReservationCache, type IpReservationOverrideState } from './reservation-cache';
 
-const tabs: [string, string][] = [['map', 'Mapa'], ['subnets', 'Subnets'], ['planning', 'Planeamento'], ['vrfs', 'VRFs'], ['nat', 'NAT'], ['calculator', 'Calculadora'], ['imports', 'RIPE']];
+const tabs: [string, string, typeof Map][] = [['map', 'Mapa', Map], ['subnets', 'Subnets', Network], ['planning', 'Planeamento', CalendarRange], ['vrfs', 'VRFs', Route], ['nat', 'NAT', ArrowLeftRight], ['calculator', 'Calculadora', Calculator], ['imports', 'RIPE', Upload]];
 
 type VlanFormState = Omit<VlanInput, 'vlanId'> & { id: string; vlanId: string | number };
 type SubnetFormState = Omit<SubnetInput, 'vlanId' | 'gateway' | 'purpose'> & { id: string; vlanId: string; gateway: string; purpose: string };
@@ -312,10 +312,10 @@ export default function IpamPage() {
   const visibleSubnets = normalizedSearch && !selectedSubnetId
     ? subnets.filter((item) => `${item.cidr} ${item.purpose ?? ''} ${item.vlan?.name ?? ''}`.toLowerCase().includes(normalizedSearch))
     : subnets;
-  const visibleTabs: [string, string][] = [...tabs, ...(effective?.tabs?.permissions ? [['permissions', 'Permissões'] as [string, string]] : [])];
+  const visibleTabs: [string, string, typeof Map][] = [...tabs, ...(effective?.tabs?.permissions ? [['permissions', 'Permissões', KeyRound] as [string, string, typeof Map]] : [])];
   const tabLabel = visibleTabs.find(([value]) => value === tab)?.[1] ?? tab;
 
-  return <AppShell section="IPAM" toolbarKey={tab} context={[siteName, ...(tab === 'map' ? [] : [tabLabel]), ...(selected ? [selected.cidr] : []), ...(hostDetail ? [hostDetail.name] : [])]} search={tab === 'calculator' ? undefined : { value: search, onChange: setSearch, placeholder: selected ? 'Pesquisar IP ou hostname…' : tab === 'map' ? 'Pesquisar VLAN ou subnet…' : 'Pesquisar subnets…', scopeLabel: selected ? 'Endereços IP' : tabLabel }} actions={<><button className="secondary-button" onClick={() => void invalidateIpam()} disabled={busy}><RefreshCw size={14} /> Atualizar</button>{origin && <a className="secondary-button" href={`/infraestrutura?siteId=${encodeURIComponent(siteId)}&tab=interfaces&deviceId=${encodeURIComponent(origin.deviceId)}&interfaceId=${encodeURIComponent(origin.interfaceId || '')}`}>← Voltar à porta</a>}</>} moduleTabs={siteId ? <nav className="ipam-tabs ipam-feature-tabs" aria-label={t('nav.ipam')}>{visibleTabs.map(([value, label]) => <button key={value} className={tab === value ? 'active' : ''} aria-current={tab === value ? 'page' : undefined} onClick={() => { setTab(value); setSearch(''); }}>{label}</button>)}</nav> : null}>
+  return <AppShell section="IPAM" toolbarKey={tab} context={[siteName, ...(tab === 'map' ? [] : [tabLabel]), ...(selected ? [selected.cidr] : []), ...(hostDetail ? [hostDetail.name] : [])]} search={tab === 'calculator' ? undefined : { value: search, onChange: setSearch, placeholder: selected ? 'Pesquisar IP ou hostname…' : tab === 'map' ? 'Pesquisar VLAN ou subnet…' : 'Pesquisar subnets…', scopeLabel: selected ? 'Endereços IP' : tabLabel }} actions={<><button className="secondary-button" onClick={() => void invalidateIpam()} disabled={busy}><RefreshCw size={14} /> Atualizar</button>{origin && <a className="secondary-button" href={`/infraestrutura?siteId=${encodeURIComponent(siteId)}&tab=interfaces&deviceId=${encodeURIComponent(origin.deviceId)}&interfaceId=${encodeURIComponent(origin.interfaceId || '')}`}>← Voltar à porta</a>}</>} moduleTabs={siteId ? <nav className="ipam-tabs ipam-feature-tabs" aria-label={t('nav.ipam')}>{visibleTabs.map(([value, label, Icon]) => <button key={value} className={tab === value ? 'active' : ''} aria-current={tab === value ? 'page' : undefined} onClick={() => { setTab(value); setSearch(''); }}><Icon size={15} />{label}</button>)}</nav> : null}>
     <main className="ipam-workspace aligned-workspace">
       {error && <div className="ipam-alert error"><X size={15} />{error}</div>}
       {siteId && unavailableIpamActions.length > 0 && !fetchingAccess && <p className="ipam-scope-note">{t('ipam.scope.limited', undefined, { site: siteName, actions: unavailableIpamActions.join(', ') })}</p>}
