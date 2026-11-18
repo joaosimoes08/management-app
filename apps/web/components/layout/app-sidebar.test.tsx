@@ -8,7 +8,14 @@ vi.mock('next/navigation', () => ({ usePathname: () => '/infraestrutura', useRou
 vi.mock('motion/react', () => ({ useReducedMotion: () => motionPreference.reduced }));
 vi.mock('motion/react-m', async () => {
   const React = await import('react');
-  return { aside: React.forwardRef(({ initial, animate, whileHover, transition, ...props }: Record<string, unknown>, ref: React.Ref<HTMLElement>) => React.createElement('aside', { ...props, ref, 'data-motion-duration': String((transition as { duration?: number }).duration) })) };
+  const MotionAside = React.forwardRef(({ initial, animate, whileHover, transition, ...props }: Record<string, unknown>, ref: React.Ref<HTMLElement>) => {
+    void initial;
+    void animate;
+    void whileHover;
+    return React.createElement('aside', { ...props, ref, 'data-motion-duration': String((transition as { duration?: number }).duration) });
+  });
+  MotionAside.displayName = 'MotionAside';
+  return { aside: MotionAside };
 });
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: () => true }) }));
 vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }));
