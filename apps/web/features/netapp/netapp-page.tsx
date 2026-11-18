@@ -46,15 +46,15 @@ export default function NetAppPage() {
     saveMutation.mutate(form);
   };
 
-  return <AppShell section="NetApp" actions={<button className="topbar-action secondary-button" disabled={!siteId || siteLoading || integrationQuery.isFetching} onClick={() => void integrationQuery.refetch()}><RefreshCw size={14} className={integrationQuery.isFetching ? 'spin' : ''} /> Atualizar</button>}>
-    <main className="module-page snmp-workspace">
-      <header className="workspace-head"><div><span className="section-kicker">STORAGE INVENTORY</span><h1>NetApp ONTAP</h1><p>Inventário de storage, capacidade e saúde, isolado ao Site selecionado.</p></div></header>
+  return <AppShell section="NetApp" actions={<><button className="topbar-action secondary-button" disabled={!siteId || siteLoading || integrationQuery.isFetching} onClick={() => void integrationQuery.refetch()}><RefreshCw size={14} className={integrationQuery.isFetching ? 'spin' : ''} /> Atualizar</button>{integration && canRefresh && <button className="primary-button" disabled={refreshMutation.isPending} onClick={() => { setActionError(''); setNotice(''); refreshMutation.mutate(); }}><RefreshCw size={14} className={refreshMutation.isPending ? 'spin' : ''} />{refreshMutation.isPending ? 'A consultar…' : 'Atualizar snapshot'}</button>}</>}>
+    <main className="module-page snmp-workspace aligned-workspace">
+      <section className="ipam-card page-primary-card"><div className="panel-heading"><div><h1>NetApp ONTAP</h1><p className="panel-description">Inventário de storage, capacidade e saúde, isolado ao Site selecionado.</p></div></div><div className="page-primary-content">
       {actionError && <div role="alert" className="ipam-alert error"><X size={15} />{actionError}</div>}
       {notice && <div role="status" className="ipam-alert"><Check size={15} />{notice}</div>}
       {!siteId ? <div className="empty-context"><HardDrive size={24} /><strong>{siteLoading ? 'A carregar o Site…' : 'Seleciona um Site para continuar'}</strong><span>Os dados e a configuração NetApp são consultados apenas para o Site ativo.</span></div> : <>
         <section className="snmp-device-bar"><HardDrive size={17} /><strong>{activeSite?.name ?? 'Site selecionado'}</strong><span>{integration?.lastErrorCode ? 'ÚLTIMA ATUALIZAÇÃO COM FALHA' : integration?.configured ? snapshot ? 'CONFIGURADO' : 'SEM SNAPSHOT' : missingConfiguration ? 'NÃO CONFIGURADO' : 'A CARREGAR'}</span></section>
         {integrationQuery.isLoading && <section className="ipam-card" aria-live="polite">A carregar a configuração e o último snapshot deste Site…</section>}
-        {integrationQuery.isError && !missingConfiguration && <section role="alert" className="ipam-card"><strong>Não foi possível carregar os dados NetApp deste Site.</strong><p>{messageOf(integrationQuery.error)}</p><button className="secondary-button" onClick={() => void integrationQuery.refetch()}>Tentar novamente</button></section>}
+        {integrationQuery.isError && !missingConfiguration && <section role="alert" className="ipam-card"><strong>Não foi possível carregar os dados NetApp deste Site.</strong><p>{messageOf(integrationQuery.error)} Usa “Atualizar” na barra superior para tentar novamente.</p></section>}
         {missingConfiguration && <section className="ipam-card"><div className="panel-heading"><div><span className="section-kicker">SEM CONFIGURAÇÃO</span><h2>Este Site ainda não tem integração NetApp</h2></div><AlertTriangle size={18} /></div><p>Um administrador pode configurar o endereço HTTPS do ONTAP e uma conta apenas de leitura. Não serão enviados comandos de alteração ao storage.</p></section>}
         {canConfigure && <section className="ipam-card"><div className="panel-heading"><div><span className="section-kicker">ADMINISTRAÇÃO DO SITE</span><h2>{integration ? 'Atualizar configuração' : 'Configurar integração'}</h2></div><Save size={18} /></div><p>O segredo nunca é devolvido ao browser. Para substituir a configuração, introduz a nova palavra-passe da conta ONTAP.</p><form className="snmp-form-grid" onSubmit={submit}>
           <label><span>Endpoint HTTPS (origem)</span><input required type="url" placeholder="https://ontap.example.local" value={form.endpointUrl} onChange={(event) => setForm({ ...form, endpointUrl: event.target.value })} autoComplete="url" /></label>
@@ -63,7 +63,7 @@ export default function NetAppPage() {
           <button className="primary-button" type="submit" disabled={saveMutation.isPending || !siteId}><Save size={14} />{saveMutation.isPending ? 'A guardar…' : 'Guardar configuração'}</button>
         </form>{integration && <p>Configurado para <strong>{integration.username}</strong> em <span className="mono">{integration.endpointUrl}</span>.</p>}</section>}
         {integration && <>
-          <section className="ipam-card"><div className="panel-heading"><div><span className="section-kicker">SCOPE · {activeSite?.name ?? 'SITE'}</span><h2>Estado da integração</h2></div>{canRefresh && <button className="primary-button" disabled={refreshMutation.isPending} onClick={() => { setActionError(''); setNotice(''); refreshMutation.mutate(); }}><RefreshCw size={14} className={refreshMutation.isPending ? 'spin' : ''} />{refreshMutation.isPending ? 'A consultar…' : 'Atualizar snapshot'}</button>}</div>
+          <section className="ipam-card"><div className="panel-heading"><div><span className="section-kicker">SCOPE · {activeSite?.name ?? 'SITE'}</span><h2>Estado da integração</h2></div></div>
             <div className="summary-stats"><div><strong>{snapshot?.systems.length ?? 0}</strong><span>Sistemas</span></div><div><strong>{snapshot?.nodes.length ?? 0}</strong><span>Nós</span></div><div><strong>{snapshot?.volumes.length ?? 0}</strong><span>Volumes</span></div></div>
             <div className="detail-grid"><div><span>Saúde</span><strong>{snapshot?.health ?? 'Sem dados'}</strong></div><div><span>Capacidade total</span><strong>{formatBytes(snapshot?.capacity.sizeBytes)}</strong></div><div><span>Utilizada</span><strong>{formatBytes(snapshot?.capacity.usedBytes)}{snapshot?.capacity.usedPercent != null ? ` · ${snapshot.capacity.usedPercent}%` : ''}</strong></div><div><span>Livre</span><strong>{formatBytes(snapshot?.capacity.availableBytes)}</strong></div><div><span>Último sucesso</span><strong>{dateLabel(integration.lastSuccessAt)}</strong></div><div><span>Última tentativa</span><strong>{dateLabel(integration.lastAttemptAt)}</strong></div></div>
             {integration.lastErrorCode && <div role="status" className="ipam-alert error"><AlertTriangle size={15} />A última atualização falhou ({integration.lastErrorCode}). Os dados abaixo são o último snapshot conhecido e foram mantidos.</div>}
@@ -72,7 +72,7 @@ export default function NetAppPage() {
           {snapshot && <SnapshotTables snapshot={snapshot} />}
         </>}
       </>}
-    </main>
+    </div></section></main>
   </AppShell>;
 }
 

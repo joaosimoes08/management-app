@@ -14,6 +14,69 @@ const racks: Rack[] = [
 ];
 
 describe('RackWorkspace rack ordering', () => {
+  const renderWorkspace = (items: Rack[]) => render(<RackWorkspace
+    rooms={[]}
+    roomId="room-1"
+    buildingId="building-1"
+    racks={items}
+    allRoomRacks={items}
+    selected={undefined}
+    setRack={vi.fn()}
+    onOut={vi.fn()}
+    onDevice={vi.fn()}
+    onEdit={vi.fn()}
+    deletingRackId=""
+    canEdit={false}
+    canReorderRacks={false}
+    onPreviewPlacement={vi.fn()}
+    onPlaceDevice={vi.fn()}
+    onReorderRacks={vi.fn()}
+    onEditDevice={vi.fn()}
+  />);
+
+  it('keeps a single rack as one usable, readable figure', () => {
+    const { container } = renderWorkspace([racks[0]]);
+    const figures = [...container.querySelectorAll('figure.rack-figure')];
+    expect(figures).toHaveLength(1);
+    expect(container.querySelector('.rack-figure-grid')).toHaveClass('single-rack');
+    expect(figures[0].querySelector('figcaption strong')).toHaveTextContent('Rack A');
+    expect(figures[0].querySelector('.rack-figure-image img')).toBeInTheDocument();
+  });
+
+  it('keeps multiple racks in their existing order and gives each a separate caption', () => {
+    const additional = { id: 'rack-c', name: 'Rack C', roomId: 'room-1', units: 42, devices: [] } satisfies Rack;
+    const { container } = renderWorkspace([...racks, additional]);
+    expect(container.querySelector('.rack-figure-grid')).not.toHaveClass('single-rack');
+    const captions = [...container.querySelectorAll('figure.rack-figure figcaption strong')].map((item) => item.textContent);
+    expect(captions).toEqual(['Rack A', 'Rack B', 'Rack C']);
+    expect(container.querySelectorAll('.rack-figure-image')).toHaveLength(3);
+  });
+
+  it('retains rack ordering and creation actions with rack ordering intact', () => {
+    const { getByRole } = render(<RackWorkspace
+      rooms={[]}
+      roomId="room-1"
+      buildingId="building-1"
+      racks={[racks[0]]}
+      allRoomRacks={racks}
+      selected={undefined}
+      setRack={vi.fn()}
+      onOut={vi.fn()}
+      onDevice={vi.fn()}
+      onEdit={vi.fn()}
+      deletingRackId=""
+      canEdit
+      onPreviewPlacement={vi.fn()}
+      onPlaceDevice={vi.fn()}
+      onReorderRacks={vi.fn()}
+      onEditDevice={vi.fn()}
+      canReorderRacks
+    />);
+    expect(getByRole('button', { name: 'Reorganizar equipamentos' })).toBeInTheDocument();
+    expect(getByRole('button', { name: 'Reordenar bastidores' })).toBeInTheDocument();
+    expect(getByRole('button', { name: 'Adicionar bastidor' })).toBeInTheDocument();
+  });
+
   it('saves a keyboard-reordered rack list through the rack-order callback', async () => {
     const onReorderRacks = vi.fn(async () => racks);
     const { getByRole } = render(<RackWorkspace
@@ -22,7 +85,6 @@ describe('RackWorkspace rack ordering', () => {
       buildingId="building-1"
       racks={[racks[0]]}
       allRoomRacks={racks}
-      unplacedDevices={[]}
       selected={undefined}
       setRack={vi.fn()}
       onOut={vi.fn()}

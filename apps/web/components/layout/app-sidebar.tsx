@@ -1,13 +1,13 @@
 'use client';
 
-import { ArrowUpRight, CircleHelp, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, Sparkles, X } from 'lucide-react';
+import { CircleHelp, PanelLeftClose, PanelLeftOpen, Settings, X } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useReducedMotion } from 'motion/react';
+import * as m from 'motion/react-m';
 import { useAuth } from '@/lib/auth';
-import { apiFetch } from '@/lib/api/client';
 import { useI18n } from '@/lib/i18n';
 import { navigation, settingsNavigation, helpNavigation } from './navigation';
-import { SiteSwitcher } from './site-switcher';
 import { UserMenu } from './user-menu';
 
 export interface AppSidebarProps {
@@ -16,24 +16,76 @@ export interface AppSidebarProps {
   onClose?: () => void;
 }
 
-/** Application sidebar: brand, site switcher, role-filtered navigation and user menu. */
+/** Application sidebar: role-filtered global navigation and profile utilities. */
 export function AppSidebar({ collapsed, onToggle, onClose }: AppSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { t } = useI18n();
   const { hasRole } = useAuth();
-  const [brandName, setBrandName] = useState('COCiber');
+  const prefersReducedMotion = useReducedMotion();
+  const [expandedWidth, setExpandedWidth] = useState(248);
+  const [focusWithin, setFocusWithin] = useState(false);
+  const keyboardNavigation = useRef(false);
 
   useEffect(() => {
-    void apiFetch<{ settings?: { organizationCode?: string | null; organizationName?: string | null } }>('/api/v1/settings/organization')
-      .then((result) => {
-        const settings = result.settings;
-        setBrandName(settings?.organizationCode?.trim() || settings?.organizationName?.trim() || 'COCiber');
-      })
-      .catch(() => undefined);
+    const updateWidth = () => setExpandedWidth(window.innerWidth <= 780 ? 245 : window.innerWidth <= 1100 ? 205 : 248);
+    updateWidth();
+    window.addEventListener('resize', updateWidth);
+    return () => window.removeEventListener('resize', updateWidth);
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Tab') keyboardNavigation.current = true; };
+    const onPointerDown = () => { keyboardNavigation.current = false; setFocusWithin(false); };
+    window.addEventListener('keydown', onKeyDown, true);
+    window.addEventListener('pointerdown', onPointerDown, true);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true);
+      window.removeEventListener('pointerdown', onPointerDown, true);
+    };
   }, []);
 
   const canUseIpam = hasRole('ADMIN') || hasRole('NETWORK_OPERATOR') || hasRole('AUDITOR') || hasRole('READ_ONLY');
+  const visibleNavigation = navigation.filter((item) => (!item.audit || hasRole('ADMIN') || hasRole('AUDITOR')) && (!item.ipam || canUseIpam) && (!item.discovery || hasRole('ADMIN') || hasRole('NETWORK_OPERATOR')) && (!item.snmp || canUseIpam) && (!item.netapp || ['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'AUDITOR', 'READ_ONLY'].some(hasRole)) && (!item.changes || ['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'AUDITOR', 'READ_ONLY'].some(hasRole)) && (!item.criticalAssets || ['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'STORAGE_OPERATOR', 'AUDITOR'].some(hasRole)));
+  const sidebarTransition = prefersReducedMotion ? { duration: 0 } : { duration: 0.18, ease: [0.22, 0.61, 0.36, 1] as const };
 
-  return <aside className={`sidebar app-sidebar ${collapsed ? 'sidebar-collapsed' : ''}`} aria-label="Menu principal"><div className="brand-block"><div className="brand-mark"><ShieldCheck size={20} /></div><div><strong>{brandName}</strong><span>Infrastructure center</span></div></div><button className="sidebar-collapse-toggle icon-button subtle" onClick={onToggle} title={collapsed ? 'Fixar menu aberto' : 'Recolher menu'} aria-label={collapsed ? 'Fixar menu aberto' : 'Recolher menu'}>{collapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}</button><SiteSwitcher /><nav className="primary-nav" aria-label="Navegação principal">{navigation.filter((item) => (!item.audit || hasRole('ADMIN') || hasRole('AUDITOR')) && (!item.ipam || canUseIpam) && (!item.discovery || hasRole('ADMIN') || hasRole('NETWORK_OPERATOR')) && (!item.snmp || canUseIpam) && (!item.netapp || ['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'AUDITOR', 'READ_ONLY'].some(hasRole)) && (!item.changes || ['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'AUDITOR', 'READ_ONLY'].some(hasRole)) && (!item.criticalAssets || ['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'STORAGE_OPERATOR', 'AUDITOR'].some(hasRole))).map(({ label, key, href, icon: Icon }) => { const translated = t(key, label); return <button key={href} className={`nav-item ${pathname === href || (href !== '/' && pathname.startsWith(`${href}/`)) ? 'active' : ''}`} onClick={() => { router.push(href); onClose?.(); }} title={collapsed ? translated : undefined}><Icon size={17} strokeWidth={1.8} /><span className="nav-item-label">{translated}</span>{label === 'Descoberta' && <span className="nav-badge">3</span>}</button>; })}</nav><div className="sidebar-spacer" />{canUseIpam && <button className="sidebar-note sidebar-note-button" onClick={() => router.push('/ipam')}><Sparkles size={17} /><span><strong>{t('shell.nextSteps')}</strong><small>{t('shell.continueIpam')}</small></span><ArrowUpRight size={15} /></button>}{(hasRole('ADMIN') || hasRole('AUDITOR')) && <button className="nav-item" onClick={() => router.push(settingsNavigation.href)}><Settings size={17} strokeWidth={1.8} /><span className="nav-item-label">{t(settingsNavigation.key)}</span></button>}<button className="nav-item" onClick={() => router.push(helpNavigation.href)}><CircleHelp size={17} strokeWidth={1.8} /><span className="nav-item-label">{t(helpNavigation.key)}</span></button><UserMenu /><button className="mobile-close icon-button" onClick={() => onClose?.()} aria-label="Fechar menu"><X size={17} /></button></aside>;
+  return (
+    <m.aside
+      className={`sidebar app-sidebar ${collapsed ? 'sidebar-collapsed' : ''} ${focusWithin ? 'keyboard-focus-expanded' : ''}`}
+      aria-label="Menu principal"
+      initial={false}
+      animate={{ width: collapsed && !focusWithin ? 70 : expandedWidth }}
+      whileHover={collapsed ? { width: expandedWidth } : undefined}
+      transition={sidebarTransition}
+      onFocusCapture={() => { if (keyboardNavigation.current) setFocusWithin(true); }}
+      onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusWithin(false); }}
+    >
+      <nav className="primary-nav" aria-label="Navegação principal">
+        {visibleNavigation.map(({ label, key, href, icon: Icon }) => {
+          const translated = t(key, label);
+          return (
+            <button key={href} className={`nav-item ${pathname === href || (href !== '/' && pathname.startsWith(`${href}/`)) ? 'active' : ''}`} onClick={() => { router.push(href); onClose?.(); }} title={collapsed ? translated : undefined}>
+              <Icon size={17} strokeWidth={1.8} /><span className="nav-item-label">{translated}</span>
+            </button>
+          );
+        })}
+        {(hasRole('ADMIN') || hasRole('AUDITOR')) && (
+          <button className="nav-item sidebar-settings-link" onClick={() => router.push(settingsNavigation.href)}>
+            <Settings size={17} strokeWidth={1.8} /><span className="nav-item-label">{t(settingsNavigation.key)}</span>
+          </button>
+        )}
+        <button className="nav-item sidebar-help-link" onClick={() => router.push(helpNavigation.href)}>
+          <CircleHelp size={17} strokeWidth={1.8} /><span className="nav-item-label">{t(helpNavigation.key)}</span>
+        </button>
+      </nav>
+      <div className="sidebar-spacer" />
+      <div className="sidebar-bottom-row">
+        <div className="sidebar-account-controls"><div className="sidebar-profile-control"><UserMenu /></div></div>
+        <button className="sidebar-collapse-toggle icon-button subtle" onClick={onToggle} title={collapsed ? 'Fixar menu aberto' : 'Recolher menu'} aria-label={collapsed ? 'Fixar menu aberto' : 'Recolher menu'}>
+          {collapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
+        </button>
+      </div>
+      <button className="mobile-close icon-button" onClick={() => onClose?.()} aria-label="Fechar menu"><X size={17} /></button>
+    </m.aside>
+  );
 }

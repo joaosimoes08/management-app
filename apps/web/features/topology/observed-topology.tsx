@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Check, Clock3, RefreshCw, RotateCcw } from 'lucide-react';
 import { listAllDevices } from '@/features/infrastructure/api';
@@ -14,7 +14,7 @@ const actionLabel = (action: TopologyProposal['action']) => ({ ADD: 'Adicionar i
 const interfaceName = (item: SnmpInterfaceObservation) => item.name || item.description || `ifIndex ${item.ifIndex}`;
 const proposalForLink = (items: TopologyProposal[], observation: LldpObservation) => items.find((item) => (item.action === 'CONNECTION_ADD' || item.action === 'CONNECTION_UPDATE') && item.context?.observationId === observation.id);
 
-export function ObservedTopology() {
+export function ObservedTopology({ onToolbarChange }: { onToolbarChange: Dispatch<SetStateAction<ReactNode>> }) {
   const { siteId } = useSiteContext();
   const { hasRole } = useAuth();
   const canReview = hasRole('ADMIN') || hasRole('NETWORK_OPERATOR');
@@ -22,7 +22,7 @@ export function ObservedTopology() {
   const [deviceId, setDeviceId] = useState('');
   const [error, setError] = useState('');
   const devices = useQuery({ queryKey: ['topology', 'observed', 'devices', siteId], queryFn: () => listAllDevices(siteId, ''), enabled: Boolean(siteId) });
-  const deviceItems = devices.data?.items ?? [];
+  const deviceItems = useMemo(() => devices.data?.items ?? [], [devices.data?.items]);
   const selectedDeviceId = deviceId || deviceItems[0]?.id || '';
   const selectedDevice = deviceItems.find((item) => item.id === selectedDeviceId);
   const overview = useQuery({ queryKey: ['topology', 'observed', 'snapshot', selectedDeviceId], queryFn: () => getSnmpDeviceOverview(selectedDeviceId), enabled: Boolean(selectedDeviceId) });
@@ -37,16 +37,16 @@ export function ObservedTopology() {
   const reject = useMutation({ mutationFn: rejectTopologyProposal, onSuccess: invalidate, onError: (cause) => setError(cause instanceof Error ? cause.message : 'Não foi possível rejeitar esta proposta.') });
   const undo = useMutation({ mutationFn: undoTopologyProposal, onSuccess: invalidate, onError: (cause) => setError(cause instanceof Error ? cause.message : 'Não foi possível reverter esta alteração.') });
   const busy = apply.isPending || reject.isPending || undo.isPending;
-  const refresh = async () => { setError(''); await Promise.all([devices.refetch(), ...(selectedDeviceId ? [overview.refetch(), links.refetch(), proposals.refetch()] : [])]); };
+  const refresh = useCallback(async () => { setError(''); await Promise.all([queryClient.refetchQueries({ queryKey: ['topology', 'observed', 'devices', siteId] }), ...(selectedDeviceId ? [queryClient.refetchQueries({ queryKey: ['topology', 'observed', 'snapshot', selectedDeviceId] }), queryClient.refetchQueries({ queryKey: ['topology', 'observed', 'links', selectedDeviceId] }), queryClient.refetchQueries({ queryKey: ['topology', 'observed', 'proposals', selectedDeviceId] })] : [])]); }, [queryClient, selectedDeviceId, siteId]);
+  useEffect(() => { onToolbarChange(<><label className="observed-device-select">Equipamento<select className="context-toolbar-selector" aria-label="Equipamento para observação SNMP" value={selectedDeviceId} onChange={(event) => setDeviceId(event.target.value)}><option value="">Seleciona um equipamento</option>{deviceItems.map((device) => <option key={device.id} value={device.id}>{device.name} · {device.managementIp || 'sem IP de gestão'}</option>)}</select></label><button className="secondary-button" onClick={() => void refresh()} disabled={devices.isFetching || overview.isFetching || links.isFetching || proposals.isFetching}><RefreshCw size={14} className={devices.isFetching || overview.isFetching || links.isFetching || proposals.isFetching ? 'spin' : ''} /> Atualizar</button></>); }, [deviceItems, devices.isFetching, links.isFetching, onToolbarChange, overview.isFetching, proposals.isFetching, refresh, selectedDeviceId]);
   const snapshot = overview.data?.latestSnapshot;
   const items = proposals.data ?? [];
   const interfaceItems = items.filter((item) => item.action !== 'CONNECTION_ADD' && item.action !== 'CONNECTION_UPDATE');
   const loadError = overview.error || links.error || proposals.error || devices.error;
 
   return <div className="observed-topology">
-    <div className="observed-heading"><div><span className="section-kicker">TOPOLOGIA OBSERVADA</span><h2>Interfaces e ligações recolhidas por SNMP</h2><p>As observações permanecem separadas do inventário. Só propostas revistas alteram dados mantidos.</p></div><button className="secondary-button" onClick={() => void refresh()} disabled={devices.isFetching || overview.isFetching || links.isFetching || proposals.isFetching}><RefreshCw size={14} className={devices.isFetching || overview.isFetching || links.isFetching || proposals.isFetching ? 'spin' : ''} /> Atualizar</button></div>
+    <div className="observed-heading"><div><span className="section-kicker">TOPOLOGIA OBSERVADA</span><h2>Interfaces e ligações recolhidas por SNMP</h2><p>As observações permanecem separadas do inventário. Só propostas revistas alteram dados mantidos.</p></div></div>
     {!siteId && <div className="no-data">Seleciona um site para consultar a topologia observada.</div>}
-    {siteId && <label className="observed-device-select">Equipamento<select aria-label="Equipamento para observação SNMP" value={selectedDeviceId} onChange={(event) => setDeviceId(event.target.value)}><option value="">Seleciona um equipamento</option>{deviceItems.map((device) => <option key={device.id} value={device.id}>{device.name} · {device.managementIp || 'sem IP de gestão'}</option>)}</select></label>}
     {loadError && <div className="ipam-alert error" role="alert">{loadError instanceof Error ? loadError.message : 'Não foi possível carregar observações SNMP.'}</div>}
     {error && <div className="ipam-alert error" role="alert">{error}</div>}
     {devices.isLoading && siteId && <div className="no-data" role="status">A carregar equipamentos…</div>}

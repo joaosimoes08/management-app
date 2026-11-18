@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { hydrateRoot } from 'react-dom/client';
 import { renderToString } from 'react-dom/server';
@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/api/client';
 import { CriticalAssetsPage } from './critical-assets-page';
 
-vi.mock('@/components/layout/app-shell', () => ({ AppShell: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
+vi.mock('@/components/layout/app-shell', async (importOriginal) => ({ ...await importOriginal<typeof import('@/components/layout/app-shell')>(), AppShell: ({ children, actions }: { children: React.ReactNode; actions?: React.ReactNode }) => <><div data-testid="toolbar-actions">{actions}</div>{children}</> }));
 vi.mock('@/lib/site-context', () => ({ useSiteContext: () => ({ siteId: 'site-1' }) }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: (role: string) => role === 'ADMIN' }) }));
 vi.mock('@/lib/api/client', () => ({ apiFetch: vi.fn() }));
@@ -23,9 +23,19 @@ beforeEach(() => {
 });
 
 describe('CriticalAssetsPage', () => {
+  it('places responsibility mapping disclosure in the utility action slot', async () => {
+    renderPage();
+    const actionSlot = screen.getByTestId('toolbar-actions');
+    expect(await within(actionSlot).findByText('Mapear responsabilidades')).toBeInTheDocument();
+    expect(actionSlot.querySelector('details.context-toolbar-more')).toHaveClass('toolbar-action-primary');
+  });
+
   it('shows the unassigned queue and the fields reviewers are asked to verify', async () => {
     const { findByText, findByRole } = renderPage();
     expect(await findByRole('heading', { name: /Fila sem grupo atribuído/ })).toBeInTheDocument();
+    const pageTitle = await findByRole('heading', { name: 'Ativos críticos' });
+    expect(pageTitle.closest('.ipam-card')).toHaveClass('page-primary-card');
+    expect(await findByRole('heading', { name: 'Ativos críticos' })).toBeInTheDocument();
     expect(await findByRole('heading', { name: '1 ativos atribuídos' })).toBeInTheDocument();
     expect(await findByText('Unassigned switch')).toBeInTheDocument();
     expect(await findByText(/Hostname: core-01 · IP: 192.0.2.1/)).toBeInTheDocument();
@@ -37,9 +47,22 @@ describe('CriticalAssetsPage', () => {
     data.unassigned = [];
     vi.mocked(apiFetch).mockImplementation(async (url: string) => url.includes('/settings/access-groups') ? [{ id: 'group-1', name: 'Network Team' }] as never : data as never);
     const { findByRole, findByText } = renderPage();
-    const heading = await findByRole('heading', { name: '1 ativos atribuídos' });
+    await findByRole('heading', { name: '1 ativos atribuídos' });
     expect(await findByText('Core switch')).toBeInTheDocument();
-    expect(heading.closest('.panel')?.querySelectorAll('.audit-list > .audit-row')).toHaveLength(1);
+    expect(document.querySelector('.critical-assets-card .asset-grid')).toBeInTheDocument();
+    expect(document.querySelectorAll('.critical-assets-card .asset-grid > .critical-asset-card')).toHaveLength(1);
+  });
+
+  it('shows the explicit zero-assigned state in the shared card', async () => {
+    const data = pageData();
+    data.assets = [];
+    data.unassigned = [];
+    vi.mocked(apiFetch).mockImplementation(async (url: string) => url.includes('/settings/access-groups') ? [{ id: 'group-1', name: 'Network Team' }] as never : data as never);
+    const { findByRole } = renderPage();
+    const card = document.querySelector('.critical-assets-card');
+    expect(await findByRole('heading', { name: 'Ativos críticos' })).toBeInTheDocument();
+    expect(await findByRole('heading', { name: '0 ativos atribuídos' })).toBeInTheDocument();
+    expect(card?.querySelector('.asset-grid')).not.toBeInTheDocument();
   });
 
   it('uses the API mapping as the source of truth when its asset row omits assignedGroup', async () => {
@@ -51,10 +74,10 @@ describe('CriticalAssetsPage', () => {
     vi.mocked(apiFetch).mockImplementation(async (url: string) => url.includes('/settings/access-groups') ? [{ id: 'group-1', name: 'QA Attestation Group' }] as never : data as never);
 
     const { findByRole, findByText } = renderPage();
-    const heading = await findByRole('heading', { name: '1 ativos atribuídos' });
+    await findByRole('heading', { name: '1 ativos atribuídos' });
     expect(await findByText('QA Critical Switch 01')).toBeInTheDocument();
     expect(await findByText(/SWITCH · QA Attestation Group/)).toBeInTheDocument();
-    expect(heading.closest('.panel')?.querySelectorAll('.audit-list > .audit-row')).toHaveLength(1);
+    expect(document.querySelectorAll('.critical-assets-card .asset-grid > .critical-asset-card')).toHaveLength(1);
   });
 
   it('updates the heading and row together when hydrated query data contains the assigned asset', async () => {
@@ -73,9 +96,9 @@ describe('CriticalAssetsPage', () => {
     try {
       await act(async () => { root = hydrateRoot(container, <QueryClientProvider client={client}><CriticalAssetsPage /></QueryClientProvider>); });
       await waitFor(() => {
-        const weeklyPanel = [...container.querySelectorAll('section.panel')].find((section) => section.querySelector('.section-kicker')?.textContent === 'REVISÃO SEMANAL');
-        expect(weeklyPanel?.querySelector('.panel-heading h2')?.textContent).toBe('1 ativos atribuídos');
-        expect(weeklyPanel?.querySelectorAll('.audit-list > .audit-row')).toHaveLength(1);
+        const primaryCard = container.querySelector('.critical-assets-card');
+        expect(primaryCard?.querySelector('.critical-assets-count')?.textContent).toBe('1 ativos atribuídos');
+        expect(primaryCard?.querySelectorAll('.asset-grid > .critical-asset-card')).toHaveLength(1);
       });
       expect(consoleError.mock.calls.flat().join(' ')).not.toContain('Hydration failed');
     } finally {

@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from 'react';
 import { Check, RefreshCw, ShieldCheck } from 'lucide-react';
 import { apiFetch } from '@/lib/api/client';
 import { useToast } from '@/components/ui/toast';
+import { PageToolbarPortal } from '@/components/layout/app-shell';
 
 const roles = ['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'AUDITOR', 'READ_ONLY'] as const;
 type Mapping = { groupName: string; appRole: typeof roles[number] };
@@ -53,10 +54,10 @@ export function DirectoryFederationSettings() {
   };
   const set = (key: keyof DirectoryForm, value: string) => setForm((current) => ({ ...current, [key]: value }));
   return <section className="ipam-card settings-panel">
-    <div className="panel-heading"><div><span className="section-kicker">KEYCLOAK · LDAPS</span><h2>Federação de diretório</h2><p className="panel-description">O Keycloak valida as credenciais LDAP e guarda o segredo. A aplicação não recebe nem armazena palavras-passe LDAP.</p></div><ShieldCheck size={19}/></div>
-    <div className="integration-row"><span><strong>Estado da federação</strong><small>{loading ? 'A consultar Keycloak…' : status?.configured ? 'Configurada no Keycloak · ligação não testada nesta sessão' : 'Não configurada'}</small></span><button type="button" className="secondary-button" disabled={loading || saving} onClick={() => void load()}><RefreshCw size={14}/>Atualizar</button></div>
+    <div className="panel-heading"><div><h2>Federação de diretório</h2><p className="panel-description">O Keycloak valida as credenciais LDAP e guarda o segredo. A aplicação não recebe nem armazena palavras-passe LDAP.</p></div><ShieldCheck size={19}/></div>
+    <div className="integration-row"><span aria-busy={loading}><strong>Estado da federação</strong><small>{loading ? <i className="content-skeleton settings-status-skeleton" aria-label="A consultar Keycloak"/> : status?.configured ? 'Configurada no Keycloak · ligação não testada nesta sessão' : 'Não configurada'}</small></span><button type="button" className="secondary-button" disabled={loading || saving} onClick={() => void load()}><RefreshCw size={14}/>Atualizar</button></div>
     {feedback && <div className="ipam-alert">{feedback}</div>}
-    <form className="settings-form" onSubmit={(event) => void run(event, 'save')}>
+    <form className="settings-form" id="settings-directory-form" onSubmit={(event) => void run(event, 'save')}>
       <label>Endereço LDAPS<input required type="url" pattern="ldaps://.+" placeholder="ldaps://ldap.example.org:636" value={form.connectionUrl} onChange={(event) => set('connectionUrl', event.target.value)}/><small>Usa LDAPS com certificado confiável pelo Keycloak; LDAP sem TLS não é aceite.</small></label>
       <div className="form-row"><label>Bind DN<input required value={form.bindDn} onChange={(event) => set('bindDn', event.target.value)}/></label><label>Credencial de serviço<input required type="password" autoComplete="new-password" value={form.bindCredential} onChange={(event) => set('bindCredential', event.target.value)}/><small>Introduz novamente ao testar ou guardar. O segredo só é enviado ao Keycloak e nunca é devolvido.</small></label></div>
       <label>Base de utilizadores (DN)<input required value={form.usersDn} onChange={(event) => set('usersDn', event.target.value)}/></label>
@@ -66,7 +67,8 @@ export function DirectoryFederationSettings() {
       <div className="form-row"><label>Atributo do nome do grupo<select value={form.groupNameLdapAttribute} onChange={(event) => set('groupNameLdapAttribute', event.target.value)}><option value="cn">cn</option><option value="sAMAccountName">sAMAccountName</option></select></label><label>Object class do grupo<select value={form.groupObjectClass} onChange={(event) => set('groupObjectClass', event.target.value)}><option value="groupOfNames">groupOfNames</option><option value="groupOfUniqueNames">groupOfUniqueNames</option><option value="group">group (AD)</option></select></label></div>
       <label>Atributo de associação<select value={form.membershipLdapAttribute} onChange={(event) => set('membershipLdapAttribute', event.target.value)}><option value="member">member (DN)</option><option value="uniqueMember">uniqueMember (DN)</option><option value="memberUid">memberUid (UID)</option></select></label>
       <label>Grupos para roles<textarea rows={5} value={form.groupRoleMappingsText} onChange={(event) => set('groupRoleMappingsText', event.target.value)} placeholder={'network-admins=ADMIN\nnetops=NETWORK_OPERATOR'} /><small>Uma linha por mapeamento: nome exato do grupo LDAP=role da aplicação. O mesmo grupo pode ter várias roles. Os grupos têm de estar sincronizados no Keycloak antes de guardar.</small></label>
-      <div className="modal-actions"><button type="button" className="secondary-button" disabled={saving || !form.bindCredential} onClick={(event) => void run(event, 'test')}><ShieldCheck size={14}/>Testar LDAPS</button><button className="primary-button" disabled={saving || loading || !form.bindCredential}><Check size={14}/>{saving ? 'A guardar…' : 'Guardar no Keycloak'}</button></div>
+      <div className="modal-actions"><button type="button" className="secondary-button" disabled={saving || !form.bindCredential} onClick={(event) => void run(event, 'test')}><ShieldCheck size={14}/>Testar LDAPS</button></div>
     </form>
+    <PageToolbarPortal><button type="submit" form="settings-directory-form" className="primary-button" disabled={saving || loading || !form.bindCredential}><Check size={14}/>{saving ? 'A guardar…' : 'Guardar no Keycloak'}</button></PageToolbarPortal>
   </section>;
 }

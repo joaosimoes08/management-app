@@ -3,9 +3,11 @@
 import { ChevronRight, Edit3, Link2Off, Plus, Server, Trash2 } from 'lucide-react';
 import type { NetworkMapVlan, Vlan } from '../types';
 import { Empty } from './ipam-modal';
+import { PageToolbarPortal } from '@/components/layout/app-shell';
 
 export interface NetworkMapProps {
   vlans: NetworkMapVlan[];
+  loading?: boolean;
   canEdit: boolean;
   newVlan: () => void;
   newSubnet: (vlanId: string) => void;
@@ -17,10 +19,12 @@ export interface NetworkMapProps {
 }
 
 /** VLAN map of the active site: subnet and associated device ports per VLAN. */
-export function NetworkMap({ vlans, canEdit, newVlan, newSubnet, edit, remove, associate, detachSubnet, openSubnet }: NetworkMapProps) {
+export function NetworkMap({ vlans, loading = false, canEdit, newVlan, newSubnet, edit, remove, associate, detachSubnet, openSubnet }: NetworkMapProps) {
   return <section className="ipam-card">
-    <div className="panel-heading"><div><span className="section-kicker">SITE → VLAN → SUBNET</span><h2>Mapa de rede</h2><p className="panel-description">As ações da VLAN ficam no cabeçalho do cartão.</p></div>{canEdit && <button className="primary-button" onClick={newVlan}><Plus size={14} /> Nova VLAN</button>}</div>
-    {!vlans.length
+    <div className="panel-heading"><div><h2>Mapa de Rede</h2><p className="panel-description">Seleciona uma VLAN para consultar as subnets associadas.</p></div></div>{canEdit && <PageToolbarPortal><button className="primary-button" onClick={newVlan}><Plus size={14} /> Nova VLAN</button></PageToolbarPortal>}
+    {loading
+      ? <div className="ipam-loading-skeletons" aria-label="A carregar mapa de rede" aria-busy="true">{[0, 1, 2].map((item) => <article className="vlan-card" key={item}><div className="content-skeleton ipam-loading-line wide"/><div className="content-skeleton ipam-loading-line medium"/><div className="content-skeleton ipam-loading-line"/><div className="content-skeleton ipam-loading-row"/></article>)}</div>
+      : !vlans.length
       ? <Empty title="Este Site ainda não tem VLANs" text="Cria a tua primeira VLAN para começares." />
       : <div className="vlan-map-grid">{vlans.map((vlan) => <article className="vlan-card" key={vlan.id}>
         <div className="vlan-card-head">

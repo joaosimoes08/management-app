@@ -4,7 +4,7 @@ export interface TopbarState {
     setup?: { completed: boolean; completedAt?: string | null };
     services: { key: string; label: string; state: string }[];
   };
-  alerts: { id: string; severity: 'CRITICAL' | 'WARNING' | 'INFO'; title: string; detail: string; href: string; occurredAt: string }[];
+  alerts: { id: string; severity: 'CRITICAL' | 'WARNING' | 'INFO'; title: string; detail: string; href: string; occurredAt: string; persistent?: boolean }[];
   processes: { id: string; label: string; detail: string; state: string; href: string }[];
   updatedAt: string;
 }

@@ -4,8 +4,9 @@ import type { SubnetCapacityHistory } from '../types';
 
 const dateLabel = (value: string) => new Intl.DateTimeFormat('pt-PT', { day: '2-digit', month: 'short', timeZone: 'UTC' }).format(new Date(value));
 
-export function SubnetCapacityTrend({ history }: { history: SubnetCapacityHistory | null }) {
-  if (!history) return <section className="subnet-capacity-trend ipam-card" aria-busy="true"><span className="section-kicker">CAPACIDADE DA SUBNET</span><p>A carregar histórico…</p></section>;
+export function SubnetCapacityTrend({ history, loading = false }: { history: SubnetCapacityHistory | null; loading?: boolean }) {
+  if (loading) return <section className="subnet-capacity-trend ipam-card subnet-capacity-loading" aria-label="A carregar tendência da capacidade da subnet" aria-busy="true"><div className="panel-heading"><div><span className="content-skeleton settings-loading-label"/><span className="content-skeleton settings-loading-title"/></div></div><div className="content-skeleton subnet-capacity-chart-skeleton"/><div className="content-skeleton subnet-capacity-copy-skeleton"/></section>;
+  if (!history) return <section className="subnet-capacity-trend ipam-card"><span className="section-kicker">CAPACIDADE DA SUBNET</span><p className="subnet-capacity-forecast">Não foi possível carregar o histórico de capacidade.</p></section>;
   const ipv4 = history.subnet.version === 4;
   const samples = history.samples;
   const values = samples.map((sample) => ipv4 ? sample.utilizationPercent ?? 0 : sample.trackedAddresses);

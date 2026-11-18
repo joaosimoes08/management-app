@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, ChevronDown, MapPin, Plus, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ChevronDown, MapPin, Plus, ShieldCheck, X } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { apiFetch } from '@/lib/api/client';
 import { useI18n } from '@/lib/i18n';
@@ -40,9 +40,9 @@ export function SiteSwitcher() {
   return <>
     <div className="site-switcher-root" ref={rootRef} onMouseLeave={() => setOpen(false)}>
       <button className="workspace-switcher" type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-haspopup="menu">
-        <span className="workspace-avatar" key={`avatar-${siteId || 'all-sites'}`} aria-hidden="true">{activeSite?.name.trim().charAt(0).toUpperCase() || 'T'}</span>
-        <span className="workspace-switcher-copy" key={siteId || 'all-sites'}><small>{t('shell.activeSite')}</small><strong>{activeSite?.name ?? t('shell.allSites')}</strong></span>
-        <ChevronDown size={15} />
+        <ShieldCheck className="workspace-switcher-shield" size={19} aria-hidden="true" />
+        <span className="workspace-switcher-copy" key={siteId || 'all-sites'}><small>COCIBER — Site Ativo</small><strong><MapPin size={12} aria-hidden="true" />{activeSite?.name ?? t('shell.allSites')}</strong></span>
+        <ChevronDown className="workspace-switcher-chevron" size={15} aria-hidden="true" />
       </button>
       {open && <div className="site-switcher-menu" role="menu" aria-label="Selecionar Site">
         {sites.length > 1 && supportsAggregate && <button className={!siteId ? 'active' : ''} role="menuitemradio" aria-checked={!siteId} onClick={() => activate('')}><span className="site-option-mark">T</span><span><strong>{t('shell.allSites')}</strong><small>{t('shell.globalView')}</small></span>{!siteId && <Check size={14} />}</button>}

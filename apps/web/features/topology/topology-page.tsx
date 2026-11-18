@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Background, BaseEdge, Controls, EdgeLabelRenderer, Handle, MiniMap, Position, ReactFlow, applyNodeChanges, getBezierPath, type Connection, type Edge, type EdgeProps, type Node, type NodeChange, type NodeProps, type ReactFlowInstance, useEdgesState, useNodesState } from '@xyflow/react';
+import { Background, BaseEdge, EdgeLabelRenderer, Handle, MiniMap, Position, ReactFlow, applyNodeChanges, getBezierPath, type Connection, type Edge, type EdgeProps, type Node, type NodeChange, type NodeProps, type ReactFlowInstance, useEdgesState, useNodesState } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { AppShell } from '@/components/layout/app-shell';
+import { Activity, Map as MapIcon } from 'lucide-react';
+import { AppShell, ToolbarMore } from '@/components/layout/app-shell';
 import { listAllDevices, listInterfaces } from '@/features/infrastructure/api';
 import { listVlans } from '@/features/ipam/api';
 import { listOperationalAlerts } from '@/features/operations/api';
@@ -87,17 +88,18 @@ function toFlowNode(node: TopologyNode, alertSummary?: TopologyNodeAlertSummary)
 }
 
 export function TopologyPage() {
-  const { siteId, activeSite } = useSiteContext();
+  const { siteId } = useSiteContext();
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState('');
   const [workspace, setWorkspace] = useState<'manual' | 'observed'>('manual');
+  const [observedToolbar, setObservedToolbar] = useState<ReactNode>(null);
   const [search, setSearch] = useState('');
   const [labelsVisible, setLabelsVisible] = useState(true);
   const [showGrid, setShowGrid] = useState(true);
+  const [interactive, setInteractive] = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
   const [fullscreenAnnouncement, setFullscreenAnnouncement] = useState('');
   const fullscreenAnnouncementRef = useRef<HTMLSpanElement>(null);
-  const [toolbarExpanded, setToolbarExpanded] = useState(true);
   const [flow, setFlow] = useState<ReactFlowInstance | null>(null);
   const [name, setName] = useState('');
   const [mapType, setMapType] = useState<TopologyMapType>('PHYSICAL');
@@ -170,13 +172,6 @@ export function TopologyPage() {
     setTargetPortId(retainFreePort);
   }, [interfaceAvailability.data?.usedInterfaceIds]);
   useEffect(() => () => clearTimeout(saveTimer.current), []);
-  useEffect(() => {
-    const compact = window.matchMedia('(max-width: 980px)');
-    const update = () => setToolbarExpanded(!compact.matches);
-    update();
-    compact.addEventListener('change', update);
-    return () => compact.removeEventListener('change', update);
-  }, []);
   useEffect(() => {
     if (!fullscreen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -276,7 +271,7 @@ export function TopologyPage() {
   const selectedConnectionDisplay = selectedConnection && current ? connectionDisplay(selectedConnection, current, interfacesByDevice) : undefined;
 
   const topbarActions = <div className="topology-topbar-actions">
-    <select aria-label="Mapa do site" value={selected} onChange={(event) => setSelected(event.target.value)}><option value="">Seleciona mapa…</option>{mapOptions.map((map) => <option key={map.id} value={map.id}>{map.name} · {map.type.replace('_', ' ')}</option>)}</select>
+    <select className="context-toolbar-selector" aria-label="Mapa do site" value={selected} onChange={(event) => setSelected(event.target.value)}><option value="">Seleciona mapa…</option>{mapOptions.map((map) => <option key={map.id} value={map.id}>{map.name} · {map.type.replace('_', ' ')}</option>)}</select>
     {pendingConnection && current && <details className="topology-topbar-menu" open onToggle={(event) => { if (!event.currentTarget.open) setPendingConnection(null); }}><summary>Concluir ligação</summary><div className="topology-topbar-form"><strong>Seleciona as portas da ligação</strong><label>Porta de origem<select aria-label="Porta de origem da nova ligação" value={newSourcePortId} onChange={(event) => setNewSourcePortId(event.target.value)} disabled={interfaceData.isLoading || interfaceData.isError || interfaceAvailability.isLoading || interfaceAvailability.isError || !newSourcePorts.length}><option value="">{interfaceAvailability.isLoading ? 'A verificar disponibilidade…' : newSourcePorts.length ? 'Seleciona uma porta livre' : 'Sem portas livres'}</option>{newSourcePorts.map((port) => <option key={port.id} value={port.id}>{port.name}</option>)}</select></label><label>Porta de destino<select aria-label="Porta de destino da nova ligação" value={newTargetPortId} onChange={(event) => setNewTargetPortId(event.target.value)} disabled={interfaceData.isLoading || interfaceData.isError || interfaceAvailability.isLoading || interfaceAvailability.isError || !newTargetPorts.length}><option value="">{interfaceAvailability.isLoading ? 'A verificar disponibilidade…' : newTargetPorts.length ? 'Seleciona uma porta livre' : 'Sem portas livres'}</option>{newTargetPorts.map((port) => <option key={port.id} value={port.id}>{port.name}</option>)}</select></label>{(interfaceData.isError || interfaceAvailability.isError) && <p role="alert">Não foi possível verificar as portas livres. Atualiza o mapa e tenta novamente.</p>}<button className="primary-button" onClick={() => void createConnectionFromPorts()} disabled={!newSourcePortId || !newTargetPortId || newSourcePortId === newTargetPortId || interfaceData.isLoading || interfaceData.isError || interfaceAvailability.isLoading || interfaceAvailability.isError}>Criar ligação</button><button type="button" className="secondary-button" onClick={() => setPendingConnection(null)}>Cancelar</button></div></details>}
     <details className="topology-topbar-menu"><summary>Editar mapa</summary><div className="topology-topbar-form">
       <strong>Criar mapa</strong><label>Nome<input aria-label="Nome do novo mapa" value={name} onChange={(event) => setName(event.target.value)} placeholder="Ex.: Rede principal" /></label><label>Tipo<select aria-label="Tipo do novo mapa" value={mapType} onChange={(event) => setMapType(event.target.value as TopologyMapType)}>{types.map((type) => <option key={type}>{type}</option>)}</select></label>
@@ -288,30 +283,19 @@ export function TopologyPage() {
       {warning && <p className="ipam-alert error" role="alert">{warning} {create.isError && <button type="button" className="secondary-button" onClick={() => create.mutate()}>Tentar criar novamente</button>} {remove.isError && <button type="button" className="secondary-button" onClick={() => remove.mutate()}>Tentar eliminar novamente</button>}</p>}
     </div></details>
   </div>;
+  const mapViewActions = <><span className="topology-toolbar-summary">{current?.name ?? 'Nenhum mapa selecionado'} · {current?.nodes.length ?? 0} equipamentos · {current?.connections.length ?? 0} ligações · {operationalAlerts.isError ? 'Alertas indisponíveis' : `${mapProblemCount} problemas ativos`}</span><ToolbarMore label="Controlos do mapa"><button type="button" disabled={!searchMatch} onClick={() => searchMatch && focusNode(searchMatch.id)}>Encontrar equipamento</button><button type="button" aria-pressed={labelsVisible} onClick={() => setLabelsVisible((value) => !value)}>{labelsVisible ? 'Ocultar etiquetas' : 'Mostrar etiquetas'}</button><button type="button" aria-pressed={showGrid} onClick={() => setShowGrid((value) => !value)}>{showGrid ? 'Ocultar grelha' : 'Mostrar grelha'}</button><button type="button" onClick={() => void flow?.zoomIn({ duration: 180 })}>Ampliar</button><button type="button" onClick={() => void flow?.zoomOut({ duration: 180 })}>Reduzir</button><button type="button" onClick={() => void flow?.fitView({ duration: 300, padding: 0.2 })}>Ajustar mapa</button><button type="button" aria-pressed={interactive} onClick={() => setInteractive((value) => !value)}>{interactive ? 'Bloquear mapa' : 'Desbloquear mapa'}</button><button type="button" onClick={toggleFullscreen}>Alternar ecrã inteiro</button></ToolbarMore></>;
 
-  return <AppShell section="Topologia" context={['Infraestrutura']} actions={topbarActions}>
+  return <AppShell section="Topologia" toolbarKey={workspace} context={['Infraestrutura']} search={workspace === 'manual' ? { value: search, onChange: setSearch, placeholder: 'Procurar equipamento no mapa', ariaLabel: 'Procurar equipamento no mapa', scopeLabel: 'Mapas manuais' } : undefined} moduleTabs={<nav className="infra-menu" aria-label="Visualização de topologia"><button className={workspace === 'manual' ? 'active' : ''} aria-pressed={workspace === 'manual'} onClick={() => setWorkspace('manual')}><MapIcon size={15}/><span>Mapas manuais</span></button><button className={workspace === 'observed' ? 'active' : ''} aria-pressed={workspace === 'observed'} onClick={() => setWorkspace('observed')}><Activity size={15}/><span>Observada e reconciliação</span></button></nav>} toolbar={<div className="topology-toolbar-stack">{workspace === 'manual' ? <div className="topology-toolbar-row">{topbarActions}{mapViewActions}</div> : <div className="topology-toolbar-row">{observedToolbar}</div>}</div>}>
     <main className="topology-page">
-      <nav className="infra-menu" aria-label="Visualização de topologia"><button className={workspace === 'manual' ? 'active' : ''} aria-pressed={workspace === 'manual'} onClick={() => setWorkspace('manual')}>Mapas manuais</button><button className={workspace === 'observed' ? 'active' : ''} aria-pressed={workspace === 'observed'} onClick={() => setWorkspace('observed')}>Observada e reconciliação</button></nav>
-      {workspace === 'observed' ? <ObservedTopology /> : <>
+      {workspace === 'observed' ? <ObservedTopology onToolbarChange={setObservedToolbar} /> : <>
         <section className={`topology-canvas panel${fullscreen ? ' topology-canvas--fullscreen' : ''}${labelsVisible ? '' : ' topology-canvas--auto-labels'}`} aria-label="Área do mapa de topologia">
-          {current && <div className={`topology-map-toolbar${toolbarExpanded ? ' topology-map-toolbar--expanded' : ' topology-map-toolbar--collapsed'}`}>
-            <div><strong>{current.name}</strong><span>Âmbito: {activeSite?.name ?? 'nenhum Site selecionado'} · {current.nodes.length} equipamentos · {current.connections.length} ligações · {operationalAlerts.isLoading ? 'A carregar problemas…' : operationalAlerts.isError ? 'Problemas indisponíveis' : `${mapProblemCount} problemas ativos`}</span>{operationalAlerts.isError && <span role="status">Estado dos alertas indisponível</span>}</div>
-            <button className="secondary-button topology-map-more" aria-expanded={toolbarExpanded} aria-controls="topology-map-tools" onClick={() => setToolbarExpanded((value) => !value)}>{toolbarExpanded ? 'Menos controlos' : 'Controlos'}</button>
-            <div id="topology-map-tools" className="topology-map-tools">
-            <label className="topology-map-search">Procurar equipamento<input aria-label="Procurar equipamento no mapa" value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { setSearch(''); if (fullscreen) { setFullscreen(false); setFullscreenAnnouncement('Modo de ecrã inteiro desativado.'); event.stopPropagation(); } } if (event.key === 'Enter' && searchMatch) focusNode(searchMatch.id); }} placeholder="Nome, IP ou tipo" /></label>
-            <button className="secondary-button" disabled={!searchMatch} onClick={() => searchMatch && focusNode(searchMatch.id)}>Encontrar</button>
-            <button className="secondary-button" aria-pressed={labelsVisible} onClick={() => setLabelsVisible((value) => !value)}>{labelsVisible ? 'Ocultar etiquetas' : 'Mostrar etiquetas'}</button>
-            <button className="secondary-button" aria-pressed={showGrid} onClick={() => setShowGrid((value) => !value)}>{showGrid ? 'Ocultar grelha' : 'Mostrar grelha'}</button>
-            <button className="secondary-button" onClick={() => void flow?.fitView({ duration: 450, padding: 0.2 })}>Ajustar mapa</button>
-            <button className="secondary-button" onClick={toggleFullscreen}>Alternar ecrã inteiro</button>
-            </div>
-          </div>}
+
           {current && search.trim() && !searchMatch && <p className="topology-map-no-results" role="status">Nenhum equipamento encontrado para “{search.trim()}”.</p>}
           <span ref={fullscreenAnnouncementRef} className="topology-sr-only" aria-live="polite" />
           {warning && <p className="ipam-alert error topology-warning" role="alert">{warning}</p>}
           {current && <p className={`topology-save-status ${saveState}`} role="status" aria-live="polite">{saveState === 'pending' ? 'A guardar posições…' : saveState === 'failed' ? <>Falha ao guardar posições. <button type="button" onClick={retrySave}>Tentar novamente</button> <button type="button" onClick={reloadMap}>Recarregar mapa</button></> : 'Todas as posições estão guardadas.'}</p>}
           {selectedConnection && selectedConnectionDisplay && <aside className="topology-terminal-card" aria-label="Configuração da ligação"><header><strong>Terminal · {selectedConnection.type ?? 'Ligação'}</strong><button type="button" className="topology-terminal-close" aria-label="Fechar configuração" onClick={closeConnectionCard}>×</button></header><div className="topology-terminal-tabs" role="tablist" aria-label="Extremos da ligação"><button role="tab" aria-selected={selectedConnectionTab === 'source'} onClick={() => setSelectedConnectionTab('source')}>{selectedConnectionDisplay.sourceName}</button><button role="tab" aria-selected={selectedConnectionTab === 'target'} onClick={() => setSelectedConnectionTab('target')}>{selectedConnectionDisplay.targetName}</button></div><div className="topology-terminal-output" role="tabpanel"><span>{selectedConnectionTab === 'source' ? selectedConnectionDisplay.sourcePort : selectedConnectionDisplay.targetPort}</span><p className="topology-terminal-note">Não há configuração CLI disponível para esta ligação.</p></div></aside>}
-          <ReactFlow nodes={nodes} edges={edges} nodeTypes={topologyNodeTypes} edgeTypes={topologyEdgeTypes} onInit={setFlow} onNodesChange={handleNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_event, node) => { const mapNode = current?.nodes.find((item) => item.id === node.id); openDeviceInterfaces(mapNode?.device); }} onEdgeClick={(_event, edge) => { setSelectedEdgeId(edge.id); setSelectedConnectionTab('source'); }} fitView><>{showGrid && <Background />}<MiniMap /><Controls /></></ReactFlow>
+          <ReactFlow nodes={nodes} edges={edges} nodeTypes={topologyNodeTypes} edgeTypes={topologyEdgeTypes} onInit={setFlow} onNodesChange={handleNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_event, node) => { const mapNode = current?.nodes.find((item) => item.id === node.id); openDeviceInterfaces(mapNode?.device); }} onEdgeClick={(_event, edge) => { setSelectedEdgeId(edge.id); setSelectedConnectionTab('source'); }} nodesDraggable={interactive} nodesConnectable={interactive} elementsSelectable={interactive} fitView><>{showGrid && <Background />}<MiniMap /></></ReactFlow>
           {!selected && !maps.isLoading && <div className="topology-canvas-empty"><strong>Seleciona ou cria um mapa</strong><span>O teu mapa de topologia aparece aqui.</span></div>}
         </section>
       </>}

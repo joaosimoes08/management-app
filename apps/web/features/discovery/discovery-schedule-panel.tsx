@@ -59,9 +59,9 @@ export function DiscoverySchedulePanel({ subnets, canEdit, onError }: { subnets:
   };
 
   return <section className="ipam-card discovery-schedule-card">
-    <div className="panel-heading"><div><span className="section-kicker">AUTOMAÇÃO</span><h2>Schedules de Discovery</h2><p className="panel-description">Uma configuração por subnet. O intervalo permitido é de 1 a 168 horas.</p></div><CalendarClock size={18} /></div>
+    <div className="panel-heading"><div><h2>Schedules de Discovery</h2><p className="panel-description">Uma configuração por subnet. O intervalo permitido é de 1 a 168 horas.</p></div><CalendarClock size={18} /></div>
     {!subnets.length ? <div className="no-data">Não há subnets disponíveis neste Site.</div> : <>
-      <label className="schedule-subnet-select">Subnet<select value={subnetId} onChange={(event) => setSubnetId(event.target.value)}>{subnets.map((subnet) => <option key={subnet.id} value={subnet.id}>{subnet.cidr}</option>)}</select></label>
+      <label className="schedule-subnet-select">Subnet<select className="context-toolbar-selector" value={subnetId} onChange={(event) => setSubnetId(event.target.value)}>{subnets.map((subnet) => <option key={subnet.id} value={subnet.id}>{subnet.cidr}</option>)}</select></label>
       {scheduleQuery.isPending ? <div className="no-data">A carregar schedule…</div> : scheduleQuery.isError ? <div className="ipam-alert error">Não foi possível consultar o schedule desta subnet.</div> : <>
         <div className="schedule-run-summary" aria-live="polite">
           <div><span><Clock3 size={13} /> Próxima execução</span><strong>{schedule?.enabled ? dateTime(schedule.nextRunAt, timeZone) : 'Pausado'}</strong></div>
@@ -71,7 +71,7 @@ export function DiscoverySchedulePanel({ subnets, canEdit, onError }: { subnets:
           {schedule?.lastError && <p className="schedule-last-error">{schedule.lastError}</p>}
         </div>
         <form className="schedule-form" onSubmit={save}>
-          <label>Intervalo<select disabled={!canEdit} value={form.intervalHours} onChange={(event) => setForm({ ...form, intervalHours: Number(event.target.value) })}>{[1, 2, 4, 6, 8, 12, 24, 48, 72, 168].map((hours) => <option key={hours} value={hours}>{hours < 24 ? `${hours} h` : `${hours / 24} dia${hours > 24 ? 's' : ''}`}</option>)}</select></label>
+          <label>Intervalo<select className="context-toolbar-selector" disabled={!canEdit} value={form.intervalHours} onChange={(event) => setForm({ ...form, intervalHours: Number(event.target.value) })}>{[1, 2, 4, 6, 8, 12, 24, 48, 72, 168].map((hours) => <option key={hours} value={hours}>{hours < 24 ? `${hours} h` : `${hours / 24} dia${hours > 24 ? 's' : ''}`}</option>)}</select></label>
           <fieldset disabled={!canEdit}><legend>Métodos</legend>{(['ICMP', 'TCP'] as const).map((method) => <label key={method}><input type="checkbox" checked={form.methods.includes(method)} onChange={() => toggleMethod(method)} />{method}</label>)}</fieldset>
           <label>Portas TCP<input disabled={!canEdit || !form.methods.includes('TCP')} value={portsText} onChange={(event) => setPortsText(event.target.value)} aria-describedby="schedule-port-help" /><small id="schedule-port-help">Máximo 64 portas, entre 1 e 65535.</small></label>
           <label className="schedule-reverse-dns"><input type="checkbox" disabled={!canEdit} checked={form.reverseDns} onChange={(event) => setForm({ ...form, reverseDns: event.target.checked })} /> Resolver reverse DNS</label>

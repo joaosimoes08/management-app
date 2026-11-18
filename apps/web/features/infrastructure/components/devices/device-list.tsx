@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
-import { Archive, Edit3, Plus, Server } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { PageToolbarPortal } from '@/components/layout/app-shell';
+import { Archive, Check, ChevronDown, Edit3, Plus, Server, X } from 'lucide-react';
 import { EquipmentTypeIcon } from '../equipment-type-icon';
 import { AssetImage } from '../asset-image';
 import type { Device } from '../../types';
@@ -11,7 +12,7 @@ export interface DeviceListProps {
   devices: Device[];
   search: string;
   onSelect: (device: Device) => void;
-  onEdit: (device: Device) => void;
+  onEdit: (device: Device, animateEntry?: boolean) => void;
   onNew: () => void;
   onRetire: (device: Device) => void;
   canRetire: boolean;
@@ -24,6 +25,11 @@ export interface DeviceListProps {
   onBulkUpdate?: (ids: string[], changes: { status?: string; modelId?: string | null; rackId?: string | null }) => Promise<{ updated: number; updatedIds: string[]; failed: { id: string; message: string }[]; auditFailed: { id: string; message: string }[]; batchAuditFailed: boolean }>;
 }
 
+export function getPopoverAlignment(anchor: Pick<DOMRect, 'left' | 'right'>, viewportWidth: number, preferredWidth: number): 'left' | 'right' {
+  const popupWidth = Math.min(preferredWidth, Math.max(0, viewportWidth - 32));
+  return anchor.left + popupWidth > viewportWidth - 12 && anchor.right - popupWidth >= 12 ? 'right' : 'left';
+}
+
 /** Active device inventory of the site. */
 export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire, canRetire, canEdit, selectedId, models = [], racks = [], onImport, canImport = canEdit, onBulkUpdate }: DeviceListProps) {
   const [selected, setSelected] = useState<string[]>([]);
@@ -32,8 +38,97 @@ export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire,
   const [rackId, setRackId] = useState('');
   const [error, setError] = useState('');
   const [updating, setUpdating] = useState(false);
+  const [selectionMenuPhase, setSelectionMenuPhase] = useState<'closed' | 'open' | 'closing'>('closed');
+  const [bulkPopoverPhase, setBulkPopoverPhase] = useState<'closed' | 'open' | 'closing'>('closed');
+  const [selectionMenuAlignment, setSelectionMenuAlignment] = useState<'left' | 'right'>('left');
+  const [bulkPopoverAlignment, setBulkPopoverAlignment] = useState<'left' | 'right'>('left');
+  const selectionMenuRef = useRef<HTMLDivElement>(null);
+  const bulkPopoverRef = useRef<HTMLDivElement>(null);
+  const selectionTriggerRef = useRef<HTMLButtonElement>(null);
+  const selectionMenuCloseTimer = useRef<number | null>(null);
+  const restoreSelectionFocus = useRef(false);
   const visibleIds = devices.map((item) => item.id);
   const allVisible = visibleIds.length > 0 && visibleIds.every((id) => selected.includes(id));
+  const selectionMenuOpen = selectionMenuPhase === 'open';
+  const bulkPopoverOpen = bulkPopoverPhase === 'open';
+  useLayoutEffect(() => {
+    const updatePopoverAlignment = () => {
+      const anchor = selectionMenuRef.current?.getBoundingClientRect();
+      if (!anchor) return;
+      if (selectionMenuPhase !== 'closed') setSelectionMenuAlignment(getPopoverAlignment(anchor, window.innerWidth, 260));
+      if (bulkPopoverPhase !== 'closed') setBulkPopoverAlignment(getPopoverAlignment(anchor, window.innerWidth, 440));
+    };
+    updatePopoverAlignment();
+    window.addEventListener('resize', updatePopoverAlignment);
+    return () => window.removeEventListener('resize', updatePopoverAlignment);
+  }, [selectionMenuPhase, bulkPopoverPhase]);
+  const closeSelectionMenu = (restoreFocus = false) => {
+    if (selectionMenuCloseTimer.current !== null) window.clearTimeout(selectionMenuCloseTimer.current);
+    restoreSelectionFocus.current = restoreFocus;
+    setSelectionMenuPhase('closing');
+    selectionMenuCloseTimer.current = window.setTimeout(() => {
+      setSelectionMenuPhase('closed');
+      selectionMenuCloseTimer.current = null;
+    }, 140);
+    if (restoreFocus) selectionTriggerRef.current?.focus();
+  };
+  const openBulkPopover = () => {
+    if (selectionMenuCloseTimer.current !== null) window.clearTimeout(selectionMenuCloseTimer.current);
+    selectionMenuCloseTimer.current = null;
+    restoreSelectionFocus.current = false;
+    setSelectionMenuPhase('closed');
+    setBulkPopoverPhase('open');
+  };
+  const closeBulkPopover = (restoreFocus = false) => {
+    if (selectionMenuCloseTimer.current !== null) window.clearTimeout(selectionMenuCloseTimer.current);
+    restoreSelectionFocus.current = restoreFocus;
+    setBulkPopoverPhase('closing');
+    selectionMenuCloseTimer.current = window.setTimeout(() => {
+      setBulkPopoverPhase('closed');
+      selectionMenuCloseTimer.current = null;
+    }, 140);
+    if (restoreFocus) selectionTriggerRef.current?.focus();
+  };
+  useEffect(() => {
+    if (selectionMenuOpen) selectionMenuRef.current?.querySelector<HTMLButtonElement>('.device-selection-menu [role="menuitem"]')?.focus();
+    if (bulkPopoverOpen) (bulkPopoverRef.current?.querySelector<HTMLElement>('select,input') ?? bulkPopoverRef.current?.querySelector<HTMLElement>('button'))?.focus();
+    if (!selectionMenuOpen && !bulkPopoverOpen) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (selectionMenuRef.current && !selectionMenuRef.current.contains(event.target as Node)) {
+        if (selectionMenuOpen) closeSelectionMenu();
+        if (bulkPopoverOpen) closeBulkPopover();
+      }
+    };
+    window.addEventListener('pointerdown', closeOutside);
+    return () => window.removeEventListener('pointerdown', closeOutside);
+  }, [selectionMenuOpen, bulkPopoverOpen]);
+  useEffect(() => {
+    if ((selectionMenuPhase !== 'closing' && bulkPopoverPhase !== 'closing') || !restoreSelectionFocus.current) return;
+    selectionTriggerRef.current?.focus();
+    restoreSelectionFocus.current = false;
+  }, [selectionMenuPhase, bulkPopoverPhase]);
+  useEffect(() => () => { if (selectionMenuCloseTimer.current !== null) window.clearTimeout(selectionMenuCloseTimer.current); }, []);
+  const handleSelectionMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape' && (selectionMenuOpen || bulkPopoverOpen)) {
+      event.preventDefault();
+      if (selectionMenuOpen) closeSelectionMenu(true);
+      if (bulkPopoverOpen) closeBulkPopover(true);
+      return;
+    }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key) || !selectionMenuOpen) return;
+    const items = Array.from(selectionMenuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []);
+    if (!items.length) return;
+    event.preventDefault();
+    const currentIndex = items.indexOf(document.activeElement as HTMLButtonElement);
+    const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (currentIndex + (event.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length;
+    items[nextIndex].focus();
+  };
+  const selectVisible = () => setSelected((current) => [...new Set([...current, ...visibleIds])]);
+  const selectAllVisibleAndEdit = () => {
+    selectVisible();
+    openBulkPopover();
+  };
+  const deselectVisible = () => setSelected((current) => current.filter((id) => !visibleIds.includes(id)));
   async function applyBulk() {
     const changes: { status?: string; modelId?: string | null; rackId?: string | null } = {};
     if (status) changes.status = status;
@@ -55,22 +150,43 @@ export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire,
       if (outcome.batchAuditFailed) messages.push('Auditoria do lote falhou; atualizações guardadas.');
       setError(messages.join(' · ') || 'Não foram guardadas atualizações.');
       setSelected(outcome.failed.map((item) => item.id));
+      if (!outcome.failed.length) closeBulkPopover(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Não foi possível atualizar os equipamentos selecionados.');
     } finally { setUpdating(false); }
   }
   return <section className="ipam-card">
-    <div className="panel-heading"><div><span className="section-kicker">INVENTÁRIO OPERACIONAL</span><h2>Equipamentos ativos</h2></div>{(canEdit || canImport) && <div style={{ display: 'flex', gap: 8 }}>{canImport && <button className="secondary-button" onClick={onImport}>Importar CSV</button>}{canEdit && <button className="primary-button" onClick={onNew}><Plus size={14} /> Adicionar equipamento</button>}</div>}</div>
-    {canEdit && <label style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '8px 0' }}><input type="checkbox" checked={allVisible} onChange={(event) => setSelected(event.target.checked ? [...new Set([...selected, ...visibleIds])] : selected.filter((id) => !visibleIds.includes(id)))} /> Selecionar equipamentos visíveis</label>}
-    {canEdit && selected.length > 0 && <div className="ipam-card" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'end' }}><strong>{selected.length} selecionados</strong><label>Estado<select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">Sem alteração</option>{['ACTIVE', 'INACTIVE', 'MAINTENANCE', 'RETIRED', 'UNKNOWN'].map((item) => <option key={item}>{item}</option>)}</select></label><label>Modelo<select value={modelId} onChange={(event) => setModelId(event.target.value)}><option value="">Sem alteração</option><option value="__none__">Sem modelo</option>{models.map((item) => <option key={item.id} value={item.id}>{item.manufacturer} {item.model}</option>)}</select></label><label>Localização (bastidor)<select value={rackId} onChange={(event) => setRackId(event.target.value)}><option value="">Sem alteração</option><option value="__unplaced__">Sem bastidor</option>{racks.map((item) => <option key={item.id} value={item.id}>{item.room?.building?.name} / {item.room?.name} / {item.name}</option>)}</select></label><button className="primary-button" disabled={updating} onClick={() => void applyBulk()}>{updating ? 'A atualizar…' : 'Aplicar alterações'}</button><button className="secondary-button" disabled={updating} onClick={() => setSelected([])}>Limpar seleção</button></div>}
+    <div className="panel-heading"><div><span className="section-kicker">INVENTÁRIO OPERACIONAL</span><h2>Equipamentos ativos</h2></div></div>
+    {(canEdit || (canImport && onImport)) && <PageToolbarPortal><div className="device-list-toolbar">
+      {canImport && onImport && <button className="secondary-button" type="button" onClick={onImport}>Importar CSV</button>}
+      {canEdit && <div className="device-selection-dropdown" ref={selectionMenuRef} onKeyDown={handleSelectionMenuKeyDown}>
+        <button ref={selectionTriggerRef} type="button" className="device-selection-trigger" aria-label="Selecionar equipamentos visíveis" aria-haspopup={bulkPopoverPhase !== 'closed' ? 'dialog' : 'menu'} aria-controls={selectionMenuOpen || selectionMenuPhase === 'closing' ? 'device-selection-menu' : bulkPopoverOpen || bulkPopoverPhase === 'closing' ? 'device-bulk-popover' : undefined} aria-expanded={selectionMenuOpen || bulkPopoverOpen} onClick={() => { if (selectionMenuOpen) closeSelectionMenu(); else if (bulkPopoverOpen) closeBulkPopover(); else { if (selectionMenuCloseTimer.current !== null) window.clearTimeout(selectionMenuCloseTimer.current); selectionMenuCloseTimer.current = null; restoreSelectionFocus.current = false; if (selectionMenuPhase === 'closing') setSelectionMenuPhase('closed'); if (bulkPopoverPhase === 'closing') setBulkPopoverPhase('closed'); setSelectionMenuPhase('open'); } }}>
+          <Check size={14} aria-hidden="true" /><span>Selecionar visíveis</span><ChevronDown size={13} aria-hidden="true" />
+        </button>
+        {selectionMenuPhase !== 'closed' && <div id="device-selection-menu" className={`device-selection-menu${selectionMenuAlignment === 'right' ? ' align-right' : ''}${selectionMenuPhase === 'closing' ? ' closing' : ''}`} role="menu" inert={selectionMenuPhase === 'closing'} aria-hidden={selectionMenuPhase === 'closing'} aria-label="Opções de seleção de equipamentos">
+          <button type="button" role="menuitem" onClick={selectAllVisibleAndEdit}><Check size={14} aria-hidden="true" />Selecionar todos os visíveis{allVisible && <span className="device-selection-current">Atual</span>}</button>
+          <button type="button" role="menuitem" onClick={() => { deselectVisible(); closeSelectionMenu(true); }}><X size={14} aria-hidden="true" />Desselecionar visíveis</button>
+          {selected.length > 0 && <button type="button" role="menuitem" onClick={openBulkPopover}><Edit3 size={14} aria-hidden="true" />Editar {selected.length} selecionado{selected.length === 1 ? '' : 's'}</button>}
+        </div>}
+        {bulkPopoverPhase !== 'closed' && <div id="device-bulk-popover" ref={bulkPopoverRef} className={`device-bulk-popover${bulkPopoverAlignment === 'right' ? ' align-right' : ''}${bulkPopoverPhase === 'closing' ? ' closing' : ''}`} role="dialog" aria-label={`Alterar ${selected.length} equipamentos selecionados`} inert={bulkPopoverPhase === 'closing'} aria-hidden={bulkPopoverPhase === 'closing'}>
+          <div className="device-bulk-popover-heading"><strong>{selected.length} selecionado{selected.length === 1 ? '' : 's'}</strong><button type="button" className="device-bulk-popover-close" aria-label="Fechar ações em lote" onClick={() => closeBulkPopover(true)}><X size={14} /></button></div>
+          <div className="device-bulk-toolbar">
+            <label>Estado<select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">Sem alteração</option>{['ACTIVE', 'INACTIVE', 'MAINTENANCE', 'RETIRED', 'UNKNOWN'].map((item) => <option key={item}>{item}</option>)}</select></label>
+            <label>Modelo<select value={modelId} onChange={(event) => setModelId(event.target.value)}><option value="">Sem alteração</option><option value="__none__">Sem modelo</option>{models.map((item) => <option key={item.id} value={item.id}>{item.manufacturer} {item.model}</option>)}</select></label>
+            <label className="device-bulk-location">Localização (bastidor)<select value={rackId} onChange={(event) => setRackId(event.target.value)}><option value="">Sem alteração</option><option value="__unplaced__">Sem bastidor</option>{racks.map((item) => <option key={item.id} value={item.id}>{item.room?.building?.name} / {item.room?.name} / {item.name}</option>)}</select></label>
+            <div className="device-bulk-actions"><button type="button" className="primary-button" disabled={updating} onClick={() => void applyBulk()}>{updating ? 'A atualizar…' : 'Aplicar alterações'}</button><button type="button" className="secondary-button" disabled={updating} onClick={() => { setSelected([]); closeBulkPopover(true); }}>Limpar seleção</button></div>
+          </div>
+        </div>}
+      </div>}
+      {canEdit && <button className="primary-button" type="button" onClick={onNew}><Plus size={14} /> Adicionar equipamento</button>}
+    </div></PageToolbarPortal>}
     {error && <div role="status" className="ipam-alert">{error}</div>}
     {devices.map((device) => <div className={`host-row infra-device-row ${selectedId === device.id ? 'selected' : ''}`} key={device.id} onClick={() => onSelect(device)} aria-current={selectedId === device.id ? 'true' : undefined}>
       {canEdit && <input type="checkbox" aria-label={`Selecionar ${device.name}`} checked={selected.includes(device.id)} onClick={(event) => event.stopPropagation()} onChange={(event) => setSelected(event.target.checked ? [...selected, device.id] : selected.filter((id) => id !== device.id))} />}
       <span className="host-icon equipment-type-icon-frame">{device.frontAsset ?? device.model?.frontAsset ? <AssetImage asset={device.frontAsset ?? device.model?.frontAsset} alt={`${device.name} — imagem frontal`} className="catalog-icon" fallback={<EquipmentTypeIcon type={device.type} />} /> : <EquipmentTypeIcon type={device.type} />}</span>
       <span><strong>{device.name}</strong><small>{device.type} · {device.model ? `${device.model.manufacturer} ${device.model.model}` : 'Sem modelo'} · {device.managementIp || 'Sem IP de gestão'} · {device.rack ? `${device.rack.name} / ${device.rackUnitStart ?? '?'}U` : 'Por localizar'}</small></span>
       <em className="status-active">{device.status}</em>
-      {canEdit && <button className="icon-button subtle" onClick={(event) => { event.stopPropagation(); onEdit(device); }}><Edit3 size={14} /></button>}
-      {canRetire && <button type="button" className="icon-button subtle" aria-label={`Rever retirada de ${device.name}`} onClick={(event) => { event.stopPropagation(); onRetire(device); }}><Archive size={14} /></button>}
+      {(canEdit || canRetire) && <span className="row-actions">{canEdit && <button type="button" className="icon-button subtle" aria-label={`Editar ${device.name}`} onClick={(event) => { event.stopPropagation(); onEdit(device, event.detail > 0); }}><Edit3 size={14} /></button>}{canRetire && <button type="button" className="icon-button subtle" aria-label={`Rever retirada de ${device.name}`} onClick={(event) => { event.stopPropagation(); onRetire(device); }}><Archive size={14} /></button>}</span>}
     </div>)}
     {!devices.length && <div className="empty-context"><Server size={26} /><strong>{search ? 'Sem equipamentos correspondentes' : 'Não existem equipamentos ativos neste Site'}</strong></div>}
   </section>;

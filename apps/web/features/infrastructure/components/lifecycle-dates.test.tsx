@@ -27,6 +27,12 @@ describe('LifecycleDates read-only access', () => {
   beforeEach(() => apiFetch.mockReset().mockResolvedValue({ items: [lifecycleItem] }));
   afterEach(cleanup);
 
+  it('uses the shared tab heading treatment for the lifecycle description', () => {
+    renderCalendar(false);
+    expect(screen.getByRole('heading', { level: 2, name: 'Licenças, garantias e suporte por equipamento.' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 2, name: 'Datas de ciclo de vida' })).not.toBeInTheDocument();
+  });
+
   it('lets read-only users view a calendar event and reminders without edit or delete controls', async () => {
     renderCalendar(false);
     const event = await screen.findByRole('button', { name: /Garantia: Core switch/ });
@@ -57,5 +63,19 @@ describe('LifecycleDates read-only access', () => {
     renderCalendar(false);
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Nova data' })).not.toBeInTheDocument());
     expect(screen.queryByRole('button', { name: /Adicionar data em/ })).not.toBeInTheDocument();
+  });
+});
+
+describe('LifecycleDates create access', () => {
+  beforeEach(() => apiFetch.mockReset().mockResolvedValue({ items: [lifecycleItem] }));
+  afterEach(cleanup);
+
+  it('keeps the create action available to editors', async () => {
+    renderCalendar(true);
+    fireEvent.click(await screen.findByRole('button', { name: 'Nova data' }));
+
+    expect(await screen.findByRole('dialog', { name: 'Registar cobertura' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Equipamento')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Guardar' })).toBeEnabled();
   });
 });
