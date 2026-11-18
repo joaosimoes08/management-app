@@ -3,7 +3,7 @@ set -Eeuo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 TEMP="$(mktemp -d)"
 trap 'rm -rf "$TEMP"' EXIT
-mkdir -p "$TEMP/bin" "$TEMP/install/deploy" "$TEMP/install/nginx" "$TEMP/install/infra/keycloak" "$TEMP/update/deploy" "$TEMP/update/nginx" "$TEMP/update/infra/keycloak" "$TEMP/update101/deploy" "$TEMP/update101/nginx" "$TEMP/update101/infra/keycloak" "$TEMP/proxy/deploy" "$TEMP/proxy/nginx" "$TEMP/proxy/infra/keycloak" "$TEMP/csr/deploy" "$TEMP/csr/nginx" "$TEMP/csr/infra/keycloak"
+mkdir -p "$TEMP/bin" "$TEMP/install/deploy" "$TEMP/install/nginx" "$TEMP/install/infra/keycloak" "$TEMP/update/deploy" "$TEMP/update/nginx" "$TEMP/update/infra/keycloak" "$TEMP/update101/deploy" "$TEMP/update101/nginx" "$TEMP/update101/infra/keycloak" "$TEMP/proxy/deploy" "$TEMP/proxy/nginx" "$TEMP/proxy/infra/keycloak" "$TEMP/csr/deploy" "$TEMP/csr/nginx" "$TEMP/csr/infra/keycloak" "$TEMP/custom/deploy" "$TEMP/custom/nginx" "$TEMP/custom/infra/keycloak"
 REAL_NODE="$(command -v node)"
 export REAL_NODE
 cat > "$TEMP/bin/node" <<'NODE'
@@ -12,7 +12,7 @@ if [[ "$1" == --env-file=.env && "$2" == infra/keycloak/bootstrap-admin.mjs ]]; 
 exec "$REAL_NODE" "$@"
 NODE
 chmod +x "$TEMP/bin/node"
-for target in install update update101 proxy csr; do
+for target in install update update101 proxy csr custom; do
   cp "$ROOT/deploy.sh" "$ROOT/.env.example" "$ROOT/docker-compose.yml" "$ROOT/docker-compose.proxy.yml" "$TEMP/$target/"
   cp "$ROOT/deploy/generate-snmp-keyring.mjs" "$ROOT/deploy/compose-volume.mjs" "$ROOT/deploy/configure-install.mjs" "$ROOT/deploy/realm-cociber.json" "$TEMP/$target/deploy/"
   cp "$ROOT/infra/keycloak/bootstrap-admin.mjs" "$TEMP/$target/infra/keycloak/"
@@ -21,6 +21,7 @@ done
 cat > "$TEMP/bin/docker" <<'DOCKER'
 #!/usr/bin/env bash
 if [[ "$1" == info || ( "$1" == compose && "$2" == version ) ]]; then exit 0; fi
+if [[ "$1" == volume && "$2" == inspect ]]; then [[ "${MOCK_VOLUME_EXISTS:-1}" == 1 ]]; exit $?; fi
 if [[ "$1" == manifest && "$2" == inspect ]]; then
   [[ "${MOCK_MISSING_TAG:-}" != 1 ]] || exit 1
   if [[ "${MOCK_MISSING_ARCH:-}" == 1 ]]; then printf '%s\n' '{"manifests":[{"platform":{"os": "linux", "architecture": "amd64"}}]}'; else printf '%s\n' '{"manifests":[{"platform":{"os": "linux", "architecture": "amd64"}},{"platform":{"os": "linux", "architecture": "arm64"}}]}'; fi
@@ -58,6 +59,17 @@ export MOCK_DOCKER_LOG="$TEMP/docker.log"
   test -s secrets/snmp-keyring.json
   test -s deploy/realm-cociber.generated.json
   ! grep -q 'admin@admin.test' deploy/realm-cociber.generated.json
+)
+(
+  cd "$TEMP/custom"
+  printf 'SIMONEDA\nen-US\n\nno\nhttps://mgmt.ciberdefesa.dev\ny\n' | env MOCK_VOLUME_EXISTS=0 ./deploy.sh install > "$TEMP/custom.out"
+  grep -q '^KEYCLOAK_REALM=SIMONEDA$' .env
+  grep -q '^KEYCLOAK_ADMIN_REALM=SIMONEDA$' .env
+  grep -q '^NEXT_PUBLIC_ORGANIZATION_NAME=SIMONEDA$' .env
+  grep -q '^NEXT_PUBLIC_APP_LOCALE=en-US$' .env
+  grep -q '^OIDC_ISSUER_URL=https://mgmt.ciberdefesa.dev/realms/SIMONEDA$' .env
+  test -s deploy/realm-SIMONEDA.generated.json
+  grep -q '"realm": "SIMONEDA"' deploy/realm-SIMONEDA.generated.json
 )
 (
   cd "$TEMP/update"

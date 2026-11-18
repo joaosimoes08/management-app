@@ -62,7 +62,7 @@ if ($tag -notmatch '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$') { throw 'Invalid Docke
 Set-Env 'APP_IMAGE_TAG' $tag
 foreach ($key in @('POSTGRES_PASSWORD','KEYCLOAK_DB_PASSWORD','KEYCLOAK_ADMIN_PASSWORD','KEYCLOAK_ADMIN_CLIENT_SECRET')) {
   $v = Read-Env $key ''
-  if (-not $v -or $v -like 'change-me*' -or $v -eq 'keycloak-local-password') { $secret = -join ((1..48 | ForEach-Object { '0123456789abcdef'[(Get-Random -Maximum 16)] })); Set-Env $key $secret }
+  if (-not $v -or $v -like 'change-me*' -or $v -eq 'keycloak-local-password') { $randomBytes = [byte[]]::new(24); [Security.Cryptography.RandomNumberGenerator]::Fill($randomBytes); $secret = [Convert]::ToHexString($randomBytes).ToLowerInvariant(); Set-Env $key $secret }
 }
 $bootstrapAdminPassword = Read-Env 'BOOTSTRAP_ADMIN_PASSWORD' ''
 $bootstrapAdminPasswordGenerated = $false
