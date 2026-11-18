@@ -31,9 +31,9 @@ if [[ "$1" == compose ]]; then
   [[ "${MOCK_BACKUP_FAIL:-}" != 1 || " $* " != *" exec "* ]] || exit 1
   if [[ "$*" == *".Service"* ]]; then printf 'api healthy running\nweb healthy running\nsnmp healthy running\n'
   elif [[ "$*" == *" config --format json"* ]]; then printf '{"services":{"keycloak-db":{"volumes":[{"type":"volume","source":"keycloak_data","target":"/var/lib/postgresql/data"}]}},"volumes":{"keycloak_data":{"name":"test-keycloak"}}}\n'
-  elif [[ " $* " == *" --format json "* ]]; then printf '[{"Tag":"beta-1.0.3-release"}]\n'
+  elif [[ " $* " == *" --format json "* ]]; then printf '[{"Tag":"beta-1.0.4-release"}]\n'
   elif [[ " $* " == *" --services "* ]]; then printf 'postgres\nkeycloak-db\n'
-  elif [[ " $* " == *" images "* ]]; then printf 'SERVICE IMAGE TAG\napi mgmt-app-api beta-1.0.3-release\n'
+  elif [[ " $* " == *" images "* ]]; then printf 'SERVICE IMAGE TAG\napi mgmt-app-api beta-1.0.4-release\n'
   elif [[ " $* " == *" exec "* ]]; then printf 'backup fixture\n'
   elif [[ " $* " == *" up -d "* ]]; then printf 'up\n' >> "$MOCK_DOCKER_LOG"
   fi
@@ -47,7 +47,7 @@ export MOCK_DOCKER_LOG="$TEMP/docker.log"
 (
   cd "$TEMP/install"
   printf '\n\n\nno\nhttps://mgmt.ciberdefesa.dev\ny\n' | ./deploy.sh install > "$TEMP/install.out"
-  grep -q '^APP_IMAGE_TAG=beta-1.0.3-release$' .env
+  grep -q '^APP_IMAGE_TAG=beta-1.0.4-release$' .env
   grep -q '^POSTGRES_PASSWORD=[0-9a-f]\{48\}$' .env
   grep -q '^BOOTSTRAP_ADMIN_PASSWORD=[0-9a-f]\{64\}$' .env
   grep -q '^KEYCLOAK_HOSTNAME=https://mgmt.ciberdefesa.dev$' .env
@@ -63,7 +63,7 @@ export MOCK_DOCKER_LOG="$TEMP/docker.log"
   cd "$TEMP/update"
   printf 'APP_IMAGE_TAG=beta-1.0.0-release\nCUSTOM_VALUE=keep-me\nPOSTGRES_PASSWORD=custom-app-pass\nKEYCLOAK_DB_PASSWORD=custom-keycloak-pass\nKEYCLOAK_ADMIN_PASSWORD=custom-admin-pass\nKEYCLOAK_ADMIN_CLIENT_SECRET=custom-client-secret\nNEXT_PUBLIC_KEYCLOAK_URL=https://mgmt.ciberdefesa.dev\n' > .env
   printf '\n\n\nno\n\ny\n' | ./deploy.sh update >/dev/null
-  grep -q '^APP_IMAGE_TAG=beta-1.0.3-release$' .env
+  grep -q '^APP_IMAGE_TAG=beta-1.0.4-release$' .env
   grep -q '^CUSTOM_VALUE=keep-me$' .env
   grep -q '^POSTGRES_PASSWORD=custom-app-pass$' .env
   grep -q '^KEYCLOAK_DB_PASSWORD=custom-keycloak-pass$' .env
@@ -109,7 +109,7 @@ done
 run_failure_case() {
   local case="$1" flag="$2" expected="$3"
   : > "$MOCK_DOCKER_LOG"
-  if (cd "$TEMP/$case" && printf '\n\nbeta-1.0.3-release\nno\nhttps://mgmt.ciberdefesa.dev\ny\n' | env "$flag=1" ./deploy.sh update > "$TEMP/$case.out" 2>&1); then
+  if (cd "$TEMP/$case" && printf '\n\nbeta-1.0.4-release\nno\nhttps://mgmt.ciberdefesa.dev\ny\n' | env "$flag=1" ./deploy.sh update > "$TEMP/$case.out" 2>&1); then
     echo "Expected $case deployment fixture to fail." >&2; exit 1
   fi
   grep -q "$expected" "$TEMP/$case.out"
@@ -119,7 +119,7 @@ run_failure_case missing_arch MOCK_MISSING_ARCH 'Image lacks linux/arm64'
 run_failure_case compose_failure MOCK_COMPOSE_CONFIG_FAIL 'Compose preflight failed'
 run_failure_case backup_failure MOCK_BACKUP_FAIL 'Application database backup failed'
 : > "$MOCK_DOCKER_LOG"
-(cd "$TEMP/cancel" && printf '\n\nbeta-1.0.3-release\nno\n\nn\n' | ./deploy.sh update > "$TEMP/cancel.out" 2>&1)
+(cd "$TEMP/cancel" && printf '\n\nbeta-1.0.4-release\nno\n\nn\n' | ./deploy.sh update > "$TEMP/cancel.out" 2>&1)
 grep -q 'Cancelled without starting services' "$TEMP/cancel.out"
 ! grep -q '^up$' "$MOCK_DOCKER_LOG"
 for case in missing_tag missing_arch compose_failure cancel backup_failure; do
@@ -130,5 +130,5 @@ if grep -nE 'down -v' "$ROOT/deploy.sh" "$ROOT/deploy.ps1"; then
   echo 'Routine deployment scripts must not use compose down -v.' >&2
   exit 1
 fi
-test "$(grep -c 'APP_IMAGE_TAG:-beta-1.0.3-release' "$ROOT/docker-compose.yml")" -eq 3
+test "$(grep -c 'APP_IMAGE_TAG:-beta-1.0.4-release' "$ROOT/docker-compose.yml")" -eq 3
 printf 'Deployment script fixture checks passed.\n'
