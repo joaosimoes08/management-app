@@ -2,14 +2,14 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'fix/beta-1.0.4-installer']
 
 permissions:
   contents: read
 
 jobs:
   verify:
-    runs-on: [self-hosted, Linux, ARM64]
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
       postgres:
@@ -79,12 +79,10 @@ jobs:
           ./scripts/test-deploy.sh
 
   powershell-syntax:
-    runs-on: [self-hosted, Linux, ARM64]
+    runs-on: windows-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Check PowerShell Core is available
-        run: command -v pwsh
       - name: Parse PowerShell deployment script
         shell: pwsh
         run: |
@@ -92,3 +90,6 @@ jobs:
           $errors = $null
           [System.Management.Automation.Language.Parser]::ParseFile("$PWD/deploy.ps1", [ref]$tokens, [ref]$errors) | Out-Null
           if ($errors.Count -gt 0) { $errors | Format-List; exit 1 }
+      - name: Run PowerShell deployment helper tests
+        shell: pwsh
+        run: ./scripts/test-deploy.ps1

@@ -3,6 +3,7 @@ param([ValidateSet('install','update','check')][string]$Mode)
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $Root
+. (Join-Path $Root 'deploy/secure-random.ps1')
 $EnvPath = Join-Path $Root '.env'
 $TagDefault = 'beta-1.0.4-release'
 $GuideUrl = if ($env:CA_GUIDE_URL) { $env:CA_GUIDE_URL } else { 'https://github.com/joaosimoes08/management-app/blob/main/README.md#https-and-reverse-proxy' }
@@ -62,11 +63,11 @@ if ($tag -notmatch '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$') { throw 'Invalid Docke
 Set-Env 'APP_IMAGE_TAG' $tag
 foreach ($key in @('POSTGRES_PASSWORD','KEYCLOAK_DB_PASSWORD','KEYCLOAK_ADMIN_PASSWORD','KEYCLOAK_ADMIN_CLIENT_SECRET')) {
   $v = Read-Env $key ''
-  if (-not $v -or $v -like 'change-me*' -or $v -eq 'keycloak-local-password') { $randomBytes = [byte[]]::new(24); [Security.Cryptography.RandomNumberGenerator]::Fill($randomBytes); $secret = [Convert]::ToHexString($randomBytes).ToLowerInvariant(); Set-Env $key $secret }
+  if (-not $v -or $v -like 'change-me*' -or $v -eq 'keycloak-local-password') { $secret = New-CryptoHexSecret -ByteCount 24; Set-Env $key $secret }
 }
 $bootstrapAdminPassword = Read-Env 'BOOTSTRAP_ADMIN_PASSWORD' ''
 $bootstrapAdminPasswordGenerated = $false
-if (-not $bootstrapAdminPassword) { $randomBytes = [byte[]]::new(32); [Security.Cryptography.RandomNumberGenerator]::Fill($randomBytes); $bootstrapAdminPassword = [Convert]::ToHexString($randomBytes).ToLowerInvariant(); Set-Env 'BOOTSTRAP_ADMIN_PASSWORD' $bootstrapAdminPassword; $bootstrapAdminPasswordGenerated = $true }
+if (-not $bootstrapAdminPassword) { $bootstrapAdminPassword = New-CryptoHexSecret -ByteCount 32; Set-Env 'BOOTSTRAP_ADMIN_PASSWORD' $bootstrapAdminPassword; $bootstrapAdminPasswordGenerated = $true }
 $keyringPath = Read-Env 'SNMP_KEYRING_HOST_FILE' './secrets/snmp-keyring.json'
 if (-not (Test-Path $keyringPath)) { if (-not (Get-Command node -ErrorAction SilentlyContinue)) { throw 'Node.js is required once to create the SNMP keyring.' }; node deploy/generate-snmp-keyring.mjs $keyringPath; if ($LASTEXITCODE -ne 0) { throw 'SNMP keyring generation failed.' } }
 Protect-File $EnvPath; if (Test-Path $keyringPath) { Protect-File $keyringPath }
