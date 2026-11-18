@@ -3,6 +3,8 @@ import type { AppLocale } from './i18n';
 type LegacyDictionary = Record<string, string>;
 
 const enUS: LegacyDictionary = {
+  'A carregar': 'Loading',
+  'A carregar estado dos serviços…': 'Loading service status…',
   'A carregar…': 'Loading…',
   'A carregar aplicações...': 'Loading applications...',
   'A carregar dispositivo…': 'Loading device…',
@@ -100,10 +102,16 @@ const enUS: LegacyDictionary = {
   'Não foi possível cancelar o pré-registo.': 'Could not cancel the pre-registration.',
   'Não foi possível criar a descoberta.': 'Could not create the discovery.',
   'Não foi possível criar o pré-registo.': 'Could not create the pre-registration.',
+  'Não foi possível carregar o estado dos serviços.': 'Could not load service status.',
   'Não foi possível renovar o pré-registo.': 'Could not renew the pre-registration.',
+  'Atalhos para outras áreas': 'Shortcuts to other areas',
+  'Mapa físico': 'Physical map',
+  'Endereços IP': 'IP addresses',
+  'Documentação': 'Documentation',
   'Pesquisar IP, identidade ou trap…': 'Search IP, identity, or trap…',
   'PRÉ-REGISTOS ATIVOS': 'ACTIVE PRE-REGISTRATIONS',
   'Sem candidatos correspondentes.': 'No matching candidates.',
+  'Sem estado dos serviços disponível.': 'No service status is available.',
   'Sem pré-registos correspondentes.': 'No matching pre-registrations.',
   'sem Site': 'no Site',
   'Tipo de descoberta': 'Discovery type',
