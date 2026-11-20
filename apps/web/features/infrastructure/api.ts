@@ -82,7 +82,7 @@ export function updateRoom(id: string, body: { name: string }): Promise<Room> {
 
 // ── Racks ──────────────────────────────────────────────────────────────────
 
-/** New rack; its PDUs are created with it (default "Só rede elétrica": one supplier PDU, 32 outlets, 3680 W). */
+/** New rack; its PDUs are created with it (default "Só rede elétrica": one supplier PDU with the API's default outlets and budget). */
 export function createRack(body: { name: string; roomId: string; powerMode?: RackPowerInput['mode']; supplierPdu?: RackPowerInput['supplier']; upsPdu?: RackPowerInput['ups'] }): Promise<Rack> {
   return apiFetch<Rack>('/api/v1/racks', { method: 'POST', body: JSON.stringify(body) });
 }

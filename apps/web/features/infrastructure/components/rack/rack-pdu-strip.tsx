@@ -4,7 +4,8 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type 
 import { createPortal } from 'react-dom';
 import { Plug, X } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
-import { formatBudget, formatWatts, PDU_IMAGE, type PduView } from '../../power';
+import { formatBudget, formatWatts, PDU_IMAGE, powerLevel, type PduView } from '../../power';
+import { usePowerDefaults } from '../../use-power-defaults';
 import { box, placeHoverCard, racksBox, setOpenPduCardBox, type HoverCardPlacement } from './rack-device-hover-card';
 
 /** Below this drawn width the strip collapses to a thin bar with only the badge. */
@@ -146,6 +147,8 @@ interface RackPduCardProps {
 /** The PDU's card: totals, failover line and its connected devices with Desligar. Portalled with fixed coordinates. */
 function RackPduCard({ ref, id, anchor, side, view, source, badge, canDisconnect, onDisconnect, onPointerEnter, onPointerLeave, onFocusInside, onBlurOutside, onClose }: RackPduCardProps) {
   const { t, locale } = useI18n();
+  const warningRatio = usePowerDefaults()?.warningRatio;
+  const level = (used: number, total: number) => powerLevel({ used, total, watts: 0, budget: null, warningRatio });
   const [placement, setPlacement] = useState<HoverCardPlacement | null>(null);
   const [confirming, setConfirming] = useState('');
   const [busy, setBusy] = useState('');
@@ -225,10 +228,10 @@ function RackPduCard({ ref, id, anchor, side, view, source, badge, canDisconnect
       <button type="button" className="rack-pdu-card-close" aria-label={t('rack.pdu.close', 'Fechar')} onClick={onClose}><X size={13} aria-hidden="true" /></button>
     </header>
     <dl className="rack-pdu-card-totals">
-      <div><dt>{t('rack.pdu.outlets', 'Tomadas')}</dt><dd data-level={view.used >= view.total ? 'over' : view.total && view.used / view.total >= 0.8 ? 'warn' : 'ok'}>{view.used}/{view.total}</dd></div>
-      <div><dt>{t('rack.pdu.load', 'Consumo')}</dt><dd data-level={view.budget && view.watts > view.budget ? 'over' : view.budget && view.watts / view.budget >= 0.8 ? 'warn' : 'ok'}>{formatWatts(view.watts, locale)} {t('rack.pdu.estimated', 'estimado')} <small>{budgetText}{percent}</small></dd></div>
+      <div><dt>{t('rack.pdu.outlets', 'Tomadas')}</dt><dd data-level={level(view.used, view.total)}>{view.used}/{view.total}</dd></div>
+      <div><dt>{t('rack.pdu.load', 'Consumo')}</dt><dd data-level={powerLevel({ used: 0, total: 0, watts: view.watts, budget: view.budget, warningRatio })}>{formatWatts(view.watts, locale)} {t('rack.pdu.estimated', 'estimado')} <small>{budgetText}{percent}</small></dd></div>
     </dl>
-    {view.failoverWatts != null && <p className="rack-pdu-card-failover" data-level={view.budget && view.failoverWatts > view.budget ? 'over' : view.budget && view.failoverWatts / view.budget >= 0.8 ? 'warn' : 'ok'}>{t('rack.pdu.failover', 'Se a outra fonte falhar: {watts}', { watts: formatWatts(view.failoverWatts, locale) })}</p>}
+    {view.failoverWatts != null && <p className="rack-pdu-card-failover" data-level={powerLevel({ used: 0, total: 0, watts: view.failoverWatts, budget: view.budget, warningRatio })}>{t('rack.pdu.failover', 'Se a outra fonte falhar: {watts}', { watts: formatWatts(view.failoverWatts, locale) })}</p>}
     <span className="topology-sr-only">{badge}</span>
     <h3>{t('rack.pdu.devices', 'Equipamentos ligados')}{!canDisconnect && <small className="rack-pdu-card-readonly">{t('rack.pdu.readOnly', 'Só leitura')}</small>}</h3>
     {view.connections.length === 0
