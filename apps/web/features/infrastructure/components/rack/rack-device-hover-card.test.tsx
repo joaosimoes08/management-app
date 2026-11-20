@@ -1,7 +1,7 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Device, Rack } from '../../types';
-import { HOVER_CARD_GAP, HOVER_CARD_MARGIN, placeHoverCard, setActiveRackCard, type HoverCardBox } from './rack-device-hover-card';
+import { HOVER_CARD_GAP, HOVER_CARD_MARGIN, placeHoverCard, RackDeviceHoverCard, setActiveRackCard, useActiveRackCard, type HoverCardBox } from './rack-device-hover-card';
 import { RackEquipmentOverlay } from './rack-equipment-overlay';
 
 vi.mock('../asset-image', () => ({ AssetImage: ({ alt }: { alt: string }) => <span role="img" aria-label={alt} /> }));
@@ -137,5 +137,46 @@ describe('RackEquipmentOverlay device card', () => {
     renderOverlay('device-1');
     fireEvent.mouseEnter(screen.getByRole('button', { name: /Edge switch/ }));
     expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+});
+
+describe('RackDeviceHoverCard stale anchor', () => {
+  function ActiveCard() {
+    const active = useActiveRackCard();
+    return active ? <RackDeviceHoverCard id="stale-card" anchor={active.anchor}>Edge switch</RackDeviceHoverCard> : null;
+  }
+  const openCardOn = () => {
+    const anchor = document.createElement('button');
+    document.body.append(anchor);
+    act(() => setActiveRackCard({ key: 'front:device-1', anchor }));
+    return anchor;
+  };
+
+  it('closes the card when its device is removed from the page and the view re-renders', () => {
+    const anchor = openCardOn();
+    const view = render(<ActiveCard />);
+    expect(screen.getByRole('tooltip')).toBeTruthy();
+    anchor.remove();
+    view.rerender(<ActiveCard />);
+    expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+
+  it('closes the card when its device is removed and the page then scrolls', async () => {
+    const anchor = openCardOn();
+    render(<ActiveCard />);
+    expect(screen.getByRole('tooltip')).toBeTruthy();
+    anchor.remove();
+    fireEvent.scroll(window);
+    await waitFor(() => expect(screen.queryByRole('tooltip')).toBeNull());
+  });
+
+  it('keeps a newer card on another device open', () => {
+    const stale = openCardOn();
+    const view = render(<ActiveCard />);
+    const fresh = openCardOn();
+    stale.remove();
+    view.rerender(<ActiveCard />);
+    expect(screen.getByRole('tooltip')).toBeTruthy();
+    fresh.remove();
   });
 });

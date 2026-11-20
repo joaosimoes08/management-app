@@ -91,6 +91,10 @@ export function clearActiveRackCard(key: string) {
 export function clearActiveRackCards(prefix: string) {
   if (activeCard?.key.startsWith(prefix)) setActiveRackCard(null);
 }
+/** Hides the card if it is anchored to this element (used when that element is no longer in the page). */
+export function clearActiveRackCardAnchor(anchor: HTMLElement) {
+  if (activeCard?.anchor === anchor) setActiveRackCard(null);
+}
 const subscribeCard = (listener: () => void) => {
   cardListeners.add(listener);
   return () => { cardListeners.delete(listener); };
@@ -116,7 +120,12 @@ export function RackDeviceHoverCard({ id, anchor, children }: RackDeviceHoverCar
 
   const update = useCallback(() => {
     const card = ref.current;
-    if (!card || !anchor.isConnected) return;
+    if (!anchor.isConnected) {
+      // The device left the DOM (moved, deleted, or its view re-rendered) while its card was open: close the card.
+      clearActiveRackCardAnchor(anchor);
+      return;
+    }
+    if (!card) return;
     const stage = anchor.closest('.rack-stage-wrap') ?? anchor.closest('.rack-stage') ?? anchor;
     const next = placeHoverCard({
       device: box(anchor),
