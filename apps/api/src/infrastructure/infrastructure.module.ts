@@ -8,5 +8,7 @@ import { LifecycleDatesService } from './lifecycle-dates.service';
 import { IpamModule } from '../ipam/ipam.module';
 import { PowerController } from './power/power.controller';
 import { RackPowerService } from './power/rack-power.service';
-@Module({ imports: [AuditModule, IpamModule], controllers: [InfrastructureController, LifecycleDatesController, PowerController], providers: [InfrastructureService, InfrastructureAccessService, LifecycleDatesService, RackPowerService], exports: [InfrastructureAccessService] })
+import { DeviceRequiredConfigService } from './required-config/device-required-config.service';
+import { DeviceRequiredConfigController } from './required-config/device-required-config.controller';
+@Module({ imports: [AuditModule, IpamModule], controllers: [DeviceRequiredConfigController, InfrastructureController, LifecycleDatesController, PowerController], providers: [InfrastructureService, InfrastructureAccessService, LifecycleDatesService, RackPowerService, DeviceRequiredConfigService], exports: [InfrastructureAccessService, DeviceRequiredConfigService] })
 export class InfrastructureModule {}

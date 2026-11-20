@@ -43,6 +43,7 @@ function fakeDb(seed: { pdus: Pdu[]; devices: Dev[]; assignments: Assignment[] }
     },
     pduOutletAssignment: {
       findMany: async ({ where }: any) => db.assignments.filter((a) => matches(a, where)),
+      count: async ({ where }: any) => db.assignments.filter((a) => matches(a, where)).length,
       deleteMany: async ({ where }: any) => { const before = db.assignments.length; db.assignments = db.assignments.filter((a) => !matches(a, where)); return { count: before - db.assignments.length }; },
       createMany: async ({ data }: any) => {
         for (const item of data) {
@@ -118,11 +119,26 @@ test('PUT devices/:id/power maps a concurrent unique-constraint race to 409 PDU_
   await assert.rejects(() => subject.updateDevicePower('srv', {}, user), conflictCode('PDU_OUTLET_TAKEN'));
 });
 
-test('PUT devices/:id/power with plugs: [] disconnects everything', async () => {
+test('PUT devices/:id/power with plugs: [] may not clear configured outlets (400 REQUIRED_CONFIG_MISSING, CLEARED) and writes nothing', async () => {
   const { subject, db } = powerService({ pdus: [supplier], devices: [dev('srv', 'rack-1')], assignments: [{ id: 'old', pduId: 'rede-1', outletIndex: 1, deviceId: 'srv', plugIndex: 1 }] });
-  const result = await subject.updateDevicePower('srv', { plugs: [] }, user);
-  assert.equal(db.assignments.length, 0);
+  await assert.rejects(() => subject.updateDevicePower('srv', { plugs: [] }, user), (error: any) => {
+    const body = error.getResponse();
+    assert.equal(error.getStatus(), 400);
+    assert.equal(body.code, 'REQUIRED_CONFIG_MISSING');
+    assert.deepEqual(body.details.errors.map((item: any) => [item.config, item.reason, item.tab]), [['power', 'CLEARED', 'energia']]);
+    return true;
+  });
+  assert.deepEqual(db.assignments.map((a) => a.id), ['old']);
+});
+
+test('PUT devices/:id/power with plugs: [] is allowed for a legacy device that had no outlets, and with 0 plugs ("sem alimentação")', async () => {
+  const legacy = powerService({ pdus: [supplier], devices: [dev('srv', 'rack-1')], assignments: [] });
+  const result = await legacy.subject.updateDevicePower('srv', { plugs: [] }, user);
   assert.deepEqual(result.unplugged.map((u) => u.reason), ['NOT_REQUESTED', 'NOT_REQUESTED']);
+  const passive = powerService({ pdus: [supplier], devices: [dev('pp', 'rack-1')], assignments: [{ id: 'old', pduId: 'rede-1', outletIndex: 1, deviceId: 'pp', plugIndex: 1 }] });
+  await passive.subject.updateDevicePower('pp', { powerPlugCount: 0, plugs: [] }, user);
+  assert.equal(passive.db.assignments.length, 0);
+  assert.equal(passive.db.devices[0].powerPlugCount, 0);
 });
 
 test('DELETE racks/:rackId/pdus/:pduId/devices/:deviceId frees only that PDU and audits; 404 for a PDU of another rack', async () => {

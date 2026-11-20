@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, OnModuleDestroy } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy } from '@nestjs/common';
 import { PrismaClient } from '@simoes/database';
 import { Queue } from 'bullmq';
 import { AuthenticatedUser } from '../auth/auth.service';
@@ -7,6 +7,9 @@ import { IpamAccessService } from '../ipam/ipam-access.service';
 import { DashboardRoleDto, SaveDashboardLayoutDto, SaveDashboardPreferenceDto } from './dto';
 import { OperationsService } from '../operations/operations.service';
 import { InventoryQualityService } from '../inventory-quality/inventory-quality.service';
+import { DeviceRequiredConfigService } from '../infrastructure/required-config/device-required-config.service';
+
+const logger = new Logger('DashboardService');
 
 export type TopbarAlert = {
   id: string;
@@ -15,6 +18,12 @@ export type TopbarAlert = {
   detail: string;
   href: string;
   occurredAt: string;
+  /** Persistent alerts reflect live data state: "Limpar todos" does not dismiss them; they clear when fixed. */
+  persistent?: boolean;
+  /** Set on missing-device-config alerts: which config and how many devices. */
+  kind?: 'DEVICE_MISSING_CONFIG';
+  config?: string;
+  count?: number;
 };
 
 export type GlobalSearchResult = {
@@ -34,6 +43,7 @@ export class DashboardService implements OnModuleDestroy {
     private readonly infrastructureAccess: InfrastructureAccessService,
     private readonly operations: OperationsService,
     private readonly quality: InventoryQualityService,
+    private readonly requiredConfig: DeviceRequiredConfigService,
   ) {}
   async onModuleDestroy() { await this.discoveryQueue.disconnect(); }
 
@@ -127,7 +137,7 @@ export class DashboardService implements OnModuleDestroy {
   async topbarState(user?: AuthenticatedUser) {
     const canDiscover = Boolean(user?.roles.some((role) => role === 'ADMIN' || role === 'NETWORK_OPERATOR'));
     const subnetWhere = user && canDiscover ? await this.ipamAccess.whereFor(user, 'READ', 'subnet') : { id: { in: [] } };
-    const [processes, redis, settings, pendingRoleRequests, notifications, operationalAlerts] = await Promise.all([
+    const [processes, redis, settings, pendingRoleRequests, notifications, operationalAlerts, missingConfigAlerts] = await Promise.all([
       this.prisma.discoveryJob.findMany({
         where: { status: { in: ['PENDING', 'RUNNING'] }, subnet: subnetWhere },
         include: { subnet: { select: { cidr: true } } },
@@ -139,6 +149,8 @@ export class DashboardService implements OnModuleDestroy {
       user?.roles.includes('ADMIN') ? this.prisma.roleRequest.count({ where: { status: { in: ['PENDING', 'PROCESSING'] } } }) : Promise.resolve(0),
       user ? this.prisma.notification.findMany({ where: { userId: user.id, readAt: null }, orderBy: { createdAt: 'desc' }, take: 20 }) : Promise.resolve([]),
       user ? this.operations.list(user, { pageSize: '8' }) : Promise.resolve({ items: [] }),
+      // Grouped "devices missing a required configuration" alerts, computed live (never stored, so never duplicated).
+      user ? this.requiredConfig.topbarAlerts(user).catch((error: unknown) => { logger.warn(`Alertas de configuração em falta indisponíveis: ${error instanceof Error ? error.message : String(error)}`); return []; }) : Promise.resolve([]),
     ]);
 
     const alerts: TopbarAlert[] = operationalAlerts.items.map((alert) => ({ id: alert.id, severity: alert.severity === 'HIGH' ? 'CRITICAL' : alert.severity, title: alert.title, detail: alert.detail, href: alert.actionHref ?? '/', occurredAt: alert.lastOccurredAt.toISOString() }));
@@ -157,7 +169,8 @@ export class DashboardService implements OnModuleDestroy {
           { key: 'redis', label: 'Redis / BullMQ', state: redis.available ? 'OPERATIONAL' : 'UNAVAILABLE' },
         ],
       },
-      alerts: alerts.slice(0, 8),
+      // Missing-config alerts are appended after the cap so operational alerts never push them out (at most one per config).
+      alerts: [...alerts.slice(0, 8), ...missingConfigAlerts],
       processes: processes.map((job) => ({ id: job.id, label: job.name, detail: job.subnet.cidr, state: job.status, href: `/descoberta?jobId=${job.id}` })),
       updatedAt: new Date().toISOString(),
     };

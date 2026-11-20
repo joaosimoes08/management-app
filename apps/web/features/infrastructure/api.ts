@@ -3,7 +3,6 @@ import type {
   AssetFile,
   BuildingWithRooms,
   Device,
-  DeviceInput,
   DeviceInterface,
   DeviceListResponse,
   DeviceModel,
@@ -222,8 +221,9 @@ export function deleteAsset(id: string): Promise<unknown> {
 
 // ── Devices ────────────────────────────────────────────────────────────────
 
-export function listDevices(siteId: string, search: string, page = 1): Promise<DeviceListResponse> {
-  return apiFetch<DeviceListResponse>(`/api/v1/devices?siteId=${siteId}&search=${encodeURIComponent(search)}&page=${page}&pageSize=100`);
+/** `missingConfig` (rearImage | power) limits the list to devices missing that required config. */
+export function listDevices(siteId: string, search: string, page = 1, missingConfig = ''): Promise<DeviceListResponse> {
+  return apiFetch<DeviceListResponse>(`/api/v1/devices?siteId=${siteId}&search=${encodeURIComponent(search)}&page=${page}&pageSize=100${missingConfig ? `&missingConfig=${encodeURIComponent(missingConfig)}` : ''}`);
 }
 
 export async function listAllDevices(siteId: string, search: string): Promise<DeviceListResponse> {
@@ -241,16 +241,8 @@ export type DeviceRetirementReview = { device: { id: string; name: string }; int
 export const getDeviceRetirementReview = (id: string) => apiFetch<DeviceRetirementReview>(`/api/v1/devices/${id}/retirement-review`);
 export const retireDevice = (id: string) => apiFetch(`/api/v1/devices/${id}/retire`, { method: 'POST', body: JSON.stringify({ operatorConfirmed: true }) });
 
-export function createDevice(body: DeviceInput): Promise<Device> {
-  return apiFetch<Device>('/api/v1/devices', { method: 'POST', body: JSON.stringify(body) });
-}
-
 export function createSnmpOnboardedDevice(body: Record<string, unknown>): Promise<Device> {
   return apiFetch<Device>('/api/v1/snmp/onboarding/devices', { method: 'POST', body: JSON.stringify(body) });
-}
-
-export function updateDevice(id: string, body: Partial<DeviceInput>): Promise<Device> {
-  return apiFetch<Device>(`/api/v1/devices/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
 export function previewDeviceImport(siteId: string, rows: Record<string, unknown>[]) {
