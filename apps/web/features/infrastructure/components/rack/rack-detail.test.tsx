@@ -13,6 +13,7 @@ class TestResizeObserver {
 }
 
 vi.mock('./rack-device-zoom', () => ({ RackDeviceZoom: () => null }));
+vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }));
 
 beforeEach(() => { vi.stubGlobal('ResizeObserver', TestResizeObserver); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); notifyResize = undefined; });
@@ -51,19 +52,26 @@ describe('RackDetail viewport fit and interactions', () => {
     expect(parseFloat(inner.style.height)).toBeLessThanOrEqual(height - 24 + 0.001);
   });
 
-  it('bounds zoom and restores the measured fit with reset', async () => {
+  it('maps the 0–100% zoom slider onto the fitted rack and restores the fit', async () => {
     const { container, setSize } = renderRack();
     setSize(900, 400);
     const frame = container.querySelector('.rack-frame') as HTMLDivElement;
     await waitFor(() => expect(parseFloat(frame.style.width)).toBeLessThan(304));
     const fittedWidth = parseFloat(frame.style.width);
-    const zoomIn = screen.getByRole('button', { name: 'Aumentar zoom' });
-    for (let step = 0; step < 12; step += 1) fireEvent.click(zoomIn);
-    expect(screen.getByText('250%')).toBeInTheDocument();
+    const trigger = screen.getByRole('button', { name: 'rack.zoom: 0%' });
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    const slider = screen.getByRole('slider', { name: 'rack.zoomLevel' });
+    expect(slider).toHaveFocus();
+    fireEvent.change(slider, { target: { value: '100' } });
     expect(parseFloat(frame.style.width)).toBeCloseTo(fittedWidth * 2.5, 2);
-    fireEvent.click(screen.getByRole('button', { name: 'Ajustar ao ecrã' }));
-    expect(screen.getByText('100%')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'rack.zoom: 100%' })).toBeInTheDocument();
+    fireEvent.change(slider, { target: { value: '50' } });
+    expect(parseFloat(frame.style.width)).toBeCloseTo(fittedWidth * 1.75, 2);
+    fireEvent.click(screen.getByRole('button', { name: 'rack.zoomFit' }));
     expect(parseFloat(frame.style.width)).toBeCloseTo(fittedWidth, 2);
+    expect(screen.getByRole('button', { name: 'rack.zoom: 0%' })).toBeInTheDocument();
   });
 
   it('maps a drop from the rendered overlay bounds to the corresponding rack unit', async () => {

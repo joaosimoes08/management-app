@@ -77,6 +77,19 @@ describe('AppSidebar footer controls', () => {
     expect(screen.getByRole('menu')).toBeInTheDocument();
   });
 
+  it('shows a muted copyright line below the account controls, shortened when collapsed', () => {
+    const { container, rerender } = render(<AppSidebar collapsed={false} onToggle={vi.fn()} />);
+    const copyright = container.querySelector('.sidebar-copyright') as HTMLElement;
+    expect(copyright).toBeInTheDocument();
+    expect(container.querySelector('.sidebar-bottom-row')?.nextElementSibling).toBe(copyright);
+    expect(copyright.querySelector('.sidebar-copyright-full')).toHaveTextContent('shell.copyright');
+    expect(copyright.querySelector('.sidebar-copyright-short')).toHaveAttribute('aria-hidden', 'true');
+    expect(copyright).toHaveAttribute('title', 'shell.copyright');
+    rerender(<AppSidebar collapsed onToggle={vi.fn()} />);
+    expect(container.querySelector('.sidebar-copyright-full')).toHaveTextContent('shell.copyright');
+    expect(container.querySelector('.sidebar-copyright-short')).toHaveTextContent('shell.copyrightShort');
+  });
+
   it('disables sidebar width motion when reduced motion is preferred', () => {
     motionPreference.reduced = true;
     const { container } = render(<AppSidebar collapsed onToggle={vi.fn()} />);
