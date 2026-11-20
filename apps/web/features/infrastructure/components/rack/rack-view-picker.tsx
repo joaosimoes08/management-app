@@ -16,9 +16,8 @@ export function RackViewPicker({ value, onChange, allowBoth }: RackViewPickerPro
   const { t } = useI18n();
   const views: RackView[] = allowBoth ? ['front', 'rear', 'both'] : ['front', 'rear'];
   return <div className="rack-toolbar-picker rack-view-picker">
-    <label>
+    <label title={t('rack.view')}>
       <Eye size={14} aria-hidden="true" />
-      <span>{t('rack.view')}</span>
       <select aria-label={t('rack.view')} value={value} onChange={(event) => onChange(event.target.value as RackView)}>
         {views.map((view) => <option key={view} value={view}>{t(`rack.view.${view}`)}</option>)}
       </select>

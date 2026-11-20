@@ -27,7 +27,7 @@ export interface RackZoomPickerProps {
   onFit: () => void;
 }
 
-/** Utility-bar trigger with the location-picker look that opens a 0–100% zoom slider below it. */
+/** Utility-bar trigger (magnet icon + current %) with the location-picker look that opens a 0–100% zoom slider below it. */
 export function RackZoomPicker({ zoom, onZoom, onFit }: RackZoomPickerProps) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -62,10 +62,10 @@ export function RackZoomPicker({ zoom, onZoom, onFit }: RackZoomPickerProps) {
       aria-expanded={open}
       aria-controls={open ? panelId : undefined}
       aria-label={`${t('rack.zoom')}: ${percent}%`}
+      title={t('rack.zoom')}
       onClick={() => setOpen((value) => !value)}
     >
       <Magnet size={14} aria-hidden="true" />
-      <span>{t('rack.zoom')}</span>
       <output className="rack-zoom-value" aria-hidden="true">{percent}%</output>
       <ChevronDown className="rack-toolbar-picker-chevron" size={14} aria-hidden="true" />
     </button>

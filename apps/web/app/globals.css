@@ -1100,9 +1100,8 @@ button { cursor:pointer; }
 .device-image-frame > .switch-face-fallback--inline .equipment-type-icon-large { flex:none; width:auto; height:min(64px,70%); }
 .device-image-frame > .switch-face-fallback strong,.device-image-frame > .switch-face-fallback small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .device-image-frame > .switch-face-fallback:not(.switch-face-fallback--inline)[data-has-ports] > * { opacity:.5; }
-/* Short face with mapped ports: the ports fill the frame, so only the "no image" note stays, in the corner */
-.device-image-frame > .switch-face-fallback--inline[data-has-ports] { align-items:flex-end; justify-content:flex-end; padding:0 1.5% 2px; }
-.device-image-frame > .switch-face-fallback--inline[data-has-ports] > :not(small) { display:none; }
+/* Short face with mapped ports: the ports fill the frame, so the "no image" note is a caption below it, aligned to its right edge */
+.device-image-frame-note { width:min(100%,900px); margin:6px 0 0; overflow:hidden; color:#64748b; font:10px/1.3 'DM Mono',monospace; text-align:right; text-overflow:ellipsis; white-space:nowrap; }
 .device-image-frame .rack-port-hotspot { z-index:3; }
 .device-image-frame .rack-port-hotspot:hover .rack-port-tooltip,.device-image-frame .rack-port-hotspot:focus-visible .rack-port-tooltip { display:block; }
 .rack-focus-loading { position:relative; z-index:1; padding:24px; border-radius:12px; background:#fff; box-shadow:0 18px 50px rgba(15,23,42,.25); }
@@ -2762,11 +2761,43 @@ body { color:var(--ink); background:#e9eef5; }
 .rack-zoom-panel input[type="range"] { width:100%; margin:0; accent-color:#2c6bed; }
 .rack-zoom-scale { display:flex; justify-content:space-between; color:#7b8798; font:10px 'DM Mono',monospace; }
 .rack-zoom-panel .rack-zoom-fit { justify-content:center; min-height:32px; font-size:11px; }
+/* Rack page: the whole utility bar stays on one row. Nothing in it shrinks below its content, so the
+   location pickers are never covered; the View label is the eye icon, and the action labels give way to
+   icons when the bar is too narrow for them. */
+.rack-detail-actions .secondary-button { gap:6px; }
 @media (min-width:981px) {
-  .context-toolbar:has(.rack-view-tools) { flex-wrap:wrap; row-gap:10px; }
-  /* Keep the building/room bar at its natural width so the rack tools wrap below it instead of covering it */
-  .context-toolbar:has(.rack-view-tools) .context-toolbar-navigation { flex:0 0 auto; }
-  .context-toolbar:has(.rack-view-tools) .context-toolbar-actions { margin-left:auto; }
+  .app-shell .context-toolbar:has(.rack-view-tools) { flex-wrap:nowrap; column-gap:8px; padding-right:16px; padding-left:16px; }
+  .app-shell .context-toolbar:has(.rack-view-tools) .context-toolbar-title { flex:0 0 auto; max-width:none; }
+  .app-shell .context-toolbar:has(.rack-view-tools) .context-toolbar-navigation { flex:0 0 auto; }
+  .app-shell .context-toolbar:has(.rack-view-tools) .context-toolbar-actions { flex:0 0 auto; gap:8px; margin-left:auto; }
+  .context-toolbar:has(.rack-view-tools) .context-toolbar-navigation .infra-context-bar { gap:10px; }
+  .context-toolbar:has(.rack-view-tools) .context-toolbar-navigation .infra-context-bar .location-control-group select { width:clamp(110px, 10vw, 160px); min-width:0; max-width:none; text-overflow:ellipsis; }
+  .rack-view-tools { gap:8px; }
+  .rack-toolbar-picker select { min-width:0; width:92px; }
+  .rack-detail-actions { gap:8px; }
+}
+/* Too narrow for the action labels: icon-only buttons with tooltips (measured: labels need ~1,300px of bar) */
+@media (min-width:981px) and (max-width:1559px) {
+  .app-shell:not(.sidebar-collapsed) .rack-detail-actions .rack-action-label { display:none; }
+  .app-shell:not(.sidebar-collapsed) .rack-detail-actions .secondary-button { justify-content:center; width:35px; padding:0; }
+}
+@media (min-width:981px) and (max-width:1339px) {
+  .app-shell.sidebar-collapsed .rack-detail-actions .rack-action-label { display:none; }
+  .app-shell.sidebar-collapsed .rack-detail-actions .secondary-button { justify-content:center; width:35px; padding:0; }
+}
+/* Expanded sidebar under 1180px: still one row, with tighter gaps, 96px location selects, a shorter View
+   select, the building/room words shown as their icons (the selects keep their accessible names) and the
+   title ellipsized only if it must give way */
+@media (min-width:981px) and (max-width:1179px) {
+  .app-shell:not(.sidebar-collapsed) .context-toolbar:has(.rack-view-tools) { column-gap:6px; padding-right:12px; padding-left:12px; }
+  .app-shell:not(.sidebar-collapsed) .context-toolbar:has(.rack-view-tools) .context-toolbar-title { flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+  .app-shell:not(.sidebar-collapsed) .context-toolbar:has(.rack-view-tools) .context-toolbar-actions { gap:6px; }
+  .app-shell:not(.sidebar-collapsed) .context-toolbar:has(.rack-view-tools) .context-toolbar-navigation .infra-context-bar { gap:6px; }
+  .app-shell:not(.sidebar-collapsed) .context-toolbar:has(.rack-view-tools) .context-toolbar-navigation .infra-context-bar .location-control-group select { width:96px; padding-right:8px; padding-left:8px; }
+  .app-shell:not(.sidebar-collapsed) .rack-view-tools,.app-shell:not(.sidebar-collapsed) .rack-detail-actions { gap:6px; }
+  .app-shell:not(.sidebar-collapsed) .rack-toolbar-picker select { width:84px; padding-right:8px; padding-left:8px; }
+  .app-shell:not(.sidebar-collapsed) .rack-toolbar-picker-trigger { padding-right:8px; padding-left:8px; }
+  .app-shell:not(.sidebar-collapsed) .context-toolbar:has(.rack-view-tools) .infra-context-bar .location-control-group > label > span { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
 }
 @media (max-width:780px) {
   .context-toolbar-actions > .context-toolbar-contribution:has(.rack-view-tools) { grid-column:1 / -1; }

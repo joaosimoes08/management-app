@@ -1,9 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { cleanup, render } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Device } from '../types';
 import { DeviceImageFrame } from './device-image-frame';
+
+const messages: Record<string, string> = { 'device.noRearImage': 'Sem imagem traseira', 'device.noFrontImage': 'Sem imagem frontal' };
+vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string) => messages[key] ?? key }) }));
 
 afterEach(() => cleanup());
 
@@ -21,8 +24,23 @@ describe('DeviceImageFrame without a face image', () => {
     const fallback = frame.querySelector(':scope > .switch-face-fallback') as HTMLElement;
     expect(fallback).toHaveClass('switch-face-fallback--inline');
     expect(fallback).toHaveAttribute('data-has-ports', 'true');
-    expect(fallback).toHaveTextContent('Sem imagem traseira');
     expect(frame.querySelectorAll(':scope > .rack-port-hotspot')).toHaveLength(2);
+  });
+
+  it('puts the no-image note in a caption below the frame when ports fill a short face, never over a port', () => {
+    const { container } = render(<DeviceImageFrame device={switchWithRearPorts(615, 66)} interfaces={[]} face="rear" />);
+    const frame = container.querySelector('.device-image-frame') as HTMLElement;
+    expect(frame).not.toHaveTextContent('Sem imagem traseira');
+    const note = container.querySelector('.device-image-frame-note') as HTMLElement;
+    expect(note).toHaveTextContent('Sem imagem traseira');
+    expect(note.previousElementSibling).toBe(frame);
+    expect(frame.contains(note)).toBe(false);
+  });
+
+  it('keeps the note inside the placeholder when a short face has no ports', () => {
+    const { container } = render(<DeviceImageFrame device={switchWithRearPorts(615, 66, [port('Gi1/1', 0.05)])} interfaces={[]} face="front" />);
+    expect(container.querySelector('.device-image-frame-note')).toBeNull();
+    expect(container.querySelector('.device-image-frame .switch-face-fallback')).toHaveTextContent('Sem imagem frontal');
   });
 
   it('stacks the placeholder on tall faces and marks when no ports are drawn', () => {
