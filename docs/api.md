@@ -178,11 +178,52 @@ Remoções com dependências são recusadas para preservar a hierarquia física 
 - Estados de VLAN: `CONFIGURED`, `MISSING_SUBNET` e `NO_EQUIPMENT`.
 - Racks, devices e modelos aceitam `frontAssetId`; devices e modelos aceitam também `backAssetId` (vista traseira). Os ícones de devices e modelos são determinados automaticamente pelo tipo.
 - Criar um modelo exige `frontAssetId` (`400 FRONT_IMAGE_REQUIRED`); editar não pode remover uma imagem frontal existente.
-- Criar equipamentos (manual, importação CSV, alteração de modelo em lote, onboarding SNMP) exige que todas as portas de rede do modelo estejam mapeadas entre as faces (`400 PORT_LAYOUT_INCOMPLETE`, com `expected`, `mapped`, `partialFaces`, `byFace`).
+- Criar equipamentos ou mudar-lhes o modelo (manual, edição, importação CSV, alteração de modelo em lote, onboarding SNMP) exige que todas as portas de rede do modelo estejam mapeadas entre as faces (`400 PORT_LAYOUT_INCOMPLETE`, com `expected`, `mapped`, `partialFaces`, `byFace`).
 
-- `GET /api/v1/device-models/:id/port-layout?face=front|rear` — layout v2 do modelo, a face pedida (`faceLayout`), a imagem dessa face (`asset`) e o estado do mapeamento (`mapping`). `face` por omissão: `rear`.
+- `GET /api/v1/device-models/:id/port-layout?face=front|rear` — layout v2 do modelo, a face pedida (`faceLayout`), a imagem dessa face (`asset`) e o estado do mapeamento (`mapping`). `face` por omissão: `rear`. Inclui `revision` (token de concorrência).
 - `PUT /api/v1/device-models/:id/port-layout?face=front|rear` — substitui só essa face (`imageWidth`, `imageHeight`, `viewport?`, `ports[]`, `assetId?`). Rejeita portas incompletas, `portKey` duplicado entre faces e mais portas do que o modelo tem.
-- `PATCH /api/v1/device-models/:id/port-layout?face=` — alias legado: funde os campos enviados na face.
+- `PATCH /api/v1/device-models/:id/port-layout?face=` — alias legado: funde os campos enviados na face. PUT e PATCH por face aceitam `revision` opcional (409 `PORT_LAYOUT_CONFLICT` se estiver desatualizada).
+- `PUT /api/v1/device-models/:id/port-layout/faces` — **gravação atómica das duas faces** (usada pelo editor). Ver contrato abaixo.
+- Regra de contagem de portas: `expected = supportsNetworkPorts ? (networkPortCount ?? portCount ?? 0) : 0`; um 0 explícito significa sem portas. Só portas completamente mapeadas (`portKey`, `x`, `y`, `width > 0`, `height > 0`) contam.
+
+#### `PUT /api/v1/device-models/:id/port-layout/faces`
+
+Pedido:
+
+```json
+{
+  "revision": "9f2c4e1a0b7d3c55",
+  "faces": {
+    "front": { "imageWidth": 1000, "imageHeight": 300, "viewport": { "left": 0, "top": 0, "width": 1, "height": 1 }, "assetId": "<uuid opcional>", "ports": [ { "portKey": "ethernet1/1", "label": "1", "interfaceType": "RJ45", "x": 0.1, "y": 0.2, "width": 0.02, "height": 0.1 } ] },
+    "rear": null
+  }
+}
+```
+
+- `revision` (obrigatório): o valor do último `GET port-layout` (ou da última gravação).
+- `faces.front` / `faces.rear`: um objeto **substitui** essa face (`ports` obrigatório; `imageWidth`, `imageHeight`, `viewport` opcionais); `assetId` opcional define a imagem dessa face (`frontAssetId` / `backAssetId`) na mesma transação; `null` **remove o mapa** dessa face (a imagem mantém-se); chave ausente deixa a face como está. Pelo menos uma face.
+- Validação conjunta das duas faces: nenhuma porta meio mapeada, nenhum `portKey` repetido entre faces (sem distinção de maiúsculas), total de portas mapeadas ≤ `expected`. O mapeamento completo (total = `expected`) não é exigido aqui; é exigido ao criar equipamentos.
+- Ambas as faces e imagens são gravadas numa única transação, com a linha do modelo bloqueada (`SELECT … FOR UPDATE`).
+
+Resposta `200`: `{ id, model, frontAssetId, backAssetId, frontAsset, backAsset, networkPortCount, portCount, supportsNetworkPorts, portLayout, revision, mapping }`, onde `portLayout` é o layout v2 normalizado, `revision` é a nova revisão e `mapping` é `{ required, expected, mapped, partialFaces, complete, byFace }`.
+
+Erros:
+
+| Estado | `code` | Quando |
+|---|---|---|
+| 400 | `PORT_LAYOUT_REVISION_REQUIRED` | falta `revision` |
+| 400 | `PORT_LAYOUT_FACES_REQUIRED` | falta `faces` ou está vazio |
+| 400 | `PORT_LAYOUT_FACE_INVALID` | face diferente de `front`/`rear`, ou face que não é objeto nem `null` |
+| 400 | `PORT_LAYOUT_PORTS_REQUIRED` | face sem lista `ports` |
+| 400 | `PORT_LAYOUT_INCOMPLETE` | porta meio mapeada (`face`, `partialPorts`) |
+| 400 | `PORT_LAYOUT_DUPLICATE_PORT` | `portKey` repetido (`portKey`) |
+| 400 | `PORT_LAYOUT_TOO_MANY_PORTS` | mais portas do que `expected` (`expected`, `mapped`) |
+| 400 | `ASSET_ID_REQUIRED` / `ASSET_NOT_IMAGE` | `assetId` vazio / asset que não é imagem |
+| 404 | — | modelo ou imagem inexistente |
+| 409 | `PORT_LAYOUT_CONFLICT` | `revision` desatualizada; a resposta traz a `revision` atual. Recarregar com GET e reaplicar. |
+
+A `revision` é um hash do layout normalizado e das duas imagens do modelo: qualquer gravação, por qualquer endpoint, muda-a.
+
 - `POST /api/v1/device-models/:id/port-layout/generate?face=` — gera a grelha das portas ainda não mapeadas noutra face.
 - Formato v2 de `portLayout`: `{ version: 2, family?, faces: { front?, rear? } }`; cada face é `{ imageWidth, imageHeight, viewport?, ports[] }`. Layouts antigos (v1) são lidos como `faces.rear`. Migração de dados: `docs/rack-front-rear-migration.md`.
 - Equipamentos aceitam `managementIpAddressId` para associar o IP de gestão ao IPAM; `managementIp` continua disponível como campo rápido.
@@ -190,9 +231,10 @@ Remoções com dependências são recusadas para preservar a hierarquia física 
 ### Editor visual de portas
 
 - `POST /api/v1/device-models/:id/assets/front` — associa um AssetFile à imagem frontal do modelo.
-- `POST /api/v1/device-models/:id/assets/rear` — associa um AssetFile à imagem traseira do modelo.
+- `POST /api/v1/device-models/:id/assets/rear` — associa um AssetFile à imagem traseira do modelo. Ambos exigem um asset de imagem (`400 ASSET_NOT_IMAGE`).
+- `GET /api/v1/assets/:id/file` — serve o ficheiro com `Content-Security-Policy: …; sandbox` e `nosniff`, para que um SVG aberto diretamente não execute scripts.
 - `POST /api/v1/device-models/:id/port-layout/detect?face=` — devolve uma proposta não persistida de grelha de portas.
-- `PUT /api/v1/device-models/:id/port-layout?face=` — confirma o template dessa face com coordenadas normalizadas.
+- `PUT /api/v1/device-models/:id/port-layout/faces` — confirma as duas faces de uma vez (recomendado); `PUT …/port-layout?face=` grava só uma face.
 - `POST /api/v1/devices/:deviceId/interfaces/generate` — cria apenas interfaces que ainda não existem.
 - `POST /api/v1/assets/cleanup-legacy` — limpeza administrativa idempotente dos assets legados pedidos.
 - `DELETE /api/v1/assets/:id` — elimina o asset depois de desassociar referências visuais, com auditoria.

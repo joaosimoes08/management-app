@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { strict as assert } from 'node:assert';
 import { describe, test } from 'node:test';
-import { BadRequestException, RequestMethod } from '@nestjs/common';
+import { BadRequestException, ConflictException, RequestMethod } from '@nestjs/common';
 import { InfrastructureService } from './infrastructure.service';
 import { InfrastructureController } from './infrastructure.controller';
 
@@ -9,7 +9,7 @@ const user = { id: 'user-1', username: 'admin', roles: ['ADMIN'] } as any;
 const port = (n: number) => ({ portKey: `ethernet1/${n}`, label: `${n}`, interfaceType: 'RJ45', x: 0.1, y: 0.1, width: 0.02, height: 0.1 });
 
 function harness(model: Record<string, unknown>, assets: string[] = ['asset-front', 'asset-rear']) {
-  const updates: any[] = []; const creates: any[] = []; const audits: any[] = [];
+  const updates: any[] = []; const creates: any[] = []; const audits: any[] = []; const locks: number[] = [];
   let stored = { id: 'model-1', model: 'C9300', frontAssetId: null, backAssetId: null, frontAsset: null, backAsset: null, portLayout: null, networkPortCount: 4, portCount: 4, supportsNetworkPorts: true, ...model } as any;
   const prisma = {
     deviceModel: {
@@ -19,17 +19,19 @@ function harness(model: Record<string, unknown>, assets: string[] = ['asset-fron
     },
     assetFile: {
       count: async ({ where }: any) => (assets.includes(where.id) ? 1 : 0),
-      findUnique: async ({ where }: any) => (assets.includes(where.id) ? { id: where.id } : null),
+      findUnique: async ({ where }: any) => (assets.includes(where.id) ? { id: where.id, mimeType: where.id === 'asset-pdf' ? 'application/pdf' : 'image/png' } : null),
     },
     auditLog: { create: async (args: any) => { audits.push(args); return args.data; } },
+    $queryRaw: async () => { locks.push(1); return []; },
   } as any;
+  prisma.$transaction = async (fn: (tx: any) => unknown) => { const snapshot = stored; try { return await fn(prisma); } catch (error) { stored = snapshot; throw error; } };
   const audit = { record: async (args: any) => audits.push(args), scheduleInventoryQualityReconcile: async () => undefined } as any;
   const subject = new InfrastructureService(prisma, audit, {} as any, {} as any);
   (subject as any).log = async (...args: unknown[]) => { audits.push(args); };
-  return { subject, updates, creates, get stored() { return stored; } };
+  return { subject, updates, creates, locks, get stored() { return stored; } };
 }
 
-const code = (expected: string) => (error: unknown) => error instanceof BadRequestException && (error.getResponse() as any).code === expected;
+const code = (expected: string) => (error: unknown) => (error instanceof BadRequestException || error instanceof ConflictException) && (error.getResponse() as any).code === expected;
 
 describe('port-layout endpoints per face', () => {
   test('GET returns normalised v2 with the requested face, its image and the mapping status', async () => {
@@ -101,6 +103,75 @@ describe('port-layout endpoints per face', () => {
   });
 });
 
+describe('atomic save of both faces (PUT port-layout/faces)', () => {
+  const face = (ports: unknown[], extra: Record<string, unknown> = {}) => ({ imageWidth: 1000, imageHeight: 300, ports, ...extra });
+
+  test('GET returns a revision that changes after any write', async () => {
+    const h = harness({});
+    const first = await h.subject.getPortLayout('model-1');
+    assert.match(first.revision, /^[0-9a-f]{16}$/);
+    await h.subject.updatePortLayout('model-1', face([port(1)]), user, 'rear');
+    assert.notEqual((await h.subject.getPortLayout('model-1')).revision, first.revision);
+  });
+
+  test('writes both faces and both images in one locked transaction and returns the new revision', async () => {
+    const h = harness({});
+    const { revision } = await h.subject.getPortLayout('model-1');
+    const result: any = await h.subject.savePortLayoutFaces('model-1', { revision, faces: { front: face([port(1)], { assetId: 'asset-front' }), rear: face([port(2), port(3), port(4)], { assetId: 'asset-rear' }) } }, user);
+    assert.equal(h.updates.length, 1);
+    assert.equal(h.locks.length, 1);
+    assert.equal(h.updates[0].data.frontAssetId, 'asset-front');
+    assert.equal(h.updates[0].data.backAssetId, 'asset-rear');
+    assert.deepEqual(Object.keys(h.updates[0].data.portLayout.faces).sort(), ['front', 'rear']);
+    assert.equal(result.mapping.complete, true);
+    assert.equal(result.portLayout.version, 2);
+    assert.notEqual(result.revision, revision);
+    assert.equal(result.revision, (await h.subject.getPortLayout('model-1')).revision);
+    assert.equal('faceLayout' in result, false);
+  });
+
+  test('a stale revision gets 409 PORT_LAYOUT_CONFLICT with the current revision and saves nothing', async () => {
+    const h = harness({});
+    const { revision } = await h.subject.getPortLayout('model-1');
+    await h.subject.updatePortLayout('model-1', face([port(1)]), user, 'rear');
+    const current = (await h.subject.getPortLayout('model-1')).revision;
+    await assert.rejects(h.subject.savePortLayoutFaces('model-1', { revision, faces: { front: face([port(2)]) } }, user), (error: any) => error instanceof ConflictException && (error.getResponse() as any).code === 'PORT_LAYOUT_CONFLICT' && (error.getResponse() as any).revision === current);
+    assert.equal(h.updates.length, 1);
+  });
+
+  test('validates both faces together: duplicates across faces, total over the port count, half-mapped ports', async () => {
+    const h = harness({});
+    const { revision } = await h.subject.getPortLayout('model-1');
+    await assert.rejects(h.subject.savePortLayoutFaces('model-1', { revision, faces: { front: face([port(1)]), rear: face([port(1)]) } }, user), code('PORT_LAYOUT_DUPLICATE_PORT'));
+    await assert.rejects(h.subject.savePortLayoutFaces('model-1', { revision, faces: { front: face([port(1), port(2)]), rear: face([port(3), port(4), port(5)]) } }, user), code('PORT_LAYOUT_TOO_MANY_PORTS'));
+    await assert.rejects(h.subject.savePortLayoutFaces('model-1', { revision, faces: { front: face([port(1)]), rear: face([{ portKey: 'ethernet1/2', x: 0.1 }]) } }, user), code('PORT_LAYOUT_INCOMPLETE'));
+    assert.equal(h.updates.length, 0);
+  });
+
+  test('null removes a face map, an absent face is left alone', async () => {
+    const h = harness({ portLayout: { version: 2, faces: { front: face([port(1)]), rear: face([port(2)]) } } });
+    const { revision } = await h.subject.getPortLayout('model-1');
+    await h.subject.savePortLayoutFaces('model-1', { revision, faces: { front: null } }, user);
+    assert.deepEqual(h.updates[0].data.portLayout.faces, { rear: face([port(2)]) });
+    assert.equal('frontAssetId' in h.updates[0].data, false);
+  });
+
+  test('rejects a missing revision, missing faces, unknown faces and non-image assets', async () => {
+    const h = harness({}, ['asset-front', 'asset-rear', 'asset-pdf']);
+    const { revision } = await h.subject.getPortLayout('model-1');
+    await assert.rejects(h.subject.savePortLayoutFaces('model-1', { faces: { rear: face([]) } }, user), code('PORT_LAYOUT_REVISION_REQUIRED'));
+    await assert.rejects(h.subject.savePortLayoutFaces('model-1', { revision, faces: {} }, user), code('PORT_LAYOUT_FACES_REQUIRED'));
+    await assert.rejects(h.subject.savePortLayoutFaces('model-1', { revision, faces: { side: face([]) } }, user), code('PORT_LAYOUT_FACE_INVALID'));
+    await assert.rejects(h.subject.savePortLayoutFaces('model-1', { revision, faces: { rear: face([], { assetId: 'asset-pdf' }) } }, user), code('ASSET_NOT_IMAGE'));
+    assert.equal(h.updates.length, 0);
+  });
+
+  test('per-face PUT also honours an optional revision', async () => {
+    const h = harness({});
+    await assert.rejects(h.subject.updatePortLayout('model-1', { ...face([port(1)]), revision: 'stale' }, user, 'rear'), code('PORT_LAYOUT_CONFLICT'));
+  });
+});
+
 describe('model front image rule', () => {
   const dto = { manufacturer: 'Cisco', model: 'C9300', supportsNetworkPorts: true, networkPortCount: 4 };
 
@@ -144,9 +215,60 @@ describe('device creation enforces mapping per face', () => {
     await assert.rejects((h.subject as any).validateDeviceModel('model-1'), code('PORT_LAYOUT_INCOMPLETE'));
   });
 
+  test('an explicit networkPortCount of 0 means no ports, even when portCount is set', async () => {
+    const h = harness({ networkPortCount: 0, portCount: 48, portLayout: null });
+    await (h.subject as any).validateDeviceModel('model-1');
+  });
+
   test('validateDeviceModel does not block models without network ports', async () => {
     const h = harness({ supportsNetworkPorts: false, portLayout: null });
     await (h.subject as any).validateDeviceModel('model-1');
+  });
+});
+
+describe('device update', () => {
+  function deviceHarness(current: Record<string, unknown>, model: Record<string, unknown>) {
+    const updates: any[] = [];
+    const prisma: any = {
+      device: { findUnique: async () => ({ status: 'ACTIVE', siteId: 'site-1', rackId: null, modelId: 'model-old', frontAssetId: 'asset-front', backAssetId: 'asset-rear', type: 'SWITCH', rack: null, ...current }), update: async (args: any) => { updates.push(args); return { id: 'device-1' }; } },
+      deviceModel: { findUnique: async () => ({ model: 'M', supportsNetworkPorts: true, networkPortCount: 2, portCount: 2, portLayout: null, ...model }) },
+      assetFile: { findUnique: async ({ where }: any) => ({ id: where.id, mimeType: 'image/png' }) },
+    };
+    prisma.$transaction = async (fn: any) => fn(prisma);
+    const access = { assertDevice: async () => undefined, assertRack: async () => undefined, assertSite: async () => undefined } as any;
+    const subject = new InfrastructureService(prisma, {} as any, access, {} as any);
+    (subject as any).log = async () => undefined;
+    (subject as any).getDevice = async () => ({ id: 'device-1' });
+    return { subject, updates };
+  }
+  const base = { name: 'sw-01', type: 'SWITCH' } as any;
+
+  test('changing the model to one that is not fully mapped is rejected with PORT_LAYOUT_INCOMPLETE', async () => {
+    const h = deviceHarness({}, {});
+    await assert.rejects(h.subject.updateDevice('device-1', { ...base, modelId: 'model-new' }, user), code('PORT_LAYOUT_INCOMPLETE'));
+    assert.equal(h.updates.length, 0);
+  });
+
+  test('keeping the same model does not re-check its mapping', async () => {
+    const h = deviceHarness({}, {});
+    await h.subject.updateDevice('device-1', { ...base, modelId: 'model-old' }, user);
+    assert.equal(h.updates.length, 1);
+  });
+
+  test('an update without frontAssetId/backAssetId never touches those columns', async () => {
+    const h = deviceHarness({}, {});
+    await h.subject.updateDevice('device-1', { ...base, notes: 'x' }, user);
+    assert.equal('frontAssetId' in h.updates[0].data, false);
+    assert.equal('backAssetId' in h.updates[0].data, false);
+    await h.subject.updateDevice('device-1', { ...base, backAssetId: undefined } as any, user);
+    assert.equal('backAssetId' in h.updates[1].data, false);
+  });
+
+  test('null (or an empty string) clears the image on purpose', async () => {
+    const h = deviceHarness({}, {});
+    await h.subject.updateDevice('device-1', { ...base, backAssetId: null, frontAssetId: '' } as any, user);
+    assert.equal(h.updates[0].data.backAssetId, null);
+    assert.equal(h.updates[0].data.frontAssetId, null);
   });
 });
 
@@ -161,6 +283,7 @@ describe('controller routes', () => {
     assert.deepEqual(route('replacePortLayout'), { path: 'device-models/:id/port-layout', method: RequestMethod.PUT });
     assert.deepEqual(route('updatePortLayout'), { path: 'device-models/:id/port-layout', method: RequestMethod.PATCH });
     assert.deepEqual(route('setModelRearAsset'), { path: 'device-models/:id/assets/rear', method: RequestMethod.POST });
+    assert.deepEqual(route('savePortLayoutFaces'), { path: 'device-models/:id/port-layout/faces', method: RequestMethod.PUT });
   });
 
   test('passes ?face through, defaults to rear and rejects unknown faces', async () => {

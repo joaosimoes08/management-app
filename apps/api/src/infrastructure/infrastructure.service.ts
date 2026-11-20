@@ -5,7 +5,7 @@ import { AuthenticatedUser } from '../auth/auth.service';
 import { CreateAssetDto, CreateBuildingDto, CreateDeviceDto, CreateDeviceModelDto, CreateInterfaceDto, CreateRackDto, CreateRackModelDto, CreateRoomDto, DetectPortLayoutDto, PlaceDeviceDto, ReorderRacksDto, UpdateBuildingDto, UpdateDeviceDto, UpdateDeviceModelDto, UpdateInterfaceDto, UpdateRackDto, UpdateRackModelDto, UpdateRoomDto } from './dto';
 import { findRackImportOverlaps, planRackPlacement, type RackPlacementPlan } from './rack-placement';
 import { PersistedDeviceAuditError, updateDevicesIndividually } from './bulk-update';
-import { allLayoutPorts, assertPortMappingComplete, assertWritableLayout, expectedNetworkPorts, faceAssetField, isPortMapped, normalizeModelLayouts, normalizePortLayout, portMappingStatus, seedPortLayout, writeFace, type FaceInput, type PortLayoutFace } from './port-layout';
+import { allLayoutPorts, applyFaces, assertPortMappingComplete, assertWritableFaces, assertWritableLayout, expectedNetworkPorts, faceAssetField, isPortMapped, normalizeModelLayouts, normalizePortLayout, PORT_LAYOUT_FACES, portLayoutRevision, portMappingStatus, seedPortLayout, writeFace, type FaceInput, type FacesInput, type PortLayoutFace } from './port-layout';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { extname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -224,7 +224,18 @@ export class InfrastructureService implements OnModuleInit {
     return { updated: outcome.updatedIds.length, updatedIds: outcome.updatedIds, failed: outcome.failed, auditFailed: outcome.auditFailed, batchAuditFailed };
   }
   private async validateDeviceModel(modelId?: string) { if (!modelId) return; const model = await this.prisma.deviceModel.findUnique({ where: { id: modelId }, select: { model: true, supportsNetworkPorts: true, networkPortCount: true, portCount: true, portLayout: true } }); if (!model) throw new NotFoundException('Modelo não encontrado'); assertPortMappingComplete(model); }
-  private async validateDeviceAsset(assetId: string | null | undefined, face: PortLayoutFace) { if (!assetId) return; const asset = await this.prisma.assetFile.count({ where: { id: assetId } }); if (asset !== 1) throw new NotFoundException(face === 'front' ? 'A imagem frontal selecionada não foi encontrada' : 'A imagem traseira selecionada não foi encontrada'); }
+  private async validateDeviceAsset(assetId: string | null | undefined, face: PortLayoutFace) { if (assetId) await this.assertFaceImage(assetId, face); }
+  /** Image fields of a device update: an absent field never touches the column, null (or '') clears it on purpose. */
+  private normalizeDeviceAssetFields<T extends { frontAssetId?: string | null; backAssetId?: string | null }>(dto: T): T { const next = { ...dto }; for (const field of ['frontAssetId', 'backAssetId'] as const) { if (!(field in next) || next[field] === undefined) delete next[field]; else if (next[field] === '') next[field] = null; } return next; }
+  /**
+   * A face image must be an existing image asset. Uploads only accept SVG/PNG/JPEG/WebP, and asset `kind` is free text
+   * (the web sends 'INFRASTRUCTURE' for every upload), so the MIME type is the purpose check available today.
+   */
+  private async assertFaceImage(assetId: string, face: PortLayoutFace, client: { assetFile: { findUnique: (args: any) => Promise<any> } } = this.prisma) {
+    const asset = await client.assetFile.findUnique({ where: { id: assetId }, select: { id: true, mimeType: true } });
+    if (!asset) throw new NotFoundException(face === 'front' ? 'A imagem frontal selecionada não foi encontrada' : 'A imagem traseira selecionada não foi encontrada');
+    if (asset.mimeType && !String(asset.mimeType).startsWith('image/')) throw new BadRequestException({ code: 'ASSET_NOT_IMAGE', message: 'O asset selecionado não é uma imagem.', face });
+  }
   private async validateDeviceFrontAsset(frontAssetId?: string) { return this.validateDeviceAsset(frontAssetId, 'front'); }
   /**
    * Model create/edit rules: a front image is required on create (FRONT_IMAGE_REQUIRED) and cannot be removed on edit.
@@ -238,7 +249,7 @@ export class InfrastructureService implements OnModuleInit {
     if (current && removesFront && current.frontAssetId) throw new BadRequestException({ code: 'FRONT_IMAGE_REQUIRED', message: 'A imagem frontal do modelo é obrigatória e não pode ser removida.' });
     if (removesFront) data.frontAssetId = null;
     if (dto.backAssetId === '') data.backAssetId = null;
-    for (const [face, assetId] of [['front', data.frontAssetId], ['rear', data.backAssetId]] as const) if (typeof assetId === 'string' && await this.prisma.assetFile.count({ where: { id: assetId } }) !== 1) throw new NotFoundException(face === 'front' ? 'A imagem frontal selecionada não foi encontrada' : 'A imagem traseira selecionada não foi encontrada');
+    for (const [face, assetId] of [['front', data.frontAssetId], ['rear', data.backAssetId]] as const) if (typeof assetId === 'string') await this.assertFaceImage(assetId, face);
     if (dto.portLayout !== undefined) {
       const layout = normalizePortLayout(dto.portLayout);
       if (layout) for (const face of ['front', 'rear'] as const) if (layout.faces[face]) assertWritableLayout(layout, face, { ...dto });
@@ -253,7 +264,7 @@ export class InfrastructureService implements OnModuleInit {
     const ip = await this.ipamAccess.assertIp(user, 'UPDATE', managementIpAddressId);
     if (ip.subnet.siteId !== siteId) throw new ConflictException({ code: 'MANAGEMENT_IP_SITE_MISMATCH', message: 'O IP de gestão tem de pertencer ao mesmo Site do equipamento.' });
   }
-  async createDevice(dto: CreateDeviceDto, user: AuthenticatedUser) { this.assertDeviceCapability(user, dto.type); if (dto.rackId) await this.access.assertRack(user, 'CREATE', dto.rackId, 'DEVICE', dto.type); else if (dto.siteId) await this.access.assertSite(user, 'CREATE', dto.siteId, 'DEVICE', dto.type); else throw new ConflictException('Seleciona um Site ou bastidor para o equipamento'); await this.validateDeviceModel(dto.modelId); await this.validateDeviceFrontAsset(dto.frontAssetId); await this.validateDeviceAsset(dto.backAssetId, 'rear'); await this.validateRackPlacement(dto); const targetSiteId = dto.rackId ? await this.rackSiteId(dto.rackId) : dto.siteId; if (!targetSiteId) throw new NotFoundException('Site do equipamento não encontrado'); await this.validateManagementIp(user, dto.managementIpAddressId, targetSiteId); try { const item = await this.prisma.$transaction(async (tx) => { const data = { ...dto, siteId: targetSiteId, status: (dto.rackId && dto.status !== 'RETIRED' ? 'ACTIVE' : (dto.status ?? 'UNKNOWN')) as never } as any; delete data.managementIpAddressId; const created = await tx.device.create({ data }); if (dto.managementIpAddressId) await tx.ipAddress.update({ where: { id: dto.managementIpAddressId }, data: { deviceId: created.id } }); return created; }); await this.log(user, 'DEVICE_CREATED', 'Device', item.id); return this.getDevice(item.id, user); } catch (error) { if (error instanceof ConflictException) throw error; throw new ConflictException('Não foi possível criar o equipamento'); } }
+  async createDevice(dto: CreateDeviceDto, user: AuthenticatedUser) { dto = this.normalizeDeviceAssetFields(dto); this.assertDeviceCapability(user, dto.type); if (dto.rackId) await this.access.assertRack(user, 'CREATE', dto.rackId, 'DEVICE', dto.type); else if (dto.siteId) await this.access.assertSite(user, 'CREATE', dto.siteId, 'DEVICE', dto.type); else throw new ConflictException('Seleciona um Site ou bastidor para o equipamento'); await this.validateDeviceModel(dto.modelId); await this.validateDeviceFrontAsset(dto.frontAssetId); await this.validateDeviceAsset(dto.backAssetId, 'rear'); await this.validateRackPlacement(dto); const targetSiteId = dto.rackId ? await this.rackSiteId(dto.rackId) : dto.siteId; if (!targetSiteId) throw new NotFoundException('Site do equipamento não encontrado'); await this.validateManagementIp(user, dto.managementIpAddressId, targetSiteId); try { const item = await this.prisma.$transaction(async (tx) => { const data = { ...dto, siteId: targetSiteId, status: (dto.rackId && dto.status !== 'RETIRED' ? 'ACTIVE' : (dto.status ?? 'UNKNOWN')) as never } as any; delete data.managementIpAddressId; const created = await tx.device.create({ data }); if (dto.managementIpAddressId) await tx.ipAddress.update({ where: { id: dto.managementIpAddressId }, data: { deviceId: created.id } }); return created; }); await this.log(user, 'DEVICE_CREATED', 'Device', item.id); return this.getDevice(item.id, user); } catch (error) { if (error instanceof ConflictException) throw error; throw new ConflictException('Não foi possível criar o equipamento'); } }
   private async buildDevicePlacementPlan(client: any, id: string, dto: PlaceDeviceDto) {
     const device = await client.device.findUnique({ where: { id }, include: { rack: { include: { room: { include: { building: true } } } } } });
     if (!device) throw new NotFoundException('Equipamento não encontrado');
@@ -321,7 +332,7 @@ export class InfrastructureService implements OnModuleInit {
     await this.log(user, 'DEVICE_PLACEMENT_UPDATED', 'Device', id, { changes: plan.changes });
     return plan;
   }
-  async updateDevice(id: string, dto: UpdateDeviceDto, user: AuthenticatedUser, preserveRequestedStatus = false) { const current = await this.prisma.device.findUnique({ where: { id }, select: { status: true, siteId: true, rackId: true, frontAssetId: true, backAssetId: true, type: true, rack: { select: { room: { select: { building: { select: { siteId: true } } } } } } } }); if (!current) throw new NotFoundException('Equipamento não encontrado'); this.assertDeviceCapability(user, current.type); this.assertDeviceCapability(user, dto.type); await this.access.assertDevice(user, 'UPDATE', id); if (dto.rackId && dto.rackId !== current.rackId) await this.access.assertRack(user, 'UPDATE', dto.rackId, 'DEVICE', dto.type); await this.validateDeviceFrontAsset(dto.frontAssetId ?? current.frontAssetId ?? undefined); await this.validateDeviceAsset(dto.backAssetId === undefined ? current.backAssetId : dto.backAssetId, 'rear'); await this.validateRackPlacement(dto, id); const currentSiteId = current.rack?.room.building.siteId ?? current.siteId; const targetSiteId = dto.rackId ? await this.rackSiteId(dto.rackId) : dto.siteId ?? currentSiteId; if (!targetSiteId) throw new NotFoundException('Site do equipamento não encontrado'); if (dto.rackId && dto.siteId && dto.siteId !== targetSiteId) throw new ConflictException('O bastidor não pertence ao Site selecionado'); if (!dto.rackId && targetSiteId !== currentSiteId) await this.access.assertSite(user, 'UPDATE', targetSiteId, 'DEVICE', dto.type); await this.validateManagementIp(user, dto.managementIpAddressId, targetSiteId); const status = !preserveRequestedStatus && dto.rackId && current.status !== 'RETIRED' ? 'ACTIVE' : (dto.status ?? current.status); const item = await this.prisma.$transaction(async (tx) => { const data = { ...dto, siteId: targetSiteId, status: status as never, managementIpAddressId: undefined } as any; delete data.managementIpAddressId; const updated = await tx.device.update({ where: { id }, data }); if (dto.managementIpAddressId) await tx.ipAddress.update({ where: { id: dto.managementIpAddressId }, data: { deviceId: id } }); return updated; }).catch(() => { throw new ConflictException('Não foi possível atualizar o equipamento e o respetivo IP de gestão'); }); try { await this.log(user, 'DEVICE_UPDATED', 'Device', id, { rackId: dto.rackId, managementIp: dto.managementIp, managementIpAddressId: dto.managementIpAddressId }); } catch (error) { if (preserveRequestedStatus) throw new PersistedDeviceAuditError(id); throw error; } return preserveRequestedStatus ? item : this.getDevice(item.id, user); }
+  async updateDevice(id: string, dto: UpdateDeviceDto, user: AuthenticatedUser, preserveRequestedStatus = false) { dto = this.normalizeDeviceAssetFields(dto); const current = await this.prisma.device.findUnique({ where: { id }, select: { status: true, siteId: true, rackId: true, modelId: true, frontAssetId: true, backAssetId: true, type: true, rack: { select: { room: { select: { building: { select: { siteId: true } } } } } } } }); if (!current) throw new NotFoundException('Equipamento não encontrado'); this.assertDeviceCapability(user, current.type); this.assertDeviceCapability(user, dto.type); await this.access.assertDevice(user, 'UPDATE', id); if (dto.rackId && dto.rackId !== current.rackId) await this.access.assertRack(user, 'UPDATE', dto.rackId, 'DEVICE', dto.type); if (dto.modelId && dto.modelId !== current.modelId) await this.validateDeviceModel(dto.modelId); await this.validateDeviceAsset(dto.frontAssetId === undefined ? current.frontAssetId : dto.frontAssetId, 'front'); await this.validateDeviceAsset(dto.backAssetId === undefined ? current.backAssetId : dto.backAssetId, 'rear'); await this.validateRackPlacement(dto, id); const currentSiteId = current.rack?.room.building.siteId ?? current.siteId; const targetSiteId = dto.rackId ? await this.rackSiteId(dto.rackId) : dto.siteId ?? currentSiteId; if (!targetSiteId) throw new NotFoundException('Site do equipamento não encontrado'); if (dto.rackId && dto.siteId && dto.siteId !== targetSiteId) throw new ConflictException('O bastidor não pertence ao Site selecionado'); if (!dto.rackId && targetSiteId !== currentSiteId) await this.access.assertSite(user, 'UPDATE', targetSiteId, 'DEVICE', dto.type); await this.validateManagementIp(user, dto.managementIpAddressId, targetSiteId); const status = !preserveRequestedStatus && dto.rackId && current.status !== 'RETIRED' ? 'ACTIVE' : (dto.status ?? current.status); const item = await this.prisma.$transaction(async (tx) => { const data = { ...dto, siteId: targetSiteId, status: status as never, managementIpAddressId: undefined } as any; delete data.managementIpAddressId; for (const field of ['frontAssetId', 'backAssetId']) if (data[field] === undefined) delete data[field]; const updated = await tx.device.update({ where: { id }, data }); if (dto.managementIpAddressId) await tx.ipAddress.update({ where: { id: dto.managementIpAddressId }, data: { deviceId: id } }); return updated; }).catch(() => { throw new ConflictException('Não foi possível atualizar o equipamento e o respetivo IP de gestão'); }); try { await this.log(user, 'DEVICE_UPDATED', 'Device', id, { rackId: dto.rackId, managementIp: dto.managementIp, managementIpAddressId: dto.managementIpAddressId }); } catch (error) { if (preserveRequestedStatus) throw new PersistedDeviceAuditError(id); throw error; } return preserveRequestedStatus ? item : this.getDevice(item.id, user); }
   async deleteDevice(_id: string, _user: AuthenticatedUser) { throw new ConflictException('A retirada exige a revisão do checklist. Consulta GET /api/v1/devices/:id/retirement-review e confirma em POST /api/v1/devices/:id/retire.'); }
   async deviceRetirementReview(id: string, user: AuthenticatedUser, permission: 'READ' | 'DELETE' = 'READ') {
     await this.access.assertDevice(user, permission, id);
@@ -347,7 +358,7 @@ export class InfrastructureService implements OnModuleInit {
   async getInterface(id: string, user: AuthenticatedUser) { await this.access.assertInterface(user, 'READ', id); const item = await this.prisma.deviceInterface.findUnique({ where: { id }, include: { device: { include: { model: true } }, nativeVlan: this.vlanInclude, accessVlan: this.vlanInclude, allowedVlans: { include: { vlan: this.vlanInclude } }, ipAddresses: { include: { subnet: true, host: true } } } }); if (!item) throw new NotFoundException('Interface não encontrada'); return normalizeModelLayouts(item); }
   async createInterface(deviceId: string, dto: CreateInterfaceDto, user: AuthenticatedUser) { await Promise.all([this.access.assertDevice(user, 'CREATE', deviceId), this.assertDeviceIdCapability(user, deviceId)]); try { const { allowedVlanIds, ...fields } = dto; const item = await this.prisma.deviceInterface.create({ data: { ...fields, deviceId, allowedVlans: { create: (allowedVlanIds ?? []).map((vlanId) => ({ vlanId })) } } as never }); await this.log(user, 'DEVICE_INTERFACE_CREATED', 'DeviceInterface', item.id); return this.getInterface(item.id, user); } catch { throw new ConflictException('Não foi possível criar a interface'); } }
   async updateInterface(id: string, dto: UpdateInterfaceDto, user: AuthenticatedUser) { await this.access.assertInterface(user, 'UPDATE', id); const { allowedVlanIds, id: _ignoredId, source: _ignoredSource, lastSeenAt: _ignoredLastSeenAt, deviceId: _ignoredDeviceId, device: _ignoredDevice, nativeVlan: _ignoredNativeVlan, accessVlan: _ignoredAccessVlan, allowedVlans: _ignoredAllowedVlans, ipAddresses: _ignoredIpAddresses, ...fields } = dto; const item = await this.prisma.deviceInterface.update({ where: { id }, data: { ...fields, allowedVlans: allowedVlanIds ? { deleteMany: {}, create: allowedVlanIds.map((vlanId) => ({ vlanId })) } : undefined } as never }).catch(() => { throw new NotFoundException('Interface não encontrada'); }); await this.log(user, 'DEVICE_INTERFACE_UPDATED', 'DeviceInterface', id); return this.getInterface(item.id, user); }
-  async generateInterfaces(deviceId: string, user: AuthenticatedUser) { await Promise.all([this.access.assertDevice(user, 'CREATE', deviceId), this.assertDeviceIdCapability(user, deviceId)]); const device = await this.prisma.device.findUnique({ where: { id: deviceId }, include: { model: true, interfaces: { select: { name: true, portKey: true } } } }); if (!device) throw new NotFoundException('Equipamento não encontrado'); const layout = allLayoutPorts(normalizePortLayout(device.model?.portLayout)).filter(isPortMapped); const count = device.model?.networkPortCount ?? device.model?.portCount ?? 0; const ports: Array<{ portKey: string; label?: string; interfaceType?: string }> = layout.length ? layout : Array.from({ length: count }, (_, index) => ({ portKey: `ethernet1/${index + 1}`, label: `${index + 1}`, interfaceType: 'ETHERNET' })); const existing = new Set(device.interfaces.map((item) => item.portKey || item.name)); let created = 0; for (const port of ports) { const name = String(port.label || port.portKey); if (existing.has(String(port.portKey)) || existing.has(name)) continue; await this.prisma.deviceInterface.create({ data: { deviceId, name, portKey: String(port.portKey), interfaceType: String(port.interfaceType ?? 'ETHERNET'), adminUp: true, operUp: false } as never }); created++; } await this.log(user, 'DEVICE_INTERFACES_GENERATED', 'Device', deviceId, { created, total: ports.length }); return { created, total: ports.length }; }
+  async generateInterfaces(deviceId: string, user: AuthenticatedUser) { await Promise.all([this.access.assertDevice(user, 'CREATE', deviceId), this.assertDeviceIdCapability(user, deviceId)]); const device = await this.prisma.device.findUnique({ where: { id: deviceId }, include: { model: true, interfaces: { select: { name: true, portKey: true } } } }); if (!device) throw new NotFoundException('Equipamento não encontrado'); const layout = allLayoutPorts(normalizePortLayout(device.model?.portLayout)).filter(isPortMapped); const count = device.model ? expectedNetworkPorts(device.model) : 0; const ports: Array<{ portKey: string; label?: string; interfaceType?: string }> = layout.length ? layout : Array.from({ length: count }, (_, index) => ({ portKey: `ethernet1/${index + 1}`, label: `${index + 1}`, interfaceType: 'ETHERNET' })); const existing = new Set(device.interfaces.map((item) => item.portKey || item.name)); let created = 0; for (const port of ports) { const name = String(port.label || port.portKey); if (existing.has(String(port.portKey)) || existing.has(name)) continue; await this.prisma.deviceInterface.create({ data: { deviceId, name, portKey: String(port.portKey), interfaceType: String(port.interfaceType ?? 'ETHERNET'), adminUp: true, operUp: false } as never }); created++; } await this.log(user, 'DEVICE_INTERFACES_GENERATED', 'Device', deviceId, { created, total: ports.length }); return { created, total: ports.length }; }
   async deleteInterface(id: string, user: AuthenticatedUser) { await this.access.assertInterface(user, 'DELETE', id); await this.prisma.deviceInterface.delete({ where: { id } }).catch(() => { throw new NotFoundException('Interface não encontrada'); }); await this.log(user, 'DEVICE_INTERFACE_DELETED', 'DeviceInterface', id); return { success: true }; }
   private readonly portLayoutSelect = { id: true, model: true, frontAssetId: true, backAssetId: true, frontAsset: true, backAsset: true, portLayout: true, networkPortCount: true, portCount: true, supportsNetworkPorts: true } as const;
   /** GET port-layout: the whole v2 layout plus the requested face, its image and the mandatory-mapping status. */
@@ -355,12 +366,56 @@ export class InfrastructureService implements OnModuleInit {
     const item = await this.prisma.deviceModel.findUnique({ where: { id }, select: this.portLayoutSelect });
     if (!item) throw new NotFoundException('Modelo não encontrado');
     const portLayout = normalizePortLayout(item.portLayout);
-    return { ...item, portLayout, face, faceLayout: portLayout?.faces[face] ?? null, asset: face === 'front' ? item.frontAsset : item.backAsset, mapping: portMappingStatus(item) };
+    return { ...item, portLayout, revision: portLayoutRevision(item), face, faceLayout: portLayout?.faces[face] ?? null, asset: face === 'front' ? item.frontAsset : item.backAsset, mapping: portMappingStatus(item) };
+  }
+  /** Locks the model row for the rest of the transaction, so concurrent layout saves are serialised. */
+  private async lockModel(tx: any, id: string) { await tx.$queryRaw`SELECT "id" FROM "DeviceModel" WHERE "id"::text = ${id} FOR UPDATE`; }
+  private assertRevision(revision: string | undefined, current: { portLayout?: unknown; frontAssetId?: string | null; backAssetId?: string | null }) {
+    if (revision === undefined) return;
+    const actual = portLayoutRevision(current);
+    if (revision !== actual) throw new ConflictException({ code: 'PORT_LAYOUT_CONFLICT', message: 'O mapa de portas foi alterado por outra pessoa. Recarrega e volta a aplicar as alterações.', revision: actual });
+  }
+  /**
+   * Atomic save of both faces: PUT device-models/:id/port-layout/faces { revision, faces: { front?, rear? } }.
+   * A face object replaces that face (and sets its image when assetId is given), null removes that face's map
+   * (the image stays), an absent key leaves the face alone. Both faces are validated together and written in one
+   * transaction under a row lock; a stale revision gets 409 PORT_LAYOUT_CONFLICT.
+   */
+  async savePortLayoutFaces(id: string, dto: { revision?: string; faces?: unknown }, user: AuthenticatedUser) {
+    if (typeof dto.revision !== 'string' || !dto.revision) throw new BadRequestException({ code: 'PORT_LAYOUT_REVISION_REQUIRED', message: 'Indica a revisão (revision) devolvida pelo GET port-layout.' });
+    const faces = dto.faces;
+    if (!faces || typeof faces !== 'object' || Array.isArray(faces)) throw new BadRequestException({ code: 'PORT_LAYOUT_FACES_REQUIRED', message: 'Indica as faces a guardar (faces.front e/ou faces.rear).' });
+    const keys = Object.keys(faces);
+    const unknown = keys.filter((key) => key !== 'front' && key !== 'rear');
+    if (unknown.length) throw new BadRequestException({ code: 'PORT_LAYOUT_FACE_INVALID', message: `Face desconhecida: ${unknown.join(', ')}. Usa front ou rear.` });
+    if (!keys.length) throw new BadRequestException({ code: 'PORT_LAYOUT_FACES_REQUIRED', message: 'Indica as faces a guardar (faces.front e/ou faces.rear).' });
+    const input = faces as FacesInput;
+    const saved = await this.prisma.$transaction(async (tx: any) => {
+      await this.lockModel(tx, id);
+      const model = await tx.deviceModel.findUnique({ where: { id }, select: { portLayout: true, frontAssetId: true, backAssetId: true, supportsNetworkPorts: true, networkPortCount: true, portCount: true } });
+      if (!model) throw new NotFoundException('Modelo não encontrado');
+      this.assertRevision(dto.revision, model);
+      const layout = applyFaces(model.portLayout, input);
+      assertWritableFaces(layout, PORT_LAYOUT_FACES, model);
+      const images: Record<string, string> = {};
+      for (const face of PORT_LAYOUT_FACES) {
+        const assetId = input[face]?.assetId;
+        if (assetId === undefined || assetId === null) continue;
+        if (typeof assetId !== 'string' || !assetId) throw new BadRequestException({ code: 'ASSET_ID_REQUIRED', message: 'assetId tem de ser o id de uma imagem.' });
+        await this.assertFaceImage(assetId, face, tx);
+        images[faceAssetField(face)] = assetId;
+      }
+      await tx.deviceModel.update({ where: { id }, data: { portLayout: layout as never, ...images } });
+      return { layout, images };
+    });
+    await this.log(user, 'DEVICE_MODEL_PORT_LAYOUT_UPDATED', 'DeviceModel', id, { faces: keys, ports: { front: saved.layout.faces.front?.ports.length ?? 0, rear: saved.layout.faces.rear?.ports.length ?? 0 }, ...saved.images });
+    const { face: _face, faceLayout: _faceLayout, asset: _asset, ...result } = await this.getPortLayout(id);
+    return result;
   }
   async setModelFrontAsset(id: string, assetId: string, user: AuthenticatedUser) { return this.setModelFaceAsset(id, 'front', assetId, user); }
   async setModelFaceAsset(id: string, face: PortLayoutFace, assetId: string, user: AuthenticatedUser) {
     if (!assetId) throw new BadRequestException({ code: 'ASSET_ID_REQUIRED', message: 'Indica o assetId da imagem.' });
-    const asset = await this.prisma.assetFile.findUnique({ where: { id: assetId } }); if (!asset) throw new NotFoundException('Asset não encontrado');
+    await this.assertFaceImage(assetId, face);
     const item = await this.prisma.deviceModel.update({ where: { id }, data: { [faceAssetField(face)]: assetId } }).catch(() => { throw new NotFoundException('Modelo não encontrado'); });
     await this.log(user, 'ASSET_ASSOCIATED', 'DeviceModel', id, { assetId, role: face === 'front' ? 'front' : 'rear' });
     return normalizeModelLayouts(item);
@@ -374,7 +429,7 @@ export class InfrastructureService implements OnModuleInit {
   }
   private otherFaceKeys(layout: unknown, face: PortLayoutFace) { const other = face === 'front' ? 'rear' : 'front'; return { other, ports: (normalizePortLayout(layout)?.faces[other]?.ports ?? []).filter(isPortMapped) }; }
   async detectPortLayout(id: string, dto: DetectPortLayoutDto, face: PortLayoutFace = 'rear') {
-    const model = await this.prisma.deviceModel.findUnique({ where: { id }, select: { networkPortCount: true, portCount: true, model: true, portLayout: true } }); if (!model) throw new NotFoundException('Modelo não encontrado');
+    const model = await this.prisma.deviceModel.findUnique({ where: { id }, select: { supportsNetworkPorts: true, networkPortCount: true, portCount: true, model: true, portLayout: true } }); if (!model) throw new NotFoundException('Modelo não encontrado');
     const { ports: otherPorts } = this.otherFaceKeys(model.portLayout, face);
     const count = dto.portCount ?? Math.max(0, expectedNetworkPorts(model) - otherPorts.length);
     if (!count) throw new ConflictException('Define primeiro o número de portas do modelo');
@@ -386,18 +441,23 @@ export class InfrastructureService implements OnModuleInit {
    * Writes one face of the port layout. PUT replaces that face (merge=false); the legacy PATCH merges into it (merge=true).
    * The other face is never touched, and only the edited face's image column is written when assetId is given.
    */
-  async updatePortLayout(id: string, dto: FaceInput & { assetId?: string; warnings?: unknown }, user: AuthenticatedUser, face: PortLayoutFace = 'rear', merge = false) {
-    const model = await this.prisma.deviceModel.findUnique({ where: { id }, select: { portLayout: true, supportsNetworkPorts: true, networkPortCount: true, portCount: true } }); if (!model) throw new NotFoundException('Modelo não encontrado');
-    const { assetId, warnings: _warnings, ...faceInput } = dto;
-    const layout = writeFace(model.portLayout, face, faceInput, merge);
-    assertWritableLayout(layout, face, model);
-    if (assetId && await this.prisma.assetFile.count({ where: { id: assetId } }) !== 1) throw new NotFoundException('Asset não encontrado');
-    await this.prisma.deviceModel.update({ where: { id }, data: { portLayout: layout as never, ...(assetId ? { [faceAssetField(face)]: assetId } : {}) } });
+  async updatePortLayout(id: string, dto: FaceInput & { assetId?: string; warnings?: unknown; revision?: string }, user: AuthenticatedUser, face: PortLayoutFace = 'rear', merge = false) {
+    const { assetId, warnings: _warnings, revision, ...faceInput } = dto;
+    const layout = await this.prisma.$transaction(async (tx: any) => {
+      await this.lockModel(tx, id);
+      const model = await tx.deviceModel.findUnique({ where: { id }, select: { portLayout: true, frontAssetId: true, backAssetId: true, supportsNetworkPorts: true, networkPortCount: true, portCount: true } }); if (!model) throw new NotFoundException('Modelo não encontrado');
+      this.assertRevision(revision, model);
+      const next = writeFace(model.portLayout, face, faceInput, merge);
+      assertWritableLayout(next, face, model);
+      if (assetId) await this.assertFaceImage(assetId, face, tx);
+      await tx.deviceModel.update({ where: { id }, data: { portLayout: next as never, ...(assetId ? { [faceAssetField(face)]: assetId } : {}) } });
+      return next;
+    });
     await this.log(user, 'DEVICE_MODEL_PORT_LAYOUT_UPDATED', 'DeviceModel', id, { face, ports: layout.faces[face]?.ports.length ?? 0, assetId });
     return this.getPortLayout(id, face);
   }
   async generatePortLayout(id: string, user: AuthenticatedUser, face: PortLayoutFace = 'rear') {
-    const model = await this.prisma.deviceModel.findUnique({ where: { id }, select: { networkPortCount: true, portCount: true, portLayout: true } }); if (!model) throw new NotFoundException('Modelo não encontrado');
+    const model = await this.prisma.deviceModel.findUnique({ where: { id }, select: { supportsNetworkPorts: true, networkPortCount: true, portCount: true, portLayout: true } }); if (!model) throw new NotFoundException('Modelo não encontrado');
     const { ports: otherPorts } = this.otherFaceKeys(model.portLayout, face);
     const count = Math.max(0, expectedNetworkPorts(model) - otherPorts.length);
     const current = normalizePortLayout(model.portLayout)?.faces[face];

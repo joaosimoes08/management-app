@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { BadRequestException } from '@nestjs/common';
 
 /**
@@ -125,7 +126,11 @@ export interface PortMappingModel {
   portLayout?: unknown;
 }
 
-export const expectedNetworkPorts = (model: PortMappingModel) => model.networkPortCount || model.portCount || 0;
+/**
+ * The one port-count rule: a model without network ports expects 0; otherwise networkPortCount, then portCount.
+ * An explicit 0 means "no ports" and is not skipped (?? not ||). Only fully mapped ports count towards it.
+ */
+export const expectedNetworkPorts = (model: PortMappingModel) => (model.supportsNetworkPorts ? (model.networkPortCount ?? model.portCount ?? 0) : 0);
 
 export interface PortMappingStatus {
   required: boolean;
@@ -209,17 +214,51 @@ const stripUndefined = <T extends object>(value: T) => Object.fromEntries(Object
  * the mandatory total is enforced where devices are created (see assertPortMappingComplete).
  */
 export function assertWritableLayout(layout: PortLayoutV2, face: PortLayoutFace, model: PortMappingModel) {
-  const ports = layout.faces[face]?.ports ?? [];
-  const partial = ports.filter((port) => !isPortMapped(port));
-  if (partial.length) throw new BadRequestException({ code: 'PORT_LAYOUT_INCOMPLETE', message: `${partial.length} porta(s) da face ${faceLabel(face)} não estão completamente mapeadas (portKey, x, y, width e height).`, face, partialPorts: partial.length });
+  assertWritableFaces(layout, [face], model);
+}
+
+/**
+ * Same checks for several faces at once (atomic save): every port of the listed faces fully mapped, port keys unique
+ * across both faces, and for a model with network ports no more mapped ports in total than it expects.
+ */
+export function assertWritableFaces(layout: PortLayoutV2, faces: readonly PortLayoutFace[], model: PortMappingModel) {
+  for (const face of faces) {
+    const partial = (layout.faces[face]?.ports ?? []).filter((port) => !isPortMapped(port));
+    if (partial.length) throw new BadRequestException({ code: 'PORT_LAYOUT_INCOMPLETE', message: `${partial.length} porta(s) da face ${faceLabel(face)} não estão completamente mapeadas (portKey, x, y, width e height).`, face, partialPorts: partial.length });
+  }
   const seen = new Set<string>();
   for (const port of allLayoutPorts(layout)) {
+    if (!isPortMapped(port)) continue;
     const key = port.portKey.trim().toLowerCase();
     if (seen.has(key)) throw new BadRequestException({ code: 'PORT_LAYOUT_DUPLICATE_PORT', message: `A porta "${port.portKey}" está mapeada mais de uma vez.`, portKey: port.portKey });
     seen.add(key);
   }
   const expected = expectedNetworkPorts(model);
-  if (model.supportsNetworkPorts && expected > 0 && seen.size > expected) throw new BadRequestException({ code: 'PORT_LAYOUT_TOO_MANY_PORTS', message: `O mapa tem ${seen.size} portas mas o modelo só tem ${expected}.`, expected, mapped: seen.size });
+  if (model.supportsNetworkPorts && seen.size > expected) throw new BadRequestException({ code: 'PORT_LAYOUT_TOO_MANY_PORTS', message: `O mapa tem ${seen.size} portas mas o modelo só tem ${expected}.`, expected, mapped: seen.size });
+}
+
+/** Body of the atomic save: a face object replaces that face, null removes its map, an absent key leaves it alone. */
+export type FacesInput = Partial<Record<PortLayoutFace, (FaceInput & { assetId?: string }) | null>>;
+
+export function applyFaces(stored: unknown, faces: FacesInput): PortLayoutV2 {
+  let layout = normalizePortLayout(stored) ?? { version: 2, faces: {} };
+  for (const face of PORT_LAYOUT_FACES) {
+    if (!(face in faces) || faces[face] === undefined) continue;
+    const input = faces[face];
+    if (input === null) { const rest = { ...layout.faces }; delete rest[face]; layout = { ...layout, faces: rest }; continue; }
+    if (!isRecord(input)) throw new BadRequestException({ code: 'PORT_LAYOUT_FACE_INVALID', message: `A face ${faceLabel(face)} tem de ser um objeto ou null.` });
+    const { assetId: _assetId, ...faceInput } = input;
+    layout = writeFace(layout, face, faceInput);
+  }
+  return layout;
+}
+
+/**
+ * Optimistic-concurrency token for a model's port mapping: a hash of the normalised layout and both face images.
+ * Any write through any endpoint changes it, so a stale editor gets 409 PORT_LAYOUT_CONFLICT instead of overwriting.
+ */
+export function portLayoutRevision(model: { portLayout?: unknown; frontAssetId?: string | null; backAssetId?: string | null }) {
+  return createHash('sha256').update(canonicalJson({ portLayout: normalizePortLayout(model.portLayout), frontAssetId: model.frontAssetId ?? null, backAssetId: model.backAssetId ?? null })).digest('hex').slice(0, 16);
 }
 
 /** Normalises `portLayout` in place on any DeviceModel found inside an API payload. */

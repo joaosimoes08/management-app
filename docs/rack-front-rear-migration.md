@@ -10,8 +10,10 @@ Release date: 2026-11-20. Branch `feature/rack-front-rear-views`.
   `{ imageWidth, imageHeight, viewport?, ports[] }`. The API reads old (v1 and catalog seed) layouts as `faces.rear` and
   always answers in v2, so the API keeps working before the data migration runs.
 - Port mapping is mandatory: a model with network ports must have every port mapped across its faces before a device
-  can be created from it (manual, CSV import, bulk model change, SNMP onboarding). A face with 0 ports needs no map.
-  Error: `400 PORT_LAYOUT_INCOMPLETE`.
+  can be created from it or moved to it (manual create, device edit, CSV import, bulk model change, SNMP onboarding).
+  A face with 0 ports needs no map. Error: `400 PORT_LAYOUT_INCOMPLETE`.
+- Port count rule: `expected = supportsNetworkPorts ? (networkPortCount ?? portCount ?? 0) : 0`; an explicit 0
+  means no ports. Only fully mapped ports count.
 - New models need a front image (`400 FRONT_IMAGE_REQUIRED`). Existing models without one are not blocked; the quality
   page lists them as "Sem vista frontal" and "Mapeamento de portas em falta".
 - New column `Device.backAssetId` (per-device rear image override), added by the Prisma migration
@@ -19,19 +21,31 @@ Release date: 2026-11-20. Branch `feature/rack-front-rear-views`.
 
 ## Order of operations
 
+**Run the data script in the same deploy step as `prisma migrate deploy`, before anyone uses the new version.**
+Until it runs, every old image still sits in `frontAssetId`, so the new UI shows the old rear photos as the
+**front** view, an empty rear view, and a rear port map without its image. Port maps are read as rear either way,
+so the mismatch is visible at once and an admin who "fixes" it in the editor would be undone by the script later.
+
 1. **Back up** the database (below). Do not skip this.
-2. Deploy the new API image. Its start command runs `prisma migrate deploy`, which only adds `Device.backAssetId`.
-3. Dry run the data migration and read the counts:
+2. Stop the old app so nobody edits during the switch: `docker compose stop web api snmp`.
+3. Build the new images, then run the schema migration and the data script together, as one one-off container,
+   before the new API or web start:
    ```sh
-   docker compose exec api node apps/api/dist/scripts/migrate-rack-faces.js --dry-run
+   docker compose build api web snmp
+   docker compose run --rm --no-deps api sh -c '
+     npx prisma migrate deploy --schema packages/database/prisma/schema.prisma &&
+     node apps/api/dist/scripts/migrate-rack-faces.js --dry-run &&
+     node apps/api/dist/scripts/migrate-rack-faces.js'
    ```
-4. Run it for real:
-   ```sh
-   docker compose exec api node apps/api/dist/scripts/migrate-rack-faces.js
-   ```
-   (From a dev checkout: `DATABASE_URL=... npx ts-node apps/api/src/scripts/migrate-rack-faces.ts`.)
-5. If the script prints `WARNING: N model(s) already had both images`, review those models by hand: their images were
-   left in place, and their port map is now on the rear face.
+   The `&&` chain stops at the first failure, so the script never runs on a schema that did not migrate. Read the
+   dry-run counts in the output; the real run prints the same numbers.
+4. Start the new version: `docker compose up -d`. The API's own start command runs `prisma migrate deploy` again,
+   which is a no-op now.
+5. If the script printed `WARNING: N model(s) already had both images`, review those models by hand: their images
+   were left in place, and their port map is now on the rear face.
+
+From a dev checkout: `DATABASE_URL=... npx prisma migrate deploy --schema packages/database/prisma/schema.prisma &&
+DATABASE_URL=... npx ts-node apps/api/src/scripts/migrate-rack-faces.ts`.
 
 The data migration runs in one transaction and moves, only where the rear is still empty:
 

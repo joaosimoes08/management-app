@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { describe, test } from 'node:test';
 import { BadRequestException } from '@nestjs/common';
-import { assertPortMappingComplete, assertWritableLayout, canonicalJson, isNormalizedPortLayout, normalizeModelLayouts, normalizePortLayout, parsePortLayoutFace, portMappingStatus, seedPortLayout, writeFace } from './port-layout';
+import { applyFaces, assertPortMappingComplete, assertWritableFaces, assertWritableLayout, canonicalJson, expectedNetworkPorts, portLayoutRevision, isNormalizedPortLayout, normalizeModelLayouts, normalizePortLayout, parsePortLayoutFace, portMappingStatus, seedPortLayout, writeFace } from './port-layout';
 
 const port = (n: number, extra: Record<string, unknown> = {}) => ({ portKey: `ethernet1/${n}`, label: `${n}`, interfaceType: 'RJ45', x: 0.1, y: 0.2, width: 0.02, height: 0.1, ...extra });
 const ports = (from: number, count: number) => Array.from({ length: count }, (_, index) => port(from + index));
@@ -134,6 +134,42 @@ describe('writing one face', () => {
     rejectsWithCode(() => assertWritableLayout(writeFace(stored, 'front', { ports: [port(3)] }), 'front', model), 'PORT_LAYOUT_DUPLICATE_PORT');
     rejectsWithCode(() => assertWritableLayout(writeFace(stored, 'front', { ports: ports(10, 3) }), 'front', model), 'PORT_LAYOUT_TOO_MANY_PORTS');
     assert.doesNotThrow(() => assertWritableLayout(writeFace(stored, 'front', { ports: ports(10, 1) }), 'front', model));
+  });
+});
+
+describe('one port-count rule', () => {
+  test('expected = supportsNetworkPorts ? (networkPortCount ?? portCount ?? 0) : 0', () => {
+    assert.equal(expectedNetworkPorts({ supportsNetworkPorts: true, networkPortCount: 24, portCount: 48 }), 24);
+    assert.equal(expectedNetworkPorts({ supportsNetworkPorts: true, networkPortCount: null, portCount: 48 }), 48);
+    assert.equal(expectedNetworkPorts({ supportsNetworkPorts: true, networkPortCount: 0, portCount: 48 }), 0);
+    assert.equal(expectedNetworkPorts({ supportsNetworkPorts: true }), 0);
+    assert.equal(expectedNetworkPorts({ supportsNetworkPorts: false, networkPortCount: 24 }), 0);
+  });
+
+  test('a model with an explicit 0 accepts no mapped ports', () => {
+    rejectsWithCode(() => assertWritableLayout({ version: 2, faces: { rear: { imageWidth: 1, imageHeight: 1, ports: ports(1, 1) } } }, 'rear', { supportsNetworkPorts: true, networkPortCount: 0, portCount: 8 }), 'PORT_LAYOUT_TOO_MANY_PORTS');
+  });
+});
+
+describe('atomic faces helpers', () => {
+  const stored = { version: 2, faces: { front: { imageWidth: 800, imageHeight: 100, ports: ports(1, 2) }, rear: { imageWidth: 900, imageHeight: 120, ports: ports(3, 2) } } };
+
+  test('applyFaces replaces given faces, removes null faces and keeps absent ones', () => {
+    const next = applyFaces(stored, { rear: { imageWidth: 1000, imageHeight: 200, ports: ports(3, 1), assetId: 'ignored-here' }, front: null });
+    assert.deepEqual(next.faces, { rear: { imageWidth: 1000, imageHeight: 200, ports: ports(3, 1) } });
+    assert.deepEqual(applyFaces(stored, {}).faces, stored.faces);
+  });
+
+  test('assertWritableFaces checks half-mapped ports on every listed face', () => {
+    const layout = applyFaces(stored, { front: { imageWidth: 1, imageHeight: 1, ports: [port(1, { height: 0 })] } });
+    rejectsWithCode(() => assertWritableFaces(layout, ['front', 'rear'], { supportsNetworkPorts: true, networkPortCount: 8 }), 'PORT_LAYOUT_INCOMPLETE');
+  });
+
+  test('revision ignores jsonb key order and changes with images or ports', () => {
+    const a = portLayoutRevision({ portLayout: stored, frontAssetId: 'f', backAssetId: null });
+    assert.equal(a, portLayoutRevision({ portLayout: JSON.parse(canonicalJson(stored)), frontAssetId: 'f' }));
+    assert.notEqual(a, portLayoutRevision({ portLayout: stored, frontAssetId: 'g' }));
+    assert.notEqual(a, portLayoutRevision({ portLayout: applyFaces(stored, { front: null }), frontAssetId: 'f' }));
   });
 });
 

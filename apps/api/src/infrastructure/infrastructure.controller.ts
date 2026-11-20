@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Req, Res
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { Roles } from '../auth/roles.decorator';
-import { CreateAssetDto, CreateBuildingDto, CreateDeviceDto, CreateDeviceModelDto, CreateInfrastructurePermissionDto, CreateInterfaceDto, CreateRackDto, CreateRackModelDto, CreateRoomDto, DetectPortLayoutDto, PlaceDeviceDto, ReorderRacksDto, UpdateBuildingDto, UpdateDeviceDto, UpdateDeviceModelDto, UpdateInfrastructurePermissionDto, UpdateInterfaceDto, UpdatePortLayoutDto, UpdateRackDto, UpdateRackModelDto, UpdateRoomDto } from './dto';
+import { CreateAssetDto, CreateBuildingDto, CreateDeviceDto, CreateDeviceModelDto, CreateInfrastructurePermissionDto, CreateInterfaceDto, CreateRackDto, CreateRackModelDto, CreateRoomDto, DetectPortLayoutDto, SavePortLayoutFacesDto, PlaceDeviceDto, ReorderRacksDto, UpdateBuildingDto, UpdateDeviceDto, UpdateDeviceModelDto, UpdateInfrastructurePermissionDto, UpdateInterfaceDto, UpdatePortLayoutDto, UpdateRackDto, UpdateRackModelDto, UpdateRoomDto } from './dto';
 import { InfrastructureService } from './infrastructure.service';
 import { InfrastructureAccessService } from './infrastructure-access.service';
 import { parsePortLayoutFace } from './port-layout';
@@ -14,7 +14,7 @@ export class InfrastructureController {
   @Get('access/effective') effectiveAccess(@Query('siteId') siteId: string, @Req() req: { user: AuthenticatedUser }) { return this.access.effectiveAccess(req.user, siteId); }
   @Get('assets') @Roles('ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR') assets(@Query('kind') kind?: string) { return this.service.listAssets(kind); }
   @Post('assets') @Roles('ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR') createAsset(@Body() dto: CreateAssetDto, @Req() req: { user: AuthenticatedUser }) { return this.service.createAsset(dto, req.user); }
-  @Get('assets/:id/file') async assetFile(@Param('id') id: string, @Res({ passthrough: true }) reply: any) { const result = await this.service.assetFile(id); reply.type(result.asset.mimeType); return result.file; }
+  @Get('assets/:id/file') async assetFile(@Param('id') id: string, @Res({ passthrough: true }) reply: any) { const result = await this.service.assetFile(id); reply.type(result.asset.mimeType); reply.header('Content-Security-Policy', "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox"); reply.header('X-Content-Type-Options', 'nosniff'); return result.file; }
   @Delete('assets/:id') @Roles('ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR') deleteAsset(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.service.deleteAsset(id, req.user); }
   @Post('assets/cleanup-legacy') @Roles('ADMIN') cleanupLegacyAssets(@Req() req: { user: AuthenticatedUser }) { return this.service.cleanupLegacyAssets(req.user); }
   @Get('rack-models') @Roles('ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR') rackModels() { return this.service.listRackModels(); }
@@ -42,6 +42,7 @@ export class InfrastructureController {
   @Get('device-models/:id/port-layout') @Roles('ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR') portLayout(@Param('id') id: string, @Query('face') face?: string) { return this.service.getPortLayout(id, parsePortLayoutFace(face)); }
   @Put('device-models/:id/port-layout') @Roles('ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR') replacePortLayout(@Param('id') id: string, @Body() dto: UpdatePortLayoutDto, @Req() req: { user: AuthenticatedUser }, @Query('face') face?: string) { return this.service.updatePortLayout(id, dto, req.user, parsePortLayoutFace(face)); }
   /** Legacy partial update kept for older clients: merges into the face instead of replacing it. */
+  @Put('device-models/:id/port-layout/faces') @Roles('ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR') savePortLayoutFaces(@Param('id') id: string, @Body() dto: SavePortLayoutFacesDto, @Req() req: { user: AuthenticatedUser }) { return this.service.savePortLayoutFaces(id, dto, req.user); }
   @Patch('device-models/:id/port-layout') @Roles('ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR') updatePortLayout(@Param('id') id: string, @Body() dto: UpdatePortLayoutDto, @Req() req: { user: AuthenticatedUser }, @Query('face') face?: string) { return this.service.updatePortLayout(id, dto, req.user, parsePortLayoutFace(face), true); }
   @Post('device-models/:id/port-layout/generate') @Roles('ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR') generatePortLayout(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }, @Query('face') face?: string) { return this.service.generatePortLayout(id, req.user, parsePortLayoutFace(face)); }
   @Post('device-models/:id/assets/front') @Roles('ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR') setModelFrontAsset(@Param('id') id: string, @Body('assetId') assetId: string, @Req() req: { user: AuthenticatedUser }) { return this.service.setModelFaceAsset(id, 'front', assetId, req.user); }
