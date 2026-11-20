@@ -7,6 +7,7 @@ import type { AssetFile } from '../../types';
 import { EntityEditor } from './entity-editor';
 
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: () => true }) }));
+vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string, fallback?: string) => fallback ?? key }) }));
 afterEach(cleanup);
 
 const assets = [
