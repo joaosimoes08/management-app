@@ -70,13 +70,20 @@ temperature and voltage use separate scopes (`envFan`, `envSupply`, `envTemperat
 
 ### Ordering and the 100-trap cap
 
-- A recovery clears a problem only if it happened at or after it. When both traps carry `sysUpTime.0`
-  and the uptime delta matches the receive delta within 5 minutes (same boot), uptime decides, so
-  reordered UDP delivery is handled; otherwise (reboot or counter wrap in between) `receivedAt` decides.
+- A recovery clears a problem only if it provably happened at or after it; when the order is ambiguous
+  the problem stays open (fail-safe). Uptime is read from the stored `uptimeTicks` column, falling back
+  to the `sysUpTime.0` varbind.
+  - A coldStart/warmStart from the same device received between the two traps (±5 min) is a reboot
+    boundary: the problem stays open.
+  - With both uptimes, uptime decides (handles reordered UDP delivery) only when the smaller uptime is
+    over 5 min and the uptime delta matches the receive delta within 5 min; otherwise the traps may be
+    from different boots and the problem stays open.
+  - Without both uptimes, `receivedAt` decides.
 - The reconciler still builds candidates from the newest 100 WARNING+ traps. Independently, it loads
   every open `SNMP_TRAP` alert's trap, finds later recoveries and passes those alert keys to
   `reconcileSource(…, resolveKeys)`, so clears resolve even when more than 100 traps keep the
-  stale-sweep off.
+  stale-sweep off. Recoveries are looked up at most 30 days back; paging stops after 40 pages of 500 rows
+  with a logged warning (the rest is handled on a later pass). Resolve queries are batched by 1,000 keys.
 
 ## OID notes from the MIB check
 

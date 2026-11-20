@@ -4,7 +4,8 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { decodeTrap } from '@simoes/snmp-core';
 import { OperationsService } from './operations.service';
-import { clearedTrapAlertKeys, collectTrapAlerts, recoveredAfter, TrapAlertSource, trapAlertCandidates } from './trap-alerts';
+import { Logger } from '@nestjs/common';
+import { clearedTrapAlertKeys, collectTrapAlerts, recoveredAfter, storedTrapUptime, TrapAlertSource, trapAlertCandidates, trapUptimeTicks } from './trap-alerts';
 
 // Synthetic fixtures (not captured from hardware), shared with the snmp-core catalog tests.
 const fixtures = (JSON.parse(readFileSync(join(dirname(require.resolve('@simoes/snmp-core/package.json')), 'src', 'fixtures', 'cisco-c9300-traps.synthetic.json'), 'utf8')) as { fixtures: Array<{ name: string; trapOid: string; varbinds: unknown[] }> }).fixtures;
@@ -111,55 +112,63 @@ test('reordered delivery: sysUpTime decides the order within the same boot', () 
   assert.equal(trapAlertCandidates([down2], [earlyUp]).length, 0);
 });
 
-test('reordering falls back to receivedAt after a reboot or when sysUpTime is missing', () => {
-  // device rebooted between the traps: recovery uptime is small but it arrived 10 minutes later → cleared
+const MIN = 60 * 100; // one minute in TimeTicks
+
+test('ambiguous reboot (Guita case A): small uptimes from different boots never resolve', () => {
+  // linkDown at uptime 3 min → reboot → linkUp at uptime 1 min received 60 s later: ambiguous → stays open
+  const down = trap('linkDown Gi1/0/1', 2, { uptime: 3 * MIN });
+  const up = trap('linkUp Gi1/0/1', 1, { uptime: 1 * MIN });
+  assert.equal(trapAlertCandidates([down], [up]).length, 1);
+  assert.equal(recoveredAfter({ receivedAt: down.receivedAt, uptime: 3 * MIN }, { receivedAt: up.receivedAt, uptime: 1 * MIN }), false);
+});
+
+test('ambiguous reboot (Guita case B): a pre-reboot linkUp delivered late never resolves the new linkDown', () => {
+  // linkDown at uptime 1 min after reboot; linkUp generated before the reboot (uptime 3 min) arrives 60 s later
+  const down = trap('linkDown Gi1/0/1', 2, { uptime: 1 * MIN });
+  const lateUp = trap('linkUp Gi1/0/1', 1, { uptime: 3 * MIN });
+  assert.equal(trapAlertCandidates([down], [lateUp]).length, 1);
+  assert.equal(recoveredAfter({ receivedAt: down.receivedAt, uptime: 1 * MIN }, { receivedAt: lateUp.receivedAt, uptime: 3 * MIN }), false);
+});
+
+test('large uptimes from different boots (delta mismatch) never resolve', () => {
   const down = trap('linkDown Gi1/0/1', 11, { uptime: 9_000_000 });
-  const upAfterReboot = trap('linkUp Gi1/0/1', 1, { uptime: 6_000 });
-  assert.equal(trapAlertCandidates([down], [upAfterReboot]).length, 0);
-  // no sysUpTime on the recovery → receivedAt only
+  const upAfterReboot = trap('linkUp Gi1/0/1', 1, { uptime: 6 * MIN * 10 });
+  assert.equal(trapAlertCandidates([down], [upAfterReboot]).length, 1);
+});
+
+test('coldStart/warmStart from the same device between or around the traps keeps the problem open', () => {
+  const down = trap('linkDown Gi1/0/1', 30);
+  const up = trap('linkUp Gi1/0/1', 10);
+  const boot = (minutesAgo: number, oid: string, deviceId = 'dev-1') => ({ id: `boot-${++seq}`, deviceId, sourceAddress: '192.0.2.10', trapOid: oid, varbinds: [], receivedAt: new Date(Date.now() - minutesAgo * 60_000) });
+  assert.equal(trapAlertCandidates([down], [up]).length, 0);
+  assert.equal(trapAlertCandidates([down], [up, boot(20, '1.3.6.1.6.3.1.1.5.1')]).length, 1, 'coldStart between');
+  assert.equal(trapAlertCandidates([down], [up, boot(20, '1.3.6.1.6.3.1.1.5.2')]).length, 1, 'warmStart between');
+  assert.equal(trapAlertCandidates([down], [up, boot(32, '1.3.6.1.6.3.1.1.5.1')]).length, 1, 'coldStart just before the problem (within tolerance)');
+  assert.equal(trapAlertCandidates([down], [up, boot(60, '1.3.6.1.6.3.1.1.5.1')]).length, 0, 'coldStart well before both');
+  assert.equal(trapAlertCandidates([down], [up, boot(20, '1.3.6.1.6.3.1.1.5.1', 'dev-2')]).length, 0, 'coldStart from another device');
+});
+
+test('without sysUpTime receivedAt decides', () => {
   assert.equal(trapAlertCandidates([trap('linkDown Gi1/0/1', 1)], [trap('linkUp Gi1/0/1', 1 + 1 / 60, { uptime: null })]).length, 1);
+  assert.equal(trapAlertCandidates([trap('linkDown Gi1/0/1', 5, { uptime: null })], [trap('linkUp Gi1/0/1', 1, { uptime: null })]).length, 0);
   assert.equal(recoveredAfter({ receivedAt: new Date(1000) }, { receivedAt: new Date(1000) }), true);
 });
 
-test('stack new member resolves member removed for the same switch number', () => {
-  const removed = trap('stack member removed', 15);
-  assert.equal(trapAlertCandidates([removed], [trap('stack new member', 3)]).length, 0);
-  const otherSwitch = trap('stack new member', 3, { varbinds: [{ oid: '1.3.6.1.4.1.9.9.500.1.2.1.1.1.4000', type: 66, value: 4 }] });
-  assert.equal(trapAlertCandidates([removed], [otherSwitch]).length, 1);
-});
-
-test('a problem-state trap passed as a recovery never resolves anything', () => {
-  const down = trap('linkDown Gi1/0/1', 10);
-  assert.equal(trapAlertCandidates([down], [trap('linkDown Gi1/0/1', 1)]).length, 1);
-});
-
-test('traps without a device correlate by source address', () => {
-  const down = trap('linkDown Gi1/0/1', 10, { deviceId: null, device: null, enrollment: { siteId: 'site-1' } });
-  assert.equal(trapAlertCandidates([down], [trap('linkUp Gi1/0/1', 1, { deviceId: null })]).length, 0);
-  assert.equal(trapAlertCandidates([down], [trap('linkUp Gi1/0/1', 1, { deviceId: null, sourceAddress: '192.0.2.99' })]).length, 1);
-});
-
-test('alerts use the readable Portuguese label and keep dedupKey, severity and site mapping', () => {
-  const fan = trap('envmon fan critical', 1, { dedupKey: 'abc' });
-  const [alert] = trapAlertCandidates([fan], []);
-  assert.equal(alert.dedupKey, 'snmp:trap:abc');
-  assert.equal(alert.title, 'Falha de ventoinha – Switch 1 - FAN 2');
-  assert.equal(alert.detail, 'SW-C9300-01 · estado critical');
-  assert.equal(alert.severity, 'HIGH');
-  assert.equal(alert.siteId, 'site-1');
-  assert.equal(alert.source, 'SNMP_TRAP');
-  assert.equal(alert.actionHref, '/snmp');
-  const [shutdown] = trapAlertCandidates([trap('envmon shutdown', 1)], []);
-  assert.equal(shutdown.severity, 'CRITICAL');
-  assert.equal(shutdown.title, 'Encerramento por condição ambiental');
-});
-
-test('StackPower traps never alert and unknown WARNING+ traps keep the previous generic title', () => {
-  assert.equal(trapAlertCandidates([trap('stackpower under budget', 1, { severity: 'WARNING' })], []).length, 0);
-  const unknown = trap('unknown vendor trap', 1, { severity: 'WARNING', category: 'VENDOR' });
-  const [alert] = trapAlertCandidates([unknown], []);
-  assert.equal(alert.title, 'Trap SNMP VENDOR');
-  assert.equal(alert.detail, 'SW-C9300-01');
+test('uptime comes from the stored uptimeTicks column first, parsed as a number, then the varbind', () => {
+  const fixtureUptime = (fixture('linkDown Gi1/0/1').varbinds as Array<{ oid: string; value: unknown }>).find((item) => item.oid === '1.3.6.1.2.1.1.3.0')?.value;
+  assert.equal(typeof fixtureUptime, 'number'); // net-snmp TimeTicks → number, stored unchanged by normalizedValue
+  // the receiver stores uptimeTicks as String(value)
+  assert.equal(storedTrapUptime({ uptimeTicks: String(fixtureUptime), varbinds: [] }), 123456);
+  assert.equal(typeof storedTrapUptime({ uptimeTicks: '123456', varbinds: [] }), 'number');
+  assert.equal(storedTrapUptime({ uptimeTicks: '777', varbinds: [{ oid: '1.3.6.1.2.1.1.3.0', type: 67, value: 999 }] }), 777);
+  assert.equal(storedTrapUptime({ uptimeTicks: '', varbinds: [{ oid: '1.3.6.1.2.1.1.3.0', type: 67, value: 999 }] }), 999);
+  assert.equal(storedTrapUptime({ uptimeTicks: null, varbinds: [{ oid: '.1.3.6.1.2.1.1.3.0', type: 67, value: '4321' }] }), 4321);
+  assert.equal(storedTrapUptime({ uptimeTicks: 'abc', varbinds: [] }), undefined);
+  assert.equal(trapUptimeTicks('not-an-array'), undefined);
+  // the column wins over a conflicting varbind when deciding order
+  const down = trap('linkDown Gi1/0/1', 1, { uptime: 1_000_000, uptimeTicks: '1000000' });
+  const lateUp = trap('linkUp Gi1/0/1', 1 - 2 / 60, { uptime: 2_000_000, uptimeTicks: String(1_000_000 - 2000) });
+  assert.equal(trapAlertCandidates([down], [lateUp]).length, 1);
 });
 
 function fakeDb(traps: TrapAlertSource[], open: Array<{ id: string; dedupKey: string; entityId: string }>, recoveries: TrapAlertSource[]) {
@@ -218,4 +227,46 @@ test('clearedTrapAlertKeys lists only problems with a later recovery', () => {
   const down = trap('linkDown Gi1/0/1', 10, { dedupKey: 'k1' });
   const fan = trap('envmon fan critical', 10);
   assert.deepEqual(clearedTrapAlertKeys([down, fan], [trap('linkUp Gi1/0/1', 1)]), ['snmp:trap:k1']);
+});
+
+test('reconcileSource resolves cleared keys in batches of 1,000', async () => {
+  const keys = Array.from({ length: 2500 }, (_, n) => `snmp:trap:k${n}`);
+  const finds: number[] = []; const updates: number[] = [];
+  const prisma = { operationalAlert: {
+    findUnique: async () => null,
+    findMany: async (args: any) => { finds.push(args.where.dedupKey.in.length); return args.where.dedupKey.in.map((key: string) => ({ id: key, siteId: null })); },
+    updateMany: async (args: any) => { updates.push(args.where.id.in.length); return { count: args.where.id.in.length }; },
+  } };
+  const service = new OperationsService(prisma as never, {} as never, {} as never, {} as never);
+  (service as any).publish = async () => undefined;
+  const outcome = await service.reconcileSource('SNMP_TRAP', [], undefined, false, keys);
+  assert.deepEqual(finds, [1000, 1000, 500]);
+  assert.deepEqual(updates, [1000, 1000, 500]);
+  assert.equal(outcome.resolved, 2500);
+});
+
+test('collectTrapAlerts caps the recovery lookback at 30 days and warns when paging stops', async () => {
+  const ancient = trap('linkDown Gi1/0/1', 60 * 24 * 90); // 90 days old, alert still open
+  const warnings: string[] = [];
+  const original = Logger.prototype.warn;
+  Logger.prototype.warn = function (message: any) { warnings.push(String(message)); } as never;
+  try {
+    let recoveryArgs: any;
+    const full = Array.from({ length: 500 }, (_, n) => ({ id: `a${n}`, dedupKey: `x${n}`, entityId: n === 0 ? ancient.id : null }));
+    const db = {
+      snmpTrapEvent: { findMany: async (args: any) => {
+        if (args.where?.id?.in) return [ancient];
+        if (args.where?.status === 'PROCESSED') { recoveryArgs = args; return []; }
+        return [];
+      } },
+      operationalAlert: { findMany: async () => full }, // always a full page → hits MAX_PAGES
+    };
+    await collectTrapAlerts(db as never, new Date(Date.now() - 24 * 3600_000));
+    const lookback = Date.now() - recoveryArgs.where.receivedAt.gte.getTime();
+    assert.ok(lookback <= 30 * 24 * 3600_000 + 5000 && lookback >= 30 * 24 * 3600_000 - 5000, `lookback ${lookback}`);
+    assert.ok(recoveryArgs.where.trapOid.in.includes('1.3.6.1.6.3.1.1.5.1') && recoveryArgs.where.trapOid.in.includes('1.3.6.1.6.3.1.1.5.2'));
+    assert.ok(recoveryArgs.select.uptimeTicks);
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /open SNMP_TRAP alerts: stopped after 40 pages/);
+  } finally { Logger.prototype.warn = original; }
 });

@@ -227,13 +227,20 @@ export class OperationsService implements OnModuleInit, OnModuleDestroy {
       else await this.prisma.operationalAlert.update({ where: { id: existing.id }, data: { severity: candidate.severity, title: candidate.title, detail: candidate.detail, actionHref: candidate.actionHref, lastOccurredAt: new Date() } });
     }
     const cleared = resolveKeys.filter((key) => !activeKeys.has(key));
-    const stale = !resolveMissing && cleared.length ? await this.prisma.operationalAlert.findMany({ where: { source, status: { not: 'RESOLVED' }, ...(scopeSiteId ? { siteId: scopeSiteId } : {}), dedupKey: { in: cleared } }, select: { id: true, siteId: true } }) : resolveMissing ? await this.prisma.operationalAlert.findMany({ where: { source, status: { not: 'RESOLVED' }, ...(scopeSiteId ? { siteId: scopeSiteId } : {}), ...(activeKeys.size ? { dedupKey: { notIn: [...activeKeys] } } : {}) }, select: { id: true, siteId: true } }) : [];
+    const stale = !resolveMissing && cleared.length ? await this.findOpenByKeys(source, cleared, scopeSiteId) : resolveMissing ? await this.prisma.operationalAlert.findMany({ where: { source, status: { not: 'RESOLVED' }, ...(scopeSiteId ? { siteId: scopeSiteId } : {}), ...(activeKeys.size ? { dedupKey: { notIn: [...activeKeys] } } : {}) }, select: { id: true, siteId: true } }) : [];
     if (stale.length) {
       const now = new Date();
-      await this.prisma.operationalAlert.updateMany({ where: { id: { in: stale.map(({ id }) => id) } }, data: { status: 'RESOLVED', resolvedAt: now, resolutionReason: 'Resolvido automaticamente pela reconciliação.' } });
+      for (let i = 0; i < stale.length; i += 1000) await this.prisma.operationalAlert.updateMany({ where: { id: { in: stale.slice(i, i + 1000).map(({ id }) => id) } }, data: { status: 'RESOLVED', resolvedAt: now, resolutionReason: 'Resolvido automaticamente pela reconciliação.' } });
       for (const alert of stale) await this.publish({ type: 'alert.updated', alertId: alert.id, siteId: alert.siteId, occurredAt: now.toISOString() });
     }
     return { active: candidates.length, resolved: stale.length };
+  }
+
+  /** Open alerts of a source with one of the given dedup keys, queried in batches of 1,000 keys. */
+  private async findOpenByKeys(source: string, keys: string[], scopeSiteId?: string) {
+    const found: Array<{ id: string; siteId: string | null }> = [];
+    for (let i = 0; i < keys.length; i += 1000) found.push(...await this.prisma.operationalAlert.findMany({ where: { source, status: { not: 'RESOLVED' }, ...(scopeSiteId ? { siteId: scopeSiteId } : {}), dedupKey: { in: keys.slice(i, i + 1000) } }, select: { id: true, siteId: true } }));
+    return found;
   }
 
   async reopenExpiredSnoozes(now = new Date()) {
