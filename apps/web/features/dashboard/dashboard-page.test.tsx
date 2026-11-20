@@ -169,4 +169,28 @@ describe('DashboardPage role-gated toolbar action', () => {
       expect(latest.some((props) => props.showQuality)).toBe(true);
     });
   });
+  it('does not render the alerts and quality cards until the workspace is known', async () => {
+    let resolveWorkspaces!: (value: unknown) => void;
+    mocks.getDashboardWorkspaces.mockReturnValueOnce(new Promise((resolve) => { resolveWorkspaces = resolve; }));
+    render(<DashboardPage />);
+    await waitFor(() => expect(mocks.getDashboardWorkspaces).toHaveBeenCalled());
+    expect(mocks.operationsPanelProps).toHaveLength(0);
+    resolveWorkspaces({ items: [{ id: 'workspace-1', siteId: 'site-1', siteName: 'Site one', role: 'READ_ONLY', selected: true }] });
+    await waitFor(() => expect(mocks.operationsPanelProps.length).toBeGreaterThan(0));
+    expect(mocks.operationsPanelProps.every((props) => props.siteId === 'site-1')).toBe(true);
+  });
+
+  it('shows a visible error instead of endless loading when the workspaces request fails, and retries', async () => {
+    mocks.getDashboardWorkspaces.mockRejectedValueOnce(new Error('workspaces down'));
+    mocks.operational = undefined as unknown as Record<string, unknown>;
+    render(<DashboardPage />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('dashboard.workspacesError');
+    expect(screen.getAllByText('dashboard.error').length).toBeGreaterThan(0);
+    expect(screen.queryByText('…')).not.toBeInTheDocument();
+    expect(mocks.operationsPanelProps).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: 'dashboard.retry' }));
+    await waitFor(() => expect(mocks.getDashboardWorkspaces).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    await waitFor(() => expect(mocks.operationsPanelProps.at(-1)?.siteId).toBe('site-1'));
+  });
 });

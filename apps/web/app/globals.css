@@ -2698,6 +2698,8 @@ body { color:var(--ink); background:#e9eef5; }
 .quality-queue strong { font-size:12px; }
 .quality-queue small { margin-top:2px; color:#66768c; font-size:11px; }
 .dashboard-fit .dashboard-footer { margin:0; padding:0; }
+.app-shell-content .panel-load-error { color:#a33b32; }
+.dashboard-fit-warning .text-button { margin-left:auto; }
 .dashboard-fit-warning { display:flex; align-items:center; gap:8px; margin:10px 0 0; padding:9px 12px; color:#7a4a00; background:#fff6e0; border:1px solid #f1d9a6; border-radius:10px; font-size:12px; }
 .dashboard-layout-kpi-note { color:var(--muted); font-size:10px; }
 @media (min-width:1101px) and (min-height:700px) {
@@ -2723,8 +2725,10 @@ body { color:var(--ink); background:#e9eef5; }
   .app-shell-content .dashboard-fit .hero-row.dashboard-hero { flex-direction:column; align-items:flex-start; }
 }
 
-/* Dashboard toolbar: let the action group wrap to its own row instead of overlapping the workspace select. */
-.app-shell .dashboard-context-toolbar { flex-wrap:wrap; row-gap:8px; }
-.app-shell .dashboard-context-toolbar .context-toolbar-navigation { flex:1 1 auto; min-width:min(100%,300px); }
-.app-shell .dashboard-context-toolbar .context-toolbar-actions { flex:0 0 auto; max-width:100%; }
-@media (max-width:780px) { .app-shell .dashboard-context-toolbar .context-toolbar-navigation { min-width:0; } }
+/* Dashboard toolbar: let the action group wrap to its own row instead of overlapping the workspace select.
+   Desktop/tablet only, so the <=780px mobile toolbar rules still apply unchanged. */
+@media (min-width:781px) {
+  .app-shell .dashboard-context-toolbar { flex-wrap:wrap; row-gap:8px; }
+  .app-shell .dashboard-context-toolbar .context-toolbar-navigation { flex:1 1 auto; min-width:min(100%,300px); }
+  .app-shell .dashboard-context-toolbar .context-toolbar-actions { flex:0 0 auto; max-width:100%; }
+}
