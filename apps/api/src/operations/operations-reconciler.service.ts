@@ -3,6 +3,8 @@ import { PrismaClient } from '@simoes/database';
 import { Queue } from 'bullmq';
 import { AlertSeverityDto, UpsertOperationalAlert } from './dto';
 import { OperationsService } from './operations.service';
+import { RECOVERY_CAPABLE_TRAP_OIDS } from '@simoes/snmp-core';
+import { trapAlertCandidates } from './trap-alerts';
 
 @Injectable()
 export class OperationsReconcilerService implements OnModuleInit, OnModuleDestroy {
@@ -35,7 +37,9 @@ export class OperationsReconcilerService implements OnModuleInit, OnModuleDestro
       ...pendingDiscovery.slice(0, 100).map((job) => ({ dedupKey: `discovery:review:${job.id}`, source: 'DISCOVERY', severity: AlertSeverityDto.INFO, siteId: job.subnet.siteId, entityType: 'DiscoveryJob', entityId: job.id, title: 'Discovery pendente de revisão', detail: `${job._count.results} resultado(s) aguardam revisão.`, actionHref: `/descoberta?jobId=${job.id}` })),
     ], undefined, failedDiscovery.length <= 100 && pendingDiscovery.length <= 100);
     await this.operations.reconcileSource('SNMP_POLL', failedSnmp.slice(0, 100).map((job) => ({ dedupKey: `snmp:failed:${job.id}`, source: 'SNMP_POLL', severity: AlertSeverityDto.WARNING, siteId: job.device.siteId, entityType: 'SnmpJob', entityId: job.id, title: `Polling SNMP falhou em ${job.device.name}`, detail: job.errorCode ?? 'A consulta SNMP terminou com erro.', actionHref: '/snmp' })), undefined, failedSnmp.length <= 100);
-    await this.operations.reconcileSource('SNMP_TRAP', traps.slice(0, 100).map((trap) => ({ dedupKey: `snmp:trap:${trap.dedupKey ?? trap.id}`, source: 'SNMP_TRAP', severity: trap.severity === 'CRITICAL' ? AlertSeverityDto.CRITICAL : trap.severity === 'HIGH' ? AlertSeverityDto.HIGH : AlertSeverityDto.WARNING, siteId: trap.device?.siteId ?? trap.enrollment?.siteId, entityType: 'SnmpTrapEvent', entityId: trap.id, title: `Trap SNMP ${trap.category ?? trap.trapOid ?? 'relevante'}`, detail: trap.device?.name ?? trap.sourceAddress, actionHref: '/snmp' })), undefined, traps.length <= 100);
+    const trapProblems = traps.slice(0, 100);
+    const trapRecoveries = trapProblems.length ? await this.prisma.snmpTrapEvent.findMany({ where: { receivedAt: { gte: cutoff }, status: 'PROCESSED', trapOid: { in: [...RECOVERY_CAPABLE_TRAP_OIDS] }, OR: [{ deviceId: { in: [...new Set(trapProblems.flatMap((trap) => trap.deviceId ? [trap.deviceId] : []))] } }, { deviceId: null, sourceAddress: { in: [...new Set(trapProblems.map((trap) => trap.sourceAddress))] } }] }, select: { id: true, deviceId: true, sourceAddress: true, trapOid: true, varbinds: true, receivedAt: true }, orderBy: { receivedAt: 'desc' }, take: 1000 }) : [];
+    await this.operations.reconcileSource('SNMP_TRAP', trapAlertCandidates(trapProblems, trapRecoveries), undefined, traps.length <= 100);
     await this.operations.reconcileSource('SNMP_DRIFT', drifts.slice(0, 100).map((drift) => ({ dedupKey: `snmp:drift:${drift.id}`, source: 'SNMP_DRIFT', severity: AlertSeverityDto.HIGH, siteId: drift.device.siteId, entityType: 'SnmpDrift', entityId: drift.id, title: 'Divergência SNMP pendente', detail: `${drift.device.name}: ${drift.field}`, actionHref: '/snmp' })), undefined, drifts.length <= 100);
     } finally { this.running = false; }
   }

@@ -11,7 +11,7 @@ export interface SnmpOverview {
   latestSnapshot: null | { id: string; sysName?: string | null; sysDescr?: string | null; sysObjectId?: string | null; sysLocation?: string | null; uptimeTicks?: string | null; observedAt: string; interfaces: SnmpObservation[] };
   jobs: Array<{ id: string; type: string; status: string; errorCode?: string | null; createdAt: string; completedAt?: string | null }>;
   drifts: Array<{ id: string; field: string; documentedValue: unknown; observedValue: unknown; status: string; createdAt: string }>;
-  traps: Array<{ id: string; receivedAt: string; category?: string | null; severity?: string | null; trapOid?: string | null; sourceAddress: string; status: string }>;
+  traps: Array<{ id: string; receivedAt: string; category?: string | null; severity?: string | null; trapOid?: string | null; label?: string | null; summary?: string | null; sourceAddress: string; status: string }>;
   setEnabled: boolean;
 }
 export interface SnmpMetrics {
