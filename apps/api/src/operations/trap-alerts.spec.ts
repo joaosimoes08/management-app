@@ -106,10 +106,15 @@ test('reordered delivery: sysUpTime decides the order within the same boot', () 
   const down = trap('linkDown Gi1/0/1', 1, { uptime: 1_000_000 });
   const lateUp = trap('linkUp Gi1/0/1', 1 - 2 / 60, { uptime: 1_000_000 - 2000 });
   assert.equal(trapAlertCandidates([down], [lateUp]).length, 1);
-  // linkUp generated 5 s AFTER linkDown but delivered 1 s before it → cleared
+  // linkUp generated 5 s AFTER linkDown but delivered 1 s before it: receivedAt and uptime
+  // disagree → conservative agreement rule keeps the alert open
   const down2 = trap('linkDown Gi1/0/1', 1, { uptime: 1_000_000 });
   const earlyUp = trap('linkUp Gi1/0/1', 1 + 1 / 60, { uptime: 1_000_000 + 500 });
-  assert.equal(trapAlertCandidates([down2], [earlyUp]).length, 0);
+  assert.equal(trapAlertCandidates([down2], [earlyUp]).length, 1);
+  // both orders agree (later by receivedAt and by uptime, same boot) → cleared
+  const down3 = trap('linkDown Gi1/0/1', 1, { uptime: 1_000_000 });
+  const up3 = trap('linkUp Gi1/0/1', 1 - 2 / 60, { uptime: 1_000_000 + 200 });
+  assert.equal(trapAlertCandidates([down3], [up3]).length, 0);
 });
 
 const MIN = 60 * 100; // one minute in TimeTicks
@@ -139,19 +144,51 @@ test('large uptimes from different boots (delta mismatch) never resolve', () => 
 test('coldStart/warmStart from the same device between or around the traps keeps the problem open', () => {
   const down = trap('linkDown Gi1/0/1', 30);
   const up = trap('linkUp Gi1/0/1', 10);
-  const boot = (minutesAgo: number, oid: string, deviceId = 'dev-1') => ({ id: `boot-${++seq}`, deviceId, sourceAddress: '192.0.2.10', trapOid: oid, varbinds: [], receivedAt: new Date(Date.now() - minutesAgo * 60_000) });
+  const boot = (minutesAgo: number, oid: string, deviceId = 'dev-1') => ({ id: `boot-${++seq}`, deviceId, sourceAddress: deviceId === 'dev-1' ? '192.0.2.10' : '192.0.2.20', trapOid: oid, varbinds: [], receivedAt: new Date(Date.now() - minutesAgo * 60_000) });
   assert.equal(trapAlertCandidates([down], [up]).length, 0);
   assert.equal(trapAlertCandidates([down], [up, boot(20, '1.3.6.1.6.3.1.1.5.1')]).length, 1, 'coldStart between');
   assert.equal(trapAlertCandidates([down], [up, boot(20, '1.3.6.1.6.3.1.1.5.2')]).length, 1, 'warmStart between');
   assert.equal(trapAlertCandidates([down], [up, boot(32, '1.3.6.1.6.3.1.1.5.1')]).length, 1, 'coldStart just before the problem (within tolerance)');
   assert.equal(trapAlertCandidates([down], [up, boot(60, '1.3.6.1.6.3.1.1.5.1')]).length, 0, 'coldStart well before both');
-  assert.equal(trapAlertCandidates([down], [up, boot(20, '1.3.6.1.6.3.1.1.5.1', 'dev-2')]).length, 0, 'coldStart from another device');
+  assert.equal(trapAlertCandidates([down], [up, boot(20, '1.3.6.1.6.3.1.1.5.1', 'dev-2')]).length, 0, 'coldStart from another device and IP');
 });
 
-test('without sysUpTime receivedAt decides', () => {
-  assert.equal(trapAlertCandidates([trap('linkDown Gi1/0/1', 1)], [trap('linkUp Gi1/0/1', 1 + 1 / 60, { uptime: null })]).length, 1);
+test('receivedAt alone decides only when BOTH traps lack sysUpTime; one-sided uptime stays open', () => {
+  // only the problem has uptime → ambiguous → open
+  assert.equal(trapAlertCandidates([trap('linkDown Gi1/0/1', 5)], [trap('linkUp Gi1/0/1', 1, { uptime: null })]).length, 1);
+  // only the recovery has uptime → ambiguous → open
+  assert.equal(trapAlertCandidates([trap('linkDown Gi1/0/1', 5, { uptime: null })], [trap('linkUp Gi1/0/1', 1)]).length, 1);
+  assert.equal(recoveredAfter({ receivedAt: new Date(1000), uptime: 9_000_000 }, { receivedAt: new Date(2000) }), false);
+  // both missing → receivedAt decides
   assert.equal(trapAlertCandidates([trap('linkDown Gi1/0/1', 5, { uptime: null })], [trap('linkUp Gi1/0/1', 1, { uptime: null })]).length, 0);
+  assert.equal(trapAlertCandidates([trap('linkDown Gi1/0/1', 1, { uptime: null })], [trap('linkUp Gi1/0/1', 5, { uptime: null })]).length, 1);
   assert.equal(recoveredAfter({ receivedAt: new Date(1000) }, { receivedAt: new Date(1000) }), true);
+});
+
+const bootTrap = (minutesAgo: number, overrides: Record<string, unknown> = {}) => ({ id: `boot-${++seq}`, deviceId: null as string | null, sourceAddress: '192.0.2.10', trapOid: '1.3.6.1.6.3.1.1.5.1', varbinds: [], receivedAt: new Date(Date.now() - minutesAgo * 60_000), ...overrides });
+
+test('an UNMATCHED coldStart (no device) from the problem\'s source IP between the traps keeps the alert open', () => {
+  const down = trap('linkDown Gi1/0/1', 30);
+  const up = trap('linkUp Gi1/0/1', 10);
+  assert.equal(trapAlertCandidates([down], [up], []).length, 0);
+  assert.equal(trapAlertCandidates([down], [up], [bootTrap(20)]).length, 1, 'same IP, deviceId null');
+  assert.deepEqual(clearedTrapAlertKeys([down], [up], [bootTrap(20)]), []);
+  assert.equal(trapAlertCandidates([down], [up], [bootTrap(20, { sourceAddress: '192.0.2.99' })]).length, 0, 'other IP, no device');
+  assert.equal(trapAlertCandidates([down], [up], [bootTrap(20, { deviceId: 'dev-1', sourceAddress: '198.51.100.7' })]).length, 1, 'same device, other IP');
+  // device-less problem: a boot from the same IP blocks too
+  const looseDown = trap('linkDown Gi1/0/1', 30, { deviceId: null });
+  const looseUp = trap('linkUp Gi1/0/1', 10, { deviceId: null });
+  assert.equal(trapAlertCandidates([looseDown], [looseUp], [bootTrap(20)]).length, 1);
+});
+
+test('Guita case C: a pre-reboot linkUp delivered >5 min late stays open when the boot trap is present', () => {
+  // linkUp generated before the reboot at uptime 20 min; reboot; linkDown at uptime 10 min (received 10 min ago);
+  // the stale linkUp is delivered 10 min after the linkDown. Uptimes look consistent (20 − 10 = 10 min),
+  // so only the coldStart (delivered after the problem, ahead of the stale linkUp) can tell.
+  const down = trap('linkDown Gi1/0/1', 10, { uptime: 10 * MIN });
+  const staleUp = trap('linkUp Gi1/0/1', 0, { uptime: 20 * MIN });
+  assert.equal(trapAlertCandidates([down], [staleUp]).length, 0, 'documented residual: without the boot trap it clears');
+  assert.equal(trapAlertCandidates([down], [staleUp], [bootTrap(5, { deviceId: 'dev-1' })]).length, 1);
 });
 
 test('uptime comes from the stored uptimeTicks column first, parsed as a number, then the varbind', () => {
@@ -171,7 +208,7 @@ test('uptime comes from the stored uptimeTicks column first, parsed as a number,
   assert.equal(trapAlertCandidates([down], [lateUp]).length, 1);
 });
 
-function fakeDb(traps: TrapAlertSource[], open: Array<{ id: string; dedupKey: string; entityId: string }>, recoveries: TrapAlertSource[]) {
+function fakeDb(traps: TrapAlertSource[], open: Array<{ id: string; dedupKey: string; entityId: string }>, recoveries: TrapAlertSource[], boots: unknown[] = []) {
   const calls: any[] = [];
   return {
     calls,
@@ -179,6 +216,7 @@ function fakeDb(traps: TrapAlertSource[], open: Array<{ id: string; dedupKey: st
       calls.push(args);
       if (args.where?.id?.in) return traps.filter((item) => args.where.id.in.includes(item.id));
       if (args.where?.status === 'PROCESSED') return args.cursor ? [] : recoveries;
+      if (args.where?.trapOid?.in?.includes('1.3.6.1.6.3.1.1.5.1')) return args.cursor ? [] : boots;
       return [...traps].sort((a, b) => b.receivedAt.getTime() - a.receivedAt.getTime()).slice(0, args.take);
     } },
     operationalAlert: { findMany: async (args: any) => args.cursor ? [] : open },
@@ -245,6 +283,24 @@ test('reconcileSource resolves cleared keys in batches of 1,000', async () => {
   assert.equal(outcome.resolved, 2500);
 });
 
+test('collectTrapAlerts loads boot traps in any status by device or source IP and they block the clear', async () => {
+  const down = trap('linkDown Gi1/0/1', 30);
+  const up = trap('linkUp Gi1/0/1', 10);
+  const open = [{ id: 'a1', dedupKey: `snmp:trap:${down.id}`, entityId: down.id }];
+  const clean = await collectTrapAlerts(fakeDb([down], open, [up]) as never, new Date(Date.now() - 24 * 3600_000));
+  assert.deepEqual(clean.resolveKeys, [`snmp:trap:${down.id}`]);
+  const db = fakeDb([down], open, [up], [bootTrap(20)]);
+  const blocked = await collectTrapAlerts(db as never, new Date(Date.now() - 24 * 3600_000));
+  assert.deepEqual(blocked.resolveKeys, []);
+  assert.equal(blocked.candidates.length, 1);
+  const bootArgs = db.calls.find((args) => args.where?.trapOid?.in?.includes('1.3.6.1.6.3.1.1.5.1'));
+  assert.equal(bootArgs.where.status, undefined, 'no status filter: PENDING/UNMATCHED/DISCOVERED boots count');
+  assert.deepEqual(bootArgs.where.trapOid.in, ['1.3.6.1.6.3.1.1.5.1', '1.3.6.1.6.3.1.1.5.2']);
+  assert.deepEqual(bootArgs.where.AND[0].OR, [{ deviceId: { in: ['dev-1'] } }, { sourceAddress: { in: ['192.0.2.10'] } }]);
+  assert.deepEqual(bootArgs.where.AND[1].OR, [{ category: null }, { category: { not: 'SELF_TEST' } }]);
+  assert.ok(bootArgs.where.receivedAt.gte instanceof Date);
+});
+
 test('collectTrapAlerts caps the recovery lookback at 30 days and warns when paging stops', async () => {
   const ancient = trap('linkDown Gi1/0/1', 60 * 24 * 90); // 90 days old, alert still open
   const warnings: string[] = [];
@@ -252,21 +308,40 @@ test('collectTrapAlerts caps the recovery lookback at 30 days and warns when pag
   Logger.prototype.warn = function (message: any) { warnings.push(String(message)); } as never;
   try {
     let recoveryArgs: any;
-    const full = Array.from({ length: 500 }, (_, n) => ({ id: `a${n}`, dedupKey: `x${n}`, entityId: n === 0 ? ancient.id : null }));
+    const rows = (take: number) => Array.from({ length: take }, (_, n) => ({ id: `a${n}`, dedupKey: `x${n}`, entityId: n === 0 ? ancient.id : null }));
     const db = {
       snmpTrapEvent: { findMany: async (args: any) => {
         if (args.where?.id?.in) return [ancient];
         if (args.where?.status === 'PROCESSED') { recoveryArgs = args; return []; }
         return [];
       } },
-      operationalAlert: { findMany: async () => full }, // always a full page → hits MAX_PAGES
+      operationalAlert: { findMany: async (args: any) => rows(args.take) }, // always more rows → hits MAX_PAGES
     };
     await collectTrapAlerts(db as never, new Date(Date.now() - 24 * 3600_000));
     const lookback = Date.now() - recoveryArgs.where.receivedAt.gte.getTime();
     assert.ok(lookback <= 30 * 24 * 3600_000 + 5000 && lookback >= 30 * 24 * 3600_000 - 5000, `lookback ${lookback}`);
-    assert.ok(recoveryArgs.where.trapOid.in.includes('1.3.6.1.6.3.1.1.5.1') && recoveryArgs.where.trapOid.in.includes('1.3.6.1.6.3.1.1.5.2'));
+    assert.ok(!recoveryArgs.where.trapOid.in.includes('1.3.6.1.6.3.1.1.5.1'), 'boot traps use their own query');
     assert.ok(recoveryArgs.select.uptimeTicks);
     assert.equal(warnings.length, 1);
     assert.match(warnings[0], /open SNMP_TRAP alerts: stopped after 40 pages/);
+  } finally { Logger.prototype.warn = original; }
+});
+
+test('pageAll does not warn at exactly 40 × 500 rows, only when a further row exists', async () => {
+  const warnings: string[] = [];
+  const original = Logger.prototype.warn;
+  Logger.prototype.warn = function (message: any) { warnings.push(String(message)); } as never;
+  try {
+    const takes: number[] = [];
+    let served = 0;
+    const db = {
+      snmpTrapEvent: { findMany: async () => [] },
+      // exactly 20,000 open alerts in total
+      operationalAlert: { findMany: async (args: any) => { takes.push(args.take); const n = Math.min(args.take, 20_000 - served); served += n; return Array.from({ length: n }, (_, i) => ({ id: `o${served - n + i}`, dedupKey: `x${i}`, entityId: null })); } },
+    };
+    await collectTrapAlerts(db as never, new Date(Date.now() - 24 * 3600_000));
+    assert.equal(takes.length, 40);
+    assert.equal(takes[39], 501, 'last page fetches one extra row');
+    assert.equal(warnings.length, 0);
   } finally { Logger.prototype.warn = original; }
 });

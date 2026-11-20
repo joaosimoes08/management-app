@@ -54,39 +54,50 @@ export function storedTrapUptime(trap: { uptimeTicks?: string | null; varbinds: 
 type Timed = { receivedAt: Date; uptime?: number };
 
 /**
- * True only when `recovery` provably happened at or after `problem` (same device scope).
- * Fail-safe: when the order is ambiguous it returns false, so the problem stays open.
- * - A coldStart/warmStart from the same scope received between the two traps (widened by
- *   SAME_BOOT_TOLERANCE_MS on each side) is a reboot boundary → ambiguous.
- * - With both uptimes: trusted only when the smaller one exceeds the tolerance (a recent
- *   reboot could make small values from different boots look consistent) and the uptime
- *   delta matches the receive delta within the tolerance; otherwise ambiguous.
- * - Without both uptimes: receivedAt decides.
+ * True only when `recovery` provably happened at or after `problem` (same device).
+ * Conservative agreement rule; any ambiguity returns false so the problem stays open:
+ * (a) the recovery must be received at or after the problem;
+ * (b) when both carry sysUpTime, the recovery's uptime must also be later and the same-boot
+ *     check must pass: the smaller uptime exceeds SAME_BOOT_TOLERANCE_MS and the uptime
+ *     delta matches the receive delta within it. Uptime on only one side → ambiguous;
+ *     only when both lack it does receivedAt alone decide;
+ * (c) no coldStart/warmStart from the device sits in the window between the two traps
+ *     (widened by SAME_BOOT_TOLERANCE_MS on each side).
  */
 export function recoveredAfter(problem: Timed, recovery: Timed, boots: readonly Date[] = []) {
   const p = problem.receivedAt.getTime();
   const r = recovery.receivedAt.getTime();
-  const from = Math.min(p, r) - SAME_BOOT_TOLERANCE_MS;
-  const to = Math.max(p, r) + SAME_BOOT_TOLERANCE_MS;
-  if (boots.some((boot) => boot.getTime() >= from && boot.getTime() <= to)) return false;
-  if (problem.uptime !== undefined && recovery.uptime !== undefined) {
-    const uptimeDelta = (recovery.uptime - problem.uptime) * 10;
-    const sameBoot = Math.min(problem.uptime, recovery.uptime) * 10 > SAME_BOOT_TOLERANCE_MS && Math.abs(uptimeDelta - (r - p)) <= SAME_BOOT_TOLERANCE_MS;
-    return sameBoot && uptimeDelta >= 0;
-  }
-  return r - p >= 0;
+  if (r < p) return false;
+  if (boots.some((boot) => boot.getTime() >= p - SAME_BOOT_TOLERANCE_MS && boot.getTime() <= r + SAME_BOOT_TOLERANCE_MS)) return false;
+  if (problem.uptime === undefined && recovery.uptime === undefined) return true;
+  if (problem.uptime === undefined || recovery.uptime === undefined) return false;
+  const uptimeDelta = (recovery.uptime - problem.uptime) * 10;
+  const sameBoot = Math.min(problem.uptime, recovery.uptime) * 10 > SAME_BOOT_TOLERANCE_MS && Math.abs(uptimeDelta - (r - p)) <= SAME_BOOT_TOLERANCE_MS;
+  return sameBoot && uptimeDelta >= 0;
 }
 
 type RecoveryIndex = { clears: Map<string, Timed[]>; boots: Map<string, Date[]> };
+export type TrapBootSource = Pick<TrapAlertSource, 'deviceId' | 'sourceAddress' | 'trapOid' | 'receivedAt'>;
 
-function recoveryIndex(recoveries: TrapRecoverySource[]): RecoveryIndex {
+function isBootTrap(trap: { trapOid?: string | null }) { return !!trap.trapOid && BOOT_TRAP_OIDS.includes(trap.trapOid.replace(/^\./, '')); }
+
+function addBoot(boots: Map<string, Date[]>, key: string, at: Date) { boots.set(key, [...(boots.get(key) ?? []), at]); }
+
+/**
+ * Boot traps are indexed by device and by source address, so a coldStart that was not
+ * matched to a device (UNMATCHED/DISCOVERED, deviceId null) still blocks a clear for a
+ * problem trap from the same IP.
+ */
+function recoveryIndex(recoveries: TrapRecoverySource[], bootTraps: TrapBootSource[] = []): RecoveryIndex {
   const clears = new Map<string, Timed[]>();
   const boots = new Map<string, Date[]>();
+  for (const boot of [...bootTraps, ...recoveries.filter(isBootTrap)]) {
+    if (!isBootTrap(boot)) continue;
+    if (boot.deviceId) addBoot(boots, `device:${boot.deviceId}`, boot.receivedAt);
+    addBoot(boots, `source:${boot.sourceAddress}`, boot.receivedAt);
+  }
   for (const recovery of recoveries) {
-    if (recovery.trapOid && BOOT_TRAP_OIDS.includes(recovery.trapOid.replace(/^\./, ''))) {
-      boots.set(scope(recovery), [...(boots.get(scope(recovery)) ?? []), recovery.receivedAt]);
-      continue;
-    }
+    if (isBootTrap(recovery)) continue;
     const decoded = decodeTrap(recovery.trapOid, recovery.varbinds);
     if (!decoded.isClear || !decoded.clearKey) continue;
     const key = `${scope(recovery)}|${decoded.clearKey}`;
@@ -98,7 +109,7 @@ function recoveryIndex(recoveries: TrapRecoverySource[]): RecoveryIndex {
 function isCleared(trap: TrapAlertSource, clearKey: string | undefined, index: RecoveryIndex) {
   if (!clearKey) return false;
   const problem = { receivedAt: trap.receivedAt, uptime: storedTrapUptime(trap) };
-  const boots = index.boots.get(scope(trap)) ?? [];
+  const boots = [...(trap.deviceId ? index.boots.get(`device:${trap.deviceId}`) ?? [] : []), ...(index.boots.get(`source:${trap.sourceAddress}`) ?? [])];
   return (index.clears.get(`${scope(trap)}|${clearKey}`) ?? []).some((recovery) => recoveredAfter(problem, recovery, boots));
 }
 
@@ -109,8 +120,8 @@ function isCleared(trap: TrapAlertSource, clearKey: string | undefined, index: R
  * fan tray and presence are separate scopes), so the existing resolve path in
  * OperationsService.reconcileSource resolves its alert. No new alert engine.
  */
-export function trapAlertCandidates(problems: TrapAlertSource[], recoveries: TrapRecoverySource[]): UpsertOperationalAlert[] {
-  const index = recoveryIndex(recoveries);
+export function trapAlertCandidates(problems: TrapAlertSource[], recoveries: TrapRecoverySource[], boots: TrapBootSource[] = []): UpsertOperationalAlert[] {
+  const index = recoveryIndex(recoveries, boots);
   const candidates: UpsertOperationalAlert[] = [];
   for (const trap of problems) {
     const decoded = decodeTrap(trap.trapOid, trap.varbinds);
@@ -133,8 +144,8 @@ export function trapAlertCandidates(problems: TrapAlertSource[], recoveries: Tra
 }
 
 /** Alert dedup keys of problem traps that a later recovery has cleared. */
-export function clearedTrapAlertKeys(problems: TrapAlertSource[], recoveries: TrapRecoverySource[]): string[] {
-  const index = recoveryIndex(recoveries);
+export function clearedTrapAlertKeys(problems: TrapAlertSource[], recoveries: TrapRecoverySource[], boots: TrapBootSource[] = []): string[] {
+  const index = recoveryIndex(recoveries, boots);
   return problems.filter((trap) => isCleared(trap, decodeTrap(trap.trapOid, trap.varbinds).clearKey, index)).map(trapAlertDedupKey);
 }
 
@@ -145,11 +156,13 @@ async function pageAll<T extends { id: string }>(label: string, fetch: (args: { 
   const all: T[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < MAX_PAGES; page++) {
-    const rows = await fetch({ take: PAGE, orderBy: { id: 'asc' }, ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}) });
-    all.push(...rows);
-    if (rows.length < PAGE) break;
+    const last = page === MAX_PAGES - 1;
+    // On the last page fetch one extra row: warn only when rows really remain beyond the cap.
+    const rows = await fetch({ take: last ? PAGE + 1 : PAGE, orderBy: { id: 'asc' }, ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}) });
+    all.push(...rows.slice(0, PAGE));
+    if (rows.length > PAGE && last) logger.warn(`${label}: stopped after ${MAX_PAGES} pages (${all.length} rows); remaining rows are handled on a later pass`);
+    if (rows.length < PAGE || last) break;
     cursor = rows[rows.length - 1].id;
-    if (page === MAX_PAGES - 1) logger.warn(`${label}: stopped after ${MAX_PAGES} pages (${all.length} rows); remaining rows are handled on a later pass`);
   }
   return all;
 }
@@ -171,17 +184,22 @@ export async function collectTrapAlerts(prisma: TrapAlertDb, cutoff: Date) {
   for (let i = 0; i < missing.length; i += PAGE) older.push(...await prisma.snmpTrapEvent.findMany({ where: { id: { in: missing.slice(i, i + PAGE) } }, include: TRAP_INCLUDE }));
   const all = [...problems, ...older];
   let recoveries: TrapRecoverySource[] = [];
+  let boots: TrapBootSource[] = [];
   if (all.length) {
     const oldest = all.reduce((min, trap) => Math.min(min, trap.receivedAt.getTime()), cutoff.getTime());
     const since = new Date(Math.max(oldest, Date.now() - RESOLVE_LOOKBACK_MS));
     const deviceIds = [...new Set(all.flatMap((trap) => trap.deviceId ? [trap.deviceId] : []))];
     const sources = [...new Set(all.filter((trap) => !trap.deviceId).map((trap) => trap.sourceAddress))];
-    recoveries = await pageAll('SNMP recovery traps', (page) => prisma.snmpTrapEvent.findMany({ where: { receivedAt: { gte: since }, status: 'PROCESSED', trapOid: { in: [...RECOVERY_CAPABLE_TRAP_OIDS, ...BOOT_TRAP_OIDS] }, OR: [{ deviceId: { in: deviceIds } }, { deviceId: null, sourceAddress: { in: sources } }] }, select: { id: true, deviceId: true, sourceAddress: true, trapOid: true, varbinds: true, receivedAt: true, uptimeTicks: true }, ...page }));
+    const addresses = [...new Set(all.map((trap) => trap.sourceAddress))];
+    recoveries = await pageAll('SNMP recovery traps', (page) => prisma.snmpTrapEvent.findMany({ where: { receivedAt: { gte: since }, status: 'PROCESSED', trapOid: { in: [...RECOVERY_CAPABLE_TRAP_OIDS] }, OR: [{ deviceId: { in: deviceIds } }, { deviceId: null, sourceAddress: { in: sources } }] }, select: { id: true, deviceId: true, sourceAddress: true, trapOid: true, varbinds: true, receivedAt: true, uptimeTicks: true }, ...page }));
+    // Boot traps in any status (an unmatched or still-pending coldStart is still a reboot),
+    // by device or by the same source IP; only self-test traps are ignored.
+    boots = await pageAll('SNMP boot traps', (page) => prisma.snmpTrapEvent.findMany({ where: { receivedAt: { gte: since }, trapOid: { in: [...BOOT_TRAP_OIDS] }, AND: [{ OR: [{ deviceId: { in: deviceIds } }, { sourceAddress: { in: addresses } }] }, { OR: [{ category: null }, { category: { not: 'SELF_TEST' } }] }] }, select: { id: true, deviceId: true, sourceAddress: true, trapOid: true, receivedAt: true }, ...page }));
   }
   const openKeys = new Set(open.map((alert) => alert.dedupKey));
   return {
-    candidates: trapAlertCandidates(problems, recoveries),
-    resolveKeys: clearedTrapAlertKeys(all, recoveries).filter((key) => openKeys.has(key)),
+    candidates: trapAlertCandidates(problems, recoveries, boots),
+    resolveKeys: clearedTrapAlertKeys(all, recoveries, boots).filter((key) => openKeys.has(key)),
     resolveMissing: traps.length <= PROBLEM_CAP,
   };
 }
