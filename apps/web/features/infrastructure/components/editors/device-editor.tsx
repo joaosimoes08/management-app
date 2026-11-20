@@ -8,9 +8,10 @@ import { EQUIPMENT_TYPES } from '../../utils';
 import { deviceImageFields, devicePowerFields, type DeviceForm } from '../../forms';
 import type { AssetFile, DeviceModel, IpAddress, Rack } from '../../types';
 import {
-  DEVICE_EDITOR_TABS, deviceEditorTabLabels, evaluateDeviceRequirements, missingRequirementKeys,
-  type DeviceEditorTab, type DeviceRequirementKey, type MappedFieldError,
+  DEVICE_EDITOR_TABS, deviceEditorTabLabel, evaluateDeviceRequirements, satisfiedFeatureConfigs, saveSendsPower, useRequiredConfigRegistry,
+  type DeviceEditorTab, type MappedFieldError,
 } from '../../device-requirements';
+import { usePowerDefaults } from '../../use-power-defaults';
 import { AssetPicker, FormError } from './editor-shared';
 import { DevicePowerFields } from './device-power-fields';
 import { AssetImage } from '../asset-image';
@@ -35,6 +36,7 @@ export interface DeviceEditorProps {
 }
 
 const LEGACY_HINT = 'Configuração em falta: este equipamento é anterior a este requisito. Podes guardar outras alterações e completar mais tarde.';
+const POWER_AUTO_NOTE = 'Ao guardar, as fichas são ligadas automaticamente a tomadas livres da PDU do bastidor. Podes ajustá-las depois em “Ligações elétricas”.';
 
 /**
  * Device create/edit form split into tabs (Geral, Localização, Rede, Imagens, Energia). The body scrolls inside the
@@ -52,10 +54,19 @@ export function DeviceEditor({ close, editingId, animateEntry = false, form, set
   const tabRefs = useRef<Partial<Record<DeviceEditorTab, HTMLButtonElement | null>>>({});
   const formRef = useRef<HTMLFormElement>(null);
 
+  const registry = useRequiredConfigRegistry();
+  const defaults = usePowerDefaults();
   const model = models.find((item) => item.id === form.modelId) ?? null;
-  // Baseline for an existing device: what it already lacked when opened (ignoring applicability, so moving an old device into a rack does not suddenly block it).
-  const [missingAtOpen] = useState<Set<DeviceRequirementKey>>(() => (isNew ? new Set() : missingRequirementKeys({ ...form, rackId: form.rackId || 'any' }, model)));
-  const missing = useMemo(() => evaluateDeviceRequirements(form, model, { isNew, missingAtOpen }), [form, model, isNew, missingAtOpen]);
+  const siteId = typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('siteId');
+  const baseContext = { model, siteId, defaultPlugCount: defaults?.powerPlugCount ?? null, isNew };
+  const sendsPower = saveSendsPower(form, baseContext);
+  const context = { ...baseContext, sendsPower };
+  // Existing device: FEATURE configs it satisfied when opened. Only clearing one of those blocks; other gaps are legacy hints.
+  const [openedForm] = useState(form);
+  const satisfiedAtOpen = useMemo(() => (isNew ? new Set<string>() : satisfiedFeatureConfigs(registry, openedForm, { model: models.find((item) => item.id === openedForm.modelId) ?? null, siteId, defaultPlugCount: defaults?.powerPlugCount ?? null, isNew, sendsPower: false })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the baseline is the device as opened (recomputed once the registry arrives).
+    [registry, isNew, openedForm, models]);
+  const missing = evaluateDeviceRequirements(registry, form, context, { isNew, satisfiedAtOpen });
   const blocking = missing.filter((item) => item.blocking);
 
   useEffect(() => {
@@ -76,14 +87,14 @@ export function DeviceEditor({ close, editingId, animateEntry = false, form, set
     const api = apiErrors.find((item) => item.fieldId === fieldId);
     if (api) return api.message;
     if (!attempted) return undefined;
-    return blocking.find((item) => item.requirement.fieldId === fieldId)?.requirement.message;
+    return blocking.find((item) => item.fieldId === fieldId)?.config.missingMessage;
   };
-  const hintFor = (fieldId: string) => (missing.some((item) => !item.blocking && item.requirement.fieldId === fieldId) ? LEGACY_HINT : undefined);
+  const hintFor = (fieldId: string) => { const gap = missing.find((item) => !item.blocking && item.fieldId === fieldId); return gap ? `${LEGACY_HINT} ${gap.config.missingMessage}` : undefined; };
   const tabErrorCount = (key: DeviceEditorTab) => {
-    const ids = new Set([...blocking.filter((item) => item.requirement.tab === key).map((item) => item.requirement.fieldId), ...apiErrors.filter((item) => item.tab === key).map((item) => item.fieldId)]);
+    const ids = new Set([...blocking.filter((item) => item.tab === key).map((item) => item.fieldId), ...apiErrors.filter((item) => item.tab === key).map((item) => item.fieldId)]);
     return ids.size;
   };
-  const tabHasHint = (key: DeviceEditorTab) => missing.some((item) => !item.blocking && item.requirement.tab === key);
+  const tabHasHint = (key: DeviceEditorTab) => missing.some((item) => !item.blocking && item.tab === key);
   const totalErrors = DEVICE_EDITOR_TABS.reduce((sum, key) => sum + tabErrorCount(key), 0);
 
   const update = (patch: Partial<DeviceForm>, ...fieldIds: string[]) => {
@@ -111,11 +122,11 @@ export function DeviceEditor({ close, editingId, animateEntry = false, form, set
     event.preventDefault();
     setAttempted(true);
     const firstError = DEVICE_EDITOR_TABS.flatMap((key) => [
-      ...blocking.filter((item) => item.requirement.tab === key).map((item) => item.requirement.fieldId),
+      ...blocking.filter((item) => item.tab === key).map((item) => item.fieldId),
       ...apiErrors.filter((item) => item.tab === key).map((item) => item.fieldId),
     ])[0];
     if (firstError) {
-      const owner = blocking.find((item) => item.requirement.fieldId === firstError)?.requirement.tab ?? apiErrors.find((item) => item.fieldId === firstError)?.tab ?? tab;
+      const owner = blocking.find((item) => item.fieldId === firstError)?.tab ?? apiErrors.find((item) => item.fieldId === firstError)?.tab ?? tab;
       goTo(owner, firstError);
       return;
     }
@@ -144,6 +155,9 @@ export function DeviceEditor({ close, editingId, animateEntry = false, form, set
     delete deviceBody.savedAssetIds; delete deviceBody.frontAssetId; delete deviceBody.backAssetId;
     // Power overrides follow the same rule: send only what changed (null = back to the model / default).
     delete deviceBody.powerPlugCount; delete deviceBody.estimatedWatts; delete deviceBody.savedPower;
+    delete deviceBody.savedRackId; delete deviceBody.requiredMissing;
+    // Landing in a rack (new or moved) sends `power`: the API connects the plugs to free PDU outlets in the same save.
+    const powerFields = devicePowerFields(form);
     void save(editingId ? `/api/v1/devices/${editingId}` : '/api/v1/devices', {
       ...deviceBody,
       siteId: new URLSearchParams(location.search).get('siteId'),
@@ -153,7 +167,8 @@ export function DeviceEditor({ close, editingId, animateEntry = false, form, set
       modelId: form.modelId || null,
       managementIpAddressId: form.managementIpAddressId || null,
       ...deviceImageFields(form),
-      ...devicePowerFields(form),
+      ...powerFields,
+      ...(sendsPower ? { power: {} } : {}),
     });
   };
 
@@ -166,7 +181,7 @@ export function DeviceEditor({ close, editingId, animateEntry = false, form, set
   };
   const a11y = (fieldId: string) => ({ id: fieldId, 'aria-invalid': errorFor(fieldId) ? true : undefined, 'aria-describedby': errorFor(fieldId) || hintFor(fieldId) ? `${fieldId}-note` : undefined });
   const requiredMark = <span className="device-editor-required" aria-hidden="true"> *</span>;
-  const rearRequired = !!form.rackId;
+  const rearRequired = !!form.rackId && form.status !== 'RETIRED';
   /** Decorative preview of the chosen (or inherited) image; the picker below carries the label. */
   const imagePreview = (assetId: string | undefined, fallback: AssetFile | null | undefined) => {
     const asset = assets.find((item) => item.id === assetId) ?? fallback;
@@ -183,7 +198,7 @@ export function DeviceEditor({ close, editingId, animateEntry = false, form, set
           const errors = tabErrorCount(key);
           const hint = !errors && tabHasHint(key);
           return <button key={key} ref={(node) => { tabRefs.current[key] = node; }} type="button" role="tab" id={`device-tab-${key}`} aria-controls={`device-panel-${key}`} aria-selected={tab === key} tabIndex={tab === key ? 0 : -1} className="device-editor-tab" data-state={errors ? 'error' : hint ? 'hint' : undefined} onClick={() => setTab(key)} onKeyDown={onTabKeyDown}>
-            {deviceEditorTabLabels[key]}
+            {deviceEditorTabLabel(key, registry)}
             {errors > 0 && <span className="device-editor-tab-badge" data-testid={`tab-errors-${key}`}><span aria-hidden="true">{errors}</span><span className="topology-sr-only">{errors === 1 ? ' · 1 campo obrigatório em falta' : ` · ${errors} campos obrigatórios em falta`}</span></span>}
             {hint && <span className="device-editor-tab-hint" data-testid={`tab-hint-${key}`}><span aria-hidden="true">!</span><span className="topology-sr-only"> · configuração em falta</span></span>}
           </button>;
@@ -211,7 +226,7 @@ export function DeviceEditor({ close, editingId, animateEntry = false, form, set
             <label htmlFor="device-rack-unit-size">Tamanho U<input {...a11y('device-rack-unit-size')} type="number" min="1" value={form.rackUnitSize} onChange={(event) => update({ rackUnitSize: event.target.value }, 'device-rack-unit-size')} /></label>
           </div>
           {note('device-rack-unit-start')}{note('device-rack-unit-size')}
-          <small className="form-help">Num bastidor, o equipamento passa a precisar de imagem traseira.</small>
+          <small className="form-help">Num bastidor, o equipamento precisa de imagem traseira e de fichas ligadas à PDU.</small>
         </>)}
 
         {panel('rede', <>
@@ -244,7 +259,7 @@ export function DeviceEditor({ close, editingId, animateEntry = false, form, set
             </div>
             <div className="device-editor-image">
               {imagePreview(form.backAssetId, model?.backAsset)}
-              <AssetPicker id="device-rear-image" invalid={!!errorFor('device-rear-image')} describedBy={errorFor('device-rear-image') || hintFor('device-rear-image') ? 'device-rear-image-note' : undefined} required={rearRequired && isNew} label={rearRequired ? 'Imagem traseira (obrigatória no bastidor)' : 'Imagem traseira (substitui a do modelo)'} emptyLabel={model?.backAssetId || model?.backAsset ? 'Usar a imagem do modelo' : 'Sem imagem'} value={form.backAssetId ?? ''} assets={assets} onChange={(value) => update({ backAssetId: value }, 'device-rear-image')} />
+              <AssetPicker id="device-rear-image" invalid={!!errorFor('device-rear-image')} describedBy={errorFor('device-rear-image') || hintFor('device-rear-image') ? 'device-rear-image-note' : undefined} required={rearRequired && isNew && !(model?.backAssetId || model?.backAsset)} label={rearRequired ? 'Imagem traseira (obrigatória no bastidor)' : 'Imagem traseira (substitui a do modelo)'} emptyLabel={model?.backAssetId || model?.backAsset ? 'Usar a imagem do modelo' : 'Sem imagem'} value={form.backAssetId ?? ''} assets={assets} onChange={(value) => update({ backAssetId: value }, 'device-rear-image')} />
               {note('device-rear-image')}
             </div>
           </div>
@@ -254,6 +269,7 @@ export function DeviceEditor({ close, editingId, animateEntry = false, form, set
           <DevicePowerFields form={form} models={models} onChange={(patch) => update(patch, 'device-power-plugs', 'device-power-watts')}
             errors={{ plugs: errorFor('device-power-plugs'), watts: errorFor('device-power-watts') }}
             hints={{ plugs: errorFor('device-power-plugs') ? undefined : hintFor('device-power-plugs'), watts: errorFor('device-power-watts') ? undefined : hintFor('device-power-watts') }} />
+          {sendsPower && <small className="form-help device-power-auto">{POWER_AUTO_NOTE}</small>}
           {onDevicePower && editingId && form.rackId && <button type="button" className="secondary-button device-power-open" onClick={onDevicePower}><Plug size={14} /> Ligações elétricas</button>}
         </>)}
       </div>

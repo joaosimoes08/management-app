@@ -2971,7 +2971,8 @@ body { color:var(--ink); background:#e9eef5; }
 .device-editor-panel[hidden] { display:none; }
 .device-editor-panel:focus-visible { outline:2px solid #2c6bed; outline-offset:4px; border-radius:4px; }
 .device-editor-modal .modal-form label { color:#6b6870; font:600 11px/1.3 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
-.device-editor-modal .modal-form .checkbox-label { color:#242124; font-weight:500; }
+.device-editor-modal .modal-form .checkbox-label { display:flex; align-items:center; gap:8px; color:#242124; font-weight:500; }
+.device-editor-modal .modal-form .checkbox-label input { flex:none; width:14px; height:14px; margin:0; }
 .device-editor-modal .modal-form input:not([type='checkbox']):not([type='radio']):not([type='file']), .device-editor-modal .modal-form select { font-size:12px; }
 .device-editor-modal .modal-form [aria-invalid="true"] { border-color:#b3261e; box-shadow:0 0 0 1px #b3261e inset; }
 .device-editor-required { color:#b3261e; }
@@ -2989,15 +2990,13 @@ body { color:var(--ink); background:#e9eef5; }
 @media (max-width:780px) { .device-editor-images { grid-template-columns:1fr; } .modal-card.device-editor-modal { height:calc(100vh - 32px); } }
 
 /* Bell: grouped "configuração em falta" alert (persistent until the devices are fixed). */
-.alert-list > .alert-group { border-bottom:1px solid #f3f1f2; }
-.alert-list > .alert-group:last-child { border-bottom:0; }
-.alert-group-head { display:flex; align-items:flex-start; gap:9px; padding:9px; color:inherit; border-radius:9px; background:#fffaf0; text-decoration:none; }
-.alert-group-head:hover { background:#fff3dc; }
-.alert-group-head > span:nth-child(2) { min-width:0; flex:1; }
-.alert-group-devices { display:grid; gap:1px; margin:2px 0 6px 46px; padding:0; list-style:none; }
-.alert-group-devices a { display:flex; align-items:baseline; justify-content:space-between; gap:8px; padding:4px 6px; color:#242124; border-radius:6px; font-size:10px; font-weight:600; text-decoration:none; }
-.alert-group-devices a:hover { background:#f5f4f4; }
-.alert-group-devices a > span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.alert-list .alert-group-devices small { display:inline; flex:none; margin:0; color:#8a5300; font-size:9px; }
-.alert-group-more { color:#5570bd !important; }
-.alert-group a:focus-visible { outline:2px solid #2c6bed; outline-offset:-2px; }
+.alert-list a.missing-config { background:#fffaf0; }
+.alert-list a.missing-config:hover { background:#fff3dc; }
+
+/* Device list: removable "configuração em falta" filter chip (?missingConfig=…). */
+.device-filter-chips { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 8px; }
+.device-filter-chip { display:inline-flex; align-items:center; gap:6px; padding:3px 4px 3px 10px; border:1px solid #f0d9a8; border-radius:999px; background:#fff8e8; color:#8a5300; font-size:11px; font-weight:600; }
+.device-filter-chip button { display:inline-grid; place-items:center; width:18px; height:18px; padding:0; border:0; border-radius:50%; background:transparent; color:inherit; cursor:pointer; }
+.device-filter-chip button:hover { background:#f6e3bb; }
+.device-filter-chip button:focus-visible { outline:2px solid #2c6bed; outline-offset:1px; }
+.device-power-auto { display:block; margin-top:6px; }

@@ -1,11 +1,3 @@
-export interface MissingConfigDevice {
-  id: string;
-  name: string;
-  siteId?: string | null;
-  /** Required config keys the device lacks, as the API registry names them (e.g. rearImage, powerPlugCount). */
-  missing: string[];
-}
-
 export interface TopbarAlert {
   id: string;
   severity: 'CRITICAL' | 'WARNING' | 'INFO';
@@ -14,10 +6,10 @@ export interface TopbarAlert {
   href: string;
   occurredAt: string;
   persistent?: boolean;
-  /** DEVICE_MISSING_CONFIG: one grouped alert for every device missing a required config; clears itself when fixed. */
+  /** DEVICE_MISSING_CONFIG: one grouped alert per required config (id device-missing-config-<config>); clears itself when fixed. */
   kind?: string;
-  /** Affected devices (may be a first page; `count` is the total). */
-  devices?: MissingConfigDevice[];
+  /** Missing config key (rearImage, power) and how many devices lack it. `href` lists them, or opens the one device on its tab. */
+  config?: string;
   count?: number;
 }
 

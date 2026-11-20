@@ -62,16 +62,17 @@ describe('AppHeader persistent Next Steps alert', () => {
 });
 
 describe('AppHeader missing device config alert', () => {
-  const missingAlert = (devices: { id: string; name: string; siteId?: string; missing: string[] }[], count = devices.length) => ({
-    id: 'device-missing-config', kind: 'DEVICE_MISSING_CONFIG', severity: 'WARNING', title: 'Configuração de equipamentos em falta',
-    detail: `${count} equipamento(s) sem imagem traseira ou alimentação`, href: '/infraestrutura?tab=devices&missingConfig=1', occurredAt: '2026-11-20T00:00:00.000Z', devices, count,
+  // GET /dashboard/topbar-state alert shape (docs/device-required-config.md).
+  const missingAlert = (config: string, count: number, href: string, title: string) => ({
+    id: `device-missing-config-${config}`, kind: 'DEVICE_MISSING_CONFIG', config, count, persistent: true, severity: 'WARNING', title,
+    detail: 'A carga das PDUs não inclui estes equipamentos.', href, occurredAt: '2026-11-20T00:00:00.000Z',
   });
 
-  it('groups the affected devices, links each to its settings tab, and survives Limpar todos', async () => {
+  it('shows one alert per missing config, linking to the filtered list, and survives Limpar todos', async () => {
     mocks.hasRole.mockReturnValue(false);
     mocks.readAll.mockResolvedValue({ updated: 0 });
     mocks.apiFetch.mockResolvedValue({ ...state, alerts: [
-      missingAlert([{ id: 'd1', name: 'SW-01', siteId: 's1', missing: ['rearImage'] }, { id: 'd2', name: 'FW-02', siteId: 's1', missing: ['powerPlugCount', 'estimatedWatts'] }], 7),
+      missingAlert('power', 3, '/infraestrutura?tab=devices&missingConfig=power', '3 dispositivos sem tomadas de energia configuradas'),
       { id: 'a1', severity: 'CRITICAL', title: 'Link em baixo', detail: 'x', href: '/alertas', occurredAt: '2026-11-20T00:00:00.000Z' },
     ] });
     mocks.load.mockReturnValue(undefined);
@@ -79,28 +80,28 @@ describe('AppHeader missing device config alert', () => {
     render(<AppHeader section="Infraestrutura" onOpenSidebar={vi.fn()} onOpenGlobalSearch={vi.fn()} />);
     await waitFor(() => expect(screen.getByRole('button', { name: '2 alertas ativos' })).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: '2 alertas ativos' }));
-
-    expect(screen.getByRole('link', { name: /Configuração de equipamentos em falta/ })).toHaveAttribute('href', '/infraestrutura?tab=devices&missingConfig=1');
-    expect(screen.getByRole('link', { name: /SW-01/ })).toHaveAttribute('href', '/infraestrutura?siteId=s1&focus=device&deviceId=d1&deviceTab=imagens');
-    expect(screen.getByRole('link', { name: /FW-02/ })).toHaveAttribute('href', '/infraestrutura?siteId=s1&focus=device&deviceId=d2&deviceTab=energia');
-    expect(screen.getByRole('link', { name: /FW-02/ })).toHaveTextContent('fichas, consumo');
-    expect(screen.getByRole('link', { name: 'Ver todos (7)' })).toHaveAttribute('href', '/infraestrutura?tab=devices&missingConfig=1');
+    const link = screen.getByRole('link', { name: /3 dispositivos sem tomadas de energia/ });
+    expect(link).toHaveAttribute('href', '/infraestrutura?tab=devices&missingConfig=power');
+    expect(link).toHaveClass('missing-config');
 
     fireEvent.click(screen.getByRole('button', { name: 'Limpar todos' }));
     expect(screen.queryByRole('link', { name: /Link em baixo/ })).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Configuração de equipamentos em falta/ })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /3 dispositivos sem tomadas de energia/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '1 alerta ativo' })).toBeInTheDocument();
   });
 
-  it('for a single device the alert opens its settings on the right tab', async () => {
+  it('stays persistent even if the API omits the flag; a single device links to its settings tab', async () => {
     mocks.hasRole.mockReturnValue(false);
-    mocks.apiFetch.mockResolvedValue({ ...state, alerts: [missingAlert([{ id: 'd9', name: 'SW-09', missing: ['estimatedWatts'] }])] });
+    mocks.readAll.mockResolvedValue({ updated: 0 });
+    const single = { ...missingAlert('rearImage', 1, '/infraestrutura?siteId=s1&tab=devices&deviceId=d9&settingsTab=imagens', '1 dispositivo sem imagem traseira'), persistent: undefined };
+    mocks.apiFetch.mockResolvedValue({ ...state, alerts: [single] });
     mocks.load.mockReturnValue(undefined);
 
     render(<AppHeader section="Infraestrutura" onOpenSidebar={vi.fn()} onOpenGlobalSearch={vi.fn()} />);
     await waitFor(() => expect(screen.getByRole('button', { name: '1 alerta ativo' })).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: '1 alerta ativo' }));
-    expect(screen.getByRole('link', { name: /Configuração de equipamentos em falta/ })).toHaveAttribute('href', '/infraestrutura?focus=device&deviceId=d9&deviceTab=energia');
-    expect(screen.queryByRole('list', { name: 'Equipamentos com configuração em falta' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /1 dispositivo sem imagem traseira/ })).toHaveAttribute('href', '/infraestrutura?siteId=s1&tab=devices&deviceId=d9&settingsTab=imagens');
+    fireEvent.click(screen.getByRole('button', { name: 'Limpar todos' }));
+    expect(screen.getByRole('link', { name: /1 dispositivo sem imagem traseira/ })).toBeInTheDocument();
   });
 });

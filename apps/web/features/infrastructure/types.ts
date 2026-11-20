@@ -236,6 +236,8 @@ export interface Device {
   siteId?: string | null;
   frontAssetId?: string | null;
   backAssetId?: string | null;
+  /** Required configs this device lacks (GET /devices, GET /devices/:id). */
+  requiredConfig?: { missing: string[]; missingTabs: string[]; complete: boolean } | null;
   model?: DeviceModel | null;
   frontAsset?: AssetFile | null;
   backAsset?: AssetFile | null;
