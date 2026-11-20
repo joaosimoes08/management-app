@@ -5,17 +5,10 @@ import { PrismaClient } from '@simoes/database';
 import { Queue } from 'bullmq';
 import * as snmp from 'net-snmp';
 import { decryptStoredCredential, snmpAuthProtocol, snmpPrivProtocol } from './client';
-import { SNMP_JOB_NAMES, snmpPayload } from '@simoes/snmp-core';
+import { SNMP_JOB_NAMES, decodeTrap, snmpPayload } from '@simoes/snmp-core';
 import { log } from './log';
 
-const TRAP_CATEGORIES: Record<string, { category: string; severity: string }> = {
-  '1.3.6.1.6.3.1.1.5.1': { category: 'COLD_START', severity: 'WARNING' },
-  '1.3.6.1.6.3.1.1.5.2': { category: 'WARM_START', severity: 'INFO' },
-  '1.3.6.1.6.3.1.1.5.3': { category: 'LINK_DOWN', severity: 'WARNING' },
-  '1.3.6.1.6.3.1.1.5.4': { category: 'LINK_UP', severity: 'INFO' },
-  '1.3.6.1.6.3.1.1.5.5': { category: 'AUTHENTICATION_FAILURE', severity: 'CRITICAL' },
-};
-export function classifyTrap(oid?: string | null) { return oid ? TRAP_CATEGORIES[oid] ?? { category: 'VENDOR', severity: 'INFO' } : { category: 'VENDOR', severity: 'INFO' }; }
+export { classifyTrap } from '@simoes/snmp-core';
 export function isSupportedNotificationPdu(type: unknown) {
   return Number(type) === Number((snmp.PduType as any).TrapV2)
     || Number(type) === Number((snmp.PduType as any).InformRequest);
@@ -340,10 +333,11 @@ export class TrapReceiver {
   async process(eventId: string) {
     const event = await this.prisma.snmpTrapEvent.findUnique({ where: { id: eventId } });
     if (!event || event.status !== 'PENDING') return;
-    const mapped = classifyTrap(event.trapOid);
+    // Catalog + varbind decoding; unknown OIDs stay VENDOR/INFO and varbinds are never rewritten.
+    const mapped = decodeTrap(event.trapOid, event.varbinds);
     await this.prisma.$transaction([
       this.prisma.snmpTrapEvent.update({ where: { id: event.id }, data: { status: 'PROCESSED', processedAt: new Date(), category: mapped.category, severity: mapped.severity } }),
-      this.prisma.auditLog.create({ data: { action: 'SNMP_TRAP_PROCESSED', entityType: 'SnmpTrapEvent', entityId: event.id, metadata: { deviceId: event.deviceId, credentialId: event.credentialId, category: mapped.category, sourceAddress: event.sourceAddress } } }),
+      this.prisma.auditLog.create({ data: { action: 'SNMP_TRAP_PROCESSED', entityType: 'SnmpTrapEvent', entityId: event.id, metadata: { deviceId: event.deviceId, credentialId: event.credentialId, category: mapped.category, severity: mapped.severity, sourceAddress: event.sourceAddress } } }),
     ]);
   }
 

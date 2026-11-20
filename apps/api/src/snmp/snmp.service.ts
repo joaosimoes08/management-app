@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { Queue } from 'bullmq';
 import * as net from 'node:net';
 import { PrismaClient, SnmpCredentialPurpose, SnmpVersion } from '@simoes/database';
-import { decryptCredential, encryptCredential, loadKeyring, rewrapCredential, SNMP_JOB_NAMES, SNMP_QUEUE, snmpPayload, validateSetTemplate } from '@simoes/snmp-core';
+import { decodeTrap, decryptCredential, encryptCredential, loadKeyring, rewrapCredential, SNMP_JOB_NAMES, SNMP_QUEUE, snmpPayload, trapAlertTitle, validateSetTemplate } from '@simoes/snmp-core';
 import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { InfrastructureAccessService } from '../infrastructure/infrastructure-access.service';
@@ -52,6 +52,12 @@ export class SnmpService implements OnModuleDestroy, OnModuleInit {
     return device;
   }
 
+  /** Additive, read-only: readable label/summary decoded from the stored varbinds (raw varbinds stay untouched). */
+  private withTrapLabel<T extends { trapOid: string | null; varbinds: unknown }>(trap: T) {
+    const decoded = decodeTrap(trap.trapOid, trap.varbinds);
+    return { ...trap, label: decoded.known ? trapAlertTitle(decoded) : null, summary: decoded.known ? decoded.summary : null };
+  }
+
   async unmatchedTraps() {
     return this.prisma.snmpTrapEvent.findMany({
       where: { status: 'UNMATCHED' },
@@ -70,7 +76,7 @@ export class SnmpService implements OnModuleDestroy, OnModuleInit {
       this.prisma.snmpDrift.findMany({ where: { deviceId, status: 'PENDING' }, orderBy: { createdAt: 'desc' }, take: 100 }),
       this.prisma.snmpTrapEvent.findMany({ where: { deviceId }, orderBy: { receivedAt: 'desc' }, take: 100 }),
     ]);
-    return { config, credentials: credentials.map((item) => this.publicCredential(item)), latestSnapshot, jobs, drifts, traps, setEnabled: process.env.SNMP_SET_ENABLED === 'true' };
+    return { config, credentials: credentials.map((item) => this.publicCredential(item)), latestSnapshot, jobs, drifts, traps: traps.map((trap) => this.withTrapLabel(trap)), setEnabled: process.env.SNMP_SET_ENABLED === 'true' };
   }
 
   async metrics(deviceId: string, user: AuthenticatedUser, interfaceIndex?: number, days = 7) {
