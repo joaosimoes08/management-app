@@ -19,7 +19,7 @@ function harness(model: Record<string, unknown>, assets: string[] = ['asset-fron
     },
     assetFile: {
       count: async ({ where }: any) => (assets.includes(where.id) ? 1 : 0),
-      findUnique: async ({ where }: any) => (assets.includes(where.id) ? { id: where.id, mimeType: where.id === 'asset-pdf' ? 'application/pdf' : 'image/png' } : null),
+      findUnique: async ({ where }: any) => (assets.includes(where.id) ? { id: where.id, storageKey: `${where.id}.bin`, mimeType: where.id === 'asset-pdf' ? 'application/pdf' : 'image/png' } : null),
     },
     auditLog: { create: async (args: any) => { audits.push(args); return args.data; } },
     $queryRaw: async () => { locks.push(1); return []; },
@@ -28,8 +28,13 @@ function harness(model: Record<string, unknown>, assets: string[] = ['asset-fron
   const audit = { record: async (args: any) => audits.push(args), scheduleInventoryQualityReconcile: async () => undefined } as any;
   const subject = new InfrastructureService(prisma, audit, {} as any, {} as any);
   (subject as any).log = async (...args: unknown[]) => { audits.push(args); };
+  // Stored bytes: 'asset-fake-png' is declared image/png but is really a PDF; every other asset is a real PNG.
+  (subject as any).readAssetBytes = async (storageKey: string) => (storageKey.startsWith('asset-fake-png') ? PDF_BYTES : PNG_BYTES);
   return { subject, updates, creates, locks, get stored() { return stored; } };
 }
+
+const PNG_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]);
+const PDF_BYTES = Buffer.from('%PDF-1.7\n%fake\n');
 
 const code = (expected: string) => (error: unknown) => (error instanceof BadRequestException || error instanceof ConflictException) && (error.getResponse() as any).code === expected;
 
@@ -166,6 +171,14 @@ describe('atomic save of both faces (PUT port-layout/faces)', () => {
     assert.equal(h.updates.length, 0);
   });
 
+  test('rejects an asset declared image/png whose stored bytes are not an image (D2)', async () => {
+    const h = harness({}, ['asset-front', 'asset-rear', 'asset-fake-png']);
+    const { revision } = await h.subject.getPortLayout('model-1');
+    await assert.rejects(h.subject.savePortLayoutFaces('model-1', { revision, faces: { rear: face([], { assetId: 'asset-fake-png' }) } }, user), code('ASSET_NOT_IMAGE'));
+    await assert.rejects(h.subject.updatePortLayout('model-1', { ...face([port(1)]), assetId: 'asset-fake-png' }, user, 'front'), code('ASSET_NOT_IMAGE'));
+    assert.equal(h.updates.length, 0);
+  });
+
   test('per-face PUT also honours an optional revision', async () => {
     const h = harness({});
     await assert.rejects(h.subject.updatePortLayout('model-1', { ...face([port(1)]), revision: 'stale' }, user, 'rear'), code('PORT_LAYOUT_CONFLICT'));
@@ -232,13 +245,14 @@ describe('device update', () => {
     const prisma: any = {
       device: { findUnique: async () => ({ status: 'ACTIVE', siteId: 'site-1', rackId: null, modelId: 'model-old', frontAssetId: 'asset-front', backAssetId: 'asset-rear', type: 'SWITCH', rack: null, ...current }), update: async (args: any) => { updates.push(args); return { id: 'device-1' }; } },
       deviceModel: { findUnique: async () => ({ model: 'M', supportsNetworkPorts: true, networkPortCount: 2, portCount: 2, portLayout: null, ...model }) },
-      assetFile: { findUnique: async ({ where }: any) => ({ id: where.id, mimeType: 'image/png' }) },
+      assetFile: { findUnique: async ({ where }: any) => ({ id: where.id, storageKey: `${where.id}.png`, mimeType: 'image/png' }) },
     };
     prisma.$transaction = async (fn: any) => fn(prisma);
     const access = { assertDevice: async () => undefined, assertRack: async () => undefined, assertSite: async () => undefined } as any;
     const subject = new InfrastructureService(prisma, {} as any, access, {} as any);
     (subject as any).log = async () => undefined;
     (subject as any).getDevice = async () => ({ id: 'device-1' });
+    (subject as any).readAssetBytes = async () => PNG_BYTES;
     return { subject, updates };
   }
   const base = { name: 'sw-01', type: 'SWITCH' } as any;

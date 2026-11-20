@@ -1,4 +1,6 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, OnModuleInit, StreamableFile } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { assetEtag } from './asset-cache';
+import { sniffImageMime } from './asset-sniff';
 import { PrismaClient } from '@simoes/database';
 import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../auth/auth.service';
@@ -55,18 +57,34 @@ export class InfrastructureService implements OnModuleInit {
     if (!['image/svg+xml', 'image/png', 'image/jpeg', 'image/webp'].includes(dto.mimeType)) throw new ConflictException('Apenas SVG, PNG, JPEG e WebP são suportados');
     const content = Buffer.from(dto.contentBase64.replace(/^data:[^;]+;base64,/, ''), 'base64');
     if (!content.length || content.length > 10 * 1024 * 1024) throw new ConflictException('O asset deve ter entre 1 byte e 10 MB');
+    // The declared type comes from the browser (file extension); the stored type comes from the bytes.
+    const mimeType = sniffImageMime(content);
+    if (!mimeType) throw new BadRequestException({ code: 'ASSET_NOT_IMAGE', message: 'O ficheiro não é uma imagem SVG, PNG, JPEG ou WebP válida.' });
     await mkdir(this.assetDirectory, { recursive: true });
     const storageKey = `${randomUUID()}${extname(dto.filename).toLowerCase() || '.asset'}`;
     await writeFile(join(this.assetDirectory, storageKey), content, { flag: 'wx' });
     try {
       const duplicate = await this.prisma.assetFile.findFirst({ where: { filename: { equals: dto.filename, mode: 'insensitive' } }, select: { id: true } });
       if (duplicate) throw new ConflictException('Já existe um asset com esse nome');
-      const asset = await this.prisma.assetFile.create({ data: { filename: dto.filename, storageKey, mimeType: dto.mimeType, sizeBytes: content.length, kind: dto.kind, license: dto.license } });
+      const asset = await this.prisma.assetFile.create({ data: { filename: dto.filename, storageKey, mimeType, sizeBytes: content.length, kind: dto.kind, license: dto.license } });
       await this.log(user, 'ASSET_CREATED', 'AssetFile', asset.id, { filename: asset.filename, kind: asset.kind });
       return asset;
     } catch (error) { await unlink(join(this.assetDirectory, storageKey)).catch(() => undefined); throw error; }
   }
-  async assetFile(id: string) { const asset = await this.prisma.assetFile.findUnique({ where: { id } }); if (!asset) throw new NotFoundException('Asset não encontrado'); const buffer = await readFile(join(this.assetDirectory, asset.storageKey)).catch(() => { throw new NotFoundException('Ficheiro do asset não encontrado'); }); return { asset, file: new StreamableFile(buffer, { type: asset.mimeType, disposition: `inline; filename="${asset.filename.replace(/"/g, '')}"` }) }; }
+  /**
+   * Asset bytes never change: there is no update route and every upload gets a new random storage key.
+   * So the id plus the size is a strong ETag, and a matching If-None-Match skips reading the file.
+   */
+  async assetFile(id: string, ifNoneMatch?: string) {
+    const asset = await this.prisma.assetFile.findUnique({ where: { id } });
+    if (!asset) throw new NotFoundException('Asset não encontrado');
+    const etag = assetEtag(asset);
+    if (ifNoneMatch && ifNoneMatch.split(',').some((tag) => tag.trim().replace(/^W\//, '') === etag || tag.trim() === '*')) return { asset, etag, notModified: true as const, buffer: null };
+    const buffer = await this.readAssetBytes(asset.storageKey).catch(() => { throw new NotFoundException('Ficheiro do asset não encontrado'); });
+    return { asset, etag, notModified: false as const, buffer };
+  }
+  /** Reads a stored asset; a method so specs can stub the disk. */
+  protected readAssetBytes(storageKey: string): Promise<Buffer> { return readFile(join(this.assetDirectory, storageKey)); }
   async deleteAsset(id: string, user: AuthenticatedUser) { const asset = await this.prisma.assetFile.findUnique({ where: { id } }); if (!asset) throw new NotFoundException('Asset não encontrado'); await this.prisma.$transaction(async (tx) => { for (const field of ['frontAssetId', 'backAssetId', 'iconAssetId'] as const) await tx.deviceModel.updateMany({ where: { [field]: id }, data: { [field]: null } }); for (const field of ['frontAssetId', 'iconAssetId'] as const) await tx.rackModel.updateMany({ where: { [field]: id }, data: { [field]: null } }); for (const field of ['frontAssetId', 'backAssetId', 'iconAssetId'] as const) await tx.device.updateMany({ where: { [field]: id }, data: { [field]: null } }); await tx.rack.updateMany({ where: { frontAssetId: id }, data: { frontAssetId: null } }); await tx.assetFile.delete({ where: { id } }); }); await unlink(join(this.assetDirectory, asset.storageKey)).catch(() => undefined); await this.log(user, 'ASSET_DELETED', 'AssetFile', id, { filename: asset.filename, detached: true }); return { success: true, detached: true }; }
   async cleanupLegacyAssets(user: AuthenticatedUser) { const assets = await this.prisma.assetFile.findMany({ where: { filename: { in: ['fluxograma.png', 'c9300.png', 'cisco-c9300.png'], mode: 'insensitive' } } }); const removed: string[] = []; for (const asset of assets) { await this.prisma.$transaction(async (tx) => { await tx.deviceModel.updateMany({ where: { OR: [{ frontAssetId: asset.id }, { backAssetId: asset.id }, { iconAssetId: asset.id }] }, data: { frontAssetId: null, backAssetId: null, iconAssetId: null, portLayout: { set: null } } as never }); await tx.device.updateMany({ where: { OR: [{ frontAssetId: asset.id }, { backAssetId: asset.id }, { iconAssetId: asset.id }] }, data: { frontAssetId: null, backAssetId: null, iconAssetId: null } }); await tx.rack.updateMany({ where: { frontAssetId: asset.id }, data: { frontAssetId: null } }); await tx.assetFile.delete({ where: { id: asset.id } }); }); await unlink(join(this.assetDirectory, asset.storageKey)).catch(() => undefined); removed.push(asset.filename); await this.log(user, 'ASSET_DELETED', 'AssetFile', asset.id, { reason: 'legacy-cleanup', filename: asset.filename }); } await this.log(user, 'LEGACY_ASSETS_CLEANED', 'AssetFile', 'legacy', { removed }); return { removed, notFound: ['fluxograma.png', 'c9300.png'].filter((name) => !removed.some((item) => item.toLowerCase() === name)), preserved: ['rack-empty-42u.png'] }; }
   async listRackModels() { return this.prisma.rackModel.findMany({ where: { active: true }, include: { iconAsset: true, frontAsset: true, _count: { select: { racks: true } } }, orderBy: [{ manufacturer: 'asc' }, { model: 'asc' }] }); }
@@ -130,7 +148,7 @@ export class InfrastructureService implements OnModuleInit {
     }
   }
   async createModel(dto: CreateDeviceModelDto, user: AuthenticatedUser) { const data = await this.prepareModelWrite(dto, null); try { const item = normalizeModelLayouts(await this.prisma.deviceModel.create({ data: data as never })); await this.log(user, 'DEVICE_MODEL_CREATED', 'DeviceModel', item.id); return item; } catch { throw new ConflictException('Já existe esse modelo'); } }
-  async updateModel(id: string, dto: UpdateDeviceModelDto, user: AuthenticatedUser) { const current = await this.prisma.deviceModel.findUnique({ where: { id }, select: { frontAssetId: true, portLayout: true } }); if (!current) throw new NotFoundException('Modelo não encontrado'); const data = await this.prepareModelWrite(dto, current); const item = normalizeModelLayouts(await this.prisma.deviceModel.update({ where: { id }, data: data as never }).catch(() => { throw new NotFoundException('Modelo não encontrado'); })); await this.log(user, 'DEVICE_MODEL_UPDATED', 'DeviceModel', id); return item; }
+  async updateModel(id: string, dto: UpdateDeviceModelDto, user: AuthenticatedUser) { const current = await this.prisma.deviceModel.findUnique({ where: { id }, select: { frontAssetId: true, backAssetId: true, portLayout: true } }); if (!current) throw new NotFoundException('Modelo não encontrado'); const data = await this.prepareModelWrite(dto, current); const item = normalizeModelLayouts(await this.prisma.deviceModel.update({ where: { id }, data: data as never }).catch(() => { throw new NotFoundException('Modelo não encontrado'); })); await this.log(user, 'DEVICE_MODEL_UPDATED', 'DeviceModel', id); return item; }
   async deleteModel(id: string, user: AuthenticatedUser) { await this.prisma.deviceModel.delete({ where: { id } }).catch(() => { throw new NotFoundException('Modelo não encontrado'); }); await this.log(user, 'DEVICE_MODEL_DELETED', 'DeviceModel', id); return { success: true }; }
   async listDevices(user: AuthenticatedUser, search?: string, type?: string, siteId?: string, pageText?: string, pageSizeText?: string) { const page = Math.max(Number(pageText) || 1, 1); const pageSize = Math.min(Math.max(Number(pageSizeText) || 25, 1), 100); const [roomIds, unplacedSiteIds] = await Promise.all([this.access.visibleRoomIds(user, siteId), this.access.visibleUnplacedSiteIds(user, siteId)]); const where = { AND: [{ OR: [{ rackId: null, siteId: { in: unplacedSiteIds } }, { rack: { roomId: { in: roomIds } } }] }, ...(type ? [{ type }] : []), ...(siteId ? [{ siteId }] : []), ...(search ? [{ OR: [{ name: { contains: search, mode: 'insensitive' as const } }, { hostname: { contains: search, mode: 'insensitive' as const } }, { serialNumber: { contains: search, mode: 'insensitive' as const } }, { assetTag: { contains: search, mode: 'insensitive' as const } }, { managementIp: { contains: search } }] }] : [])] }; const [items, total] = await Promise.all([this.prisma.device.findMany({ where, include: { model: { include: { frontAsset: true, backAsset: true, iconAsset: true } }, frontAsset: true, backAsset: true, iconAsset: true, site: true, rack: { include: { room: { include: { building: true } } } }, _count: { select: { interfaces: true, ipAddresses: true } } }, orderBy: { name: 'asc' }, skip: (page - 1) * pageSize, take: pageSize }), this.prisma.device.count({ where })]); return { items: normalizeModelLayouts(items), page, pageSize, total, totalPages: Math.ceil(total / pageSize) }; }
   async getDevice(id: string, user: AuthenticatedUser) { await this.access.assertDevice(user, 'READ', id); const item = await this.prisma.device.findUnique({ where: { id }, include: { model: { include: { frontAsset: true, backAsset: true, iconAsset: true } }, frontAsset: true, backAsset: true, iconAsset: true, site: true, rack: { include: { room: { include: { building: true } } } }, interfaces: { include: { nativeVlan: this.vlanInclude, accessVlan: this.vlanInclude, allowedVlans: { include: { vlan: this.vlanInclude } }, ipAddresses: { include: { subnet: true, host: true } } } }, ipAddresses: { include: { subnet: true, host: true } } } }); if (!item) throw new NotFoundException('Equipamento não encontrado'); item.interfaces.sort(naturalInterfaceCompare); return normalizeModelLayouts(item); }
@@ -224,17 +242,24 @@ export class InfrastructureService implements OnModuleInit {
     return { updated: outcome.updatedIds.length, updatedIds: outcome.updatedIds, failed: outcome.failed, auditFailed: outcome.auditFailed, batchAuditFailed };
   }
   private async validateDeviceModel(modelId?: string) { if (!modelId) return; const model = await this.prisma.deviceModel.findUnique({ where: { id: modelId }, select: { model: true, supportsNetworkPorts: true, networkPortCount: true, portCount: true, portLayout: true } }); if (!model) throw new NotFoundException('Modelo não encontrado'); assertPortMappingComplete(model); }
-  private async validateDeviceAsset(assetId: string | null | undefined, face: PortLayoutFace) { if (assetId) await this.assertFaceImage(assetId, face); }
+  private async validateDeviceAsset(assetId: string | null | undefined, face: PortLayoutFace, attachedId?: string | null) { if (assetId) await this.assertFaceImage(assetId, face, this.prisma, attachedId); }
   /** Image fields of a device update: an absent field never touches the column, null (or '') clears it on purpose. */
   private normalizeDeviceAssetFields<T extends { frontAssetId?: string | null; backAssetId?: string | null }>(dto: T): T { const next = { ...dto }; for (const field of ['frontAssetId', 'backAssetId'] as const) { if (!(field in next) || next[field] === undefined) delete next[field]; else if (next[field] === '') next[field] = null; } return next; }
   /**
-   * A face image must be an existing image asset. Uploads only accept SVG/PNG/JPEG/WebP, and asset `kind` is free text
-   * (the web sends 'INFRASTRUCTURE' for every upload), so the MIME type is the purpose check available today.
+   * A face image must be an existing image asset: its MIME type must be image/* and its stored bytes must really be
+   * SVG, PNG, JPEG or WebP (asset `kind` is free text, so it cannot be used as the purpose check).
+   * The bytes are only read when the image is being newly attached (assetId !== attachedId), so an unrelated edit of a
+   * record whose old image predates this check (or whose file is missing) is not blocked by it.
    */
-  private async assertFaceImage(assetId: string, face: PortLayoutFace, client: { assetFile: { findUnique: (args: any) => Promise<any> } } = this.prisma) {
-    const asset = await client.assetFile.findUnique({ where: { id: assetId }, select: { id: true, mimeType: true } });
+  private async assertFaceImage(assetId: string, face: PortLayoutFace, client: { assetFile: { findUnique: (args: any) => Promise<any> } } = this.prisma, attachedId?: string | null) {
+    const asset = await client.assetFile.findUnique({ where: { id: assetId }, select: { id: true, mimeType: true, storageKey: true } });
     if (!asset) throw new NotFoundException(face === 'front' ? 'A imagem frontal selecionada não foi encontrada' : 'A imagem traseira selecionada não foi encontrada');
-    if (asset.mimeType && !String(asset.mimeType).startsWith('image/')) throw new BadRequestException({ code: 'ASSET_NOT_IMAGE', message: 'O asset selecionado não é uma imagem.', face });
+    const notImage = () => new BadRequestException({ code: 'ASSET_NOT_IMAGE', message: 'O asset selecionado não é uma imagem.', face });
+    if (asset.mimeType && !String(asset.mimeType).startsWith('image/')) throw notImage();
+    if (assetId === attachedId) return;
+    // Older uploads were stored on the declared type alone, so check the real bytes too.
+    const bytes = await this.readAssetBytes(asset.storageKey).catch(() => { throw new NotFoundException('Ficheiro do asset não encontrado'); });
+    if (!sniffImageMime(bytes)) throw notImage();
   }
   private async validateDeviceFrontAsset(frontAssetId?: string) { return this.validateDeviceAsset(frontAssetId, 'front'); }
   /**
@@ -242,14 +267,14 @@ export class InfrastructureService implements OnModuleInit {
    * Models that have no front image yet (migrated ones) can still be edited; inventory quality flags them.
    * A portLayout in the body is normalised to v2 and validated per face.
    */
-  private async prepareModelWrite(dto: CreateDeviceModelDto, current: { frontAssetId: string | null; portLayout: unknown } | null) {
+  private async prepareModelWrite(dto: CreateDeviceModelDto, current: { frontAssetId: string | null; backAssetId?: string | null; portLayout: unknown } | null) {
     const data: Record<string, unknown> = { ...dto };
     const removesFront = dto.frontAssetId === null || dto.frontAssetId === '';
     if (!current && !dto.frontAssetId) throw new BadRequestException({ code: 'FRONT_IMAGE_REQUIRED', message: 'A imagem frontal do modelo é obrigatória.' });
     if (current && removesFront && current.frontAssetId) throw new BadRequestException({ code: 'FRONT_IMAGE_REQUIRED', message: 'A imagem frontal do modelo é obrigatória e não pode ser removida.' });
     if (removesFront) data.frontAssetId = null;
     if (dto.backAssetId === '') data.backAssetId = null;
-    for (const [face, assetId] of [['front', data.frontAssetId], ['rear', data.backAssetId]] as const) if (typeof assetId === 'string') await this.assertFaceImage(assetId, face);
+    for (const [face, assetId, attached] of [['front', data.frontAssetId, current?.frontAssetId], ['rear', data.backAssetId, current?.backAssetId]] as const) if (typeof assetId === 'string') await this.assertFaceImage(assetId, face, this.prisma, attached);
     if (dto.portLayout !== undefined) {
       const layout = normalizePortLayout(dto.portLayout);
       if (layout) for (const face of ['front', 'rear'] as const) if (layout.faces[face]) assertWritableLayout(layout, face, { ...dto });
@@ -332,7 +357,7 @@ export class InfrastructureService implements OnModuleInit {
     await this.log(user, 'DEVICE_PLACEMENT_UPDATED', 'Device', id, { changes: plan.changes });
     return plan;
   }
-  async updateDevice(id: string, dto: UpdateDeviceDto, user: AuthenticatedUser, preserveRequestedStatus = false) { dto = this.normalizeDeviceAssetFields(dto); const current = await this.prisma.device.findUnique({ where: { id }, select: { status: true, siteId: true, rackId: true, modelId: true, frontAssetId: true, backAssetId: true, type: true, rack: { select: { room: { select: { building: { select: { siteId: true } } } } } } } }); if (!current) throw new NotFoundException('Equipamento não encontrado'); this.assertDeviceCapability(user, current.type); this.assertDeviceCapability(user, dto.type); await this.access.assertDevice(user, 'UPDATE', id); if (dto.rackId && dto.rackId !== current.rackId) await this.access.assertRack(user, 'UPDATE', dto.rackId, 'DEVICE', dto.type); if (dto.modelId && dto.modelId !== current.modelId) await this.validateDeviceModel(dto.modelId); await this.validateDeviceAsset(dto.frontAssetId === undefined ? current.frontAssetId : dto.frontAssetId, 'front'); await this.validateDeviceAsset(dto.backAssetId === undefined ? current.backAssetId : dto.backAssetId, 'rear'); await this.validateRackPlacement(dto, id); const currentSiteId = current.rack?.room.building.siteId ?? current.siteId; const targetSiteId = dto.rackId ? await this.rackSiteId(dto.rackId) : dto.siteId ?? currentSiteId; if (!targetSiteId) throw new NotFoundException('Site do equipamento não encontrado'); if (dto.rackId && dto.siteId && dto.siteId !== targetSiteId) throw new ConflictException('O bastidor não pertence ao Site selecionado'); if (!dto.rackId && targetSiteId !== currentSiteId) await this.access.assertSite(user, 'UPDATE', targetSiteId, 'DEVICE', dto.type); await this.validateManagementIp(user, dto.managementIpAddressId, targetSiteId); const status = !preserveRequestedStatus && dto.rackId && current.status !== 'RETIRED' ? 'ACTIVE' : (dto.status ?? current.status); const item = await this.prisma.$transaction(async (tx) => { const data = { ...dto, siteId: targetSiteId, status: status as never, managementIpAddressId: undefined } as any; delete data.managementIpAddressId; for (const field of ['frontAssetId', 'backAssetId']) if (data[field] === undefined) delete data[field]; const updated = await tx.device.update({ where: { id }, data }); if (dto.managementIpAddressId) await tx.ipAddress.update({ where: { id: dto.managementIpAddressId }, data: { deviceId: id } }); return updated; }).catch(() => { throw new ConflictException('Não foi possível atualizar o equipamento e o respetivo IP de gestão'); }); try { await this.log(user, 'DEVICE_UPDATED', 'Device', id, { rackId: dto.rackId, managementIp: dto.managementIp, managementIpAddressId: dto.managementIpAddressId }); } catch (error) { if (preserveRequestedStatus) throw new PersistedDeviceAuditError(id); throw error; } return preserveRequestedStatus ? item : this.getDevice(item.id, user); }
+  async updateDevice(id: string, dto: UpdateDeviceDto, user: AuthenticatedUser, preserveRequestedStatus = false) { dto = this.normalizeDeviceAssetFields(dto); const current = await this.prisma.device.findUnique({ where: { id }, select: { status: true, siteId: true, rackId: true, modelId: true, frontAssetId: true, backAssetId: true, type: true, rack: { select: { room: { select: { building: { select: { siteId: true } } } } } } } }); if (!current) throw new NotFoundException('Equipamento não encontrado'); this.assertDeviceCapability(user, current.type); this.assertDeviceCapability(user, dto.type); await this.access.assertDevice(user, 'UPDATE', id); if (dto.rackId && dto.rackId !== current.rackId) await this.access.assertRack(user, 'UPDATE', dto.rackId, 'DEVICE', dto.type); if (dto.modelId && dto.modelId !== current.modelId) await this.validateDeviceModel(dto.modelId); await this.validateDeviceAsset(dto.frontAssetId === undefined ? current.frontAssetId : dto.frontAssetId, 'front', current.frontAssetId); await this.validateDeviceAsset(dto.backAssetId === undefined ? current.backAssetId : dto.backAssetId, 'rear', current.backAssetId); await this.validateRackPlacement(dto, id); const currentSiteId = current.rack?.room.building.siteId ?? current.siteId; const targetSiteId = dto.rackId ? await this.rackSiteId(dto.rackId) : dto.siteId ?? currentSiteId; if (!targetSiteId) throw new NotFoundException('Site do equipamento não encontrado'); if (dto.rackId && dto.siteId && dto.siteId !== targetSiteId) throw new ConflictException('O bastidor não pertence ao Site selecionado'); if (!dto.rackId && targetSiteId !== currentSiteId) await this.access.assertSite(user, 'UPDATE', targetSiteId, 'DEVICE', dto.type); await this.validateManagementIp(user, dto.managementIpAddressId, targetSiteId); const status = !preserveRequestedStatus && dto.rackId && current.status !== 'RETIRED' ? 'ACTIVE' : (dto.status ?? current.status); const item = await this.prisma.$transaction(async (tx) => { const data = { ...dto, siteId: targetSiteId, status: status as never, managementIpAddressId: undefined } as any; delete data.managementIpAddressId; for (const field of ['frontAssetId', 'backAssetId']) if (data[field] === undefined) delete data[field]; const updated = await tx.device.update({ where: { id }, data }); if (dto.managementIpAddressId) await tx.ipAddress.update({ where: { id: dto.managementIpAddressId }, data: { deviceId: id } }); return updated; }).catch(() => { throw new ConflictException('Não foi possível atualizar o equipamento e o respetivo IP de gestão'); }); try { await this.log(user, 'DEVICE_UPDATED', 'Device', id, { rackId: dto.rackId, managementIp: dto.managementIp, managementIpAddressId: dto.managementIpAddressId }); } catch (error) { if (preserveRequestedStatus) throw new PersistedDeviceAuditError(id); throw error; } return preserveRequestedStatus ? item : this.getDevice(item.id, user); }
   async deleteDevice(_id: string, _user: AuthenticatedUser) { throw new ConflictException('A retirada exige a revisão do checklist. Consulta GET /api/v1/devices/:id/retirement-review e confirma em POST /api/v1/devices/:id/retire.'); }
   async deviceRetirementReview(id: string, user: AuthenticatedUser, permission: 'READ' | 'DELETE' = 'READ') {
     await this.access.assertDevice(user, permission, id);
@@ -402,7 +427,7 @@ export class InfrastructureService implements OnModuleInit {
         const assetId = input[face]?.assetId;
         if (assetId === undefined || assetId === null) continue;
         if (typeof assetId !== 'string' || !assetId) throw new BadRequestException({ code: 'ASSET_ID_REQUIRED', message: 'assetId tem de ser o id de uma imagem.' });
-        await this.assertFaceImage(assetId, face, tx);
+        await this.assertFaceImage(assetId, face, tx, model[faceAssetField(face)]);
         images[faceAssetField(face)] = assetId;
       }
       await tx.deviceModel.update({ where: { id }, data: { portLayout: layout as never, ...images } });
@@ -449,7 +474,7 @@ export class InfrastructureService implements OnModuleInit {
       this.assertRevision(revision, model);
       const next = writeFace(model.portLayout, face, faceInput, merge);
       assertWritableLayout(next, face, model);
-      if (assetId) await this.assertFaceImage(assetId, face, tx);
+      if (assetId) await this.assertFaceImage(assetId, face, tx, model[faceAssetField(face)]);
       await tx.deviceModel.update({ where: { id }, data: { portLayout: next as never, ...(assetId ? { [faceAssetField(face)]: assetId } : {}) } });
       return next;
     });
