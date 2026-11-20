@@ -240,8 +240,10 @@ function RackPduCard({ ref, id, anchor, side, view, source, badge, canDisconnect
           return <li key={connection.deviceId} data-device={connection.deviceId}>
             <div className="rack-pdu-card-row">
               <Plug size={12} aria-hidden="true" />
-              <span className="rack-pdu-card-device" title={connection.deviceName}>{connection.deviceName}</span>
-              <span className="rack-pdu-card-meta">{plugs}{connection.dualFed ? ` · ${t('rack.pdu.dualFed', '2 fontes')}` : ''}</span>
+              <span className="rack-pdu-card-who">
+                <span className="rack-pdu-card-device" title={connection.deviceName}>{connection.deviceName}</span>
+                <span className="rack-pdu-card-meta">{plugs}{connection.dualFed ? ` · ${t('rack.pdu.dualFed', '2 fontes')}` : ''}</span>
+              </span>
               <span className="rack-pdu-card-watts">{formatWatts(connection.watts, locale)}</span>
               {canDisconnect && onDisconnect && confirming !== connection.deviceId && <button type="button" className="rack-pdu-card-disconnect" aria-label={t('rack.pdu.disconnectLabel', 'Desligar {device} de {pdu}', { device: connection.deviceName, pdu: view.name })} onClick={() => { setError(''); setConfirming(connection.deviceId); }}>{t('rack.pdu.disconnect', 'Desligar')}</button>}
             </div>
