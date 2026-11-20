@@ -14,8 +14,12 @@ import type {
   IpAddress,
   PortLayout,
   PortLayoutV2,
+  DevicePowerInput,
   RackFace,
   Rack,
+  RackPdu,
+  RackPowerInput,
+  RackPowerTotals,
   RackPlacementPlan,
   Room,
   SiteListResponse,
@@ -77,7 +81,8 @@ export function updateRoom(id: string, body: { name: string }): Promise<Room> {
 
 // ── Racks ──────────────────────────────────────────────────────────────────
 
-export function createRack(body: { name: string; roomId: string }): Promise<Rack> {
+/** New rack; its PDUs are created with it (default "Só rede elétrica": one supplier PDU, 32 outlets, 3680 W). */
+export function createRack(body: { name: string; roomId: string; powerMode?: RackPowerInput['mode']; supplierPdu?: RackPowerInput['supplier']; upsPdu?: RackPowerInput['ups'] }): Promise<Rack> {
   return apiFetch<Rack>('/api/v1/racks', { method: 'POST', body: JSON.stringify(body) });
 }
 
@@ -94,6 +99,30 @@ export function updateRack(id: string, body: { name?: string; roomId?: string })
 
 export function deleteRack(id: string): Promise<unknown> {
   return apiFetch(`/api/v1/racks/${id}`, { method: 'DELETE' });
+}
+
+export function getRack(id: string): Promise<Rack> {
+  return apiFetch<Rack>(`/api/v1/racks/${encodeURIComponent(id)}`);
+}
+
+// ── Rack power ─────────────────────────────────────────────────────────────
+
+/** Power read model returned by the power write endpoints. */
+export interface RackPowerResponse { mode: Rack['powerMode']; pdus: RackPdu[]; totals: RackPowerTotals }
+
+/** Sets the rack's power mode and PDU settings. 409 PDU_HAS_CONNECTIONS / PDU_OUTLETS_IN_USE lists the blocking devices. */
+export function setRackPower(rackId: string, input: RackPowerInput): Promise<RackPowerResponse> {
+  return apiFetch<RackPowerResponse>(`/api/v1/racks/${encodeURIComponent(rackId)}/pdus`, { method: 'PUT', body: JSON.stringify(input) });
+}
+
+/** Replaces every plug → PDU/outlet assignment of a device in one go. Plugs left out are "Não ligado". */
+export function setDevicePower(deviceId: string, input: DevicePowerInput): Promise<RackPowerResponse & { unplugged?: unknown[]; warnings?: string[] }> {
+  return apiFetch(`/api/v1/devices/${encodeURIComponent(deviceId)}/power`, { method: 'PUT', body: JSON.stringify(input) });
+}
+
+/** "Desligar": frees every outlet the device uses on this PDU. */
+export function disconnectPduDevice(rackId: string, pduId: string, deviceId: string): Promise<RackPowerResponse & { removed: number }> {
+  return apiFetch<RackPowerResponse & { removed: number }>(`/api/v1/racks/${encodeURIComponent(rackId)}/pdus/${encodeURIComponent(pduId)}/devices/${encodeURIComponent(deviceId)}`, { method: 'DELETE' });
 }
 
 // ── Device models (catalog) ────────────────────────────────────────────────

@@ -1,3 +1,6 @@
+import type { PduSettingsInput, Rack, RackPowerInput, RackPowerMode } from './types';
+import { DEFAULT_PDU_BUDGET_WATTS, DEFAULT_PDU_OUTLETS } from './power';
+
 export interface BuildingForm {
   name: string;
   description: string;
@@ -14,6 +17,48 @@ export interface RackForm {
   roomId: string;
   modelId: string;
   frontAssetId: string;
+  /** "Alimentação": power mode and per-PDU settings. Absent on older callers = "Só rede elétrica" with defaults. */
+  power?: RackPowerDraft;
+  /** The power settings as loaded, so an edit only sends PUT racks/:id/pdus when something changed. */
+  savedPower?: RackPowerDraft;
+}
+
+/** One PDU's settings as typed in the form (strings so a field can be empty while editing). */
+export interface PduDraft { name: string; outletCount: string; budgetWatts: string }
+export interface RackPowerDraft { mode: RackPowerMode; supplier: PduDraft; ups: PduDraft }
+
+export const emptyPduDraft = (): PduDraft => ({ name: '', outletCount: String(DEFAULT_PDU_OUTLETS), budgetWatts: String(DEFAULT_PDU_BUDGET_WATTS) });
+export const emptyRackPower = (): RackPowerDraft => ({ mode: 'SUPPLIER_ONLY', supplier: emptyPduDraft(), ups: emptyPduDraft() });
+
+/** The form's power settings for an existing rack (its PDUs, or the defaults for a PDU it does not have). */
+export function rackPowerDraft(rack: Pick<Rack, 'pdus' | 'powerMode'> | null | undefined): RackPowerDraft {
+  const draft = emptyRackPower();
+  for (const pdu of rack?.pdus ?? []) {
+    const target = pdu.source === 'UPS' ? 'ups' : 'supplier';
+    draft[target] = { name: pdu.name ?? '', outletCount: String(pdu.outletCount), budgetWatts: pdu.budgetWatts == null ? '' : String(pdu.budgetWatts) };
+  }
+  draft.mode = rack?.powerMode ?? ((rack?.pdus ?? []).some((pdu) => pdu.source === 'UPS') ? 'SUPPLIER_AND_UPS' : 'SUPPLIER_ONLY');
+  return draft;
+}
+
+/** API settings for one PDU: an empty name or budget clears it; an empty outlet count keeps the current value. */
+export function pduSettings(draft: PduDraft): PduSettingsInput {
+  const outletCount = Number(draft.outletCount);
+  return {
+    name: draft.name.trim() || null,
+    ...(draft.outletCount.trim() && Number.isFinite(outletCount) ? { outletCount } : {}),
+    budgetWatts: draft.budgetWatts.trim() === '' ? null : Number(draft.budgetWatts),
+  };
+}
+
+/** PUT racks/:id/pdus body. The UPS settings are only sent when the rack keeps (or gets) a UPS. */
+export function rackPowerInput(draft: RackPowerDraft): RackPowerInput {
+  return { mode: draft.mode, supplier: pduSettings(draft.supplier), ...(draft.mode === 'SUPPLIER_AND_UPS' ? { ups: pduSettings(draft.ups) } : {}) };
+}
+
+export function rackPowerChanged(draft: RackPowerDraft | undefined, saved: RackPowerDraft | undefined): boolean {
+  if (!draft) return false;
+  return JSON.stringify(rackPowerInput(draft)) !== JSON.stringify(rackPowerInput(saved ?? emptyRackPower()));
 }
 
 export interface DeviceForm {
@@ -32,6 +77,12 @@ export interface DeviceForm {
   backAssetId?: string;
   /** Image overrides stored when an existing device was opened; absent for a new device. */
   savedAssetIds?: { front: string; rear: string };
+  /** "Fontes / fichas" (0–8). Empty = use the model's value, else 2. */
+  powerPlugCount?: string;
+  /** "Consumo estimado (W)". Empty = use the model's typical watts, else the type default. */
+  estimatedWatts?: string;
+  /** Power overrides stored when an existing device was opened; absent for a new device. */
+  savedPower?: { plugs: string; watts: string };
   notes?: string;
   snmpEnabled?: boolean;
   snmpVersion?: 'V2C' | 'V3';
@@ -74,5 +125,18 @@ export function deviceImageFields(form: Pick<DeviceForm, 'frontAssetId' | 'backA
   const saved = form.savedAssetIds;
   if (saved ? current.front !== saved.front : current.front) fields.frontAssetId = current.front || null;
   if (saved ? current.rear !== saved.rear : current.rear) fields.backAssetId = current.rear || null;
+  return fields;
+}
+
+/**
+ * Power override fields for a device save, same rule as the images: an edit sends a field only when it changed (null =
+ * back to the model / default); a new device sends only the values that were typed.
+ */
+export function devicePowerFields(form: Pick<DeviceForm, 'powerPlugCount' | 'estimatedWatts' | 'savedPower'>): { powerPlugCount?: number | null; estimatedWatts?: number | null } {
+  const current = { plugs: (form.powerPlugCount ?? '').trim(), watts: (form.estimatedWatts ?? '').trim() };
+  const saved = form.savedPower;
+  const fields: { powerPlugCount?: number | null; estimatedWatts?: number | null } = {};
+  if (saved ? current.plugs !== saved.plugs : current.plugs) fields.powerPlugCount = current.plugs === '' ? null : Number(current.plugs);
+  if (saved ? current.watts !== saved.watts : current.watts) fields.estimatedWatts = current.watts === '' ? null : Number(current.watts);
   return fields;
 }

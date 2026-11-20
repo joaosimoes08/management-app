@@ -3,9 +3,12 @@
 import { Modal } from '@/components/ui/modal';
 import { useAuth } from '@/lib/auth';
 import { EQUIPMENT_TYPES } from '../../utils';
-import { deviceImageFields, type DeviceForm, type ModelForm, type RackForm } from '../../forms';
+import { Plug } from 'lucide-react';
+import { deviceImageFields, devicePowerFields, emptyRackPower, type DeviceForm, type ModelForm, type RackForm } from '../../forms';
 import type { AssetFile, DeviceModel, IpAddress, Rack, RoomWithBuilding } from '../../types';
 import { AssetPicker, AssetUploadPicker, FormError, ModalActions } from './editor-shared';
+import { DevicePowerFields } from './device-power-fields';
+import { RackPowerFields, type RackPowerFieldsProps } from './rack-power-fields';
 
 export interface EntityEditorProps {
   modal: string;
@@ -26,10 +29,16 @@ export interface EntityEditorProps {
   save: (path: string, body: Record<string, unknown>, method?: string) => Promise<void>;
   /** API error from the last save, shown inside the open form. */
   formError?: string;
+  /** Rack saves go through here when set (rack + its power settings, with the 409 handling). */
+  saveRack?: () => Promise<void>;
+  /** Devices that stop the rack's power change, and the "Desligar todos da UPS" action. */
+  rackPower?: Pick<RackPowerFieldsProps, 'blocked' | 'onDisconnectAllUps' | 'disconnecting'>;
+  /** Opens the power step of the device being edited (shown for a device in a rack when the user may change power). */
+  onDevicePower?: () => void;
 }
 
 /** Device, rack and model create/edit modals (the interface modal lives in InterfaceEditor). */
-export function EntityEditor({ modal, close, editingId, animateDeviceEntry = false, form, setForm, rooms, racks, models, assets, ips, save, formError = '' }: EntityEditorProps) {
+export function EntityEditor({ modal, close, editingId, animateDeviceEntry = false, form, setForm, rooms, racks, models, assets, ips, save, formError = '', saveRack, rackPower, onDevicePower }: EntityEditorProps) {
   const { hasRole } = useAuth();
   const admin = hasRole('ADMIN');
   if (!modal || modal === 'layout') return null;
@@ -46,6 +55,8 @@ export function EntityEditor({ modal, close, editingId, animateDeviceEntry = fal
     // Image overrides go through deviceImageFields so an edit never clears an image it did not change.
     const deviceBody: Record<string, unknown> = { ...devicePayload };
     delete deviceBody.savedAssetIds; delete deviceBody.frontAssetId; delete deviceBody.backAssetId;
+    // Power overrides follow the same rule: send only what changed (null = back to the model / default).
+    delete deviceBody.powerPlugCount; delete deviceBody.estimatedWatts; delete deviceBody.savedPower;
     void save(editingId ? `/api/v1/devices/${editingId}` : '/api/v1/devices', {
       ...deviceBody,
       siteId: new URLSearchParams(location.search).get('siteId'),
@@ -55,6 +66,7 @@ export function EntityEditor({ modal, close, editingId, animateDeviceEntry = fal
       modelId: form.device.modelId || null,
       managementIpAddressId: form.device.managementIpAddressId || null,
       ...deviceImageFields(form.device),
+      ...devicePowerFields(form.device),
     });
   }}>
     <label>Nome<input required value={form.device.name} onChange={(event) => setForm.device({ ...form.device, name: event.target.value })} /></label>
@@ -74,6 +86,8 @@ export function EntityEditor({ modal, close, editingId, animateDeviceEntry = fal
       <label>U inicial<input type="number" min="1" value={form.device.rackUnitStart} onChange={(event) => setForm.device({ ...form.device, rackUnitStart: event.target.value })} /></label>
       <label>Tamanho U<input type="number" min="1" value={form.device.rackUnitSize} onChange={(event) => setForm.device({ ...form.device, rackUnitSize: event.target.value })} /></label>
     </div>
+    <DevicePowerFields form={form.device} models={models} onChange={(patch) => setForm.device({ ...form.device, ...patch })} />
+    {onDevicePower && editingId && form.device.rackId && <button type="button" className="secondary-button device-power-open" onClick={onDevicePower}><Plug size={14} /> Ligações elétricas</button>}
     <div className="form-row">
       <AssetPicker label="Imagem frontal (substitui a do modelo)" emptyLabel="Usar a imagem do modelo" value={form.device.frontAssetId} assets={assets} onChange={(value) => setForm.device({ ...form.device, frontAssetId: value })} />
       <AssetPicker label="Imagem traseira (substitui a do modelo)" emptyLabel="Usar a imagem do modelo" value={form.device.backAssetId ?? ''} assets={assets} onChange={(value) => setForm.device({ ...form.device, backAssetId: value })} />
@@ -95,11 +109,13 @@ export function EntityEditor({ modal, close, editingId, animateDeviceEntry = fal
 
   if (modal === 'rack') return <Modal title={editingId ? 'Editar bastidor' : 'Novo bastidor'} close={close}><form className="modal-form" onSubmit={(event) => {
     event.preventDefault();
+    if (saveRack) { void saveRack(); return; }
     void save(editingId ? `/api/v1/racks/${editingId}` : '/api/v1/racks', { name: form.rack.name, roomId: form.rack.roomId });
   }}>
     <p className="form-help">Todos os bastidores usam o modelo padrão fixo de 42U.</p>
     <label>Nome<input required value={form.rack.name} onChange={(event) => setForm.rack({ ...form.rack, name: event.target.value })} /></label>
     <label>Sala<select required value={form.rack.roomId} onChange={(event) => setForm.rack({ ...form.rack, roomId: event.target.value })}>{rooms.map((room) => <option key={room.id} value={room.id}>{room.building.name} / {room.name}</option>)}</select></label>
+    {saveRack && <RackPowerFields value={form.rack.power ?? emptyRackPower()} onChange={(power) => setForm.rack({ ...form.rack, power })} {...rackPower} />}
     <FormError message={formError} />
     <ModalActions close={close} />
   </form></Modal>;

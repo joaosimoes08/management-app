@@ -11,9 +11,12 @@ export interface HoverCardBox { top: number; right: number; bottom: number; left
 export interface HoverCardPlacement { top: number; left: number; side: 'right' | 'left' }
 
 export interface PlaceHoverCardInput {
-  /** The hovered device. The card is centred on it vertically. */
+  /** The hovered element (device or PDU badge). The card is centred on it vertically. */
   device: HoverCardBox;
-  /** The racks on the stage: one frame in single-face views, the front + rear pair in Ambas. The card goes beside them, never over them. */
+  /**
+   * What the card must keep clear of: the rack frames on the stage plus their PDU strips (one frame in single-face
+   * views, the front + rear pair in Ambas). The card goes beside this box, never over it.
+   */
   rack: HoverCardBox;
   /** The visible rack stage. The card stays between its top and bottom lines. */
   stage: HoverCardBox;
@@ -21,22 +24,48 @@ export interface PlaceHoverCardInput {
   viewport: { width: number; height: number };
   /** The side to try first. Ambas: 'left' for the front (left) rack, 'right' for the rear one. Defaults to 'right'. */
   prefer?: HoverCardPlacement['side'];
+  /** Other open cards. This card steps outward past any of them it would overlap, so two cards never cover each other. */
+  avoid?: HoverCardBox[];
 }
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), Math.max(min, max));
+const overlaps = (a: HoverCardBox, b: HoverCardBox) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 
 /**
- * Viewport coordinates for the device card, beside the racks and never over them unless nothing else fits.
+ * Viewport coordinates for a rack card (device or PDU), beside the racks and their PDU strips and never over them unless
+ * nothing else fits. This is the one placement rule for every rack card.
  * Horizontally the card opens on the `prefer` side (default right): in Ambas a front-face device prefers the left of the
- * front rack and a rear-face device the right of the rear rack; single-face views prefer the right. If that side is out of
+ * front rack and a rear-face device the right of the rear rack; single-face views prefer the right; a PDU card prefers
+ * its own PDU's side. If another open card is already there, it opens just outside that card. If that side is out of
  * the window it opens on the other side, and if neither fits it is clamped inside the window (the only case where it may
- * overlap a rack). Vertically it is centred on the device, then kept below the stage's top line and above its bottom
+ * overlap a rack). Vertically it is centred on the anchor, then kept below the stage's top line and above its bottom
  * line (devices in the top U's open downwards, bottom U's upwards).
  */
-export function placeHoverCard({ device, rack, stage, card, viewport, prefer = 'right' }: PlaceHoverCardInput): HoverCardPlacement {
+export function placeHoverCard({ device, rack, stage, card, viewport, prefer = 'right', avoid = [] }: PlaceHoverCardInput): HoverCardPlacement {
+  // The stage part that is on screen; fall back to the whole viewport when it is too short for the card.
+  let minTop = Math.max(stage.top, 0) + HOVER_CARD_MARGIN;
+  let maxBottom = Math.min(stage.bottom, viewport.height) - HOVER_CARD_MARGIN;
+  if (maxBottom - minTop < card.height) {
+    minTop = HOVER_CARD_MARGIN;
+    maxBottom = viewport.height - HOVER_CARD_MARGIN;
+  }
+  const centre = (device.top + device.bottom) / 2;
+  const top = clamp(centre - card.height / 2, minTop, maxBottom - card.height);
+
   const minLeft = HOVER_CARD_MARGIN;
   const maxLeft = viewport.width - HOVER_CARD_MARGIN - card.width;
-  const positions = { right: rack.right + HOVER_CARD_GAP, left: rack.left - HOVER_CARD_GAP - card.width };
+  const at = (left: number): HoverCardBox => ({ left, right: left + card.width, top, bottom: top + card.height });
+  /** First position on a side that clears the racks and every other open card. */
+  const outward = (side: HoverCardPlacement['side']) => {
+    let left = side === 'right' ? rack.right + HOVER_CARD_GAP : rack.left - HOVER_CARD_GAP - card.width;
+    for (let guard = 0; guard <= avoid.length; guard += 1) {
+      const hit = avoid.find((other) => overlaps(at(left), other));
+      if (!hit) break;
+      left = side === 'right' ? hit.right + HOVER_CARD_GAP : hit.left - HOVER_CARD_GAP - card.width;
+    }
+    return left;
+  };
+  const positions = { right: outward('right'), left: outward('left') };
   const fits = { right: positions.right <= maxLeft, left: positions.left >= minLeft };
   const other = prefer === 'right' ? 'left' : 'right';
   let side: HoverCardPlacement['side'];
@@ -51,40 +80,47 @@ export function placeHoverCard({ device, rack, stage, card, viewport, prefer = '
     side = prefer;
     left = clamp(positions[prefer], minLeft, maxLeft);
   }
-
-  // The stage part that is on screen; fall back to the whole viewport when it is too short for the card.
-  let minTop = Math.max(stage.top, 0) + HOVER_CARD_MARGIN;
-  let maxBottom = Math.min(stage.bottom, viewport.height) - HOVER_CARD_MARGIN;
-  if (maxBottom - minTop < card.height) {
-    minTop = HOVER_CARD_MARGIN;
-    maxBottom = viewport.height - HOVER_CARD_MARGIN;
-  }
-  const centre = (device.top + device.bottom) / 2;
-  const top = clamp(centre - card.height / 2, minTop, maxBottom - card.height);
   return { top: Math.round(top), left: Math.round(left), side };
 }
 
-const box = (element: Element): HoverCardBox => {
+export const box = (element: Element): HoverCardBox => {
   const { top, right, bottom, left } = element.getBoundingClientRect();
   return { top, right, bottom, left };
 };
 
+const union = (boxes: HoverCardBox[]): HoverCardBox => ({
+  top: Math.min(...boxes.map((b) => b.top)),
+  right: Math.max(...boxes.map((b) => b.right)),
+  bottom: Math.max(...boxes.map((b) => b.bottom)),
+  left: Math.min(...boxes.map((b) => b.left)),
+});
+
 /**
- * The box around every rack frame on the device's stage, so the card clears both faces in Ambas, and the side to try
- * first: with two or more frames (Ambas) a device in the leftmost frame (front) prefers the left, any other the right.
+ * The box a rack card must keep clear of: every rack frame and PDU strip on the anchor's stage, so the card clears both
+ * faces in Ambas and never covers a PDU. Also the side to try first: with two or more frames (Ambas) a device in the
+ * leftmost frame (front) prefers the left, any other the right.
  */
-function racksBox(anchor: HTMLElement): { rack: HoverCardBox; prefer: HoverCardPlacement['side'] } {
-  const frames = [...(anchor.closest('.rack-stage')?.querySelectorAll('.rack-frame') ?? [])];
+export function racksBox(anchor: HTMLElement): { rack: HoverCardBox; prefer: HoverCardPlacement['side'] } {
+  const stage = anchor.closest('.rack-stage');
+  const frames = [...(stage?.querySelectorAll('.rack-frame') ?? [])];
+  const pdus = [...(stage?.querySelectorAll('.rack-pdu') ?? [])];
   const own = anchor.closest('.rack-frame') ?? anchor;
-  const boxes = (frames.length ? frames : [own]).map(box);
-  const rack = {
-    top: Math.min(...boxes.map((b) => b.top)),
-    right: Math.max(...boxes.map((b) => b.right)),
-    bottom: Math.max(...boxes.map((b) => b.bottom)),
-    left: Math.min(...boxes.map((b) => b.left)),
-  };
-  const leftmost = frames.length > 1 && box(own).left <= rack.left + 0.5;
+  const rack = union([...(frames.length ? frames : [own]), ...pdus].map(box));
+  const frameLeft = frames.length ? Math.min(...frames.map((frame) => box(frame).left)) : rack.left;
+  const leftmost = frames.length > 1 && box(own).left <= frameLeft + 0.5;
   return { rack, prefer: leftmost ? 'left' : 'right' };
+}
+
+/**
+ * Boxes of the PDU cards that are open, by card id, so a device card opening later steps around them. A PDU card is
+ * placed first on its own PDU's side and never moves for a device card.
+ */
+const openPduCards = new Map<string, HoverCardBox>();
+export function setOpenPduCardBox(id: string, value: HoverCardBox | null) {
+  if (value) openPduCards.set(id, value); else openPduCards.delete(id);
+}
+export function openPduCardBoxes(): HoverCardBox[] {
+  return [...openPduCards.values()];
 }
 
 /** The one device card shown at a time, shared by the front and rear overlays. */
@@ -144,6 +180,7 @@ export function RackDeviceHoverCard({ id, anchor, children }: RackDeviceHoverCar
       device: box(anchor),
       ...racksBox(anchor),
       stage: box(stage),
+      avoid: openPduCardBoxes(),
       card: { width: card.offsetWidth, height: card.offsetHeight },
       viewport: { width: document.documentElement.clientWidth || window.innerWidth, height: document.documentElement.clientHeight || window.innerHeight },
     });
