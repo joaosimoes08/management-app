@@ -38,7 +38,7 @@ async function main() {
   });
   const switchModel = await prisma.deviceModel.upsert({
     where: { manufacturer_model: { manufacturer: 'Cisco', model: 'Catalyst 9300' } },
-    create: { manufacturer: 'Cisco', model: 'Catalyst 9300', type: 'SWITCH', portCount: 48, supportsNetworkPorts: true, networkPortCount: 48, portLayout: { family: 'ethernet', ports: 48 } },
+    create: { manufacturer: 'Cisco', model: 'Catalyst 9300', type: 'SWITCH', portCount: 48, supportsNetworkPorts: true, networkPortCount: 48, portLayout: { version: 2, family: 'ethernet', faces: { rear: { imageWidth: 1000, imageHeight: 300, ports: [] } } } },
     update: { type: 'SWITCH', supportsNetworkPorts: true, networkPortCount: 48 },
   });
   const serverModel = await prisma.deviceModel.upsert({

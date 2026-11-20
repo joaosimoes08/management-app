@@ -1,7 +1,7 @@
 'use client';
 
 import { EquipmentTypeIcon } from '../equipment-type-icon';
-import { RACK_UNITS, RACK_VIEWPORT, rackUnitFromDrop } from '../../utils';
+import { deviceFaceImage, RACK_UNITS, RACK_VIEWPORT, rackUnitBox, rackUnitFromDrop } from '../../utils';
 import type { Rack } from '../../types';
 import { AssetImage } from '../asset-image';
 
@@ -49,10 +49,9 @@ export function RackEquipmentPreview({ rack, racks, reordering = false, movingDe
     {placed.map((device) => {
       const start = Number(device.rackUnitStart);
       const size = Math.max(1, Number(device.rackUnitSize) || 1);
-      const end = start + size - 1;
-      const top = ((RACK_UNITS - end) / RACK_UNITS) * 100;
-      const height = (size / RACK_UNITS) * 100;
-      const visual = device.frontAsset || device.model?.frontAsset;
+      const { top, height } = rackUnitBox(start, size);
+      // Room overview: the front face, or the rear image until a front image is uploaded.
+      const visual = deviceFaceImage(device, 'front') ?? deviceFaceImage(device, 'rear');
       return <span className={`rack-preview-device${movingDeviceId === device.id ? ' moving' : ''}`} key={device.id} style={{ top: `${top}%`, height: `${height}%` }} draggable={reordering} role={reordering ? 'button' : undefined} tabIndex={reordering ? 0 : undefined} aria-label={reordering ? `Mover ${device.name}, atualmente em U${start}` : undefined} onKeyDown={(event) => {
         if (!reordering) return;
         const rackIndex = racks.findIndex((item) => item.id === rack.id);

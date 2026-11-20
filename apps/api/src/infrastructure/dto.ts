@@ -1,4 +1,4 @@
-import { ArrayMinSize, ArrayMaxSize, IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, Max, Min, MinLength } from 'class-validator';
+import { ArrayMinSize, ArrayMaxSize, IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsObject, IsOptional, IsString, IsUUID, Matches, Max, Min, MinLength } from 'class-validator';
 
 const deviceTypes = ['SWITCH', 'ROUTER', 'FIREWALL', 'SERVER', 'STORAGE', 'OTHER'];
 const statuses = ['ACTIVE', 'INACTIVE', 'MAINTENANCE', 'RETIRED', 'UNKNOWN'];
@@ -31,6 +31,8 @@ export class CreateDeviceDto {
   @IsOptional() @IsInt() rackUnitStart?: number;
   @IsOptional() @IsInt() rackUnitSize?: number;
   @IsOptional() @IsString() frontAssetId?: string;
+  /** Per-device rear image override; falls back to the model's backAsset. */
+  @IsOptional() @IsString() backAssetId?: string;
   @IsOptional() @IsString() managementIpAddressId?: string;
   @IsOptional() @IsString() notes?: string;
   @IsOptional() @IsBoolean() isCritical?: boolean;
@@ -80,15 +82,23 @@ export class UpdateInterfaceDto extends CreateInterfaceDto {
 }
 
 export class UpdatePortLayoutDto {
-  @IsOptional() imageWidth?: number;
-  @IsOptional() imageHeight?: number;
-  @IsOptional() ports?: unknown[];
+  @IsOptional() @IsInt() @Min(1) imageWidth?: number;
+  @IsOptional() @IsInt() @Min(1) imageHeight?: number;
+  @IsOptional() @IsArray() ports?: unknown[];
   @IsOptional() viewport?: unknown;
   @IsOptional() confidence?: number;
   @IsOptional() confirmedAt?: string;
   @IsOptional() confirmedBy?: string;
   @IsOptional() warnings?: unknown;
   @IsOptional() @IsString() assetId?: string;
+  /** Optional: when given, a stale value gets 409 PORT_LAYOUT_CONFLICT. */
+  @IsOptional() @IsString() revision?: string;
+}
+
+/** PUT device-models/:id/port-layout/faces. Required fields are checked in the service so errors carry a code. */
+export class SavePortLayoutFacesDto {
+  @IsOptional() @IsString() revision?: string;
+  @IsOptional() @IsObject() faces?: Record<string, unknown>;
 }
 
 export class DetectPortLayoutDto {

@@ -13,12 +13,15 @@ import type {
   InfrastructurePermission,
   IpAddress,
   PortLayout,
+  PortLayoutV2,
+  RackFace,
   Rack,
   RackPlacementPlan,
   Room,
   SiteListResponse,
   VlanListResponse,
 } from './types';
+import { normalizePortLayout, type PortLayoutFaces } from './utils';
 
 // ── Access ─────────────────────────────────────────────────────────────────
 
@@ -107,20 +110,58 @@ export function updateDeviceModel(id: string, body: Record<string, unknown>): Pr
   return apiFetch<DeviceModel>(`/api/v1/device-models/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
-export function getDeviceModelPortLayout(id: string): Promise<{ id: string; model: DeviceModel; frontAsset: AssetFile | null; portLayout: PortLayout | null; networkPortCount: number | null }> {
-  return apiFetch(`/api/v1/device-models/${id}/port-layout`);
+export interface DeviceModelPortLayoutResponse {
+  id: string;
+  model?: DeviceModel;
+  frontAsset?: AssetFile | null;
+  backAsset?: AssetFile | null;
+  /** Always v2 from the API; a bare face is read as the requested face. */
+  portLayout: PortLayoutV2 | PortLayout | null;
+  networkPortCount?: number | null;
+  /** Concurrency token: send it back with the atomic faces save. */
+  revision?: string;
 }
 
-export function detectDeviceModelPortLayout(id: string, body: { assetId?: string; portCount?: number | null; imageWidth?: number; imageHeight?: number }): Promise<PortLayout> {
-  return apiFetch<PortLayout>(`/api/v1/device-models/${id}/port-layout/detect`, { method: 'POST', body: JSON.stringify(body) });
+const faceQuery = (face: RackFace) => `?face=${face}`;
+
+export function getDeviceModelPortLayout(id: string, face: RackFace = 'rear'): Promise<DeviceModelPortLayoutResponse> {
+  return apiFetch(`/api/v1/device-models/${id}/port-layout${faceQuery(face)}`);
 }
 
-export function saveDeviceModelPortLayout(id: string, body: Record<string, unknown>): Promise<PortLayout> {
-  return apiFetch<PortLayout>(`/api/v1/device-models/${id}/port-layout`, { method: 'PATCH', body: JSON.stringify(body) });
+/** Both faces of a model layout. A v1 answer (API before faces) is the rear face. */
+export async function getDeviceModelPortLayoutFaces(id: string): Promise<{ response: DeviceModelPortLayoutResponse; faces: PortLayoutFaces }> {
+  const response = await getDeviceModelPortLayout(id, 'rear');
+  return { response, faces: normalizePortLayout(response.portLayout) };
+}
+
+export function detectDeviceModelPortLayout(id: string, body: { assetId?: string; portCount?: number | null; imageWidth?: number; imageHeight?: number }, face: RackFace = 'rear'): Promise<PortLayout> {
+  return apiFetch<PortLayout>(`/api/v1/device-models/${id}/port-layout/detect${faceQuery(face)}`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+/**
+ * Atomic save of both faces in one transaction. A stale revision is rejected with 409 PORT_LAYOUT_CONFLICT.
+ * Each face: an object replaces it (assetId sets its image), null clears its map and keeps the image, absent leaves it.
+ */
+export function saveDeviceModelPortLayoutFaces(id: string, body: { revision: string; faces: Partial<Record<RackFace, unknown>> }): Promise<DeviceModelPortLayoutResponse & { mapping?: unknown }> {
+  return apiFetch(`/api/v1/device-models/${id}/port-layout/faces`, { method: 'PUT', body: JSON.stringify(body) });
+}
+
+/** Replaces one face of the model layout; the other face is left as stored. */
+export function saveDeviceModelPortLayout(id: string, body: Record<string, unknown>, face: RackFace = 'rear'): Promise<PortLayoutV2 | PortLayout> {
+  return apiFetch<PortLayoutV2 | PortLayout>(`/api/v1/device-models/${id}/port-layout${faceQuery(face)}`, { method: 'PUT', body: JSON.stringify(body) });
 }
 
 export function setDeviceModelFrontAsset(id: string, assetId: string): Promise<unknown> {
   return apiFetch(`/api/v1/device-models/${id}/assets/front`, { method: 'POST', body: JSON.stringify({ assetId }) });
+}
+
+export function setDeviceModelRearAsset(id: string, assetId: string): Promise<unknown> {
+  return apiFetch(`/api/v1/device-models/${id}/assets/rear`, { method: 'POST', body: JSON.stringify({ assetId }) });
+}
+
+/** Links an uploaded image to one face of a model. */
+export function setDeviceModelFaceAsset(id: string, face: RackFace, assetId: string): Promise<unknown> {
+  return face === 'rear' ? setDeviceModelRearAsset(id, assetId) : setDeviceModelFrontAsset(id, assetId);
 }
 
 // ── Assets ─────────────────────────────────────────────────────────────────

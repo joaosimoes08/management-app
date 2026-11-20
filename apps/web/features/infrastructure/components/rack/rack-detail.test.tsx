@@ -42,11 +42,11 @@ describe('RackDetail viewport fit and interactions', () => {
   it.each([[900, 400], [360, 560]])('fits a 42U rack within %s×%s available pixels', async (width, height) => {
     const { container, setSize } = renderRack();
     setSize(width, height);
-    const expectedWidth = Math.min(304, width - 24, (height - 24) * 304 / 820);
+    const expectedWidth = Math.min(304, width - 24, (height - 24) * 304 / 838);
     const frame = container.querySelector('.rack-frame') as HTMLDivElement;
     const inner = container.querySelector('.rack-stage-inner') as HTMLDivElement;
     await waitFor(() => expect(parseFloat(frame.style.width)).toBeCloseTo(expectedWidth, 3));
-    expect(parseFloat(inner.style.height)).toBeCloseTo(expectedWidth * 820 / 304, 3);
+    expect(parseFloat(inner.style.height)).toBeCloseTo(expectedWidth * 838 / 304, 3);
     expect(parseFloat(frame.style.width)).toBeLessThanOrEqual(width - 24);
     expect(parseFloat(inner.style.height)).toBeLessThanOrEqual(height - 24 + 0.001);
   });
@@ -61,7 +61,7 @@ describe('RackDetail viewport fit and interactions', () => {
     for (let step = 0; step < 12; step += 1) fireEvent.click(zoomIn);
     expect(screen.getByText('250%')).toBeInTheDocument();
     expect(parseFloat(frame.style.width)).toBeCloseTo(fittedWidth * 2.5, 2);
-    fireEvent.click(screen.getByRole('button', { name: 'Ajustar' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ajustar ao ecrã' }));
     expect(screen.getByText('100%')).toBeInTheDocument();
     expect(parseFloat(frame.style.width)).toBeCloseTo(fittedWidth, 2);
   });
@@ -71,7 +71,7 @@ describe('RackDetail viewport fit and interactions', () => {
     setSize(900, 400);
     const area = container.querySelector('.rack-overlay-area') as HTMLDivElement;
     const frame = container.querySelector('.rack-frame') as HTMLDivElement;
-    const frameHeight = parseFloat(frame.style.width) * 820 / 304;
+    const frameHeight = parseFloat(frame.style.width) * 838 / 304;
     const areaTop = 10 + frameHeight * RACK_VIEWPORT.top;
     const areaHeight = frameHeight * RACK_VIEWPORT.height;
     vi.spyOn(area, 'getBoundingClientRect').mockReturnValue({ x: 0, y: areaTop, top: areaTop, bottom: areaTop + areaHeight, left: 0, right: 0, width: 0, height: areaHeight, toJSON: () => ({}) });

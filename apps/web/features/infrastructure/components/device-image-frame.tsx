@@ -2,21 +2,24 @@
 
 import { useState } from 'react';
 import { EquipmentTypeIcon } from './equipment-type-icon';
-import type { Device, DeviceInterface, PortLayout } from '../types';
-import { formatPortTooltipTitle, getInterfaceSubnets, getInterfaceVlans, normalizedPortLayoutPorts } from '../utils';
+import type { Device, DeviceInterface, PortLayout, RackFace } from '../types';
+import { deviceFaceImage, formatPortTooltipTitle, getInterfaceSubnets, getInterfaceVlans, normalizePortLayout, normalizedPortLayoutPorts, primaryPortFace } from '../utils';
 import { AssetImage } from './asset-image';
 
 interface DeviceImageFrameProps {
   device: Device;
   interfaces: DeviceInterface[];
+  /** Face to draw; defaults to the face that carries the mapped ports. */
+  face?: RackFace;
 }
 
-/** Device front image with clickable port hotspots, VLAN tooltips and IPAM cross-links. */
-export function DeviceImageFrame({ device, interfaces }: DeviceImageFrameProps) {
+/** Device face image with clickable port hotspots, VLAN tooltips and IPAM cross-links. */
+export function DeviceImageFrame({ device, interfaces, face: requestedFace }: DeviceImageFrameProps) {
   const [activePort, setActivePort] = useState('');
-  const image = device.frontAsset || device.model?.frontAsset;
-  const layout: Partial<PortLayout> = device.model && typeof device.model.portLayout === 'object' && device.model.portLayout ? device.model.portLayout : {};
-  const ports = normalizedPortLayoutPorts(device);
+  const face = requestedFace ?? primaryPortFace(device.model);
+  const image = deviceFaceImage(device, face);
+  const layout: Partial<PortLayout> = normalizePortLayout(device.model?.portLayout)[face] ?? {};
+  const ports = normalizedPortLayoutPorts(device, face);
   const width = Number(layout.imageWidth) || 1000;
   const height = Number(layout.imageHeight) || 300;
   const byPort = (port: { portKey: string }) => interfaces.find((item) => item.portKey === port.portKey || item.name === port.portKey);
@@ -24,8 +27,8 @@ export function DeviceImageFrame({ device, interfaces }: DeviceImageFrameProps) 
   const activeInterface = activeLayoutPort ? byPort(activeLayoutPort) : null;
   const activeVlans = getInterfaceVlans(activeInterface);
 
-  return <div className="device-image-frame" style={{ aspectRatio: `${width} / ${height}` }}>
-    {image ? <AssetImage asset={image} alt={`Imagem de ${device.name}`} /> : <div className="switch-face-fallback"><EquipmentTypeIcon type={device.type} alt={`Ícone de ${device.type}`} className="equipment-type-icon-large"/><strong>{device.name}</strong></div>}
+  return <div className="device-image-frame" data-face={face} style={{ aspectRatio: `${width} / ${height}` }}>
+    {image ? <AssetImage asset={image} alt={`Imagem de ${device.name}`} /> : <div className="switch-face-fallback"><EquipmentTypeIcon type={device.type} alt={`Ícone de ${device.type}`} className="equipment-type-icon-large"/><strong>{device.name}</strong><small>{face === 'rear' ? 'Sem imagem traseira' : 'Sem imagem frontal'}</small></div>}
     {ports.map((port) => {
       const item = byPort(port);
       const allowedVlans = (item?.allowedVlans ?? []).map((x) => x?.vlan?.vlanId ?? x?.vlanId).filter(Boolean);

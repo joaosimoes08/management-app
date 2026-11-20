@@ -15,7 +15,7 @@ async function main() {
   let created = 0; let existing = 0;
   for (const [manufacturer, model, type, portCount, supportsNetworkPorts, networkPortCount, family] of devices) {
     const found = await prisma.deviceModel.findUnique({ where: { manufacturer_model: { manufacturer, model } }, select: { id: true } });
-    await prisma.deviceModel.upsert({ where: { manufacturer_model: { manufacturer, model } }, create: { manufacturer, model, type, portCount, supportsNetworkPorts, networkPortCount, portLayout: family ? { family, ports: networkPortCount } : null }, update: { type, portCount, supportsNetworkPorts, networkPortCount, portLayout: family ? { family, ports: networkPortCount } : null } });
+    await prisma.deviceModel.upsert({ where: { manufacturer_model: { manufacturer, model } }, create: { manufacturer, model, type, portCount, supportsNetworkPorts, networkPortCount, portLayout: family ? { version: 2, family, faces: { rear: { imageWidth: 1000, imageHeight: 300, ports: [] } } } : null }, update: { type, portCount, supportsNetworkPorts, networkPortCount, portLayout: family ? { family, ports: networkPortCount } : null } });
     if (found) existing++; else created++;
   }
   for (const [manufacturer, model, units] of racks) await prisma.rackModel.upsert({ where: { manufacturer_model: { manufacturer, model } }, create: { manufacturer, model, units }, update: { units } });
