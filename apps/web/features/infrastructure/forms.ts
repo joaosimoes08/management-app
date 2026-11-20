@@ -29,6 +29,7 @@ export interface DeviceForm {
   status: string;
   isCritical: boolean;
   frontAssetId: string;
+  backAssetId?: string;
   notes?: string;
   snmpEnabled?: boolean;
   snmpVersion?: 'V2C' | 'V3';
@@ -57,4 +58,5 @@ export interface ModelForm {
   supportsNetworkPorts: boolean;
   networkPortCount: string;
   frontAssetId: string;
+  backAssetId: string;
 }

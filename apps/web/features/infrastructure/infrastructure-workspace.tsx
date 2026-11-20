@@ -10,7 +10,7 @@ import { useAuth } from '@/lib/auth';
 import { useSiteContext } from '@/lib/site-context';
 import { rememberRecentItem } from '@/lib/recent-items';
 import { apiFetch } from '@/lib/api/client';
-import type { Device, DeviceInterface, DeviceModel, IpAddress, PortLayout, Rack, RackPlacementPlan, RoomWithBuilding } from './types';
+import type { Device, DeviceInterface, DeviceModel, IpAddress, Rack, RackFace, RackPlacementPlan, RoomWithBuilding } from './types';
 import type { BuildingForm, DeviceForm, ModelForm, RackForm } from './forms';
 import type { RackEditDraft } from './types';
 import type { InterfaceFormState } from './components/models/interface-editor';
@@ -25,7 +25,7 @@ import {
   detectDeviceModelPortLayout,
   generateInterfaces as apiGenerateInterfaces,
   getDevice,
-  getDeviceModelPortLayout,
+  getDeviceModelPortLayoutFaces,
   getEffectiveAccess,
   getSiteLocations,
   getSiteRacks,
@@ -38,9 +38,9 @@ import {
   previewDevicePlacement,
   reorderRacks as apiReorderRacks,
   saveDeviceModelPortLayout,
-  setDeviceModelFrontAsset,
+  setDeviceModelFaceAsset,
 } from './api';
-import { naturalInterfaceCompare, readInfrastructureContext, writeInfrastructureContext } from './utils';
+import { naturalInterfaceCompare, primaryPortFace, RACK_FACES, readInfrastructureContext, writeInfrastructureContext } from './utils';
 import { BuildingModal } from './components/sites/building-modal';
 import { RoomModal } from './components/sites/room-modal';
 import { RackWorkspace } from './components/rack/rack-workspace';
@@ -50,7 +50,7 @@ import { DeepLinkDeviceLoader } from './components/devices/deep-link-device-load
 import { ModelList } from './components/models/model-list';
 import { InterfaceWorkspace } from './components/models/interface-workspace';
 import { InterfaceEditor } from './components/models/interface-editor';
-import { PortLayoutEditor } from './components/models/port-layout-editor';
+import { EMPTY_FACE_LAYOUT, PortLayoutEditor, type PortLayoutAssetsDraft, type PortLayoutFacesDraft } from './components/models/port-layout-editor';
 import { AssetList } from './components/assets/asset-list';
 import { AssetUploadModal } from './components/assets/asset-upload-modal';
 import { EntityEditor } from './components/editors/entity-editor';
@@ -60,7 +60,8 @@ import { LifecycleDates } from './components/lifecycle-dates';
 const EMPTY_IPS: IpAddress[] = [];
 
 const emptyDeviceForm: DeviceForm = { name: '', type: 'SWITCH', hostname: '', managementIp: '', managementIpAddressId: '', rackId: '', rackUnitStart: '', rackUnitSize: '1', modelId: '', status: 'UNKNOWN', isCritical: false, frontAssetId: '', snmpEnabled: false, snmpVersion: 'V3', snmpReadUsername: '', snmpReadCommunity: '', snmpReadAuthKey: '', snmpReadPrivKey: '', snmpTrapEnabled: false, snmpTrapUsername: '', snmpTrapCommunity: '', snmpTrapAuthKey: '', snmpTrapPrivKey: '', snmpAuthProtocol: 'SHA256', snmpPrivProtocol: 'AES128', snmpCompatibilitySha1: false, snmpPort: '161', snmpIntervalMinutes: '15', snmpTimeoutMs: '5000', snmpRetries: '2' };
-const emptyModelForm: ModelForm = { manufacturer: '', model: '', type: 'SWITCH', supportsNetworkPorts: true, networkPortCount: '', frontAssetId: '' };
+const emptyModelForm: ModelForm = { manufacturer: '', model: '', type: 'SWITCH', supportsNetworkPorts: true, networkPortCount: '', frontAssetId: '', backAssetId: '' };
+const modelFormFrom = (model: DeviceModel): ModelForm => ({ manufacturer: model.manufacturer, model: model.model, type: model.type ?? 'OTHER', supportsNetworkPorts: !!model.supportsNetworkPorts, networkPortCount: String(model.networkPortCount ?? ''), frontAssetId: model.frontAssetId ?? model.frontAsset?.id ?? '', backAssetId: model.backAssetId ?? model.backAsset?.id ?? '' });
 const emptyInterfaceForm: InterfaceFormState = { id: '', name: '', portKey: '', interfaceType: 'ETHERNET', description: '', adminUp: true, operUp: false, speedMbps: '', mode: 'ACCESS', accessVlanId: '', nativeVlanId: '', allowedVlanIds: [], macAddress: '' };
 
 export function InfrastructureWorkspace() {
@@ -80,6 +81,8 @@ export function InfrastructureWorkspace() {
   const [editingId, setEditingId] = useState('');
   const [animateDeviceEdit, setAnimateDeviceEdit] = useState(false);
   const [error, setError] = useState('');
+  const [formError, setFormError] = useState('');
+  useEffect(() => { setFormError(''); }, [modal]);
   const [deletingRackId, setDeletingRackId] = useState('');
   const [uploading, setUploading] = useState(false);
   const [search, setSearch] = useState('');
@@ -87,6 +90,7 @@ export function InfrastructureWorkspace() {
   const [pendingUpload, setPendingUpload] = useState<File | null>(null);
   const [assetName, setAssetName] = useState('');
   const [uploadModelId, setUploadModelId] = useState('');
+  const [uploadFace, setUploadFace] = useState<RackFace>('front');
   const [buildingForm, setBuildingForm] = useState<BuildingForm>({ name: '', description: '' });
   const [roomForm, setRoomForm] = useState({ name: '', buildingId: '' });
   const [editingLocationId, setEditingLocationId] = useState('');
@@ -95,8 +99,10 @@ export function InfrastructureWorkspace() {
   const [interfaceForm, setInterfaceForm] = useState<InterfaceFormState>(emptyInterfaceForm);
   const [modelForm, setModelForm] = useState<ModelForm>(emptyModelForm);
   const [layoutModel, setLayoutModel] = useState<DeviceModel | null>(null);
-  const [layout, setLayout] = useState<PortLayout | null>(null);
-  const [layoutAssetId, setLayoutAssetId] = useState('');
+  const [layoutFaces, setLayoutFaces] = useState<PortLayoutFacesDraft | null>(null);
+  const [layoutFace, setLayoutFace] = useState<RackFace>('rear');
+  const [layoutAssetIds, setLayoutAssetIds] = useState<PortLayoutAssetsDraft>({ front: '', rear: '' });
+  const savedLayoutFaces = useRef('');
   const [layoutSaving, setLayoutSaving] = useState(false);
   const [layoutError, setLayoutError] = useState('');
   const clickRef = useRef({ key: '', at: 0 });
@@ -223,8 +229,8 @@ export function InfrastructureWorkspace() {
   }, [siteId, locationsData, racksData, devicesData, canUseInterfaces]);
 
   useEffect(() => {
-    const openUpload = () => { setPendingUpload(null); setAssetName(''); setUploadModelId(''); setModal('asset-upload'); };
-    const openModel = () => { setEditingId(''); setModelForm({ manufacturer: '', model: '', type: 'OTHER', supportsNetworkPorts: false, networkPortCount: '', frontAssetId: '' }); setModal('model'); };
+    const openUpload = () => { setPendingUpload(null); setAssetName(''); setUploadModelId(''); setUploadFace('front'); setModal('asset-upload'); };
+    const openModel = () => { setEditingId(''); setModelForm({ manufacturer: '', model: '', type: 'OTHER', supportsNetworkPorts: false, networkPortCount: '', frontAssetId: '', backAssetId: '' }); setModal('model'); };
     window.addEventListener('asset-upload-request', openUpload);
     window.addEventListener('model-create-request', openModel);
     return () => {
@@ -380,6 +386,7 @@ export function InfrastructureWorkspace() {
     setModal('interface');
   };
   const save = async (path: string, body: Record<string, unknown>, method = editingId ? 'PATCH' : 'POST') => {
+    setFormError('');
     try {
       await apiFetch(path, { method, body: JSON.stringify(body) });
       setModal('');
@@ -387,7 +394,7 @@ export function InfrastructureWorkspace() {
       await invalidateInfrastructure();
       if (device) openDevice(device);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Operação falhou.');
+      setFormError(cause instanceof Error ? cause.message : 'Operação falhou.');
     }
   };
   const previewPlacement = async (deviceId: string, targetRackId: string, rackUnitStart: number): Promise<RackPlacementPlan> => {
@@ -469,10 +476,15 @@ export function InfrastructureWorkspace() {
   };
   const openLayout = useCallback(async (model: DeviceModel | null) => {
     if (!model) return;
-    const data = await getDeviceModelPortLayout(model.id);
+    setLayoutError('');
+    const { faces } = await getDeviceModelPortLayoutFaces(model.id);
+    const draft: PortLayoutFacesDraft = { front: faces.front ?? { ...EMPTY_FACE_LAYOUT }, rear: faces.rear ?? { ...EMPTY_FACE_LAYOUT } };
+    savedLayoutFaces.current = JSON.stringify(draft);
     setLayoutModel(model);
-    setLayout(Array.isArray(data.portLayout?.ports) ? data.portLayout : { imageWidth: 1000, imageHeight: 300, ports: [] });
-    setLayoutAssetId(model.frontAssetId ?? model.frontAsset?.id ?? '');
+    setLayoutFaces(draft);
+    setLayoutAssetIds({ front: model.frontAssetId ?? model.frontAsset?.id ?? '', rear: model.backAssetId ?? model.backAsset?.id ?? '' });
+    // Open on the face that already has ports; the rear when neither has.
+    setLayoutFace(primaryPortFace({ portLayout: { version: 2, faces } }));
     setModal('layout');
   }, []);
   useEffect(() => {
@@ -486,40 +498,54 @@ export function InfrastructureWorkspace() {
       return;
     }
     setEditingId(model.id);
-    setModelForm({ manufacturer: model.manufacturer, model: model.model, type: model.type ?? 'OTHER', supportsNetworkPorts: !!model.supportsNetworkPorts, networkPortCount: String(model.networkPortCount ?? ''), frontAssetId: model.frontAssetId ?? model.frontAsset?.id ?? '' });
+    setModelForm(modelFormFrom(model));
     setModal('model');
   }, [modelsData, openLayout]);
-  const detectLayout = async () => {
-    if (!layoutModel) return;
+  const detectLayout = async (face: RackFace) => {
+    if (!layoutModel || !layoutFaces) return;
+    const current = layoutFaces[face];
+    const other = layoutFaces[face === 'front' ? 'rear' : 'front'];
+    const expected = Number(layoutModel.networkPortCount ?? layoutModel.portCount ?? 0) || 0;
     try {
       const proposal = await detectDeviceModelPortLayout(layoutModel.id, {
-        assetId: layoutAssetId,
-        portCount: layoutModel.networkPortCount ?? layoutModel.portCount,
-        imageWidth: layout?.imageWidth,
-        imageHeight: layout?.imageHeight,
-      });
-      setLayout(proposal);
+        assetId: layoutAssetIds[face],
+        // Ports already mapped on the other face are not proposed again.
+        portCount: Math.max(0, expected - other.ports.length) || expected || null,
+        imageWidth: current.imageWidth,
+        imageHeight: current.imageHeight,
+      }, face);
+      setLayoutFaces({ ...layoutFaces, [face]: { ...current, ...proposal, ports: Array.isArray(proposal?.ports) ? proposal.ports : [] } });
     } catch (cause) {
       setLayoutError(cause instanceof Error ? cause.message : 'A deteção falhou.');
     }
   };
   const confirmLayout = async () => {
-    if (!layoutModel || !layout) return;
+    if (!layoutModel || !layoutFaces) return;
     setLayoutSaving(true);
     setLayoutError('');
     try {
-      const ports = (layout.ports ?? []).map((port, index) => ({
-        ...port,
-        portKey: String(port.portKey || `ethernet1/${index + 1}`),
-        label: String(port.label || port.portKey || `Porta ${index + 1}`),
-        x: Math.max(0, Math.min(1, Number(port.x) || 0)),
-        y: Math.max(0, Math.min(1, Number(port.y) || 0)),
-        width: Math.max(.005, Math.min(1, Number(port.width) || .03)),
-        height: Math.max(.005, Math.min(1, Number(port.height) || .3)),
-      }));
-      await saveDeviceModelPortLayout(layoutModel.id, { ...layout, ports, assetId: layoutAssetId || null, confirmedAt: new Date().toISOString() });
+      const saved = JSON.parse(savedLayoutFaces.current || '{}') as Partial<PortLayoutFacesDraft>;
+      const initialAssets = { front: layoutModel.frontAssetId ?? layoutModel.frontAsset?.id ?? '', rear: layoutModel.backAssetId ?? layoutModel.backAsset?.id ?? '' };
+      const changed = RACK_FACES.filter((face) => JSON.stringify(saved[face]) !== JSON.stringify(layoutFaces[face]) || initialAssets[face] !== layoutAssetIds[face]);
+      // PUT replaces one face; the face with more ports goes first so the stored total reaches the model count as early as possible.
+      const order = (changed.length ? changed : (['rear'] as RackFace[])).sort((left, right) => layoutFaces[right].ports.length - layoutFaces[left].ports.length);
+      const confirmedAt = new Date().toISOString();
+      for (const face of order) {
+        const layout = layoutFaces[face];
+        const ports = (layout.ports ?? []).map((port, index) => ({
+          ...port,
+          portKey: String(port.portKey || `ethernet1/${index + 1}`),
+          label: String(port.label || port.portKey || `Porta ${index + 1}`),
+          x: Math.max(0, Math.min(1, Number(port.x) || 0)),
+          y: Math.max(0, Math.min(1, Number(port.y) || 0)),
+          width: Math.max(.005, Math.min(1, Number(port.width) || .03)),
+          height: Math.max(.005, Math.min(1, Number(port.height) || .3)),
+        }));
+        await saveDeviceModelPortLayout(layoutModel.id, { imageWidth: layout.imageWidth, imageHeight: layout.imageHeight, viewport: layout.viewport ?? null, ports, assetId: layoutAssetIds[face] || null, confirmedAt }, face);
+        savedLayoutFaces.current = JSON.stringify({ ...JSON.parse(savedLayoutFaces.current || '{}'), [face]: layoutFaces[face] });
+      }
       setModal('');
-      setLayout(null);
+      setLayoutFaces(null);
       await invalidateInfrastructure();
     } catch (cause) {
       setLayoutError(cause instanceof Error ? cause.message : 'Não foi possível guardar o template.');
@@ -544,7 +570,7 @@ export function InfrastructureWorkspace() {
         reader.readAsDataURL(pendingUpload);
       });
       const asset = await createAsset({ filename: assetName.trim(), mimeType: pendingUpload.type, kind: 'INFRASTRUCTURE', contentBase64 });
-      await setDeviceModelFrontAsset(uploadModelId, asset.id);
+      await setDeviceModelFaceAsset(uploadModelId, uploadFace, asset.id);
       setModal('');
       await invalidateInfrastructure();
     } catch (cause) {
@@ -571,7 +597,7 @@ export function InfrastructureWorkspace() {
     }
   };
 
-  if (!siteId) return <AppShell section="Infraestrutura"><main className="module-page infrastructure-workspace"><header className="workspace-head"><div><span className="section-kicker">MAPA FÍSICO</span><h1>Infraestrutura</h1><p>Seleciona um Site no seletor superior para começar.</p></div></header>{deepLinkedDeviceId ? <><DeepLinkDeviceLoader deviceId={deepLinkedDeviceId} loadDevice={getDevice} onOpen={openDeepLinkedDevice} onError={reportDeepLinkError} /><section className="ipam-card empty-context"><MapPinned size={28} /><strong>{device ? `${device.name} · ${device.type}` : error || 'A carregar equipamento…'}</strong><p>O equipamento está sem Site. Seleciona um Site no seletor superior para associá-lo e guardar alterações.</p></section><EntityEditor modal={modal} close={() => setModal('')} editingId={editingId} animateDeviceEntry={animateDeviceEdit} form={{ rack: rackForm, device: deviceForm, model: modelForm }} setForm={{ rack: setRackForm, device: setDeviceForm, model: setModelForm }} rooms={[]} racks={[]} models={[]} assets={[]} ips={EMPTY_IPS} save={save} /></> : <section className="ipam-card empty-context"><MapPinned size={28} /><strong>Seleciona um Site no seletor superior</strong></section>}</main></AppShell>;
+  if (!siteId) return <AppShell section="Infraestrutura"><main className="module-page infrastructure-workspace"><header className="workspace-head"><div><span className="section-kicker">MAPA FÍSICO</span><h1>Infraestrutura</h1><p>Seleciona um Site no seletor superior para começar.</p></div></header>{deepLinkedDeviceId ? <><DeepLinkDeviceLoader deviceId={deepLinkedDeviceId} loadDevice={getDevice} onOpen={openDeepLinkedDevice} onError={reportDeepLinkError} /><section className="ipam-card empty-context"><MapPinned size={28} /><strong>{device ? `${device.name} · ${device.type}` : error || 'A carregar equipamento…'}</strong><p>O equipamento está sem Site. Seleciona um Site no seletor superior para associá-lo e guardar alterações.</p></section><EntityEditor modal={modal} close={() => setModal('')} editingId={editingId} animateDeviceEntry={animateDeviceEdit} form={{ rack: rackForm, device: deviceForm, model: modelForm }} setForm={{ rack: setRackForm, device: setDeviceForm, model: setModelForm }} rooms={[]} racks={[]} models={[]} assets={[]} ips={EMPTY_IPS} save={save} formError={formError} /></> : <section className="ipam-card empty-context"><MapPinned size={28} /><strong>Seleciona um Site no seletor superior</strong></section>}</main></AppShell>;
 
   const canDeleteRack = hasRole('ADMIN') || hasRole('SYSTEMS_OPERATOR');
   const modalForEditor = modal === 'room' || modal === 'building' ? '' : modal;
@@ -605,5 +631,5 @@ export function InfrastructureWorkspace() {
 
   if (tab === 'permissions' && effective?.tabs?.permissions) return <AppShell section="Mapa físico" toolbarKey={tab} moduleTabs={tabNavigation}><main className="module-page infrastructure-workspace"><h1 className="topology-sr-only">Mapa físico</h1><InfrastructurePermissions siteId={siteId} buildings={buildings} /></main></AppShell>;
 
-  return <AppShell section="Mapa físico" toolbarKey={tab} moduleTabs={tabNavigation} search={tab === 'racks' ? undefined : { value: search, onChange: setSearch, placeholder: `Pesquisar em ${tabName.toLowerCase()}…`, scopeLabel: tabName }} rackSearch={rackSearchContext} toolbar={locationControls}><DeepLinkDeviceLoader deviceId={deepLinkedDeviceId} loadDevice={getDevice} onOpen={openDeepLinkedDevice} onError={reportDeepLinkError} /><main className="module-page infrastructure-workspace"><h1 className="topology-sr-only">Mapa físico</h1>{(error || errorMessage) && <div className="ipam-alert error"><X size={15} />{error || errorMessage}</div>}{tab === 'racks' && <RackWorkspace rooms={rooms} roomId={roomId} buildingId={buildingId} racks={roomRacks} allRoomRacks={allRoomRacks} selected={selectedRack} setRack={(rack: Rack) => { if (rack.room) setRoomId(rack.room.id); setRackId(rack.id); history.replaceState({}, '', `/infraestrutura?siteId=${siteId}&buildingId=${rack.room?.building?.id ?? buildingId}&roomId=${rack.room?.id ?? roomId}&rackId=${rack.id}`); }} onOut={() => setRackId('')} onDevice={openDevice} onEdit={(rack: RackEditDraft) => { setEditingId(rack.id ?? ''); setRackForm({ name: rack.name ?? '', units: String(rack.units ?? 42), roomId: rack.room?.id ?? rack.roomId ?? roomId, modelId: rack.modelId ?? rack.model?.id ?? '', frontAssetId: rack.frontAssetId ?? rack.frontAsset?.id ?? '' }); setModal('rack'); }} onDelete={canDeleteRack && scopeActions.includes('DELETE') ? deleteRack : undefined} deletingRackId={deletingRackId} canEdit={canEdit} onPreviewPlacement={previewPlacement} onPlaceDevice={placeDevice} onReorderRacks={reorderRacks} canReorderRacks={canReorderRacks} onEditDevice={editDevice} />} {tab === 'devices' && <DeviceList devices={devices} search={search} onSelect={openDevice} onEdit={editDevice} onNew={newDevice} onRetire={(item) => setRetirementDeviceId(item.id)} canRetire={roleCanEdit && scopeActions.includes('DELETE')} canEdit={canEdit} selectedId={device?.id} />} {tab === 'lifecycle' && <LifecycleDates siteId={siteId} devices={devices} canEdit={canUpdateDevice} />} {tab === 'models' && effective?.tabs?.models && <ModelList models={visibleModels} onEdit={(model) => { setEditingId(model.id); setModelForm({ manufacturer: model.manufacturer, model: model.model, type: model.type ?? 'OTHER', supportsNetworkPorts: !!model.supportsNetworkPorts, networkPortCount: String(model.networkPortCount ?? ''), frontAssetId: model.frontAssetId ?? model.frontAsset?.id ?? '' }); setModal('model'); }} onLayout={openLayout} canEdit={roleCanEdit} />} {tab === 'assets' && effective?.tabs?.assets && <AssetList assets={visibleAssets} onDelete={deleteAsset} canEdit={roleCanEdit} canDelete={roleCanEdit} />} {tab === 'interfaces' && effective?.tabs?.interfaces && <InterfaceWorkspace devices={devices} selected={device} interfaces={visibleInterfaces} selectedInterface={selectedInterface} onDevice={openDevice} onInterface={editInterface} onGenerate={generateInterfaces} onEditDevice={() => device && editDevice(device)} />}<EntityEditor modal={modalForEditor} close={() => setModal('')} editingId={editingId} animateDeviceEntry={animateDeviceEdit} form={{ rack: rackForm, device: deviceForm, model: modelForm }} setForm={{ rack: setRackForm, device: setDeviceForm, model: setModelForm }} rooms={rooms} racks={racks} models={models} assets={assets} ips={EMPTY_IPS} save={save} />{modal === 'interface' && <InterfaceEditor modal={modal} close={() => setModal('')} form={{ interface: interfaceForm }} setForm={{ interface: setInterfaceForm }} vlans={vlans} save={save} />}<BuildingModal modal={modal === 'building' || modal === 'building-edit'} editing={modal === 'building-edit'} close={() => { setModal(''); setEditingLocationId(''); }} buildingForm={buildingForm} setBuildingForm={setBuildingForm} createBuilding={createBuilding} /><RoomModal modal={modal === 'room' || modal === 'room-edit'} editing={modal === 'room-edit'} close={() => { setModal(''); setEditingLocationId(''); }} roomForm={roomForm} setRoomForm={setRoomForm} buildings={buildings} createRoom={createRoom} /><AssetUploadModal modal={modal === 'asset-upload'} close={() => setModal('')} file={pendingUpload} name={assetName} setName={setAssetName} modelId={uploadModelId} setModelId={setUploadModelId} models={models} choose={chooseUpload} submit={submitUpload} busy={uploading} /><PortLayoutEditor modal={modal === 'layout'} close={() => setModal('')} layoutModel={layoutModel} layout={layout} setLayout={setLayout} assets={assets} assetId={layoutAssetId} setAssetId={setLayoutAssetId} detect={detectLayout} confirm={confirmLayout} saving={layoutSaving} error={layoutError} />{retirementDeviceId && <RetirementReviewModal deviceId={retirementDeviceId} close={() => setRetirementDeviceId('')} retired={() => { setRetirementDeviceId(''); queryClient.invalidateQueries({ queryKey: ['infrastructure', 'devices', siteId] }); }} />}  </main></AppShell>;
+  return <AppShell section="Mapa físico" toolbarKey={tab} moduleTabs={tabNavigation} search={tab === 'racks' ? undefined : { value: search, onChange: setSearch, placeholder: `Pesquisar em ${tabName.toLowerCase()}…`, scopeLabel: tabName }} rackSearch={rackSearchContext} toolbar={locationControls}><DeepLinkDeviceLoader deviceId={deepLinkedDeviceId} loadDevice={getDevice} onOpen={openDeepLinkedDevice} onError={reportDeepLinkError} /><main className="module-page infrastructure-workspace"><h1 className="topology-sr-only">Mapa físico</h1>{(error || errorMessage) && <div className="ipam-alert error"><X size={15} />{error || errorMessage}</div>}{tab === 'racks' && <RackWorkspace rooms={rooms} roomId={roomId} buildingId={buildingId} racks={roomRacks} allRoomRacks={allRoomRacks} selected={selectedRack} setRack={(rack: Rack) => { if (rack.room) setRoomId(rack.room.id); setRackId(rack.id); history.replaceState({}, '', `/infraestrutura?siteId=${siteId}&buildingId=${rack.room?.building?.id ?? buildingId}&roomId=${rack.room?.id ?? roomId}&rackId=${rack.id}`); }} onOut={() => setRackId('')} onDevice={openDevice} onEdit={(rack: RackEditDraft) => { setEditingId(rack.id ?? ''); setRackForm({ name: rack.name ?? '', units: String(rack.units ?? 42), roomId: rack.room?.id ?? rack.roomId ?? roomId, modelId: rack.modelId ?? rack.model?.id ?? '', frontAssetId: rack.frontAssetId ?? rack.frontAsset?.id ?? '' }); setModal('rack'); }} onDelete={canDeleteRack && scopeActions.includes('DELETE') ? deleteRack : undefined} deletingRackId={deletingRackId} canEdit={canEdit} onPreviewPlacement={previewPlacement} onPlaceDevice={placeDevice} onReorderRacks={reorderRacks} canReorderRacks={canReorderRacks} onEditDevice={editDevice} />} {tab === 'devices' && <DeviceList devices={devices} search={search} onSelect={openDevice} onEdit={editDevice} onNew={newDevice} onRetire={(item) => setRetirementDeviceId(item.id)} canRetire={roleCanEdit && scopeActions.includes('DELETE')} canEdit={canEdit} selectedId={device?.id} />} {tab === 'lifecycle' && <LifecycleDates siteId={siteId} devices={devices} canEdit={canUpdateDevice} />} {tab === 'models' && effective?.tabs?.models && <ModelList models={visibleModels} onEdit={(model) => { setEditingId(model.id); setModelForm(modelFormFrom(model)); setModal('model'); }} onLayout={openLayout} canEdit={roleCanEdit} />} {tab === 'assets' && effective?.tabs?.assets && <AssetList assets={visibleAssets} onDelete={deleteAsset} canEdit={roleCanEdit} canDelete={roleCanEdit} />} {tab === 'interfaces' && effective?.tabs?.interfaces && <InterfaceWorkspace devices={devices} selected={device} interfaces={visibleInterfaces} selectedInterface={selectedInterface} onDevice={openDevice} onInterface={editInterface} onGenerate={generateInterfaces} onEditDevice={() => device && editDevice(device)} />}<EntityEditor modal={modalForEditor} close={() => setModal('')} editingId={editingId} animateDeviceEntry={animateDeviceEdit} form={{ rack: rackForm, device: deviceForm, model: modelForm }} setForm={{ rack: setRackForm, device: setDeviceForm, model: setModelForm }} rooms={rooms} racks={racks} models={models} assets={assets} ips={EMPTY_IPS} save={save} formError={formError} />{modal === 'interface' && <InterfaceEditor modal={modal} close={() => setModal('')} form={{ interface: interfaceForm }} setForm={{ interface: setInterfaceForm }} vlans={vlans} save={save} formError={formError} />}<BuildingModal modal={modal === 'building' || modal === 'building-edit'} editing={modal === 'building-edit'} close={() => { setModal(''); setEditingLocationId(''); }} buildingForm={buildingForm} setBuildingForm={setBuildingForm} createBuilding={createBuilding} /><RoomModal modal={modal === 'room' || modal === 'room-edit'} editing={modal === 'room-edit'} close={() => { setModal(''); setEditingLocationId(''); }} roomForm={roomForm} setRoomForm={setRoomForm} buildings={buildings} createRoom={createRoom} /><AssetUploadModal modal={modal === 'asset-upload'} close={() => setModal('')} file={pendingUpload} name={assetName} setName={setAssetName} modelId={uploadModelId} setModelId={setUploadModelId} face={uploadFace} setFace={setUploadFace} models={models} choose={chooseUpload} submit={submitUpload} busy={uploading} /><PortLayoutEditor modal={modal === 'layout'} close={() => setModal('')} layoutModel={layoutModel} faces={layoutFaces} setFaces={setLayoutFaces} face={layoutFace} setFace={setLayoutFace} assets={assets} assetIds={layoutAssetIds} setAssetId={(face, id) => setLayoutAssetIds((current) => ({ ...current, [face]: id }))} detect={(face) => void detectLayout(face)} confirm={confirmLayout} saving={layoutSaving} error={layoutError} />{retirementDeviceId && <RetirementReviewModal deviceId={retirementDeviceId} close={() => setRetirementDeviceId('')} retired={() => { setRetirementDeviceId(''); queryClient.invalidateQueries({ queryKey: ['infrastructure', 'devices', siteId] }); }} />}  </main></AppShell>;
 }

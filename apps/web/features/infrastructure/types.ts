@@ -99,6 +99,11 @@ export interface PortLayoutPort {
   height: number;
 }
 
+/** One physical face of a device. Devices are full depth, so each one has both. */
+export type RackFace = 'front' | 'rear';
+/** Rack page view: one face, or both side by side. */
+export type RackView = RackFace | 'both';
+
 export interface PortLayout {
   imageWidth?: number;
   imageHeight?: number;
@@ -107,6 +112,15 @@ export interface PortLayout {
   warnings?: string[];
   confirmedAt?: string;
   ports: PortLayoutPort[];
+}
+
+/** One face of a v2 port layout; same entry shape as v1. */
+export type PortLayoutFace = PortLayout;
+
+/** Port layout as returned by the API: always v2 with optional faces. */
+export interface PortLayoutV2 {
+  version: 2;
+  faces: Partial<Record<RackFace, PortLayoutFace>>;
 }
 
 export interface DeviceModel {
@@ -119,8 +133,11 @@ export interface DeviceModel {
   type?: EquipmentType | string;
   frontAssetId?: string | null;
   frontAsset?: AssetFile | null;
+  backAssetId?: string | null;
+  backAsset?: AssetFile | null;
   iconAsset?: AssetFile | null;
-  portLayout?: PortLayout | number | null;
+  /** v2 from the API; v1 and numeric seeds are still read for older payloads. */
+  portLayout?: PortLayoutV2 | PortLayout | number | null;
 }
 
 // ── Devices and interfaces ─────────────────────────────────────────────────
@@ -143,8 +160,10 @@ export interface Device {
   rackUnitSize?: number | null;
   siteId?: string | null;
   frontAssetId?: string | null;
+  backAssetId?: string | null;
   model?: DeviceModel | null;
   frontAsset?: AssetFile | null;
+  backAsset?: AssetFile | null;
   site?: Site | null;
   rack?: Omit<Rack, 'devices'> & { room?: Room & { building?: Building } } | null;
   interfaces?: DeviceInterface[];
@@ -264,6 +283,7 @@ export interface DeviceInput {
   modelId?: string | null;
   status?: AssetStatus | string;
   frontAssetId?: string | null;
+  backAssetId?: string | null;
   siteId?: string | null;
   notes?: string | null;
 }

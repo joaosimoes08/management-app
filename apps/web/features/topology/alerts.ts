@@ -6,7 +6,8 @@ const severityRank: Record<string, number> = { CRITICAL: 0, HIGH: 1, WARNING: 2,
 const severityColors: Record<string, string> = { CRITICAL: '#b91c1c', HIGH: '#ea580c', WARNING: '#a16207', MEDIUM: '#a16207', LOW: '#1d4ed8', INFO: '#1d4ed8' };
 
 export const topologySeverityColor = (severity: string) => severityColors[severity] ?? '#475569';
-export const topologyDeviceImage = (device?: { frontAsset?: AssetFile | null; model?: { frontAsset?: AssetFile | null } | null } | null) => device?.frontAsset ?? device?.model?.frontAsset ?? null;
+/** Front image first; the rear image keeps the node recognisable until a front image is uploaded. */
+export const topologyDeviceImage = (device?: { frontAsset?: AssetFile | null; backAsset?: AssetFile | null; model?: { frontAsset?: AssetFile | null; backAsset?: AssetFile | null } | null } | null) => device?.frontAsset ?? device?.model?.frontAsset ?? device?.backAsset ?? device?.model?.backAsset ?? null;
 
 export interface TopologyNodeAlertSummary {
   count: number;

@@ -1,4 +1,4 @@
-import type { AssetFile, Device, DeviceInterface, DeviceModel, PortLayoutPort, Vlan } from './types';
+import type { AssetFile, Device, DeviceInterface, DeviceModel, PortLayout, PortLayoutFace, PortLayoutPort, PortLayoutV2, RackFace, RackView, Vlan } from './types';
 import { getPublicRuntimeConfig } from '@/lib/runtime-config';
 
 export const FIXED_RACK_IMAGE = '/assets/rack-empty-42u.png';
@@ -65,16 +65,85 @@ export function rackUnitFromDrop(event: { currentTarget: HTMLElement; clientY: n
   return Math.max(1, Math.min(units - size + 1, end - size + 1));
 }
 
-/** Number of mapped ports on a model layout (0 when unmapped or numeric legacy layout). */
-export function modelPortLayoutCount(model: Pick<DeviceModel, 'portLayout'> | null | undefined): number {
-  const layout = model?.portLayout;
-  return layout && typeof layout === 'object' ? layout.ports.length : 0;
+export const RACK_FACES: readonly RackFace[] = ['front', 'rear'];
+
+/** Faces of a stored port layout, already in v2 form. */
+export type PortLayoutFaces = Partial<Record<RackFace, PortLayoutFace>>;
+
+/**
+ * Reads any stored port layout shape into faces.
+ * v2 keeps its faces; a v1 layout (one image, one port list) is the rear face,
+ * because the images and maps captured before v2 were photographed from the rear;
+ * numeric seeds and empty values have no mapped face.
+ */
+export function normalizePortLayout(raw: unknown): PortLayoutFaces {
+  if (!raw || typeof raw !== 'object') return {};
+  const value = raw as Partial<PortLayoutV2> & Partial<PortLayout>;
+  if (value.version === 2 && value.faces && typeof value.faces === 'object') {
+    const faces: PortLayoutFaces = {};
+    for (const face of RACK_FACES) {
+      const entry = value.faces[face];
+      if (entry && typeof entry === 'object') faces[face] = { ...entry, ports: Array.isArray(entry.ports) ? entry.ports : [] };
+    }
+    return faces;
+  }
+  if (Array.isArray(value.ports)) return { rear: { ...(value as PortLayout), ports: value.ports } };
+  return {};
 }
 
-/** Port hotspots from the model layout, or a generated grid fallback. */
-export function normalizedPortLayoutPorts(device: Pick<Device, 'model'> | null | undefined): PortLayoutPort[] {  const configured = device?.model?.portLayout;
-  const ports = configured && typeof configured === 'object' ? configured.ports : undefined;
-  if (Array.isArray(ports)) return ports;
+/** Mapped port hotspots of one face (empty when that face has no map). */
+export function facePortLayoutPorts(model: Pick<DeviceModel, 'portLayout'> | null | undefined, face: RackFace): PortLayoutPort[] {
+  return normalizePortLayout(model?.portLayout)[face]?.ports ?? [];
+}
+
+/** Number of mapped ports on a model layout across both faces (0 when unmapped or numeric legacy layout). */
+export function modelPortLayoutCount(model: Pick<DeviceModel, 'portLayout'> | null | undefined): number {
+  const faces = normalizePortLayout(model?.portLayout);
+  return RACK_FACES.reduce((total, face) => total + (faces[face]?.ports.length ?? 0), 0);
+}
+
+/** Every mapped port of a layout, front first, for label lookups that do not care about the face. */
+export function allPortLayoutPorts(raw: unknown): PortLayoutPort[] {
+  const faces = normalizePortLayout(raw);
+  return RACK_FACES.flatMap((face) => faces[face]?.ports ?? []);
+}
+
+/** The face that carries the model's mapped ports: rear when both or neither have them, as most equipment is cabled at the rear. */
+export function primaryPortFace(model: Pick<DeviceModel, 'portLayout'> | null | undefined, preferred?: RackFace): RackFace {
+  const faces = normalizePortLayout(model?.portLayout);
+  const mapped = RACK_FACES.filter((face) => (faces[face]?.ports.length ?? 0) > 0);
+  if (preferred && (mapped.includes(preferred) || !mapped.length)) return preferred;
+  if (mapped.length === 1) return mapped[0];
+  return preferred ?? 'rear';
+}
+
+/** Mapping status of a model against its declared network ports. */
+export interface PortMappingStatus {
+  expected: number;
+  mapped: number;
+  complete: boolean;
+}
+
+export function portMappingStatus(model: Pick<DeviceModel, 'portLayout' | 'networkPortCount' | 'portCount' | 'supportsNetworkPorts'> | null | undefined, faces?: PortLayoutFaces): PortMappingStatus {
+  const expected = Math.max(0, Number(model?.networkPortCount ?? model?.portCount ?? 0) || 0);
+  const source = faces ?? normalizePortLayout(model?.portLayout);
+  const mapped = RACK_FACES.reduce((total, face) => total + (source[face]?.ports.length ?? 0), 0);
+  return { expected, mapped, complete: mapped === expected };
+}
+
+/** Port hotspots from the model layout, or a generated grid fallback. When a face is given, only that face's map is used. */
+export function normalizedPortLayoutPorts(device: Pick<Device, 'model'> | null | undefined, face?: RackFace): PortLayoutPort[] {
+  const configured = device?.model?.portLayout;
+  const faces = normalizePortLayout(configured);
+  if (face) {
+    const ports = faces[face]?.ports;
+    if (ports?.length) return ports;
+    // Without any mapped face, keep the generated grid on the face that would carry the ports.
+    if (RACK_FACES.some((candidate) => faces[candidate]?.ports.length) || face !== primaryPortFace(device?.model)) return [];
+  } else {
+    const ports = faces[primaryPortFace(device?.model)]?.ports;
+    if (ports?.length) return ports;
+  }
   const count = Math.max(
     0,
     Number(device?.model?.networkPortCount ?? device?.model?.portCount ?? (typeof configured === 'number' ? configured : 0)) || 0,
@@ -90,6 +159,35 @@ export function normalizedPortLayoutPorts(device: Pick<Device, 'model'> | null |
     width: 0.8 / columns,
     height: 0.6 / rows,
   }));
+}
+
+/** Image of one device face: device override, then the model image; null shows the type icon. */
+export function deviceFaceImage(device: Pick<Device, 'frontAsset' | 'backAsset' | 'model'> | null | undefined, face: RackFace): AssetFile | null {
+  if (face === 'rear') return device?.backAsset ?? device?.model?.backAsset ?? null;
+  return device?.frontAsset ?? device?.model?.frontAsset ?? null;
+}
+
+export const RACK_VIEW_STORAGE_KEY = 'cociber.rackView';
+/** Width from which the rack opens with both faces side by side. */
+export const RACK_BOTH_MIN_WIDTH = 1280;
+
+/** Rack view remembered for this browser session; otherwise both faces on wide screens and the front below that. */
+export function readRackView(viewportWidth: number): RackView {
+  try {
+    const stored = sessionStorage.getItem(RACK_VIEW_STORAGE_KEY);
+    if (stored === 'front' || stored === 'rear' || stored === 'both') return stored === 'both' && viewportWidth < RACK_BOTH_MIN_WIDTH ? 'front' : stored;
+  } catch {
+    // Sem armazenamento de sessão, usa a vista por omissão.
+  }
+  return viewportWidth >= RACK_BOTH_MIN_WIDTH ? 'both' : 'front';
+}
+
+export function writeRackView(view: RackView): void {
+  try {
+    sessionStorage.setItem(RACK_VIEW_STORAGE_KEY, view);
+  } catch {
+    // A vista é apenas uma preferência da sessão.
+  }
 }
 
 export function formatPortTooltipTitle(item: DeviceInterface | null | undefined, port: Pick<PortLayoutPort, 'portKey' | 'label'> | null | undefined): string {
@@ -108,7 +206,7 @@ export function getInterfaceSubnets(item: DeviceInterface | null | undefined): s
 }
 
 export function deviceFrontImage(device: Pick<Device, 'frontAsset' | 'model'> | null | undefined): AssetFile | null {
-  return device?.frontAsset ?? device?.model?.frontAsset ?? null;
+  return deviceFaceImage(device, 'front');
 }
 
 export function deviceFrontImageId(device: Pick<Device, 'frontAsset' | 'frontAssetId' | 'model'>): string {

@@ -28,6 +28,8 @@ export const localizedApiErrors: Record<string, Record<string, string>> = {
     SERVICE_PORT_REQUIRED: 'Services TCP/UDP exigem uma porta.',
     DEVICE_HOST_CONFLICT: 'O equipamento já está associado a outro Host.',
     VALIDATION_ERROR: 'Existem campos inválidos no pedido.',
+    PORT_LAYOUT_INCOMPLETE: 'O mapeamento de portas está incompleto: o total das faces frontal e traseira tem de ser igual ao número de portas do modelo.',
+    FRONT_IMAGE_REQUIRED: 'A imagem frontal é obrigatória. Escolhe ou carrega uma imagem frontal para o modelo.',
   },
   'en-US': {
     APPLICATION_ROLE_REQUIRED: 'The user must retain at least one application role.',
@@ -52,5 +54,7 @@ export const localizedApiErrors: Record<string, Record<string, string>> = {
     SERVICE_PORT_REQUIRED: 'TCP/UDP Services require a port.',
     DEVICE_HOST_CONFLICT: 'The device is already linked to another Host.',
     VALIDATION_ERROR: 'The request contains invalid fields.',
+    PORT_LAYOUT_INCOMPLETE: 'Port mapping is incomplete: the front and rear faces together must match the model port count.',
+    FRONT_IMAGE_REQUIRED: 'A front image is required. Choose or upload a front image for the model.',
   },
 };

@@ -2,7 +2,7 @@
 
 import { Edit3, Layers, Plus, Server } from 'lucide-react';
 import type { Device, DeviceInterface } from '../../types';
-import { deviceFrontImage, normalizedPortLayoutPorts } from '../../utils';
+import { deviceFaceImage, normalizedPortLayoutPorts, primaryPortFace } from '../../utils';
 import { AssetImage } from '../asset-image';
 import { PageToolbarPortal } from '@/components/layout/app-shell';
 
@@ -23,7 +23,7 @@ function InterfaceCard({ interfaceData, selected, onEdit }: { interfaceData: Dev
 }
 
 function renderHotspots(device: Device, interfaces: DeviceInterface[], onInterface: (item: DeviceInterface) => void) {
-  return normalizedPortLayoutPorts(device).map((port) => {
+  return normalizedPortLayoutPorts(device, primaryPortFace(device.model)).map((port) => {
     const item = interfaces.find((candidate) => candidate.portKey === port.portKey || candidate.name === port.portKey);
     return <button key={port.portKey} className={`port-hotspot ${item?.operUp ? 'up' : ''}`} style={{ left: `${port.x * 100}%`, top: `${port.y * 100}%`, width: `${port.width * 100}%`, height: `${port.height * 100}%` }} title={port.label} onClick={() => { if (item) onInterface(item); }}>{port.label}</button>;
   });
@@ -31,7 +31,8 @@ function renderHotspots(device: Device, interfaces: DeviceInterface[], onInterfa
 
 /** Interfaces tab: device picker, switch face with hotspots and interface list. */
 export function InterfaceWorkspace({ devices, selected, interfaces, selectedInterface, onDevice, onInterface, onGenerate, onEditDevice }: InterfaceWorkspaceProps) {
-  const selectedImage = selected ? deviceFrontImage(selected) : null;
+  // The face that carries the mapped ports, so hotspots sit on the image they were drawn on.
+  const selectedImage = selected ? deviceFaceImage(selected, primaryPortFace(selected.model)) : null;
   return <section className="ipam-card interfaces-workspace">
     <div className="panel-heading"><div><span className="section-kicker">PORTAS E CONFIGURAÇÃO</span><h2>Interfaces de rede</h2></div></div><PageToolbarPortal><div className="interface-toolbar-controls"><label>Equipamento<select aria-label="Equipamento para gerir interfaces" value={selected?.id ?? ''} onChange={(event) => { const device = devices.find((item) => item.id === event.target.value); if (device) onDevice(device); }}><option value="">Seleciona um equipamento</option>{devices.map((device) => <option key={device.id} value={device.id}>{device.name} · {device.managementIp || 'sem IP'}</option>)}</select></label>{selected && <><button className="secondary-button" onClick={onGenerate}><Plus size={14} /> Gerar interfaces</button><button className="secondary-button" onClick={onEditDevice}><Edit3 size={14} /> Editar equipamento</button></>}</div></PageToolbarPortal>
     {!selected && <div className="empty-context"><Layers size={26} /><strong>Seleciona um equipamento</strong><span>Todos os equipamentos ativos com interfaces configuráveis aparecem aqui.</span></div>}

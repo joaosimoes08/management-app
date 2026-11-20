@@ -5,7 +5,7 @@ import { useAuth } from '@/lib/auth';
 import { EQUIPMENT_TYPES } from '../../utils';
 import type { DeviceForm, ModelForm, RackForm } from '../../forms';
 import type { AssetFile, DeviceModel, IpAddress, Rack, RoomWithBuilding } from '../../types';
-import { AssetPicker, ModalActions } from './editor-shared';
+import { AssetPicker, AssetUploadPicker, FormError, ModalActions } from './editor-shared';
 
 export interface EntityEditorProps {
   modal: string;
@@ -24,10 +24,12 @@ export interface EntityEditorProps {
   assets: AssetFile[];
   ips: IpAddress[];
   save: (path: string, body: Record<string, unknown>, method?: string) => Promise<void>;
+  /** API error from the last save, shown inside the open form. */
+  formError?: string;
 }
 
 /** Device, rack and model create/edit modals (the interface modal lives in InterfaceEditor). */
-export function EntityEditor({ modal, close, editingId, animateDeviceEntry = false, form, setForm, rooms, racks, models, assets, ips, save }: EntityEditorProps) {
+export function EntityEditor({ modal, close, editingId, animateDeviceEntry = false, form, setForm, rooms, racks, models, assets, ips, save, formError = '' }: EntityEditorProps) {
   const { hasRole } = useAuth();
   const admin = hasRole('ADMIN');
   if (!modal || modal === 'layout') return null;
@@ -50,6 +52,7 @@ export function EntityEditor({ modal, close, editingId, animateDeviceEntry = fal
       modelId: form.device.modelId || null,
       managementIpAddressId: form.device.managementIpAddressId || null,
       frontAssetId: form.device.frontAssetId || null,
+      backAssetId: form.device.backAssetId || null,
     });
   }}>
     <label>Nome<input required value={form.device.name} onChange={(event) => setForm.device({ ...form.device, name: event.target.value })} /></label>
@@ -69,7 +72,10 @@ export function EntityEditor({ modal, close, editingId, animateDeviceEntry = fal
       <label>U inicial<input type="number" min="1" value={form.device.rackUnitStart} onChange={(event) => setForm.device({ ...form.device, rackUnitStart: event.target.value })} /></label>
       <label>Tamanho U<input type="number" min="1" value={form.device.rackUnitSize} onChange={(event) => setForm.device({ ...form.device, rackUnitSize: event.target.value })} /></label>
     </div>
-    <AssetPicker label="Imagem frontal" value={form.device.frontAssetId} assets={assets} onChange={(value) => setForm.device({ ...form.device, frontAssetId: value })} />
+    <div className="form-row">
+      <AssetPicker label="Imagem frontal (substitui a do modelo)" emptyLabel="Usar a imagem do modelo" value={form.device.frontAssetId} assets={assets} onChange={(value) => setForm.device({ ...form.device, frontAssetId: value })} />
+      <AssetPicker label="Imagem traseira (substitui a do modelo)" emptyLabel="Usar a imagem do modelo" value={form.device.backAssetId ?? ''} assets={assets} onChange={(value) => setForm.device({ ...form.device, backAssetId: value })} />
+    </div>
     {admin && !editingId && <fieldset className="snmp-onboarding-section"><legend>SNMP (opcional)</legend>
       <label className="checkbox-label"><input type="checkbox" checked={!!form.device.snmpEnabled} onChange={(event) => setForm.device({ ...form.device, snmpEnabled: event.target.checked })} /> Configurar polling e credenciais SNMP</label>
       {form.device.snmpEnabled && <><p className="form-help">READ é obrigatória; TRAP é opcional e tem de usar um segredo diferente.</p>
@@ -81,6 +87,7 @@ export function EntityEditor({ modal, close, editingId, animateDeviceEntry = fal
         {form.device.snmpTrapEnabled && (form.device.snmpVersion === 'V2C' ? <label>Comunidade TRAP<input required minLength={8} type="password" value={form.device.snmpTrapCommunity ?? ''} onChange={(event) => setForm.device({ ...form.device, snmpTrapCommunity: event.target.value })} autoComplete="new-password" /></label> : <><label>Username TRAP<input required value={form.device.snmpTrapUsername ?? ''} onChange={(event) => setForm.device({ ...form.device, snmpTrapUsername: event.target.value })} /></label><label>Auth key TRAP<input required minLength={8} type="password" value={form.device.snmpTrapAuthKey ?? ''} onChange={(event) => setForm.device({ ...form.device, snmpTrapAuthKey: event.target.value })} autoComplete="new-password" /></label><label>Privacy key TRAP<input required minLength={8} type="password" value={form.device.snmpTrapPrivKey ?? ''} onChange={(event) => setForm.device({ ...form.device, snmpTrapPrivKey: event.target.value })} autoComplete="new-password" /></label></>)}
       </>}
     </fieldset>}
+    <FormError message={formError} />
     <ModalActions close={close} />
   </form></Modal>;
 
@@ -91,6 +98,7 @@ export function EntityEditor({ modal, close, editingId, animateDeviceEntry = fal
     <p className="form-help">Todos os bastidores usam o modelo padrão fixo de 42U.</p>
     <label>Nome<input required value={form.rack.name} onChange={(event) => setForm.rack({ ...form.rack, name: event.target.value })} /></label>
     <label>Sala<select required value={form.rack.roomId} onChange={(event) => setForm.rack({ ...form.rack, roomId: event.target.value })}>{rooms.map((room) => <option key={room.id} value={room.id}>{room.building.name} / {room.name}</option>)}</select></label>
+    <FormError message={formError} />
     <ModalActions close={close} />
   </form></Modal>;
 
@@ -100,6 +108,7 @@ export function EntityEditor({ modal, close, editingId, animateDeviceEntry = fal
       ...form.model,
       networkPortCount: form.model.networkPortCount ? Number(form.model.networkPortCount) : null,
       frontAssetId: form.model.frontAssetId || null,
+      backAssetId: form.model.backAssetId || null,
     });
   }}>
     <div className="form-row">
@@ -109,7 +118,12 @@ export function EntityEditor({ modal, close, editingId, animateDeviceEntry = fal
     <label>Tipo<select value={form.model.type} onChange={(event) => setForm.model({ ...form.model, type: event.target.value })}>{EQUIPMENT_TYPES.map((option) => <option key={option}>{option}</option>)}</select></label>
     <label className="checkbox-label"><input type="checkbox" checked={form.model.supportsNetworkPorts} onChange={(event) => setForm.model({ ...form.model, supportsNetworkPorts: event.target.checked })} /> Tem portas de rede configuráveis</label>
     <label>Portas de rede<input type="number" min="1" value={form.model.networkPortCount} onChange={(event) => setForm.model({ ...form.model, networkPortCount: event.target.value })} /></label>
-    <AssetPicker label="Imagem frontal" value={form.model.frontAssetId} assets={assets} onChange={(value) => setForm.model({ ...form.model, frontAssetId: value })} />
+    <div className="model-face-images">
+      <AssetUploadPicker label="Imagem frontal" required value={form.model.frontAssetId} assets={assets} onChange={(value) => setForm.model({ ...form.model, frontAssetId: value })} help="Obrigatória. Vista da frente do equipamento no bastidor." />
+      <AssetUploadPicker label="Imagem traseira" value={form.model.backAssetId} assets={assets} onChange={(value) => setForm.model({ ...form.model, backAssetId: value })} help="Recomendada. Vista da traseira, onde está a maioria das portas." />
+    </div>
+    {form.model.supportsNetworkPorts && <p className="form-help">Depois de guardar, mapeia todas as portas em “Mapear portas”: o total das duas faces tem de ser igual ao número de portas de rede.</p>}
+    <FormError message={formError} />
     <ModalActions close={close} />
   </form></Modal>;
 }

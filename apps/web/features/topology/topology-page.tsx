@@ -12,6 +12,7 @@ import { listOperationalAlerts } from '@/features/operations/api';
 import { AssetImage } from '@/features/infrastructure/components/asset-image';
 import { EquipmentTypeIcon } from '@/features/infrastructure/components/equipment-type-icon';
 import type { DeviceInterface } from '@/features/infrastructure/types';
+import { allPortLayoutPorts } from '@/features/infrastructure/utils';
 import { useSiteContext } from '@/lib/site-context';
 import { ObservedTopology } from './observed-topology';
 import { createTopologyConnection, createTopologyMap, deleteTopologyConnection, deleteTopologyMap, getTopologyConnectionPortAvailability, getTopologyMap, listTopologyMaps, replaceTopologyNodes, updateTopologyConnection } from './api';
@@ -69,8 +70,7 @@ function connectionPort(deviceId: string, interfaceId: string | null | undefined
 }
 
 function configuredPortLabel(node: TopologyNode | undefined, port?: DeviceInterface) {
-  const layout = node?.device?.model?.portLayout;
-  const layoutPorts = layout && typeof layout === 'object' && Array.isArray(layout.ports) ? layout.ports : [];
+  const layoutPorts = allPortLayoutPorts(node?.device?.model?.portLayout);
   const mappedPort = layoutPorts.find((item) => item.portKey === port?.portKey || item.portKey === port?.name);
   return mappedPort?.label ?? port?.portKey ?? port?.name ?? 'Porta não definida';
 }
