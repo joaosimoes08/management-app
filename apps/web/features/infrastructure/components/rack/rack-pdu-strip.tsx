@@ -196,7 +196,8 @@ function RackPduCard({ ref, id, anchor, side, view, source, badge, canDisconnect
     }
   };
 
-  const budgetText = view.budget ? t('rack.pdu.of', 'de {budget}', { budget: formatBudget(view.budget, locale) }) : t('rack.pdu.noBudget', 'sem limite definido');
+  const budgetText = view.budget ? formatBudget(view.budget, locale) : t('rack.pdu.noBudget', 'sem limite definido');
+  const loadLevel = powerLevel({ used: 0, total: 0, watts: view.watts, budget: view.budget, warningRatio });
   const percent = view.budget ? ` · ${Math.round((view.watts / view.budget) * 100)}%` : '';
 
   if (typeof document === 'undefined') return null;
@@ -223,13 +224,14 @@ function RackPduCard({ ref, id, anchor, side, view, source, badge, canDisconnect
     }}
   >
     <header className="rack-pdu-card-head">
-      <span className="rack-pdu-card-source" data-source={view.pdu.source}>{source}</span>
       <strong>{view.name}</strong>
       <button type="button" className="rack-pdu-card-close" aria-label={t('rack.pdu.close', 'Fechar')} onClick={onClose}><X size={13} aria-hidden="true" /></button>
     </header>
     <dl className="rack-pdu-card-totals">
-      <div><dt>{t('rack.pdu.outlets', 'Tomadas')}</dt><dd data-level={level(view.used, view.total)}>{view.used}/{view.total}</dd></div>
-      <div><dt>{t('rack.pdu.load', 'Consumo')}</dt><dd data-level={powerLevel({ used: 0, total: 0, watts: view.watts, budget: view.budget, warningRatio })}>{formatWatts(view.watts, locale)} {t('rack.pdu.estimated', 'estimado')} <small>{budgetText}{percent}</small></dd></div>
+      <div><dt>{t('rack.pdu.sourceLabel', 'Fonte')}:</dt><dd><span className="rack-pdu-card-source" data-source={view.pdu.source}>{source}</span></dd></div>
+      <div><dt>{t('rack.pdu.outlets', 'Tomadas')}:</dt><dd data-level={level(view.used, view.total)}>{view.used}/{view.total}</dd></div>
+      <div><dt>{t('rack.pdu.load', 'Consumo')}:</dt><dd data-level={loadLevel}>{formatWatts(view.watts, locale)} {t('rack.pdu.estimated', 'estimado')}</dd></div>
+      <div><dt>{t('rack.pdu.budget', 'Limite')}:</dt><dd data-level={view.budget ? loadLevel : undefined}>{budgetText}{percent}</dd></div>
     </dl>
     {view.failoverWatts != null && <p className="rack-pdu-card-failover" data-level={powerLevel({ used: 0, total: 0, watts: view.failoverWatts, budget: view.budget, warningRatio })}>{t('rack.pdu.failover', 'Se a outra fonte falhar: {watts}', { watts: formatWatts(view.failoverWatts, locale) })}</p>}
     <span className="topology-sr-only">{badge}</span>
