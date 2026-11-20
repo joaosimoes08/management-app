@@ -2853,3 +2853,10 @@ body { color:var(--ink); background:#e9eef5; }
   .app-shell.sidebar-collapsed .app-sidebar:hover .sidebar-copyright-full,.app-shell.sidebar-collapsed .app-sidebar.keyboard-focus-expanded .sidebar-copyright-full { position:static; width:auto; height:auto; clip:auto; }
   .app-shell.sidebar-collapsed .app-sidebar:hover .sidebar-copyright-short,.app-shell.sidebar-collapsed .app-sidebar.keyboard-focus-expanded .sidebar-copyright-short { display:none; }
 }
+
+/* Utility-bar action buttons: the bar is white, so give secondary and destructive actions a fill to read as buttons. */
+.app-shell .context-toolbar :is(.secondary-button,.danger-button):not(.context-toolbar-more-menu *) { color:#20334f; border:1px solid #cdd8e8; background:#eaf0f8; transition:background-color .15s ease, border-color .15s ease; }
+.app-shell .context-toolbar :is(.secondary-button,.danger-button):not(.context-toolbar-more-menu *):hover:not(:disabled) { background:#dce6f4; border-color:#b4c4dc; }
+.app-shell .context-toolbar .danger-button:not(.context-toolbar-more-menu *) { color:#9a2f22; border-color:#efc4bd; background:#fdecea; }
+.app-shell .context-toolbar .danger-button:not(.context-toolbar-more-menu *):hover:not(:disabled) { color:#7f2419; border-color:#e3a197; background:#f9d9d4; }
+.app-shell .context-toolbar :is(.secondary-button,.danger-button):not(.context-toolbar-more-menu *):disabled { cursor:not-allowed; opacity:.5; }

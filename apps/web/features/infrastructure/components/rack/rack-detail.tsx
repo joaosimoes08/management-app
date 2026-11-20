@@ -97,8 +97,15 @@ export function RackDetail({ rack, onOut, onDevice, onEdit, onDelete, deleting, 
     setZoom(1);
     if (stageRef.current) { stageRef.current.scrollTop = 0; stageRef.current.scrollLeft = 0; }
   };
-  /** Face shown in the device focus: the utility-bar face, or in "Ambas" the face the device was clicked on. */
-  const focusFace: RackFace | undefined = zoomDevice ? (activeView === 'both' ? zoomDevice.face : activeView) : undefined;
+  /**
+   * Face shown in the device focus. It starts on the face the device was clicked on (the rack's face, or the clicked
+   * side in "Ambas") and from then on belongs to the focus only: the rack view and its stored preference stay as they were.
+   */
+  const focusFace: RackFace | undefined = zoomDevice?.face;
+  const changeFocusFace = (next: RackView) => {
+    if (next === 'both') return;
+    setZoomDevice((current) => (current ? { ...current, face: next } : current));
+  };
   const rackWidth = fitWidth * zoom;
   const rackHeight = fitWidth * RACK_HEIGHT / RACK_WIDTH * zoom;
 
@@ -171,7 +178,7 @@ export function RackDetail({ rack, onOut, onDevice, onEdit, onDelete, deleting, 
 
   return <section className="ipam-card rack-view">
     <div className="rack-zoom-toolbar"><span>{rack.room?.building?.name} / {rack.room?.name} / <strong>{rack.name}</strong></span></div><PageToolbarPortal><div className="rack-view-tools" role="group" aria-label="Vista do bastidor">
-      <RackViewPicker value={activeView} onChange={changeView} allowBoth={wide} />
+      {focusFace ? <RackViewPicker value={focusFace} onChange={changeFocusFace} allowBoth={wide} focused /> : <RackViewPicker value={activeView} onChange={changeView} allowBoth={wide} />}
       <RackZoomPicker zoom={zoom} onZoom={setZoom} onFit={fitToStage} />
     </div></PageToolbarPortal><PageToolbarPortal><div className="button-row rack-detail-actions"><button type="button" className="secondary-button" onClick={onOut} aria-label={t('rack.back')} title={t('rack.back')}><ArrowLeft size={14} aria-hidden="true"/><span className="rack-action-label">{t('rack.back')}</span></button>{onEdit && <button type="button" className="secondary-button" onClick={() => onEdit(rack)} aria-label={t('rack.edit')} title={t('rack.edit')}><Edit3 size={14} aria-hidden="true"/><span className="rack-action-label">{t('rack.edit')}</span></button>}{onDelete && <button type="button" className="secondary-button danger-button" disabled={deleting} onClick={() => onDelete(rack)} aria-label={deleteLabel} title={deleteLabel}><Trash2 size={14} aria-hidden="true"/><span className="rack-action-label">{deleteLabel}</span></button>}</div></PageToolbarPortal>
     <div className="panel-heading"><div><span className="section-kicker">BASTIDOR VISUAL</span><h2>{rack.name}</h2><p>{rack.devices?.length ?? 0} equipamentos · Bastidor padrão · 42U{canEdit ? <>{' · '}<span>Arrasta um equipamento para o mover</span></> : null}</p></div></div>
