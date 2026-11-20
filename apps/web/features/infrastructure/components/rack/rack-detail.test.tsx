@@ -60,11 +60,19 @@ describe('RackDetail viewport fit and interactions', () => {
     const zoom = screen.getByRole('button', { name: 'rack.zoom: 0%' });
     expect(zoom).toHaveAttribute('title', 'rack.zoom');
     expect(zoom).not.toHaveTextContent('rack.zoom');
-    for (const name of ['Voltar aos bastidores', 'Editar bastidor', 'Eliminar bastidor']) {
+    for (const name of ['rack.back', 'rack.edit', 'rack.delete']) {
       const button = screen.getByRole('button', { name });
       expect(button).toHaveAttribute('title', name);
       expect(button.querySelector('.rack-action-label')).toHaveTextContent(name);
     }
+  });
+
+  it('keeps the delete action label, name and tooltip in step while deleting', () => {
+    render(<RackDetail rack={rack} onOut={vi.fn()} onDevice={vi.fn()} canEdit onPreviewPlacement={vi.fn()} onPlaceDevice={vi.fn()} onEditDevice={vi.fn()} onDelete={vi.fn()} deleting />);
+    const button = screen.getByRole('button', { name: 'rack.deleting' });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('title', 'rack.deleting');
+    expect(button.querySelector('.rack-action-label')).toHaveTextContent('rack.deleting');
   });
 
   it('maps the 0–100% zoom slider onto the fitted rack and restores the fit', async () => {

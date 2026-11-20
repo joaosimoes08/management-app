@@ -5,6 +5,7 @@ import { EquipmentTypeIcon } from './equipment-type-icon';
 import type { Device, DeviceInterface, PortLayout, RackFace } from '../types';
 import { deviceFaceImage, formatPortTooltipTitle, getInterfaceSubnets, getInterfaceVlans, normalizePortLayout, normalizedPortLayoutPorts, primaryPortFace } from '../utils';
 import { AssetImage } from './asset-image';
+import { useI18n } from '@/lib/i18n';
 
 interface DeviceImageFrameProps {
   device: Device;
@@ -15,6 +16,7 @@ interface DeviceImageFrameProps {
 
 /** Device face image with clickable port hotspots, VLAN tooltips and IPAM cross-links. */
 export function DeviceImageFrame({ device, interfaces, face: requestedFace }: DeviceImageFrameProps) {
+  const { t } = useI18n();
   const [activePort, setActivePort] = useState('');
   const face = requestedFace ?? primaryPortFace(device.model);
   const image = deviceFaceImage(device, face);
@@ -24,7 +26,7 @@ export function DeviceImageFrame({ device, interfaces, face: requestedFace }: De
   const height = Number(layout.imageHeight) || 300;
   /** Rack-unit faces are wide and short: lay the no-image placeholder out in one line so it fits the frame. */
   const shortFace = height / width < 0.3;
-  const missingLabel = face === 'rear' ? 'Sem imagem traseira' : 'Sem imagem frontal';
+  const missingLabel = face === 'rear' ? t('device.noRearImage') : t('device.noFrontImage');
   /** Mapped ports fill a short face, so the "no image" note goes in a caption below the frame instead of over a port. */
   const noteBelow = !image && shortFace && ports.length > 0;
   const byPort = (port: { portKey: string }) => interfaces.find((item) => item.portKey === port.portKey || item.name === port.portKey);

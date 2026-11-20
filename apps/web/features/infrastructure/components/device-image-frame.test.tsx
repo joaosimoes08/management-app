@@ -1,9 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { cleanup, render } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Device } from '../types';
 import { DeviceImageFrame } from './device-image-frame';
+
+const messages: Record<string, string> = { 'device.noRearImage': 'Sem imagem traseira', 'device.noFrontImage': 'Sem imagem frontal' };
+vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string) => messages[key] ?? key }) }));
 
 afterEach(() => cleanup());
 

@@ -2785,10 +2785,19 @@ body { color:var(--ink); background:#e9eef5; }
   .app-shell.sidebar-collapsed .rack-detail-actions .rack-action-label { display:none; }
   .app-shell.sidebar-collapsed .rack-detail-actions .secondary-button { justify-content:center; width:35px; padding:0; }
 }
-/* Expanded sidebar under 1180px: one row cannot fit even with icon-only actions, so the rack tools and
-   actions drop to a right-aligned second row instead of covering the pickers */
+/* Expanded sidebar under 1180px: still one row, with tighter gaps, 96px location selects, a shorter View
+   select, the building/room words shown as their icons (the selects keep their accessible names) and the
+   title ellipsized only if it must give way */
 @media (min-width:981px) and (max-width:1179px) {
-  .app-shell:not(.sidebar-collapsed) .context-toolbar:has(.rack-view-tools) { flex-wrap:wrap; row-gap:10px; }
+  .app-shell:not(.sidebar-collapsed) .context-toolbar:has(.rack-view-tools) { column-gap:6px; padding-right:12px; padding-left:12px; }
+  .app-shell:not(.sidebar-collapsed) .context-toolbar:has(.rack-view-tools) .context-toolbar-title { flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+  .app-shell:not(.sidebar-collapsed) .context-toolbar:has(.rack-view-tools) .context-toolbar-actions { gap:6px; }
+  .app-shell:not(.sidebar-collapsed) .context-toolbar:has(.rack-view-tools) .context-toolbar-navigation .infra-context-bar { gap:6px; }
+  .app-shell:not(.sidebar-collapsed) .context-toolbar:has(.rack-view-tools) .context-toolbar-navigation .infra-context-bar .location-control-group select { width:96px; padding-right:8px; padding-left:8px; }
+  .app-shell:not(.sidebar-collapsed) .rack-view-tools,.app-shell:not(.sidebar-collapsed) .rack-detail-actions { gap:6px; }
+  .app-shell:not(.sidebar-collapsed) .rack-toolbar-picker select { width:84px; padding-right:8px; padding-left:8px; }
+  .app-shell:not(.sidebar-collapsed) .rack-toolbar-picker-trigger { padding-right:8px; padding-left:8px; }
+  .app-shell:not(.sidebar-collapsed) .context-toolbar:has(.rack-view-tools) .infra-context-bar .location-control-group > label > span { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
 }
 @media (max-width:780px) {
   .context-toolbar-actions > .context-toolbar-contribution:has(.rack-view-tools) { grid-column:1 / -1; }
