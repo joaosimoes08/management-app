@@ -568,6 +568,7 @@ const substitutions: Array<[RegExp, string]> = [
   [/^1 porta mapeada · sem contagem obrigatória$/g, '1 port mapped · no required count'],
   [/^1 porta não está completamente mapeada \(interface, posição e tamanho\)\.$/g, '1 port is not fully mapped (interface, position and size).'],
   [/^(\d+) portas não estão completamente mapeadas \(interface, posição e tamanho\)\.$/g, '$1 ports are not fully mapped (interface, position and size).'],
+  [/^Editar modelo (.+)$/g, 'Edit model $1'],
   [/^Vista frontal de (.+)$/g, 'Front view of $1'],
   [/^Vista traseira de (.+)$/g, 'Rear view of $1'],
   [/, frente$/g, ', front'],
