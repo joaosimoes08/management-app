@@ -50,7 +50,7 @@ import { DeepLinkDeviceLoader } from './components/devices/deep-link-device-load
 import { ModelList } from './components/models/model-list';
 import { InterfaceWorkspace } from './components/models/interface-workspace';
 import { InterfaceEditor } from './components/models/interface-editor';
-import { EMPTY_FACE_LAYOUT, faceSnapshot, PortLayoutEditor, type PortLayoutAssetsDraft, type PortLayoutFacesDraft } from './components/models/port-layout-editor';
+import { EMPTY_FACE_LAYOUT, faceSnapshot, planFaceSaves, PortLayoutEditor, type PortLayoutAssetsDraft, type PortLayoutFacesDraft } from './components/models/port-layout-editor';
 import { AssetList } from './components/assets/asset-list';
 import { AssetUploadModal } from './components/assets/asset-upload-modal';
 import { EntityEditor } from './components/editors/entity-editor';
@@ -527,12 +527,12 @@ export function InfrastructureWorkspace() {
       const saved = JSON.parse(savedLayoutFaces.current || '{}') as Partial<PortLayoutFacesDraft>;
       const initialAssets = { front: layoutModel.frontAssetId ?? layoutModel.frontAsset?.id ?? '', rear: layoutModel.backAssetId ?? layoutModel.backAsset?.id ?? '' };
       const changed = RACK_FACES.filter((face) => faceSnapshot(saved[face]) !== faceSnapshot(layoutFaces[face]) || initialAssets[face] !== layoutAssetIds[face]);
-      // PUT replaces one face; the face with more ports goes first so the stored total reaches the model count as early as possible.
-      const order = (changed.length ? changed : (['rear'] as RackFace[])).sort((left, right) => layoutFaces[right].ports.length - layoutFaces[left].ports.length);
+      // PUT replaces one face and the API rejects duplicates or over-counts across faces on each write: see planFaceSaves.
+      const steps = planFaceSaves(saved, layoutFaces, changed.length ? changed : ['rear']);
       const confirmedAt = new Date().toISOString();
-      for (const face of order) {
+      for (const { face, ports: stepPorts } of steps) {
         const layout = layoutFaces[face];
-        const ports = (layout.ports ?? []).map((port, index) => ({
+        const ports = stepPorts.map((port, index) => ({
           ...port,
           portKey: String(port.portKey || `ethernet1/${index + 1}`),
           label: String(port.label || port.portKey || `Porta ${index + 1}`),
@@ -541,8 +541,8 @@ export function InfrastructureWorkspace() {
           width: Math.max(.005, Math.min(1, Number(port.width) || .03)),
           height: Math.max(.005, Math.min(1, Number(port.height) || .3)),
         }));
-        await saveDeviceModelPortLayout(layoutModel.id, { imageWidth: layout.imageWidth, imageHeight: layout.imageHeight, viewport: layout.viewport ?? null, ports, assetId: layoutAssetIds[face] || null, confirmedAt }, face);
-        savedLayoutFaces.current = JSON.stringify({ ...JSON.parse(savedLayoutFaces.current || '{}'), [face]: layoutFaces[face] });
+        await saveDeviceModelPortLayout(layoutModel.id, { imageWidth: Math.max(1, Math.round(layout.imageWidth ?? 1000)), imageHeight: Math.max(1, Math.round(layout.imageHeight ?? 300)), viewport: layout.viewport ?? null, ports, assetId: layoutAssetIds[face] || null, confirmedAt }, face);
+        savedLayoutFaces.current = JSON.stringify({ ...JSON.parse(savedLayoutFaces.current || '{}'), [face]: { ...layout, ports: stepPorts } });
       }
       setModal('');
       setLayoutFaces(null);

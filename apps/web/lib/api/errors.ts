@@ -30,6 +30,8 @@ export const localizedApiErrors: Record<string, Record<string, string>> = {
     VALIDATION_ERROR: 'Existem campos inválidos no pedido.',
     PORT_LAYOUT_INCOMPLETE: 'O mapeamento de portas está incompleto: o total das faces frontal e traseira tem de ser igual ao número de portas do modelo.',
     FRONT_IMAGE_REQUIRED: 'A imagem frontal é obrigatória. Escolhe ou carrega uma imagem frontal para o modelo.',
+    PORT_LAYOUT_DUPLICATE_PORT: 'Há uma porta mapeada mais de uma vez. Cada porta só pode estar numa face.',
+    PORT_LAYOUT_TOO_MANY_PORTS: 'O mapa tem mais portas do que o modelo. Remove as portas a mais.',
   },
   'en-US': {
     APPLICATION_ROLE_REQUIRED: 'The user must retain at least one application role.',
@@ -56,5 +58,7 @@ export const localizedApiErrors: Record<string, Record<string, string>> = {
     VALIDATION_ERROR: 'The request contains invalid fields.',
     PORT_LAYOUT_INCOMPLETE: 'Port mapping is incomplete: the front and rear faces together must match the model port count.',
     FRONT_IMAGE_REQUIRED: 'A front image is required. Choose or upload a front image for the model.',
+    PORT_LAYOUT_DUPLICATE_PORT: 'A port is mapped more than once. Each port can only be on one face.',
+    PORT_LAYOUT_TOO_MANY_PORTS: 'The map has more ports than the model. Remove the extra ports.',
   },
 };

@@ -35,6 +35,30 @@ export function faceSnapshot(layout: PortLayout | undefined): string {
   return layout?.ports?.length ? JSON.stringify(layout) : '[]';
 }
 
+export interface FaceSaveStep { face: RackFace; ports: PortLayoutPort[] }
+
+const portKeyOf = (port: PortLayoutPort) => String(port.portKey ?? '').trim().toLowerCase();
+
+/**
+ * Order of per-face PUTs so that no intermediate state is rejected by the API,
+ * which checks duplicate port keys and the port count across both faces on every write.
+ * The face that loses ports goes first, without ports still stored on the other face;
+ * the other face follows, and the first face is completed if anything was held back.
+ */
+export function planFaceSaves(saved: Partial<Record<RackFace, PortLayout>>, next: Record<RackFace, PortLayout>, changed: RackFace[]): FaceSaveStep[] {
+  const count = (layout: PortLayout | undefined) => layout?.ports?.length ?? 0;
+  const delta = (face: RackFace) => count(next[face]) - count(saved[face]);
+  const [first, second] = [...changed].sort((left, right) => delta(left) - delta(right));
+  if (!first) return [];
+  const firstPorts = next[first].ports ?? [];
+  if (!second) return [{ face: first, ports: firstPorts }];
+  const storedOnSecond = new Set((saved[second]?.ports ?? []).map(portKeyOf));
+  const held = firstPorts.filter((port) => !storedOnSecond.has(portKeyOf(port)));
+  const steps: FaceSaveStep[] = [{ face: first, ports: held }, { face: second, ports: next[second].ports ?? [] }];
+  if (held.length !== firstPorts.length) steps.push({ face: first, ports: firstPorts });
+  return steps;
+}
+
 function draftSnapshot(faces: PortLayoutFacesDraft | null, assetIds: PortLayoutAssetsDraft): string {
   return JSON.stringify({ front: faceSnapshot(faces?.front), rear: faceSnapshot(faces?.rear), assetIds });
 }

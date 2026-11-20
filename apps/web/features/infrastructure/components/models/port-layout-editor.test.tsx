@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AssetFile, DeviceModel, PortLayoutPort, RackFace } from '../../types';
-import { EMPTY_FACE_LAYOUT, faceSnapshot, PortLayoutEditor, portLayoutBlockers, type PortLayoutAssetsDraft, type PortLayoutFacesDraft } from './port-layout-editor';
+import { EMPTY_FACE_LAYOUT, faceSnapshot, planFaceSaves, PortLayoutEditor, portLayoutBlockers, type PortLayoutAssetsDraft, type PortLayoutFacesDraft } from './port-layout-editor';
 
 vi.mock('../asset-image', () => ({ AssetImage: ({ alt }: { alt: string }) => <span role="img" aria-label={alt} /> }));
 afterEach(cleanup);
@@ -72,5 +72,36 @@ describe('faceSnapshot', () => {
   it('does not flag an unchanged editor as having unsaved changes', () => {
     render(<Harness initial={{ front: { ...EMPTY_FACE_LAYOUT }, rear: { ...EMPTY_FACE_LAYOUT, ports: [port(1)] } }} />);
     expect(screen.queryByText('Alterações por guardar')).not.toBeInTheDocument();
+  });
+});
+
+describe('planFaceSaves', () => {
+  const face = (...keys: number[]) => ({ ...EMPTY_FACE_LAYOUT, ports: keys.map(port) });
+  const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, index) => from + index);
+  // Mirrors the API's assertWritableLayout: after every PUT, no duplicate keys and no more than `expected` ports.
+  const replay = (saved: { front: ReturnType<typeof face>; rear: ReturnType<typeof face> }, next: typeof saved, expected: number) => {
+    const changed = (['front', 'rear'] as const).filter((name) => faceSnapshot(saved[name]) !== faceSnapshot(next[name]));
+    const stored = { front: saved.front.ports, rear: saved.rear.ports };
+    for (const step of planFaceSaves(saved, next, [...changed])) {
+      stored[step.face] = step.ports;
+      const keys = [...stored.front, ...stored.rear].map((item) => String(item.portKey));
+      expect(new Set(keys).size).toBe(keys.length);
+      expect(keys.length).toBeLessThanOrEqual(expected);
+    }
+    expect(stored.front.map((item) => item.portKey)).toEqual(next.front.ports.map((item) => item.portKey));
+    expect(stored.rear.map((item) => item.portKey)).toEqual(next.rear.ports.map((item) => item.portKey));
+  };
+
+  it('moves ports from the smaller face to the larger one without a transient duplicate', () => {
+    replay({ front: face(...range(1, 20)), rear: face(...range(21, 28)) }, { front: face(...range(1, 22)), rear: face(...range(23, 28)) }, 28);
+  });
+  it('moves ports from the larger face to the smaller one', () => {
+    replay({ front: face(1, 2), rear: face(...range(3, 28)) }, { front: face(...range(1, 10)), rear: face(...range(11, 28)) }, 28);
+  });
+  it('swaps ports between faces with equal counts', () => {
+    replay({ front: face(1, 2, 3), rear: face(4, 5, 6) }, { front: face(1, 2, 6), rear: face(4, 5, 3) }, 6);
+  });
+  it('saves a single changed face as is', () => {
+    expect(planFaceSaves({ front: face(), rear: face(1) }, { front: face(), rear: face(1, 2) }, ['rear'])).toEqual([{ face: 'rear', ports: face(1, 2).ports }]);
   });
 });
