@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { InfrastructureService } from './infrastructure.service';
 import { attachRackPower, RackPowerService } from './power/rack-power.service';
 
@@ -133,6 +133,25 @@ test('DELETE racks/:rackId/pdus/:pduId/devices/:deviceId frees only that PDU and
   assert.equal(result.pdus.find((p) => p.source === 'UPS')!.usedOutlets, 0);
   assert.equal(db.audits.at(-1).action, 'DEVICE_POWER_DISCONNECTED');
   await assert.rejects(() => subject.disconnectDevice('rack-1', 'rede-2', 'srv', user), NotFoundException);
+});
+
+test('DELETE disconnect checks rack permission scoped to the device type and locks device + PDUs; a scoped user cannot unplug other types', async () => {
+  const { subject, db, accessCalls } = powerService({ pdus: [supplier], devices: [dev('srv', 'rack-1'), dev('sw', 'rack-1', { type: 'SWITCH' })], assignments: [{ id: 'a', pduId: 'rede-1', outletIndex: 1, deviceId: 'srv', plugIndex: 1 }, { id: 'b', pduId: 'rede-1', outletIndex: 2, deviceId: 'sw', plugIndex: 1 }] });
+  // Network-only operator: may edit SWITCH devices in the rack, nothing else.
+  (subject as any).access.assertRack = async (...args: any[]) => {
+    accessCalls.push(['rack', ...args.slice(1)]);
+    if (args[3] !== 'DEVICE' || args[4] !== 'SWITCH') throw new ForbiddenException('Sem permissão');
+  };
+  await assert.rejects(() => subject.disconnectDevice('rack-1', 'rede-1', 'srv', user), ForbiddenException);
+  assert.deepEqual(db.assignments.map((a) => a.id), ['a', 'b']);
+  assert.equal(db.audits.length, 0);
+  const result = await subject.disconnectDevice('rack-1', 'rede-1', 'sw', user);
+  assert.equal(result.removed, 1);
+  assert.deepEqual(db.assignments.map((a) => a.id), ['a']);
+  assert.deepEqual(accessCalls.map((c) => c.slice(1)), [['UPDATE', 'rack-1', 'DEVICE', 'SERVER'], ['UPDATE', 'rack-1', 'DEVICE', 'SWITCH']]);
+  assert.ok(db.locks.some((sql) => sql.includes('"Device"') && sql.includes('FOR UPDATE')));
+  assert.ok(db.locks.some((sql) => sql.includes('"RackPdu"') && sql.includes('FOR UPDATE')));
+  await assert.rejects(() => subject.disconnectDevice('rack-1', 'rede-1', 'ghost', user), NotFoundException);
 });
 
 test('PUT racks/:id/pdus adds a UPS, then refuses to remove it while connected and refuses shrinking below used outlets', async () => {

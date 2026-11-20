@@ -47,7 +47,7 @@ export class RackPowerService {
   /** PUT racks/:id/pdus — set power mode and PDU settings. 409 when removing/shrinking a PDU would orphan connections. */
   async updateRackPdus(rackId: string, dto: RackPowerDto, user: AuthenticatedUser) {
     await this.access.assertRack(user, 'UPDATE', rackId);
-    await this.prisma.$transaction(async (tx: any) => {
+    return this.prisma.$transaction(async (tx: any) => {
       const rack = await tx.rack.findUnique({ where: { id: rackId }, select: { id: true } });
       if (!rack) throw new NotFoundException('Bastidor não encontrado');
       await this.lockRackPdus(tx, rackId);
@@ -58,11 +58,11 @@ export class RackPowerService {
       for (const item of next.update) await tx.rackPdu.update({ where: { id: item.id }, data: item.data });
       for (const item of next.create) await tx.rackPdu.create({ data: { ...item, rackId } });
       await this.audit.recordInTransaction(tx, { userId: user.id, action: 'RACK_POWER_UPDATED', entityType: 'Rack', entityId: rackId, metadata: { mode: dto.mode, created: next.create, updated: next.update, deleted: next.delete } });
+      return this.rackPower(rackId, tx);
     }).catch((error: unknown) => {
       if (isUniqueViolation(error) || isSerializationFailure(error)) throw new ConflictException({ code: 'RACK_POWER_CHANGED', message: 'As PDUs do bastidor foram alteradas por outra operação. Atualiza e tenta novamente.' });
       throw error;
     });
-    return this.rackPower(rackId);
   }
 
   /** PUT devices/:id/power — replace every outlet assignment of the device in one transaction. */
@@ -93,12 +93,12 @@ export class RackPowerService {
       const removed = await tx.pduOutletAssignment.deleteMany({ where: { deviceId } });
       if (allocation.assignments.length) await tx.pduOutletAssignment.createMany({ data: allocation.assignments.map((item) => ({ ...item, deviceId })) });
       await this.audit.recordInTransaction(tx, { userId: user.id, action: 'DEVICE_POWER_UPDATED', entityType: 'Device', entityId: deviceId, metadata: { rackId: device.rackId, ...fieldChanges, plugCount, removedAssignments: removed.count, assignments: allocation.assignments, unplugged: allocation.unplugged } });
-      return { rackId: device.rackId as string, plugCount, allocation };
+      return { rackId: device.rackId as string, plugCount, allocation, power: await this.rackPower(device.rackId, tx) };
     }).catch((error: unknown) => {
       if (isUniqueViolation(error) || isSerializationFailure(error)) throw new ConflictException({ code: 'PDU_OUTLET_TAKEN', message: 'Uma das tomadas foi ocupada entretanto. Atualiza o bastidor e tenta novamente.' });
       throw error;
     });
-    const power = await this.rackPower(result.rackId);
+    const power = result.power;
     const warnings: string[] = [];
     if (result.allocation.unplugged.some((item) => item.reason === 'NO_FREE_OUTLET')) warnings.push('NO_FREE_OUTLET');
     if (result.allocation.unplugged.length) warnings.push('PLUGS_NOT_CONNECTED');
@@ -107,18 +107,27 @@ export class RackPowerService {
     return { deviceId, rackId: result.rackId, mode: power.mode, device: devicePower, unplugged: result.allocation.unplugged, warnings, pdus: power.pdus, totals: power.totals };
   }
 
-  /** DELETE racks/:rackId/pdus/:pduId/devices/:deviceId — "Desligar": frees the device's outlets on that PDU. */
+  /**
+   * DELETE racks/:rackId/pdus/:pduId/devices/:deviceId — "Desligar": frees the device's outlets on that PDU.
+   * Same checks and locks as updateDevicePower: device-type scoped rack permission, device row lock, rack PDU lock.
+   */
   async disconnectDevice(rackId: string, pduId: string, deviceId: string, user: AuthenticatedUser) {
-    await this.access.assertRack(user, 'UPDATE', rackId);
-    const removed = await this.prisma.$transaction(async (tx: any) => {
+    return this.prisma.$transaction(async (tx: any) => {
+      await tx.$queryRaw`SELECT "id" FROM "Device" WHERE "id"::text = ${deviceId} FOR UPDATE`;
+      const device = await tx.device.findUnique({ where: { id: deviceId }, select: { id: true, type: true } });
+      if (!device) throw new NotFoundException('Equipamento não encontrado');
+      await this.access.assertRack(user, 'UPDATE', rackId, 'DEVICE', device.type);
+      await this.lockRackPdus(tx, rackId);
       const pdu = await tx.rackPdu.findUnique({ where: { id: pduId }, select: { id: true, rackId: true, source: true } });
       if (!pdu || pdu.rackId !== rackId) throw new NotFoundException('PDU não encontrada neste bastidor');
       const outlets = await tx.pduOutletAssignment.findMany({ where: { pduId, deviceId }, select: { outletIndex: true, plugIndex: true } });
       const result = await tx.pduOutletAssignment.deleteMany({ where: { pduId, deviceId } });
       if (result.count) await this.audit.recordInTransaction(tx, { userId: user.id, action: 'DEVICE_POWER_DISCONNECTED', entityType: 'Device', entityId: deviceId, metadata: { rackId, pduId, source: pdu.source, outlets } });
-      return result.count;
+      const power = await this.rackPower(rackId, tx);
+      return { removed: result.count, mode: power.mode, pdus: power.pdus, totals: power.totals };
+    }).catch((error: unknown) => {
+      if (isSerializationFailure(error)) throw new ConflictException({ code: 'RACK_POWER_CHANGED', message: 'As PDUs do bastidor foram alteradas por outra operação. Atualiza e tenta novamente.' });
+      throw error;
     });
-    const power = await this.rackPower(rackId);
-    return { removed, mode: power.mode, pdus: power.pdus, totals: power.totals };
   }
 }
