@@ -3497,6 +3497,7 @@ body { color:var(--ink); background:#e9eef5; }
 .asset-upload-picker-button:focus-visible { outline:2px solid #2c6bed; outline-offset:2px; }
 .asset-upload-picker-button:disabled { cursor:progress; opacity:.6; }
 .modal-form .form-help { color:var(--muted); font-size:10px; line-height:1.45; }
+.modal-form .form-warning { color:#8a5300; font-size:10px; font-weight:600; line-height:1.45; }
 .modal-form .form-error { color:#a14c41; font-size:10px; }
 .form-error-banner { max-width:none; margin:0; }
 .upload-face-field { display:grid; gap:5px; color:#666269; font-size:10px; }

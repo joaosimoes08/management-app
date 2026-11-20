@@ -497,6 +497,8 @@ const enUS: LegacyDictionary = {
   'Seleciona ou carrega uma imagem': 'Choose or upload an image',
   'Upload falhou.': 'Upload failed.',
   'Obrigatória. Vista da frente do equipamento no bastidor.': 'Required. Front view of the device in the rack.',
+  'Vista da frente do equipamento no bastidor.': 'Front view of the device in the rack.',
+  'Sem imagem frontal — adiciona uma quando possível.': 'No front image — add one when possible.',
   'Recomendada. Vista da traseira, onde está a maioria das portas.': 'Recommended. Rear view, where most ports are.',
   'Depois de guardar, mapeia todas as portas em “Mapear portas”: o total das duas faces tem de ser igual ao número de portas de rede.': 'After saving, map every port in “Map ports”: both faces together must match the network port count.',
   'As portas estão mapeadas na traseira.': 'Ports are mapped on the rear.',

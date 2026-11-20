@@ -101,13 +101,19 @@ export function EntityEditor({ modal, close, editingId, animateDeviceEntry = fal
     <ModalActions close={close} />
   </form></Modal>;
 
+  // The front image is required to create a model; an edit only may not remove one that exists.
+  const editedModel = editingId ? models.find((model) => model.id === editingId) : undefined;
+  const storedFront = editedModel ? editedModel.frontAssetId ?? editedModel.frontAsset?.id ?? '' : '';
+  const frontRequired = !editingId || Boolean(storedFront);
+  const missingFrontWarning = editingId && !storedFront && !form.model.frontAssetId ? 'Sem imagem frontal — adiciona uma quando possível.' : undefined;
   return <Modal title={editingId ? 'Editar modelo' : 'Novo modelo'} close={close}><form className="modal-form" onSubmit={(event) => {
     event.preventDefault();
+    const { frontAssetId, backAssetId, ...modelPayload } = form.model;
     void save(editingId ? `/api/v1/device-models/${editingId}` : '/api/v1/device-models', {
-      ...form.model,
+      ...modelPayload,
       networkPortCount: form.model.networkPortCount ? Number(form.model.networkPortCount) : null,
-      frontAssetId: form.model.frontAssetId || null,
-      backAssetId: form.model.backAssetId || null,
+      ...(frontAssetId ? { frontAssetId } : {}),
+      backAssetId: backAssetId || null,
     });
   }}>
     <div className="form-row">
@@ -118,7 +124,7 @@ export function EntityEditor({ modal, close, editingId, animateDeviceEntry = fal
     <label className="checkbox-label"><input type="checkbox" checked={form.model.supportsNetworkPorts} onChange={(event) => setForm.model({ ...form.model, supportsNetworkPorts: event.target.checked })} /> Tem portas de rede configuráveis</label>
     <label>Portas de rede<input type="number" min="1" value={form.model.networkPortCount} onChange={(event) => setForm.model({ ...form.model, networkPortCount: event.target.value })} /></label>
     <div className="model-face-images">
-      <AssetUploadPicker label="Imagem frontal" required value={form.model.frontAssetId} assets={assets} onChange={(value) => setForm.model({ ...form.model, frontAssetId: value })} help="Obrigatória. Vista da frente do equipamento no bastidor." />
+      <AssetUploadPicker label="Imagem frontal" required={frontRequired} value={form.model.frontAssetId} assets={assets} onChange={(value) => setForm.model({ ...form.model, frontAssetId: value })} help={frontRequired ? 'Obrigatória. Vista da frente do equipamento no bastidor.' : 'Vista da frente do equipamento no bastidor.'} warning={missingFrontWarning} />
       <AssetUploadPicker label="Imagem traseira" value={form.model.backAssetId} assets={assets} onChange={(value) => setForm.model({ ...form.model, backAssetId: value })} help="Recomendada. Vista da traseira, onde está a maioria das portas." />
     </div>
     {form.model.supportsNetworkPorts && <p className="form-help">Depois de guardar, mapeia todas as portas em “Mapear portas”: o total das duas faces tem de ser igual ao número de portas de rede.</p>}

@@ -27,7 +27,7 @@ export function AssetPicker({ label, value, assets, onChange, required = false, 
 }
 
 /** Asset picker with an upload button: the uploaded image is created as an asset and selected. */
-export function AssetUploadPicker({ label, value, assets, onChange, required = false, help }: { label: string; value: string; assets: AssetFile[]; onChange: (value: string) => void; required?: boolean; help?: string }) {
+export function AssetUploadPicker({ label, value, assets, onChange, required = false, help, warning }: { label: string; value: string; assets: AssetFile[]; onChange: (value: string) => void; required?: boolean; help?: string; warning?: string }) {
   const queryClient = useQueryClient();
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -57,6 +57,7 @@ export function AssetUploadPicker({ label, value, assets, onChange, required = f
     <button type="button" className="secondary-button asset-upload-picker-button" disabled={busy} aria-label={`Carregar ${label.toLowerCase()}`} onClick={() => input.current?.click()}><Upload size={14} aria-hidden="true" /> {busy ? 'A carregar…' : 'Carregar imagem'}</button>
     <input ref={input} type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden tabIndex={-1} onChange={(event) => void upload(event)} />
     {help && <small className="form-help">{help}</small>}
+    {warning && <small className="form-warning" role="status">{warning}</small>}
     {uploadError && <small className="form-error" role="alert">{uploadError}</small>}
   </div>;
 }

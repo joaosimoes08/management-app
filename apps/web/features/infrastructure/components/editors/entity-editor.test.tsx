@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { deviceImageFields, type DeviceForm, type ModelForm, type RackForm } from '../../forms';
@@ -66,5 +67,36 @@ describe('deviceImageFields', () => {
   it('sends only chosen images for a new device', () => {
     expect(deviceImageFields({ frontAssetId: 'f', backAssetId: '' })).toEqual({ frontAssetId: 'f' });
     expect(deviceImageFields({ frontAssetId: '', backAssetId: undefined })).toEqual({});
+  });
+});
+
+describe('model front image', () => {
+  const model = { id: 'm-1', manufacturer: 'ACME', model: 'SW', type: 'SWITCH', frontAssetId: null, backAssetId: null } as unknown as import('../../types').DeviceModel;
+  function ModelHarness({ save, editingId, models = [] as import('../../types').DeviceModel[], front = '' }: { save: (path: string, body: Record<string, unknown>) => Promise<void>; editingId: string; models?: import('../../types').DeviceModel[]; front?: string }) {
+    const [device, setDevice] = useState(opened);
+    const [rack, setRack] = useState<RackForm>({ name: '', units: '42', roomId: '', modelId: '', frontAssetId: '' });
+    const [form, setModel] = useState<ModelForm>({ manufacturer: 'ACME', model: 'SW', type: 'SWITCH', supportsNetworkPorts: false, networkPortCount: '', frontAssetId: front, backAssetId: '' });
+    return <QueryClientProvider client={new QueryClient()}><EntityEditor modal="model" close={() => {}} editingId={editingId} form={{ rack, device, model: form }} setForm={{ rack: setRack, device: setDevice, model: setModel }} rooms={[]} racks={[]} models={models} assets={assets} ips={[]} save={save} /></QueryClientProvider>;
+  }
+  const frontPicker = () => screen.getByRole('combobox', { name: /Imagem frontal/ }) as HTMLSelectElement;
+
+  it('is required when creating a model', () => {
+    render(<ModelHarness save={vi.fn()} editingId="" />);
+    expect(frontPicker().required).toBe(true);
+    expect(screen.queryByText(/Sem imagem frontal/)).toBeNull();
+  });
+
+  it('does not block editing a model that has no front image, and warns', () => {
+    const save = vi.fn().mockResolvedValue(undefined);
+    render(<ModelHarness save={save} editingId="m-1" models={[model]} />);
+    expect(frontPicker().required).toBe(false);
+    expect(screen.getByText('Sem imagem frontal — adiciona uma quando possível.')).toBeTruthy();
+    submit();
+    expect(save).toHaveBeenCalledWith('/api/v1/device-models/m-1', expect.not.objectContaining({ frontAssetId: expect.anything() }));
+  });
+
+  it('blocks removing an existing front image on edit', () => {
+    render(<ModelHarness save={vi.fn()} editingId="m-1" models={[{ ...model, frontAssetId: 'front-1' }]} front="front-1" />);
+    expect(frontPicker().required).toBe(true);
   });
 });
