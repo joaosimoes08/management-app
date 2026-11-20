@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AssetFile, DeviceModel, PortLayoutPort, RackFace } from '../../types';
-import { EMPTY_FACE_LAYOUT, faceSnapshot, planFaceSaves, PortLayoutEditor, portLayoutBlockers, type PortLayoutAssetsDraft, type PortLayoutFacesDraft } from './port-layout-editor';
+import { buildFacesSave, EMPTY_FACE_LAYOUT, faceSnapshot, PortLayoutEditor, portLayoutBlockers, type PortLayoutAssetsDraft, type PortLayoutFacesDraft } from './port-layout-editor';
 
 vi.mock('../asset-image', () => ({ AssetImage: ({ alt }: { alt: string }) => <span role="img" aria-label={alt} /> }));
 afterEach(cleanup);
@@ -75,33 +75,30 @@ describe('faceSnapshot', () => {
   });
 });
 
-describe('planFaceSaves', () => {
+describe('buildFacesSave', () => {
   const face = (...keys: number[]) => ({ ...EMPTY_FACE_LAYOUT, ports: keys.map(port) });
-  const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, index) => from + index);
-  // Mirrors the API's assertWritableLayout: after every PUT, no duplicate keys and no more than `expected` ports.
-  const replay = (saved: { front: ReturnType<typeof face>; rear: ReturnType<typeof face> }, next: typeof saved, expected: number) => {
-    const changed = (['front', 'rear'] as const).filter((name) => faceSnapshot(saved[name]) !== faceSnapshot(next[name]));
-    const stored = { front: saved.front.ports, rear: saved.rear.ports };
-    for (const step of planFaceSaves(saved, next, [...changed])) {
-      stored[step.face] = step.ports;
-      const keys = [...stored.front, ...stored.rear].map((item) => String(item.portKey));
-      expect(new Set(keys).size).toBe(keys.length);
-      expect(keys.length).toBeLessThanOrEqual(expected);
-    }
-    expect(stored.front.map((item) => item.portKey)).toEqual(next.front.ports.map((item) => item.portKey));
-    expect(stored.rear.map((item) => item.portKey)).toEqual(next.rear.ports.map((item) => item.portKey));
-  };
+  const assets = (front = 'f', rear = 'r') => ({ front, rear });
 
-  it('moves ports from the smaller face to the larger one without a transient duplicate', () => {
-    replay({ front: face(...range(1, 20)), rear: face(...range(21, 28)) }, { front: face(...range(1, 22)), rear: face(...range(23, 28)) }, 28);
+  it('sends nothing when no face or image changed', () => {
+    expect(buildFacesSave({ front: face(1), rear: face(2) }, { front: face(1), rear: face(2) }, assets(), assets())).toBeNull();
   });
-  it('moves ports from the larger face to the smaller one', () => {
-    replay({ front: face(1, 2), rear: face(...range(3, 28)) }, { front: face(...range(1, 10)), rear: face(...range(11, 28)) }, 28);
+  it('sends both faces together when ports move between them', () => {
+    const body = buildFacesSave({ front: face(1, 2), rear: face(3, 4) }, { front: face(1, 2, 3), rear: face(4) }, assets(), assets());
+    expect(Object.keys(body ?? {})).toEqual(['front', 'rear']);
+    expect(body?.front?.ports.map((item) => item.portKey)).toEqual(['ethernet1/1', 'ethernet1/2', 'ethernet1/3']);
+    expect(body?.rear?.ports.map((item) => item.portKey)).toEqual(['ethernet1/4']);
+    expect(body?.front).not.toHaveProperty('assetId');
   });
-  it('swaps ports between faces with equal counts', () => {
-    replay({ front: face(1, 2, 3), rear: face(4, 5, 6) }, { front: face(1, 2, 6), rear: face(4, 5, 3) }, 6);
+  it('leaves an unchanged face out of the body', () => {
+    const body = buildFacesSave({ front: face(), rear: face(1) }, { front: face(), rear: face(1, 2) }, assets(), assets());
+    expect(body).not.toHaveProperty('front');
+    expect(body?.rear?.ports).toHaveLength(2);
   });
-  it('saves a single changed face as is', () => {
-    expect(planFaceSaves({ front: face(), rear: face(1) }, { front: face(), rear: face(1, 2) }, ['rear'])).toEqual([{ face: 'rear', ports: face(1, 2).ports }]);
+  it('clears an emptied face with null so its image is kept', () => {
+    expect(buildFacesSave({ front: face(1), rear: face(2) }, { front: face(), rear: face(1, 2) }, assets(), assets())).toMatchObject({ front: null });
+  });
+  it('sends the image only when it changed', () => {
+    const body = buildFacesSave({ front: face(1), rear: face() }, { front: face(1), rear: face() }, assets('f', ''), assets('f', 'r2'));
+    expect(body).toEqual({ rear: expect.objectContaining({ assetId: 'r2', ports: [] }) });
   });
 });

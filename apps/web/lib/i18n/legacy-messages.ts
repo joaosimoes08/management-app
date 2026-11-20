@@ -483,6 +483,7 @@ const enUS: LegacyDictionary = {
   'Diminuir zoom': 'Zoom out',
   'Aumentar zoom': 'Zoom in',
   'Ajustar': 'Fit',
+  'Alterado por outra pessoa — recarrega': 'Changed by someone else — reload',
   'Sem imagem frontal': 'No front image',
   'Sem imagem traseira': 'No rear image',
   'Sem imagem': 'No image',

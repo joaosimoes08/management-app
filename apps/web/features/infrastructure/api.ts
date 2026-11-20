@@ -118,6 +118,8 @@ export interface DeviceModelPortLayoutResponse {
   /** Always v2 from the API; a bare face is read as the requested face. */
   portLayout: PortLayoutV2 | PortLayout | null;
   networkPortCount?: number | null;
+  /** Concurrency token: send it back with the atomic faces save. */
+  revision?: string;
 }
 
 const faceQuery = (face: RackFace) => `?face=${face}`;
@@ -134,6 +136,14 @@ export async function getDeviceModelPortLayoutFaces(id: string): Promise<{ respo
 
 export function detectDeviceModelPortLayout(id: string, body: { assetId?: string; portCount?: number | null; imageWidth?: number; imageHeight?: number }, face: RackFace = 'rear'): Promise<PortLayout> {
   return apiFetch<PortLayout>(`/api/v1/device-models/${id}/port-layout/detect${faceQuery(face)}`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+/**
+ * Atomic save of both faces in one transaction. A stale revision is rejected with 409 PORT_LAYOUT_CONFLICT.
+ * Each face: an object replaces it (assetId sets its image), null clears its map and keeps the image, absent leaves it.
+ */
+export function saveDeviceModelPortLayoutFaces(id: string, body: { revision: string; faces: Partial<Record<RackFace, unknown>> }): Promise<DeviceModelPortLayoutResponse & { mapping?: unknown }> {
+  return apiFetch(`/api/v1/device-models/${id}/port-layout/faces`, { method: 'PUT', body: JSON.stringify(body) });
 }
 
 /** Replaces one face of the model layout; the other face is left as stored. */

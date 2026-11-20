@@ -10,6 +10,7 @@ import { useAuth } from '@/lib/auth';
 import { useSiteContext } from '@/lib/site-context';
 import { rememberRecentItem } from '@/lib/recent-items';
 import { apiFetch } from '@/lib/api/client';
+import { ApiRequestError } from '@/lib/api/errors';
 import type { Device, DeviceInterface, DeviceModel, IpAddress, Rack, RackFace, RackPlacementPlan, RoomWithBuilding } from './types';
 import type { BuildingForm, DeviceForm, ModelForm, RackForm } from './forms';
 import type { RackEditDraft } from './types';
@@ -37,10 +38,10 @@ import {
   placeDevice as apiPlaceDevice,
   previewDevicePlacement,
   reorderRacks as apiReorderRacks,
-  saveDeviceModelPortLayout,
+  saveDeviceModelPortLayoutFaces,
   setDeviceModelFaceAsset,
 } from './api';
-import { expectedPortCount, naturalInterfaceCompare, primaryPortFace, RACK_FACES, readInfrastructureContext, writeInfrastructureContext } from './utils';
+import { expectedPortCount, naturalInterfaceCompare, primaryPortFace, readInfrastructureContext, writeInfrastructureContext } from './utils';
 import { BuildingModal } from './components/sites/building-modal';
 import { RoomModal } from './components/sites/room-modal';
 import { RackWorkspace } from './components/rack/rack-workspace';
@@ -50,7 +51,7 @@ import { DeepLinkDeviceLoader } from './components/devices/deep-link-device-load
 import { ModelList } from './components/models/model-list';
 import { InterfaceWorkspace } from './components/models/interface-workspace';
 import { InterfaceEditor } from './components/models/interface-editor';
-import { EMPTY_FACE_LAYOUT, faceSnapshot, planFaceSaves, PortLayoutEditor, type PortLayoutAssetsDraft, type PortLayoutFacesDraft } from './components/models/port-layout-editor';
+import { buildFacesSave, EMPTY_FACE_LAYOUT, PortLayoutEditor, type PortLayoutAssetsDraft, type PortLayoutFacesDraft } from './components/models/port-layout-editor';
 import { AssetList } from './components/assets/asset-list';
 import { AssetUploadModal } from './components/assets/asset-upload-modal';
 import { EntityEditor } from './components/editors/entity-editor';
@@ -103,6 +104,7 @@ export function InfrastructureWorkspace() {
   const [layoutFace, setLayoutFace] = useState<RackFace>('rear');
   const [layoutAssetIds, setLayoutAssetIds] = useState<PortLayoutAssetsDraft>({ front: '', rear: '' });
   const savedLayoutFaces = useRef('');
+  const layoutRevision = useRef('');
   const [layoutSaving, setLayoutSaving] = useState(false);
   const [layoutError, setLayoutError] = useState('');
   const clickRef = useRef({ key: '', at: 0 });
@@ -477,7 +479,8 @@ export function InfrastructureWorkspace() {
   const openLayout = useCallback(async (model: DeviceModel | null) => {
     if (!model) return;
     setLayoutError('');
-    const { faces } = await getDeviceModelPortLayoutFaces(model.id);
+    const { response, faces } = await getDeviceModelPortLayoutFaces(model.id);
+    layoutRevision.current = response.revision ?? '';
     const draft: PortLayoutFacesDraft = { front: faces.front ?? { ...EMPTY_FACE_LAYOUT }, rear: faces.rear ?? { ...EMPTY_FACE_LAYOUT } };
     savedLayoutFaces.current = JSON.stringify(draft);
     setLayoutModel(model);
@@ -526,29 +529,18 @@ export function InfrastructureWorkspace() {
     try {
       const saved = JSON.parse(savedLayoutFaces.current || '{}') as Partial<PortLayoutFacesDraft>;
       const initialAssets = { front: layoutModel.frontAssetId ?? layoutModel.frontAsset?.id ?? '', rear: layoutModel.backAssetId ?? layoutModel.backAsset?.id ?? '' };
-      const changed = RACK_FACES.filter((face) => faceSnapshot(saved[face]) !== faceSnapshot(layoutFaces[face]) || initialAssets[face] !== layoutAssetIds[face]);
-      // PUT replaces one face and the API rejects duplicates or over-counts across faces on each write: see planFaceSaves.
-      const steps = planFaceSaves(saved, layoutFaces, changed.length ? changed : ['rear']);
-      const confirmedAt = new Date().toISOString();
-      for (const { face, ports: stepPorts } of steps) {
-        const layout = layoutFaces[face];
-        const ports = stepPorts.map((port, index) => ({
-          ...port,
-          portKey: String(port.portKey || `ethernet1/${index + 1}`),
-          label: String(port.label || port.portKey || `Porta ${index + 1}`),
-          x: Math.max(0, Math.min(1, Number(port.x) || 0)),
-          y: Math.max(0, Math.min(1, Number(port.y) || 0)),
-          width: Math.max(.005, Math.min(1, Number(port.width) || .03)),
-          height: Math.max(.005, Math.min(1, Number(port.height) || .3)),
-        }));
-        await saveDeviceModelPortLayout(layoutModel.id, { imageWidth: Math.max(1, Math.round(layout.imageWidth ?? 1000)), imageHeight: Math.max(1, Math.round(layout.imageHeight ?? 300)), viewport: layout.viewport ?? null, ports, assetId: layoutAssetIds[face] || null, confirmedAt }, face);
-        savedLayoutFaces.current = JSON.stringify({ ...JSON.parse(savedLayoutFaces.current || '{}'), [face]: { ...layout, ports: stepPorts } });
+      // One transactional PUT for both faces, guarded by the revision read when the editor opened.
+      const faces = buildFacesSave(saved, layoutFaces, initialAssets, layoutAssetIds, new Date().toISOString());
+      if (faces) {
+        const result = await saveDeviceModelPortLayoutFaces(layoutModel.id, { revision: layoutRevision.current, faces });
+        layoutRevision.current = result.revision ?? '';
+        savedLayoutFaces.current = JSON.stringify(layoutFaces);
       }
       setModal('');
       setLayoutFaces(null);
       await invalidateInfrastructure();
     } catch (cause) {
-      setLayoutError(cause instanceof Error ? cause.message : 'Não foi possível guardar o template.');
+      setLayoutError(cause instanceof ApiRequestError && cause.code === 'PORT_LAYOUT_CONFLICT' ? 'Alterado por outra pessoa — recarrega' : cause instanceof Error ? cause.message : 'Não foi possível guardar o template.');
     } finally {
       setLayoutSaving(false);
     }

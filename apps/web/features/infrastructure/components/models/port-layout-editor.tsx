@@ -35,28 +35,51 @@ export function faceSnapshot(layout: PortLayout | undefined): string {
   return layout?.ports?.length ? JSON.stringify(layout) : '[]';
 }
 
-export interface FaceSaveStep { face: RackFace; ports: PortLayoutPort[] }
+/** Body of PUT device-models/:id/port-layout/faces: an object replaces a face, null clears its map, absent leaves it. */
+export interface FaceSaveBody {
+  imageWidth: number;
+  imageHeight: number;
+  viewport: PortLayout['viewport'] | null;
+  ports: PortLayoutPort[];
+  assetId?: string;
+  confirmedAt?: string;
+}
+export type FacesSave = Partial<Record<RackFace, FaceSaveBody | null>>;
 
-const portKeyOf = (port: PortLayoutPort) => String(port.portKey ?? '').trim().toLowerCase();
+const cleanPort = (port: PortLayoutPort, index: number): PortLayoutPort => ({
+  ...port,
+  portKey: String(port.portKey || `ethernet1/${index + 1}`),
+  label: String(port.label || port.portKey || `Porta ${index + 1}`),
+  x: Math.max(0, Math.min(1, Number(port.x) || 0)),
+  y: Math.max(0, Math.min(1, Number(port.y) || 0)),
+  width: Math.max(.005, Math.min(1, Number(port.width) || .03)),
+  height: Math.max(.005, Math.min(1, Number(port.height) || .3)),
+});
 
 /**
- * Order of per-face PUTs so that no intermediate state is rejected by the API,
- * which checks duplicate port keys and the port count across both faces on every write.
- * The face that loses ports goes first, without ports still stored on the other face;
- * the other face follows, and the first face is completed if anything was held back.
+ * Faces to send in one atomic save: only the faces whose ports or image changed.
+ * A face emptied of ports with the same image is sent as null (map removed, image kept);
+ * an image is sent only when it changed to another image. Null when nothing changed.
  */
-export function planFaceSaves(saved: Partial<Record<RackFace, PortLayout>>, next: Record<RackFace, PortLayout>, changed: RackFace[]): FaceSaveStep[] {
-  const count = (layout: PortLayout | undefined) => layout?.ports?.length ?? 0;
-  const delta = (face: RackFace) => count(next[face]) - count(saved[face]);
-  const [first, second] = [...changed].sort((left, right) => delta(left) - delta(right));
-  if (!first) return [];
-  const firstPorts = next[first].ports ?? [];
-  if (!second) return [{ face: first, ports: firstPorts }];
-  const storedOnSecond = new Set((saved[second]?.ports ?? []).map(portKeyOf));
-  const held = firstPorts.filter((port) => !storedOnSecond.has(portKeyOf(port)));
-  const steps: FaceSaveStep[] = [{ face: first, ports: held }, { face: second, ports: next[second].ports ?? [] }];
-  if (held.length !== firstPorts.length) steps.push({ face: first, ports: firstPorts });
-  return steps;
+export function buildFacesSave(saved: Partial<Record<RackFace, PortLayout>>, next: Record<RackFace, PortLayout>, savedAssets: PortLayoutAssetsDraft, assetIds: PortLayoutAssetsDraft, confirmedAt?: string): FacesSave | null {
+  const faces: FacesSave = {};
+  for (const face of RACK_FACES) {
+    const imageChanged = savedAssets[face] !== assetIds[face] && Boolean(assetIds[face]);
+    if (faceSnapshot(saved[face]) === faceSnapshot(next[face]) && !imageChanged) continue;
+    const layout = next[face];
+    const ports = (layout.ports ?? []).map(cleanPort);
+    // An empty face only differs from its snapshot when it had ports: clear the map, keep the image.
+    if (!ports.length && !imageChanged) { faces[face] = null; continue; }
+    faces[face] = {
+      imageWidth: Math.max(1, Math.round(layout.imageWidth ?? 1000)),
+      imageHeight: Math.max(1, Math.round(layout.imageHeight ?? 300)),
+      viewport: layout.viewport ?? null,
+      ports,
+      ...(imageChanged ? { assetId: assetIds[face] } : {}),
+      ...(confirmedAt ? { confirmedAt } : {}),
+    };
+  }
+  return Object.keys(faces).length ? faces : null;
 }
 
 function draftSnapshot(faces: PortLayoutFacesDraft | null, assetIds: PortLayoutAssetsDraft): string {
