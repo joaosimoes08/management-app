@@ -437,17 +437,22 @@ export class InfrastructureService implements OnModuleInit {
     if (!dto.rackId && targetSiteId !== currentSiteId) await this.access.assertSite(user, 'UPDATE', targetSiteId, 'DEVICE', dto.type);
     await this.validateManagementIp(user, dto.managementIpAddressId, targetSiteId);
     const status = !preserveRequestedStatus && dto.rackId && current.status !== 'RETIRED' ? 'ACTIVE' : (dto.status ?? current.status);
-    // Required configurations: core always; a filled feature config must not be cleared (legacy gaps may stay).
+    // Required configurations (updateViolations): core always; placing into a rack = like create; filled configs can't be cleared.
     const before = toDeviceConfigState(current);
     const targetModelId = dto.modelId === undefined ? current.modelId : dto.modelId || null;
     const targetModel = targetModelId === current.modelId ? current.model : targetModelId ? await this.prisma.deviceModel.findUnique({ where: { id: targetModelId }, select: { backAssetId: true, powerPlugCount: true, typicalWatts: true, maxWatts: true } }) : null;
     const targetRackId = dto.rackId === undefined ? current.rackId : dto.rackId || null;
     const planned = { ...before, name: dto.name, type: dto.type, siteId: targetSiteId, rackId: targetRackId, status, backAssetId: dto.backAssetId === undefined ? current.backAssetId : dto.backAssetId, modelBackAssetId: targetModel?.backAssetId ?? null, powerPlugCount: dto.power?.powerPlugCount !== undefined ? dto.power.powerPlugCount : dto.powerPlugCount === undefined ? current.powerPlugCount : dto.powerPlugCount, modelPowerPlugCount: targetModel?.powerPlugCount ?? null };
+    const rackChanged = targetRackId !== current.rackId;
+    const rackPowerMessage = 'Ao colocar o equipamento num bastidor indica as tomadas da PDU (power) ou 0 fichas se não tiver alimentação; as tomadas do bastidor anterior são libertadas.';
     if (enforceRequiredConfig) {
-      const violations = updateViolations(before, planned, ['name', 'type', 'placement', 'rearImage']);
+      // Precheck returns every error at once; power is estimated (a move frees outlets, `power` will plug in) and
+      // re-checked authoritatively inside the transaction.
+      const estimatedPlugs = dto.power ? 1 : rackChanged ? 0 : before.connectedPlugs;
+      const violations = updateViolations(before, { ...planned, connectedPlugs: estimatedPlugs })
+        .map((error) => error.config === 'power' && rackChanged ? requiredConfigError('power', error.reason, rackPowerMessage) : error);
       if (violations.length) throw new RequiredConfigException(violations);
     }
-    const rackChanged = targetRackId !== current.rackId;
     let powerAssignmentsRemoved = 0;
     const item = await this.prisma.$transaction(async (tx) => {
       const data = { ...dto, siteId: targetSiteId, status: status as never, managementIpAddressId: undefined } as any; delete data.managementIpAddressId; delete data.power;
@@ -466,7 +471,7 @@ export class InfrastructureService implements OnModuleInit {
         const violations = updateViolations(before, { ...planned, powerPlugCount: after?.powerPlugCount ?? null, connectedPlugs }, ['power']);
         if (violations.length) throw new RequiredConfigException(violations.map((error) => noFreeOutlet
           ? requiredConfigError('power', 'NO_FREE_OUTLET', 'O bastidor não tem tomadas livres para ligar o equipamento. Liberta uma tomada ou aumenta o número de tomadas da PDU.')
-          : rackChanged && !dto.power ? requiredConfigError('power', 'CLEARED', 'Ao mudar de bastidor as tomadas são libertadas: indica as tomadas no novo bastidor.') : error));
+          : rackChanged && !dto.power ? requiredConfigError('power', error.reason, rackPowerMessage) : error));
       }
       return updated;
     }).catch((error: unknown) => { if (error instanceof HttpException) throw error; throw new ConflictException('Não foi possível atualizar o equipamento e o respetivo IP de gestão'); });

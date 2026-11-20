@@ -597,13 +597,16 @@ test('rack PDU power: defaults, allocation, 409s, cascades, audit, RBAC and watt
   const refused = await request('PATCH', `/api/v1/devices/${dev.sw}`, admin, moveBody);
   assert.equal(refused.statusCode, 400, refused.body);
   assert.equal(json(refused).code, 'REQUIRED_CONFIG_MISSING');
-  assert.deepEqual(json(refused).details.errors.map((e: any) => [e.config, e.reason, e.tab]), [['power', 'CLEARED', 'energia']]);
+  // A move re-places the device: its (legacy) missing rear image is now required too, and filled power can't be dropped
+  assert.deepEqual(json(refused).details.errors.map((e: any) => [e.config, e.reason, e.tab]), [['rearImage', 'MISSING', 'imagens'], ['power', 'CLEARED', 'energia']]);
   assert.equal((await prisma.device.findUnique({ where: { id: dev.sw } }))?.rackId, rackId);
   assert.equal(await prisma.pduOutletAssignment.count({ where: { deviceId: dev.sw } }), 2);
-  // Moving with `power` frees the old outlets and plugs into the new rack in one transaction
+  // With the model's rear image and `power`, the move frees the old outlets and plugs into the new rack in one transaction
+  const swRear = await prisma.assetFile.create({ data: { filename: 'pwr-sw-rear.png', storageKey: 'pwr-sw-rear.png', mimeType: 'image/png', sizeBytes: 1, kind: 'DEVICE_BACK' } });
+  await prisma.deviceModel.update({ where: { id: model.id }, data: { backAssetId: swRear.id } });
   const moved = await request('PATCH', `/api/v1/devices/${dev.sw}`, admin, { ...moveBody, power: {} });
   assert.equal(moved.statusCode, 200, moved.body);
-  assert.deepEqual(json(moved).requiredConfig.missing, ['rearImage']);
+  assert.deepEqual(json(moved).requiredConfig.missing, []);
   const plainPduIds = (await prisma.rackPdu.findMany({ where: { rackId: json(plain).id } })).map((p) => p.id);
   const swOutlets = await prisma.pduOutletAssignment.findMany({ where: { deviceId: dev.sw } });
   assert.ok(swOutlets.length > 0 && swOutlets.every((a) => plainPduIds.includes(a.pduId)));
@@ -631,6 +634,7 @@ test('rack PDU power: defaults, allocation, 409s, cascades, audit, RBAC and watt
 test('required device configs: registry, create validation, legacy updates, grouped bell alerts and affected devices', async () => {
   const admin = 'qa-admin';
   const registry = json(await request('GET', '/api/v1/devices/required-configs', 'qa-readonly'));
+  assert.equal(registry.configs.some((c: any) => 'introducedAt' in c), false);
   assert.deepEqual(registry.configs.map((c: any) => [c.key, c.kind, c.tab]), [['name', 'CORE', 'geral'], ['type', 'CORE', 'geral'], ['placement', 'CORE', 'localizacao'], ['rearImage', 'FEATURE', 'imagens'], ['power', 'FEATURE', 'energia']]);
 
   const rack = json(await request('POST', '/api/v1/racks', admin, { name: 'Required Config Rack', roomId: ids.roomA }));
@@ -657,6 +661,25 @@ test('required device configs: registry, create validation, legacy updates, grou
   assert.equal(created.statusCode, 201, created.body);
   assert.deepEqual(json(created).requiredConfig, { missing: [], missingTabs: [], complete: true });
   assert.ok(await prisma.pduOutletAssignment.count({ where: { deviceId: json(created).id } }) > 0);
+
+  // Site → rack: placing an unracked device is like creating it in the rack (rear image + power required)
+  const unracked = await request('POST', '/api/v1/devices', admin, { name: 'RC Site Only', type: 'SERVER', siteId: ids.siteA });
+  assert.equal(unracked.statusCode, 201, unracked.body);
+  assert.equal(json(unracked).requiredConfig.complete, true);
+  const placeBody = { name: 'RC Site Only', type: 'SERVER', siteId: ids.siteA, rackId: rack.id, rackUnitStart: 14, rackUnitSize: 1 };
+  const placeRefused = await request('PATCH', `/api/v1/devices/${json(unracked).id}`, admin, placeBody);
+  assert.equal(placeRefused.statusCode, 400, placeRefused.body);
+  assert.deepEqual(json(placeRefused).details.errors.map((e: any) => [e.config, e.reason]), [['rearImage', 'MISSING'], ['power', 'MISSING']]);
+  const placeNoPower = await request('PATCH', `/api/v1/devices/${json(unracked).id}`, admin, { ...placeBody, modelId: rcModel.id });
+  assert.equal(placeNoPower.statusCode, 400, placeNoPower.body);
+  assert.deepEqual(json(placeNoPower).details.errors.map((e: any) => [e.config, e.reason, e.tab]), [['power', 'MISSING', 'energia']]);
+  assert.equal((await prisma.device.findUnique({ where: { id: json(unracked).id } }))?.rackId, null);
+  const placed = await request('PATCH', `/api/v1/devices/${json(unracked).id}`, admin, { ...placeBody, modelId: rcModel.id, power: {} });
+  assert.equal(placed.statusCode, 200, placed.body);
+  assert.equal(json(placed).requiredConfig.complete, true);
+  const placedZero = await request('POST', '/api/v1/devices', admin, { name: 'RC Site Only 2', type: 'OTHER', siteId: ids.siteA });
+  const zero = await request('PATCH', `/api/v1/devices/${json(placedZero).id}`, admin, { name: 'RC Site Only 2', type: 'OTHER', siteId: ids.siteA, rackId: rack.id, rackUnitStart: 15, rackUnitSize: 1, modelId: rcModel.id, powerPlugCount: 0 });
+  assert.equal(zero.statusCode, 200, zero.body);
 
   // Legacy device (written before the rule): may be saved while still missing configs, and shows in the bell
   const legacy = await prisma.device.create({ data: { name: 'RC Legacy', type: 'SERVER', siteId: ids.siteA, rackId: rack.id, rackUnitStart: 20, rackUnitSize: 1 } });

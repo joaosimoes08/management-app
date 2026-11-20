@@ -63,25 +63,25 @@ export class DeviceRequiredConfigService {
     return { rack: { roomId: { in: roomIds } }, ...(siteId ? { siteId } : {}), ...(types ? { type: { in: types } } : {}) };
   }
 
-  /** One group per FEATURE config with at least one affected device. Live query: no stored state. */
+  /**
+   * One group per FEATURE config with at least one affected device. Live query: no stored state.
+   * Cost per call: visibleRoomIds once, then one `GROUP BY siteId` per config (both in parallel), plus one lookup
+   * only for a config with exactly one affected device (to deep-link to it).
+   */
   async missingSummary(user: AuthenticatedUser, siteId?: string): Promise<{ items: MissingConfigGroup[] }> {
     const scope = await this.scopeWhere(user, siteId);
     if (!scope) return { items: [] };
-    const items: MissingConfigGroup[] = [];
-    for (const key of FEATURE_CONFIG_KEYS) {
+    const groups = await Promise.all(FEATURE_CONFIG_KEYS.map(async (key): Promise<MissingConfigGroup | null> => {
       const where = { AND: [scope, missingConfigWhere(key)] };
-      const [count, sites, first] = await Promise.all([
-        this.prisma.device.count({ where }),
-        this.prisma.device.findMany({ where, select: { siteId: true }, distinct: ['siteId'], take: 2 }),
-        this.prisma.device.findFirst({ where, select: { id: true, name: true, siteId: true }, orderBy: { name: 'asc' } }),
-      ]);
-      if (!count) continue;
+      const bySite = await this.prisma.device.groupBy({ by: ['siteId'], where, _count: { _all: true } });
+      const count = bySite.reduce((total, row) => total + row._count._all, 0);
+      if (!count) return null;
       const config = requiredConfig(key);
-      const onlySiteId = sites.length === 1 ? sites[0].siteId : null;
-      const device = count === 1 && first ? first : null;
-      items.push({ config: key, count, tab: config.tab, label: config.label, siteId: onlySiteId, device, href: device ? deviceSettingsHref(device, config.tab) : missingConfigListHref(key, onlySiteId) });
-    }
-    return { items };
+      const onlySiteId = bySite.length === 1 ? bySite[0].siteId : null;
+      const device = count === 1 ? await this.prisma.device.findFirst({ where, select: { id: true, name: true, siteId: true } }) : null;
+      return { config: key, count, tab: config.tab, label: config.label, siteId: onlySiteId, device, href: device ? deviceSettingsHref(device, config.tab) : missingConfigListHref(key, onlySiteId) };
+    }));
+    return { items: groups.filter((group): group is MissingConfigGroup => group !== null) };
   }
 
   /** Grouped, persistent bell alerts. Ids are stable per config, so a refresh never duplicates them. */

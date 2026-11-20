@@ -2,7 +2,7 @@
  * Required device configurations — the ONE registry of what a device must have filled in.
  *
  * Adding a new required configuration (e.g. a future feature):
- *   1. Add an entry to DEVICE_REQUIRED_CONFIGS (key, tab, fields, pt-PT labels, `introducedAt`).
+ *   1. Add an entry to DEVICE_REQUIRED_CONFIGS (key, tab, fields, pt-PT labels).
  *   2. Teach `deviceConfigStatus` how to decide `applies` / `satisfied` from a DeviceConfigState.
  *   3. Teach `missingConfigWhere` the same rule as a Prisma filter (the spec checks both agree).
  *   4. If the value comes from a new column, load it in DEVICE_CONFIG_SELECT / toDeviceConfigState.
@@ -10,9 +10,10 @@
  *
  * Rule (docs/device-required-config.md):
  *   - CORE configs are always enforced on create and update.
- *   - FEATURE configs are enforced on create (POST /devices). On update (PATCH /devices/:id, PUT /devices/:id/power)
- *     a device that does not satisfy a feature config may still be saved, but a save that turns a satisfied
- *     feature config into an unsatisfied one is rejected (400 REQUIRED_CONFIG_MISSING, reason CLEARED).
+ *   - FEATURE configs are enforced on create (POST /devices) and whenever a save places the device somewhere the
+ *     config starts to apply (enters a rack, moves to another rack, leaves RETIRED, 0 → n plugs): reason MISSING.
+ *     A legacy device that stays where it is may keep a gap while other fields are edited, but a save that turns
+ *     a satisfied feature config into an unsatisfied one is rejected (reason CLEARED). See updateViolations.
  *   - Unsatisfied FEATURE configs feed the topbar bell as one grouped alert per config.
  */
 import { DEFAULT_POWER_PLUG_COUNT } from '../power/power-defaults';
@@ -36,8 +37,6 @@ export interface DeviceRequiredConfig {
   /** Grouped bell alert title: singular / plural (`{count}` is replaced). FEATURE only. */
   alertTitle?: { one: string; other: string };
   alertDetail?: string;
-  /** ISO date the config became required; devices created before it are "legacy" for it. */
-  introducedAt?: string;
 }
 
 export const DEVICE_SETTINGS_TABS: readonly { key: DeviceSettingsTab; label: string }[] = Object.freeze([
@@ -57,7 +56,6 @@ export const DEVICE_REQUIRED_CONFIGS: readonly DeviceRequiredConfig[] = Object.f
     appliesWhen: 'Equipamentos num bastidor que não estão abatidos. A imagem do modelo conta.',
     alertTitle: { one: '1 dispositivo sem imagem traseira', other: '{count} dispositivos sem imagem traseira' },
     alertDetail: 'A vista traseira do bastidor não os consegue mostrar.',
-    introducedAt: '2026-11-20',
   },
   {
     key: 'power', kind: 'FEATURE', tab: 'energia', fields: ['power', 'powerPlugCount'], label: 'Tomadas de energia',
@@ -65,7 +63,6 @@ export const DEVICE_REQUIRED_CONFIGS: readonly DeviceRequiredConfig[] = Object.f
     appliesWhen: 'Equipamentos num bastidor, não abatidos, com pelo menos 1 ficha.',
     alertTitle: { one: '1 dispositivo sem tomadas de energia configuradas', other: '{count} dispositivos sem tomadas de energia configuradas' },
     alertDetail: 'A carga das PDUs não inclui estes equipamentos.',
-    introducedAt: '2026-11-20',
   },
 ]);
 
@@ -140,16 +137,27 @@ export function createViolations(next: DeviceConfigState): RequiredConfigError[]
 }
 
 /**
- * Update: CORE configs must be satisfied; a FEATURE config may stay unsatisfied (legacy device) but must not go
- * from satisfied to unsatisfied while it still applies. `keys` limits the check (e.g. only 'power').
+ * Update: CORE configs must be satisfied. A FEATURE config that applies after the save and is not satisfied is:
+ *   - CLEARED  when it was satisfied before (a save must never empty a filled config);
+ *   - MISSING  when the requirement starts with this save: it did not apply before (e.g. the device enters a rack
+ *              from a Site, leaves RETIRED, or goes from 0 plugs to some) or the device moves to another rack.
+ *              Placing a device is treated like creating it there;
+ *   - allowed  otherwise: a legacy device already in the same rack keeps its gap while unrelated fields are edited.
+ * `keys` limits the check (e.g. only 'power').
  */
 export function updateViolations(before: DeviceConfigState, after: DeviceConfigState, keys?: DeviceConfigKey[]): RequiredConfigError[] {
   const previous = new Map(deviceConfigStatus(before).map((item) => [item.key, item]));
-  return deviceConfigStatus(after)
-    .filter((item) => !keys || keys.includes(item.key))
-    .filter((item) => item.applies && !item.satisfied)
-    .filter((item) => requiredConfig(item.key).kind === 'CORE' || previous.get(item.key)?.satisfied === true && previous.get(item.key)?.applies === true)
-    .map((item) => requiredConfigError(item.key, requiredConfig(item.key).kind === 'CORE' ? 'MISSING' : 'CLEARED'));
+  const rackChanged = (before.rackId ?? null) !== (after.rackId ?? null);
+  const errors: RequiredConfigError[] = [];
+  for (const item of deviceConfigStatus(after)) {
+    if (keys && !keys.includes(item.key)) continue;
+    if (!item.applies || item.satisfied) continue;
+    if (requiredConfig(item.key).kind === 'CORE') { errors.push(requiredConfigError(item.key, 'MISSING')); continue; }
+    const was = previous.get(item.key)!;
+    if (was.applies && was.satisfied) errors.push(requiredConfigError(item.key, 'CLEARED'));
+    else if (!was.applies || rackChanged) errors.push(requiredConfigError(item.key, 'MISSING'));
+  }
+  return errors;
 }
 
 /** Prisma `where` for devices missing a FEATURE config. Must match deviceConfigStatus (see spec). */
@@ -187,7 +195,7 @@ export function toDeviceConfigState(device: {
 export function requiredConfigRegistry() {
   return {
     tabs: DEVICE_SETTINGS_TABS,
-    configs: DEVICE_REQUIRED_CONFIGS.map(({ key, kind, tab, fields, label, missingMessage, appliesWhen, introducedAt }) => ({ key, kind, tab, fields, label, missingMessage, appliesWhen, introducedAt: introducedAt ?? null })),
+    configs: DEVICE_REQUIRED_CONFIGS.map(({ key, kind, tab, fields, label, missingMessage, appliesWhen }) => ({ key, kind, tab, fields, label, missingMessage, appliesWhen })),
   };
 }
 

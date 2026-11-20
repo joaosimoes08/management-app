@@ -12,11 +12,11 @@ No Prisma migration: everything is computed live from existing columns (`Device.
 {
   "tabs": [{ "key": "geral", "label": "Geral" }, { "key": "localizacao", "label": "Localização" }, { "key": "imagens", "label": "Imagens" }, { "key": "energia", "label": "Energia" }],
   "configs": [
-    { "key": "name",      "kind": "CORE",    "tab": "geral",       "fields": ["name"],                    "label": "Nome", "missingMessage": "…", "appliesWhen": "Sempre.", "introducedAt": null },
+    { "key": "name",      "kind": "CORE",    "tab": "geral",       "fields": ["name"],                    "label": "Nome", "missingMessage": "…", "appliesWhen": "Sempre." },
     { "key": "type",      "kind": "CORE",    "tab": "geral",       "fields": ["type"],                    "label": "Tipo", … },
     { "key": "placement", "kind": "CORE",    "tab": "localizacao", "fields": ["siteId", "rackId"],        "label": "Site ou bastidor", … },
-    { "key": "rearImage", "kind": "FEATURE", "tab": "imagens",     "fields": ["backAssetId"],             "label": "Imagem traseira", "introducedAt": "2026-11-20", … },
-    { "key": "power",     "kind": "FEATURE", "tab": "energia",     "fields": ["power", "powerPlugCount"], "label": "Tomadas de energia", "introducedAt": "2026-11-20", … }
+    { "key": "rearImage", "kind": "FEATURE", "tab": "imagens",     "fields": ["backAssetId"],             "label": "Imagem traseira", … },
+    { "key": "power",     "kind": "FEATURE", "tab": "energia",     "fields": ["power", "powerPlugCount"], "label": "Tomadas de energia", … }
   ]
 }
 ```
@@ -37,7 +37,12 @@ Adding a future config: add a registry entry, then teach `deviceConfigStatus` an
 ## New vs existing device rule
 
 - **Create** (`POST /devices`): every config that applies must be satisfied.
-- **Update** (`PATCH /devices/:id`, `PUT /devices/:id/power`): CORE configs are always enforced. A FEATURE config that is already missing (legacy device) may stay missing, so any other edit still saves. A save that turns a **satisfied** feature config into an unsatisfied one is rejected (`reason: "CLEARED"`). Examples: `backAssetId: null` when the model has no rear image, switching to a model without one, `PUT power { plugs: [] }`, or moving to another rack without sending `power` (the move frees the old outlets).
+- **Update** (`PATCH /devices/:id`, `PUT /devices/:id/power`): CORE configs are always enforced. For a FEATURE config that applies after the save and is not satisfied:
+  - **`CLEARED`** if it was satisfied before. A save must never empty a filled config. Examples: `backAssetId: null` when the model has no rear image, switching to a model without one, `PUT power { plugs: [] }`, or moving a powered device to another rack without `power` (the move frees the old outlets).
+  - **`MISSING`** if the requirement starts with this save. **Placing a device is treated like creating it there.** This covers: entering a rack from a Site (no rack), moving to another rack, leaving `RETIRED` inside a rack, or going from 0 plugs to some. Such a PATCH must bring the rear image (its own `backAssetId` or a model that has one) and `power` (or `powerPlugCount: 0`).
+  - **Allowed** otherwise. A legacy device that stays in the same rack keeps its gap while unrelated fields (name, notes, IP…) are edited, and it keeps showing in the bell until fixed.
+  - Leaving a rack never needs either config.
+- The PATCH precheck returns every error at once. Power is then re-checked inside the transaction, and `NO_FREE_OUTLET` is only known there.
 - Not enforced; affected devices show up in the bell instead: bulk update, drag placement (`PATCH /devices/:id/placement`), CSV import, SNMP onboarding/discovery, "Desligar" (`DELETE /racks/:id/pdus/:pduId/devices/:deviceId`), removing a model's rear image, deleting an asset.
 
 ### Request changes (breaking for the create flow)
@@ -81,6 +86,8 @@ Any violation returns HTTP 400:
 
 - `GET /api/v1/devices/missing-config/summary[?siteId=]` returns `{ items: [{ config, count, tab, label, siteId|null, device|null, href }] }`. There is one item per FEATURE config with count > 0. `siteId` is set when every affected device is in one Site; `device` is set when `count === 1`.
 - `GET /api/v1/devices/missing-config?config=power[&siteId=][&page=1][&pageSize=25]` (max 100) returns `{ config, tab, items: [{ id, name, type, status, siteId, siteName, rackId, rackName, rackUnitStart, model, href }], page, pageSize, total, totalPages }`.
+
+Cost per request: `visibleRoomIds` once, then one `GROUP BY siteId` per FEATURE config (in parallel), plus one device lookup only for a config with exactly 1 affected device. The topbar does this once per `topbar-state` call; if it fails, the error is logged (`DashboardService` warn) and the bell shows the other alerts.
 
 Both are scoped to devices the user can see (rooms) **and** whose type the role can manage. ADMIN and SYSTEMS_OPERATOR see every type; NETWORK_OPERATOR sees SWITCH, ROUTER and FIREWALL; read-only roles see nothing.
 

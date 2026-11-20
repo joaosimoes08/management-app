@@ -33,7 +33,8 @@ describe('registry', () => {
     for (const config of DEVICE_REQUIRED_CONFIGS) {
       assert.ok(tabs.includes(config.tab), config.key);
       assert.ok(config.missingMessage && config.label && config.fields.length);
-      if (config.kind === 'FEATURE') assert.ok(config.alertTitle?.one && config.alertTitle.other.includes('{count}') && config.introducedAt);
+      if (config.kind === 'FEATURE') assert.ok(config.alertTitle?.one && config.alertTitle.other.includes('{count}'));
+      assert.equal('introducedAt' in config, false);
     }
     assert.deepEqual(FEATURE_CONFIG_KEYS, ['rearImage', 'power']);
   });
@@ -95,8 +96,27 @@ describe('new vs existing device rule', () => {
     assert.deepEqual(updateViolations(complete, { ...complete, connectedPlugs: 0 }, ['rearImage']), []);
     assert.deepEqual(updateViolations(complete, { ...complete, connectedPlugs: 0, powerPlugCount: 0 }), []);
     assert.deepEqual(updateViolations(complete, { ...complete, rackId: null, backAssetId: null, connectedPlugs: 0 }), []);
-    const legacy = { ...complete, name: '' };
+    const legacy = { ...complete, name: '', connectedPlugs: 0 };
     assert.deepEqual(updateViolations(legacy, legacy).map((item) => [item.config, item.reason]), [['name', 'MISSING']]);
+  });
+
+  test('placing a device is like creating it there: Site → rack, rack → rack, RETIRED → active, 0 → n plugs', () => {
+    const reasons = (before: DeviceConfigState, after: DeviceConfigState) => updateViolations(before, after).map((item) => [item.config, item.reason]);
+    const unracked = { ...complete, rackId: null, backAssetId: null, connectedPlugs: 0 };
+    // Site → rack without power or rear image: both start to apply → MISSING
+    assert.deepEqual(reasons(unracked, { ...unracked, rackId: 'r1' }), [['rearImage', 'MISSING'], ['power', 'MISSING']]);
+    // ...unless the save provides them, or declares 0 plugs
+    assert.deepEqual(reasons(unracked, { ...unracked, rackId: 'r1', backAssetId: 'a1', connectedPlugs: 2 }), []);
+    assert.deepEqual(reasons(unracked, { ...unracked, rackId: 'r1', modelBackAssetId: 'm1', powerPlugCount: 0 }), []);
+    // A legacy device moving to another rack is placed again → MISSING; staying in its rack keeps the gap
+    const legacy = { ...complete, backAssetId: null, connectedPlugs: 0 };
+    assert.deepEqual(reasons(legacy, { ...legacy, rackId: 'r2' }), [['rearImage', 'MISSING'], ['power', 'MISSING']]);
+    assert.deepEqual(reasons(legacy, { ...legacy, name: 'outro' }), []);
+    // Leaving RETIRED inside a rack, or going from 0 plugs to some, starts the requirement
+    assert.deepEqual(reasons({ ...legacy, status: 'RETIRED' }, { ...legacy, status: 'ACTIVE' }), [['rearImage', 'MISSING'], ['power', 'MISSING']]);
+    assert.deepEqual(reasons({ ...complete, powerPlugCount: 0, connectedPlugs: 0 }, { ...complete, powerPlugCount: 2, connectedPlugs: 0 }), [['power', 'MISSING']]);
+    // Leaving a rack never needs them
+    assert.deepEqual(reasons(legacy, { ...legacy, rackId: null }), []);
   });
 });
 
@@ -104,15 +124,22 @@ describe('grouped bell alerts', () => {
   function service(counts: Record<string, { count: number; sites: string[]; first?: any }>, roomIds = ['room-1']) {
     const calls: any[] = [];
     const which = (where: any) => (JSON.stringify(where).includes('pduOutlets') ? 'power' : 'rearImage');
+    const queries = { groupBy: 0, findFirst: 0, visibleRoomIds: 0 };
     const prisma: any = {
       device: {
-        count: async ({ where }: any) => { calls.push(where); return counts[which(where)]?.count ?? 0; },
-        findMany: async ({ where }: any) => (counts[which(where)]?.sites ?? []).map((siteId) => ({ siteId })),
-        findFirst: async ({ where }: any) => counts[which(where)]?.first ?? null,
+        // Spread the count over the sites: the first site takes the remainder.
+        groupBy: async ({ where }: any) => {
+          queries.groupBy += 1; calls.push(where);
+          const entry = counts[which(where)]; if (!entry?.count) return [];
+          const sites = entry.sites.length ? entry.sites : [null];
+          const each = Math.floor(entry.count / sites.length);
+          return sites.map((siteId, index) => ({ siteId, _count: { _all: index === 0 ? entry.count - each * (sites.length - 1) : each } }));
+        },
+        findFirst: async ({ where }: any) => { queries.findFirst += 1; return counts[which(where)]?.first ?? null; },
       },
     };
-    const access: any = { visibleRoomIds: async () => roomIds };
-    return { subject: new DeviceRequiredConfigService(prisma, access), calls };
+    const access: any = { visibleRoomIds: async () => { queries.visibleRoomIds += 1; return roomIds; } };
+    return { subject: new DeviceRequiredConfigService(prisma, access), calls, queries };
   }
   const admin = { id: 'u', roles: ['ADMIN'] } as any;
 
@@ -127,6 +154,12 @@ describe('grouped bell alerts', () => {
       { id: 'device-missing-config-power', title: '4 dispositivos sem tomadas de energia configuradas', href: '/infraestrutura?tab=devices&missingConfig=power', persistent: true, severity: 'WARNING' },
     ]);
     assert.ok(alerts[0].detail.startsWith('sw-01: '));
+  });
+
+  test('cost: visible rooms once, one grouped query per config, a device lookup only when count is 1', async () => {
+    const { subject, queries } = service({ rearImage: { count: 1, sites: ['s1'], first: { id: 'd1', name: 'sw-01', siteId: 's1' } }, power: { count: 5, sites: ['s1'] } });
+    await subject.topbarAlerts(admin);
+    assert.deepEqual(queries, { groupBy: 2, findFirst: 1, visibleRoomIds: 1 });
   });
 
   test('stable ids (refresh never duplicates) and the alert clears once nothing is missing', async () => {

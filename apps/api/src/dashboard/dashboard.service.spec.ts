@@ -106,3 +106,21 @@ test('topbar state appends the persistent missing-config alerts after the capped
   assert.equal(last.persistent, true);
   assert.equal(result.alerts.filter((item) => item.id === 'device-missing-config-power').length, 1);
 });
+
+test('topbar state stays up when the missing-config source fails, and the failure is logged', async () => {
+  const now = new Date();
+  const service = serviceWith({
+    discoveryJob: { findMany: async () => [] },
+    systemSettings: { findFirst: async () => ({ setupCompleted: true, setupCompletedAt: now }) },
+    roleRequest: { count: async () => 0 }, notification: { findMany: async () => [] },
+  }, { getJobCounts: async () => ({}) });
+  (service as any).requiredConfig = { topbarAlerts: async () => { throw new Error('db down'); } };
+  const { Logger } = await import('@nestjs/common');
+  const original = Logger.prototype.warn; const warnings: string[] = [];
+  Logger.prototype.warn = function (message: unknown) { warnings.push(String(message)); } as any;
+  try {
+    const result = await service.topbarState({ id: 'user', externalId: 'external', username: 'admin', roles: ['ADMIN'] });
+    assert.deepEqual(result.alerts, []);
+  } finally { Logger.prototype.warn = original; }
+  assert.ok(warnings.some((message) => message.includes('db down')), warnings.join('|'));
+});

@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, OnModuleDestroy } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy } from '@nestjs/common';
 import { PrismaClient } from '@simoes/database';
 import { Queue } from 'bullmq';
 import { AuthenticatedUser } from '../auth/auth.service';
@@ -8,6 +8,8 @@ import { DashboardRoleDto, SaveDashboardLayoutDto, SaveDashboardPreferenceDto } 
 import { OperationsService } from '../operations/operations.service';
 import { InventoryQualityService } from '../inventory-quality/inventory-quality.service';
 import { DeviceRequiredConfigService } from '../infrastructure/required-config/device-required-config.service';
+
+const logger = new Logger('DashboardService');
 
 export type TopbarAlert = {
   id: string;
@@ -148,7 +150,7 @@ export class DashboardService implements OnModuleDestroy {
       user ? this.prisma.notification.findMany({ where: { userId: user.id, readAt: null }, orderBy: { createdAt: 'desc' }, take: 20 }) : Promise.resolve([]),
       user ? this.operations.list(user, { pageSize: '8' }) : Promise.resolve({ items: [] }),
       // Grouped "devices missing a required configuration" alerts, computed live (never stored, so never duplicated).
-      user ? this.requiredConfig.topbarAlerts(user).catch(() => []) : Promise.resolve([]),
+      user ? this.requiredConfig.topbarAlerts(user).catch((error: unknown) => { logger.warn(`Alertas de configuração em falta indisponíveis: ${error instanceof Error ? error.message : String(error)}`); return []; }) : Promise.resolve([]),
     ]);
 
     const alerts: TopbarAlert[] = operationalAlerts.items.map((alert) => ({ id: alert.id, severity: alert.severity === 'HIGH' ? 'CRITICAL' : alert.severity, title: alert.title, detail: alert.detail, href: alert.actionHref ?? '/', occurredAt: alert.lastOccurredAt.toISOString() }));
