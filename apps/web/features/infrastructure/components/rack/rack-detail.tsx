@@ -2,15 +2,15 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Edit3, Minus, Plus, RotateCcw, Trash2 } from 'lucide-react';
-import { FIXED_RACK_IMAGE, RACK_BOTH_MIN_WIDTH, RACK_UNITS, readRackView, writeRackView } from '../../utils';
+import { FIXED_RACK_IMAGE, RACK_BOTH_MIN_WIDTH, RACK_IMAGE, RACK_UNITS, readRackView, writeRackView } from '../../utils';
 import { PageToolbarPortal } from '@/components/layout/app-shell';
 import type { Device, Rack, RackEditDraft, RackFace, RackPlacementPlan, RackView } from '../../types';
 import { RackDeviceZoom } from './rack-device-zoom';
 import { RackEquipmentOverlay } from './rack-equipment-overlay';
 import { RackFaceToggle, type RackFaceOption } from './rack-face-toggle';
 
-const RACK_WIDTH = 304;
-const RACK_HEIGHT = 820;
+const RACK_WIDTH = RACK_IMAGE.width;
+const RACK_HEIGHT = RACK_IMAGE.height;
 /** Space between the two faces in "Ambas". */
 const FACE_GAP = 24;
 /** Height of the "Frente"/"Traseira" caption above each rack in "Ambas". */
@@ -63,7 +63,7 @@ export function RackDetail({ rack, onOut, onDevice, onEdit, onDelete, deleting, 
   const [correctedUnit, setCorrectedUnit] = useState('');
   const [adjustingUnit, setAdjustingUnit] = useState(false);
   const stageRef = useRef<HTMLDivElement>(null);
-  const [fitWidth, setFitWidth] = useState(RACK_WIDTH);
+  const [fitWidth, setFitWidth] = useState<number>(RACK_WIDTH);
   const [zoom, setZoom] = useState(1);
 
   useEffect(() => {
@@ -164,16 +164,17 @@ export function RackDetail({ rack, onOut, onDevice, onEdit, onDelete, deleting, 
   const maximumCorrectedUnit = pending ? (rack.units ?? RACK_UNITS) - pending.target.rackUnitSize + 1 : RACK_UNITS;
 
   return <section className="ipam-card rack-view">
-    <div className="rack-zoom-toolbar"><span>{rack.room?.building?.name} / {rack.room?.name} / <strong>{rack.name}</strong></span></div><PageToolbarPortal><div className="button-row rack-detail-actions"><button type="button" className="secondary-button" onClick={onOut}>Voltar aos bastidores</button>{onEdit && <button type="button" className="secondary-button" onClick={() => onEdit(rack)}><Edit3 size={14}/> Editar bastidor</button>}{onDelete && <button type="button" className="secondary-button danger-button" disabled={deleting} onClick={() => onDelete(rack)}><Trash2 size={14}/> {deleting ? 'A eliminar…' : 'Eliminar bastidor'}</button>}</div></PageToolbarPortal>
+    <div className="rack-zoom-toolbar"><span>{rack.room?.building?.name} / {rack.room?.name} / <strong>{rack.name}</strong></span></div><PageToolbarPortal><div className="rack-view-tools" role="group" aria-label="Vista do bastidor">
+      <RackFaceToggle label="Face do bastidor" value={activeView} options={viewOptions} onChange={changeView} />
+      <div className="infra-menu rack-zoom-tools" role="group" aria-label="Zoom do bastidor">
+        <button type="button" aria-label="Diminuir zoom" disabled={zoom <= 1} onClick={() => setZoom((value) => Math.max(1, +(value - .2).toFixed(2)))}><Minus size={15} /></button>
+        <output className="rack-zoom-value" aria-live="polite" aria-label="Zoom do bastidor">{Math.round(zoom * 100)}%</output>
+        <button type="button" aria-label="Aumentar zoom" disabled={zoom >= 2.5} onClick={() => setZoom((value) => Math.min(2.5, +(value + .2).toFixed(2)))}><Plus size={15} /></button>
+        <button type="button" className="rack-zoom-fit" aria-label="Ajustar ao ecrã" title="Ajustar ao ecrã" onClick={() => { setZoom(1); if (stageRef.current) { stageRef.current.scrollTop = 0; stageRef.current.scrollLeft = 0; } }}><RotateCcw size={14} /><span>Ajustar</span></button>
+      </div>
+    </div></PageToolbarPortal><PageToolbarPortal><div className="button-row rack-detail-actions"><button type="button" className="secondary-button" onClick={onOut}>Voltar aos bastidores</button>{onEdit && <button type="button" className="secondary-button" onClick={() => onEdit(rack)}><Edit3 size={14}/> Editar bastidor</button>}{onDelete && <button type="button" className="secondary-button danger-button" disabled={deleting} onClick={() => onDelete(rack)}><Trash2 size={14}/> {deleting ? 'A eliminar…' : 'Eliminar bastidor'}</button>}</div></PageToolbarPortal>
     <div className="panel-heading"><div><span className="section-kicker">BASTIDOR VISUAL</span><h2>{rack.name}</h2><p>{rack.devices?.length ?? 0} equipamentos · Bastidor padrão · 42U{canEdit ? <>{' · '}<span>Arrasta um equipamento para o mover</span></> : null}</p></div></div>
     <div className="rack-stage-wrap">
-      <div className="rack-stage-controls" role="group" aria-label="Controlos do bastidor">
-        <RackFaceToggle label="Face do bastidor" value={activeView} options={viewOptions} onChange={changeView} />
-        <button type="button" className="icon-button subtle" aria-label="Diminuir zoom" disabled={zoom <= 1} onClick={() => setZoom((value) => Math.max(1, +(value - .2).toFixed(2)))}><Minus size={15} /></button>
-        <span aria-live="polite">{Math.round(zoom * 100)}%</span>
-        <button type="button" className="icon-button subtle" aria-label="Aumentar zoom" disabled={zoom >= 2.5} onClick={() => setZoom((value) => Math.min(2.5, +(value + .2).toFixed(2)))}><Plus size={15} /></button>
-        <button type="button" className="secondary-button" onClick={() => { setZoom(1); if (stageRef.current) { stageRef.current.scrollTop = 0; stageRef.current.scrollLeft = 0; } }}><RotateCcw size={14} /> Ajustar</button>
-      </div>
       <div className={`rack-stage${both ? ' rack-stage-both' : ''}`} ref={stageRef} data-view={activeView}>
         <div className="rack-stage-inner" style={{ width: `${both ? rackWidth * 2 + FACE_GAP : rackWidth}px`, height: `${rackHeight + (both ? FACE_CAPTION : 0)}px`, gap: both ? `${FACE_GAP}px` : undefined }}>
           {faces.map((face) => <figure className="rack-face" key={face} data-face={face} style={{ width: `${rackWidth}px` }}>

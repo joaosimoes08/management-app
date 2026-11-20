@@ -1,7 +1,7 @@
 'use client';
 
 import { EquipmentTypeIcon } from '../equipment-type-icon';
-import { deviceFaceImage, RACK_UNITS, RACK_VIEWPORT, rackUnitFromDrop } from '../../utils';
+import { deviceFaceImage, RACK_UNITS, RACK_VIEWPORT, rackUnitBox, rackUnitFromDrop } from '../../utils';
 import type { Rack, RackFace } from '../../types';
 import { AssetImage } from '../asset-image';
 
@@ -48,8 +48,7 @@ export function RackEquipmentOverlay({ rack, onSelect, onDropDevice, draggingDev
       const start = Number(device.rackUnitStart);
       const size = Math.max(1, Number(device.rackUnitSize) || 1);
       const end = start + size - 1;
-      const top = ((RACK_UNITS - end) / RACK_UNITS) * 100;
-      const height = (size / RACK_UNITS) * 100;
+      const { top, height } = rackUnitBox(start, size);
       const visual = deviceFaceImage(device, face);
       return <button type="button" key={device.id} draggable={canEdit} className={`rack-overlay rack-${String(device.type || 'other').toLowerCase()}${draggingDeviceId === device.id ? ' moving' : ''}${pendingDeviceId === device.id ? ' pending-placement' : ''}`} style={{ top: `${top}%`, height: `${height}%` }} onKeyDown={(event) => {
         if (!canEdit) return;

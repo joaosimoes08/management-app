@@ -1,9 +1,43 @@
 import type { AssetFile, Device, DeviceInterface, DeviceModel, PortLayout, PortLayoutFace, PortLayoutPort, PortLayoutV2, RackFace, RackView, Vlan } from './types';
 import { getPublicRuntimeConfig } from '@/lib/runtime-config';
 
-export const FIXED_RACK_IMAGE = '/assets/rack-empty-42u.png';
+export const FIXED_RACK_IMAGE = '/assets/rack-empty-42u.png?v=2';
 export const RACK_UNITS = 42;
-export const RACK_VIEWPORT = { left: 49 / 304, top: 45 / 820, width: 206 / 304, height: 737 / 820 };
+/**
+ * Geometry of FIXED_RACK_IMAGE in its own pixels, measured from the rail labels:
+ * 42 labels at an 18.374 px pitch (largest deviation 0.52 px); the top edge of U42 is at y=18.34
+ * and the bottom edge of U1 at y=790.05. Unit boundaries are evenly spaced between those two edges.
+ */
+export const RACK_IMAGE = { width: 304, height: 838, unitTop: 18.34, unitBottom: 790.05, railLeft: 49, railRight: 255 } as const;
+export const RACK_UNIT_PITCH = (RACK_IMAGE.unitBottom - RACK_IMAGE.unitTop) / RACK_UNITS;
+/** The area holding the 42 units, as fractions of the image. Device positions are percentages of this box. */
+export const RACK_VIEWPORT = {
+  left: RACK_IMAGE.railLeft / RACK_IMAGE.width,
+  top: RACK_IMAGE.unitTop / RACK_IMAGE.height,
+  width: (RACK_IMAGE.railRight - RACK_IMAGE.railLeft) / RACK_IMAGE.width,
+  height: (RACK_IMAGE.unitBottom - RACK_IMAGE.unitTop) / RACK_IMAGE.height,
+};
+
+/** Top and height of a device as a percentage of RACK_VIEWPORT. U42 is at the top, U1 at the bottom. */
+export function rackUnitBox(start: number, size: number): { top: number; height: number } {
+  const units = Math.max(1, Math.floor(size) || 1);
+  const end = start + units - 1;
+  return { top: ((RACK_UNITS - end) / RACK_UNITS) * 100, height: (units / RACK_UNITS) * 100 };
+}
+
+/** The same box in image pixels (used to check alignment against the rail labels). */
+export function rackUnitImageY(start: number, size: number): { top: number; bottom: number } {
+  const box = rackUnitBox(start, size);
+  const span = RACK_IMAGE.unitBottom - RACK_IMAGE.unitTop;
+  return { top: RACK_IMAGE.unitTop + span * box.top / 100, bottom: RACK_IMAGE.unitTop + span * (box.top + box.height) / 100 };
+}
+
+/** The rack unit under a point, from its distance to the top of RACK_VIEWPORT. Same grid as rackUnitBox. */
+export function rackUnitAt(relativeY: number, viewportHeight: number): number {
+  if (!(viewportHeight > 0)) return RACK_UNITS;
+  const fromTop = Math.floor((Math.max(0, Math.min(viewportHeight - 0.001, relativeY)) / viewportHeight) * RACK_UNITS);
+  return RACK_UNITS - fromTop;
+}
 export const EQUIPMENT_TYPES = ['SWITCH', 'ROUTER', 'FIREWALL', 'SERVER', 'STORAGE', 'OTHER'] as const;
 export const PORT_TYPES = ['FAST_ETHERNET', 'ETHERNET', 'GIGABIT_ETHERNET', 'SFP', 'SFP_PLUS', 'QSFP', 'MANAGEMENT', 'CONSOLE', 'FIBRE_CHANNEL', 'OTHER'] as const;
 
@@ -58,8 +92,8 @@ export function naturalInterfaceCompare(a: Pick<DeviceInterface, 'name' | 'portK
 /** Converts a drop event on a rack into a target rack unit (1-based). */
 export function rackUnitFromDrop(event: { currentTarget: HTMLElement; clientY: number; dataTransfer: DataTransfer }, units: number, size: number): number {
   const bounds = event.currentTarget.getBoundingClientRect();
-  const relativeY = Math.max(0, Math.min(bounds.height - 1, event.clientY - bounds.top));
-  const pointerUnit = units - Math.floor((relativeY / bounds.height) * units);
+  // The drop zone is RACK_VIEWPORT, which always shows 42 units; the rack's own size only limits the result.
+  const pointerUnit = rackUnitAt(event.clientY - bounds.top, bounds.height);
   const offsetFromTop = Number(event.dataTransfer.getData('application/x-rack-offset')) || 0;
   const end = pointerUnit + offsetFromTop;
   return Math.max(1, Math.min(units - size + 1, end - size + 1));
