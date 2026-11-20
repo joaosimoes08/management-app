@@ -13,6 +13,7 @@ import {
   Search,
   Server,
   ShieldCheck,
+  AlertTriangle,
   SlidersHorizontal,
   Sparkles,
 } from 'lucide-react';
@@ -24,16 +25,27 @@ import { OperationsPanel } from '@/features/operations/operations-panel';
 import { useSiteContext } from '@/lib/site-context';
 import { useI18n } from '@/lib/i18n';
 import { getPublicRuntimeConfig } from '@/lib/runtime-config';
+import { countProblemsBySeverity, type DashboardSeverity } from './severity';
 
-function MetricCard({ label, value, change, icon: Icon, className = '' }: { label: string; value: string; change?: string; icon: typeof Activity; className?: string }) {
+const severityTiles: Array<{ severity: DashboardSeverity; labelKey: string }> = [
+  { severity: 'CRITICAL', labelKey: 'dashboard.severity.critical' },
+  { severity: 'HIGH', labelKey: 'dashboard.severity.high' },
+  { severity: 'WARNING', labelKey: 'dashboard.severity.warning' },
+  { severity: 'INFO', labelKey: 'dashboard.severity.info' },
+];
+/** Grid widgets in fixed priority order; the remaining widget ids render as KPI tiles. */
+const gridWidgetOrder = ['active-alerts', 'quality-queue', 'service-health', 'recent-changes', 'inventory-summary', 'quick-actions'];
+const kpiWidgetIds = new Set(['running-processes', 'discovery-review', 'snmp-drifts']);
+/** The fit layout is a 3x2 grid on desktop: a half-width widget takes one cell, a full-width one a whole row. */
+const FIT_COLUMNS = 3;
+const FIT_CELLS = FIT_COLUMNS * 2;
+
+function KpiTile({ label, value, detail, icon: Icon, tone = '', ariaLabel }: { label: string; value: string; detail?: string; icon?: typeof Activity; tone?: string; ariaLabel?: string }) {
   return (
-    <article className={`metric-card ${className}`}>
-      <div className="metric-head">
-        <span>{label}</span>
-        <span className="icon-button subtle"><Icon size={16} strokeWidth={1.8} /></span>
-      </div>
-      <div className="metric-value">{value}</div>
-      <div className="metric-foot">{change ? <span className="positive">↗ {change}</span> : <span>Estado atual</span>}{change && <span>vs. último período</span>}</div>
+    <article className={`dashboard-kpi ${tone}`.trim()} aria-label={ariaLabel}>
+      <div className="dashboard-kpi-head"><span>{label}</span>{Icon && <Icon size={14} strokeWidth={1.8} aria-hidden="true" />}</div>
+      <div className="dashboard-kpi-value">{value}</div>
+      {detail && <small>{detail}</small>}
     </article>
   );
 }
@@ -44,11 +56,23 @@ export default function DashboardPage() {
   const { siteId } = useSiteContext();
   const [workspaces, setWorkspaces] = useState<DashboardWorkspace[]>([]);
   const [workspaceId, setWorkspaceId] = useState('');
+  const [workspacesStatus, setWorkspacesStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [workspacesReload, setWorkspacesReload] = useState(0);
   const [layout, setLayout] = useState<DashboardLayout | null>(null);
   const [editingLayout, setEditingLayout] = useState(false);
   const workspace = workspaces.find((item) => item.id === workspaceId);
   const canEditLayout = hasRole('ADMIN') || Boolean(workspace && (hasRole('NETWORK_OPERATOR') && workspace.role === 'NETWORK_OPERATOR' || hasRole('SYSTEMS_OPERATOR') && workspace.role === 'SYSTEMS_OPERATOR'));
-  useEffect(() => { void getDashboardWorkspaces(siteId || undefined).then((response) => { const items = response.items ?? []; setWorkspaces(items); setWorkspaceId((current) => items.some((item) => item.id === current) ? current : (items.find((item) => item.selected)?.id ?? items[0]?.id ?? '')); }).catch(() => undefined); }, [siteId]);
+  useEffect(() => {
+    let cancelled = false;
+    void getDashboardWorkspaces(siteId || undefined).then((response) => {
+      if (cancelled) return;
+      const items = response.items ?? [];
+      setWorkspaces(items);
+      setWorkspaceId((current) => items.some((item) => item.id === current) ? current : (items.find((item) => item.selected)?.id ?? items[0]?.id ?? ''));
+      setWorkspacesStatus('ready');
+    }).catch(() => { if (!cancelled) setWorkspacesStatus('error'); });
+    return () => { cancelled = true; };
+  }, [siteId, workspacesReload]);
   useEffect(() => { if (!workspace) { setLayout(null); return; } void Promise.all([getDashboardLayout(workspace.siteId, workspace.role), saveDashboardPreference(workspace.siteId, workspace.role)]).then(([next]) => setLayout(next)).catch(() => undefined); }, [workspace]);
   const { data: summary = null, refetch: refetchSummary, isPending: summaryPending, isError: summaryError } = useQuery({ queryKey: ['dashboard', 'summary'], queryFn: getDashboardSummary });
   const { data: operational, refetch: refetchOperational, isPending: operationalPending, isError: operationalError } = useQuery({ queryKey: ['dashboard', 'operational', workspace?.siteId, workspace?.role], queryFn: () => getOperationalSummary(workspace!.siteId, workspace!.role), enabled: Boolean(workspace) });
@@ -74,14 +98,16 @@ export default function DashboardPage() {
   const environmentStateLabel = environmentState === 'OPERATIONAL' ? 'Operacional' : environmentState === 'DEGRADED' ? 'Degradado' : environmentState === 'UNAVAILABLE' || environmentError ? 'Indisponível' : 'A carregar';
   const environmentStateTone = environmentState === 'OPERATIONAL' ? 'green' : environmentState === 'UNAVAILABLE' || environmentError ? 'red' : 'orange';
 
-  const refreshDashboard = () => { void refetchSummary(); void refetchOperational(); };
+  const refreshDashboard = () => { void refetchSummary(); if (workspacesStatus === 'error') { setWorkspacesStatus('loading'); setWorkspacesReload((value) => value + 1); } else void refetchOperational(); };
+  /** The alerts/quality cards render only once the workspace is known, so they never flash global or all-site data. */
+  const panelsReady = workspacesStatus === 'ready' && (Boolean(workspace) || workspaces.length === 0);
+  const panelPlaceholder = (kind: 'alerts' | 'quality') => <article className="panel"><div className="panel-heading"><div><h2>{t(kind === 'alerts' ? 'dashboard.alertsTitle' : 'dashboard.qualityTitle')}</h2></div></div><div className="no-data" role="status">{t(workspacesStatus === 'error' ? 'dashboard.workspacesError' : 'dashboard.loading')}</div></article>;
   const visible = (id: string) => layout?.widgets.some((widget) => widget.id === id && widget.visible) ?? true;
-  const gridStyle = (id: string) => {
-    const widget = layout?.widgets.find((item) => item.id === id);
-    if (!widget) return undefined;
-    const order: Record<string, number> = { 'active-alerts': 1, 'quality-queue': 2, 'running-processes': 3, 'discovery-review': 4, 'snmp-drifts': 5, 'service-health': 6, 'quick-actions': 7, 'recent-changes': 8, 'inventory-summary': 9 };
-    return { gridColumn: `span ${widget.w >= 9 ? 2 : 1}`, order: order[id] ?? 10, minWidth: 0 };
-  };
+  const isFull = (id: string) => (layout?.widgets.find((item) => item.id === id)?.w ?? 6) >= 9;
+  const gridStyle = (id: string) => ({ order: gridWidgetOrder.indexOf(id) + 1, minWidth: 0 });
+  const widgetClass = (id: string) => (isFull(id) ? 'dashboard-widget dashboard-widget--full' : 'dashboard-widget');
+  const fitCells = gridWidgetOrder.filter((id) => visible(id)).reduce((cells, id) => cells + (isFull(id) ? FIT_COLUMNS : 1), 0);
+  const fitOverflow = fitCells > FIT_CELLS;
   const updateWidget = (id: string, field: 'x' | 'y' | 'w' | 'h', value: number) => setLayout((current) => current ? ({ ...current, widgets: current.widgets.map((item) => {
     if (item.id !== id) return item;
     const next = Math.max(field === 'w' || field === 'h' ? 1 : 0, Math.floor(value || 0));
@@ -99,36 +125,45 @@ export default function DashboardPage() {
     { label: 'Subnets', value: counts.subnets, color: 'green' },
     { label: 'IPs', value: counts.ips, color: 'orange' },
   ] : [];
+  const problems = countProblemsBySeverity(operational?.alerts?.groups, operational?.quality?.groups);
+  const operationalValue = (value: number | undefined) => operational && value !== undefined ? value.toLocaleString('pt-PT') : operationalError || workspacesStatus === 'error' ? t('dashboard.error') : workspacesStatus === 'ready' && !workspace ? '—' : operationalPending || workspacesStatus === 'loading' ? '…' : '—';
 
   const dashboardToolbar = <label className="dashboard-workspace-control">Workspace<select className="context-toolbar-selector" value={workspaceId} onChange={(event) => setWorkspaceId(event.target.value)}>{workspaces.map((item) => <option value={item.id} key={item.id}>{item.siteName}{item.siteCode ? ` · ${item.siteCode}` : ''} · {item.role}</option>)}</select></label>;
   const dashboardActions = <>{canEditLayout && <button className="secondary-button" onClick={() => setEditingLayout((value) => !value)}>{editingLayout ? t('dashboard.finishEditing') : t('dashboard.editLayout')}</button>}<button className="secondary-button" onClick={refreshDashboard}><RefreshCw size={15} /> Atualizar</button><button className="secondary-button" onClick={() => { window.location.href = '/definicoes'; }}><SlidersHorizontal size={15} /> Definições</button>{canNetworkChange && <button className="primary-button" onClick={() => { window.location.href = '/descoberta?action=new'; }}><Sparkles size={15} /> Nova descoberta</button>}{canNetworkChange && <ToolbarMore><Link className="secondary-button" href="/infraestrutura?action=new"><Server size={16} /> Adicionar equipamento</Link></ToolbarMore>}</>;
 
   return (
     <AppShell section="Dashboard" globalSearch toolbar={dashboardToolbar} actions={dashboardActions}>
-          <div className="dashboard-content">
-            {editingLayout && canEditLayout && layout && <section className="ipam-card dashboard-layout-editor"><div className="panel-heading"><div><span className="section-kicker">PERSONALIZAÇÃO</span><h2>Widgets do dashboard</h2><p className="panel-description">Escolhe o que aparece e quais cartões ocupam a largura completa.</p></div></div><div className="dashboard-layout-options">{layout.widgets.map((widget) => <div className="dashboard-layout-option" key={widget.id}><label><input type="checkbox" checked={widget.visible} onChange={(event) => setLayout((current) => current ? ({ ...current, widgets: current.widgets.map((item) => item.id === widget.id ? { ...item, visible: event.target.checked } : item) }) : current)} /> <strong>{widget.id}</strong></label><label>Largura<select value={widget.w >= 9 ? '12' : '6'} onChange={(event) => { const width = Number(event.target.value); updateWidget(widget.id, 'w', width); updateWidget(widget.id, 'x', 0); }}><option value="6">Metade</option><option value="12">Completa</option></select></label></div>)}</div><button className="primary-button" onClick={() => void saveDashboardLayout(layout).then((saved) => { setLayout(saved); setEditingLayout(false); })}>Guardar layout</button></section>}
-            <section className="hero-row">
-              <div><h1>Bom dia, {displayName}</h1><p>Aqui está o estado atual da sua infraestrutura.</p></div>
+          <div className={`dashboard-content dashboard-fit${fitOverflow || editingLayout ? ' dashboard-fit--scroll' : ''}`}>
+            {editingLayout && canEditLayout && layout && <section className="ipam-card dashboard-layout-editor"><div className="panel-heading"><div><span className="section-kicker">PERSONALIZAÇÃO</span><h2>Widgets do dashboard</h2><p className="panel-description">Escolhe o que aparece e quais cartões ocupam a largura completa.</p></div></div>{fitOverflow && <p className="dashboard-fit-warning" role="status"><AlertTriangle size={15} aria-hidden="true" /> {t('dashboard.fitOverflowWarning')}</p>}<div className="dashboard-layout-options">{layout.widgets.map((widget) => <div className="dashboard-layout-option" key={widget.id}><label><input type="checkbox" checked={widget.visible} onChange={(event) => setLayout((current) => current ? ({ ...current, widgets: current.widgets.map((item) => item.id === widget.id ? { ...item, visible: event.target.checked } : item) }) : current)} /> <strong>{widget.id}</strong></label>{kpiWidgetIds.has(widget.id) ? <span className="dashboard-layout-kpi-note">{t('dashboard.kpiWidget')}</span> : <label>Largura<select value={widget.w >= 9 ? '12' : '6'} onChange={(event) => { const width = Number(event.target.value); updateWidget(widget.id, 'w', width); updateWidget(widget.id, 'x', 0); }}><option value="6">Metade</option><option value="12">Completa</option></select></label>}</div>)}</div><button className="primary-button" onClick={() => void saveDashboardLayout(layout).then((saved) => { setLayout(saved); setEditingLayout(false); })}>Guardar layout</button></section>}
+            {workspacesStatus === 'error' && <p className="dashboard-fit-warning dashboard-load-error" role="alert"><AlertTriangle size={15} aria-hidden="true" /> {t('dashboard.workspacesError')} <button className="text-button" onClick={refreshDashboard}>{t('dashboard.retry')}</button></p>}
+            {workspacesStatus === 'ready' && workspaces.length === 0 && <p className="dashboard-fit-warning" role="status"><AlertTriangle size={15} aria-hidden="true" /> {t('dashboard.noWorkspace')}</p>}
+            <section className="hero-row dashboard-hero">
+              <h1>Bom dia, {displayName}</h1><p>Aqui está o estado atual da sua infraestrutura.</p>
+            </section>
+
+            <section className="dashboard-kpi-strip" aria-label={t('dashboard.kpis')}>
+              <KpiTile label={t('dashboard.assets')} value={operationalValue(operational?.inventory?.devices)} detail={t('dashboard.assetsDetail')} icon={Server} tone="assets" />
+              {severityTiles.map(({ severity, labelKey }) => { const count = problems[severity]; const label = t(labelKey); const detail = t('dashboard.severityDetail', undefined, { alerts: count.alerts, quality: count.quality }); return <KpiTile key={severity} label={label} value={operationalValue(count.total)} detail={detail} tone={`severity ${severity.toLowerCase()}${count.total ? '' : ' is-zero'}`} ariaLabel={operational ? `${label}: ${count.total} — ${detail}` : undefined} />; })}
+              {visible('running-processes') && <KpiTile label={t('dashboard.runningProcesses')} value={operationalValue(operational?.processes.length)} icon={Activity} />}
+              {visible('discovery-review') && <KpiTile label={t('dashboard.discoveryReview')} value={operationalValue(operational?.discovery)} icon={Search} />}
+              {visible('snmp-drifts') && <KpiTile label={t('dashboard.snmpDrifts')} value={operationalValue(operational?.drifts)} icon={Network} />}
             </section>
 
             <section className="dashboard-widget-grid" aria-label={t('dashboard.siteOperations')}>
-              {visible('service-health') && <article className="panel ipam-card health-panel" style={gridStyle('service-health')}>
+              {visible('service-health') && <article className={`panel ipam-card health-panel ${widgetClass('service-health')}`} style={gridStyle('service-health')}>
                 <div className="panel-heading"><div><span className="section-kicker">VISÃO GERAL</span><h2>Saúde dos serviços</h2></div></div>
                 <div className="health-score"><div className="score-ring" style={{ background: operational ? `conic-gradient(#53ae79 0 ${operationalPercent}%, #ecf2ee ${operationalPercent}% 100%)` : '#ecf2ee' }} aria-label={operational ? `${operationalPercent}% dos serviços operacionais` : t('dashboard.servicesUnavailable')}><span>{operational ? operational.services.filter((item) => item.state === 'OPERATIONAL').length : '—'}<span>{operational ? `/${operational.services.length}` : ''}</span></span></div><div className="environment-health-summary"><strong>Estado do ambiente</strong><span className={`status-pill ${environmentStateTone}`} role="status" aria-label={`Estado do ambiente: ${environmentStateLabel}`}>{environmentStateLabel}</span><p>{environmentData ? new Date(environmentData.updatedAt).toLocaleString('pt-PT') : environmentError ? 'Não foi possível carregar o estado dos serviços.' : environmentPending ? 'A carregar estado dos serviços…' : 'Sem estado dos serviços disponível.'}</p></div></div>
-                <div className="system-list">{environmentData?.environment.services.map((service) => { const state = service.state.toUpperCase(); const tone = state === 'OPERATIONAL' ? 'green' : ['UNAVAILABLE', 'DOWN', 'OFFLINE', 'FAILED', 'ERROR'].includes(state) ? 'red' : 'orange'; return <div className="system-row" key={service.key}><span className="system-icon"><Activity size={16} /></span><span className="system-info"><strong>{service.label}</strong><small>{service.key}</small></span><span className={`status-pill ${tone}`}><i />{service.state}</span></div>; })}{environmentPending && <div className="no-data" role="status">A carregar estado dos serviços…</div>}{environmentError && <div className="no-data" role="status">Não foi possível carregar os serviços. Tenta atualizar.</div>}{!environmentPending && !environmentError && environmentData?.environment.services.length === 0 && <div className="no-data" role="status">Sem serviços para apresentar.</div>}</div>
+                <div className="system-list dashboard-scroll" tabIndex={0} role="region" aria-label={t('dashboard.servicesList')}>{environmentData?.environment.services.map((service) => { const state = service.state.toUpperCase(); const tone = state === 'OPERATIONAL' ? 'green' : ['UNAVAILABLE', 'DOWN', 'OFFLINE', 'FAILED', 'ERROR'].includes(state) ? 'red' : 'orange'; return <div className="system-row" key={service.key}><span className="system-icon"><Activity size={16} /></span><span className="system-info"><strong>{service.label}</strong><small>{service.key}</small></span><span className={`status-pill ${tone}`}><i />{service.state}</span></div>; })}{environmentPending && <div className="no-data" role="status">A carregar estado dos serviços…</div>}{environmentError && <div className="no-data" role="status">Não foi possível carregar os serviços. Tenta atualizar.</div>}{!environmentPending && !environmentError && environmentData?.environment.services.length === 0 && <div className="no-data" role="status">Sem serviços para apresentar.</div>}</div>
               </article>}
 
-              {visible('inventory-summary') && <article className="panel ipam-card trend-panel" style={gridStyle('inventory-summary')}>
+              {visible('inventory-summary') && <article className={`panel ipam-card trend-panel ${widgetClass('inventory-summary')}`} style={gridStyle('inventory-summary')}>
                 <div className="panel-heading"><div><span className="section-kicker">INVENTÁRIO</span><h2>Distribuição atual</h2></div><span className="data-badge">dados reais</span></div>
-                <div className="inventory-bars">{inventoryBars.length ? inventoryBars.map((item) => { const max = Math.max(...inventoryBars.map((bar) => bar.value), 1); return <div className="inventory-bar" key={item.label}><div><span>{item.label}</span><strong>{item.value.toLocaleString('pt-PT')}</strong></div><div className="bar-track"><i className={item.color} style={{ width: `${Math.max(item.value / max * 100, item.value ? 4 : 0)}%` }} /></div></div>; }) : <div className="no-data" role="status">{summaryError ? t('dashboard.inventoryLoadError') : t('dashboard.inventoryLoading')}</div>}</div>
+                <div className="inventory-bars dashboard-scroll" tabIndex={0} role="region" aria-label={t('dashboard.inventoryList')}>{inventoryBars.length ? inventoryBars.map((item) => { const max = Math.max(...inventoryBars.map((bar) => bar.value), 1); return <div className="inventory-bar" key={item.label}><div><span>{item.label}</span><strong>{item.value.toLocaleString('pt-PT')}</strong></div><div className="bar-track"><i className={item.color} style={{ width: `${Math.max(item.value / max * 100, item.value ? 4 : 0)}%` }} /></div></div>; }) : <div className="no-data" role="status">{summaryError ? t('dashboard.inventoryLoadError') : t('dashboard.inventoryLoading')}</div>}</div>
               </article>}
-              {visible('recent-changes') && <article className="panel ipam-card activity-panel" style={gridStyle('recent-changes')}><div className="panel-heading"><div><span className="section-kicker">REGISTO</span><h2>Atividade recente</h2></div>{canViewAudit && <button className="text-button" onClick={() => { window.location.href = '/auditoria'; }}>Ver auditoria <ArrowUpRight size={14} /></button>}</div><div className="activity-list" aria-live="polite">{summaryPending ? <div className="no-data">A carregar atividade recente…</div> : summaryError ? <div className="no-data" role="status">Não foi possível carregar a atividade. Tenta atualizar o dashboard.</div> : recentAudit.length ? recentAudit.map((entry) => <div className="activity-row" key={entry.id}><span className="activity-icon dark"><ShieldCheck size={16} /></span><span><strong>{entry.username} · {entry.action}</strong><small>{entry.entityType ?? 'Operação'} · {new Date(entry.createdAt).toLocaleString('pt-PT')}</small></span><ArrowUpRight size={15} className="muted-icon" /></div>) : <div className="no-data">Ainda não existem ações registadas.</div>}</div></article>}
-              {visible('quick-actions') && <article className="panel ipam-card quick-panel" style={gridStyle('quick-actions')}><div className="panel-heading"><div><span className="section-kicker">ATALHOS</span><h2>Acesso rápido</h2></div></div><p className="dashboard-toolbar-hint">Aceda às próximas áreas de operação.</p><nav className="dashboard-quick-links" aria-label="Atalhos para outras áreas">{canConfigureAlerts && <Link className="dashboard-quick-link" href="/alertas"><Bell size={17} /><span>Regras de alertas</span><ArrowUpRight size={15} className="dashboard-quick-link-arrow" /></Link>}<Link className="dashboard-quick-link" href="/qualidade-inventario"><ClipboardCheck size={17} /><span>Qualidade do inventário</span><ArrowUpRight size={15} className="dashboard-quick-link-arrow" /></Link>{canNetworkChange && <Link className="dashboard-quick-link" href="/descoberta?action=new"><Sparkles size={17} /><span>Iniciar descoberta</span><ArrowUpRight size={15} className="dashboard-quick-link-arrow" /></Link>}</nav></article>}
-              {visible('running-processes') && <div style={gridStyle('running-processes')}><MetricCard label={t('dashboard.runningProcesses')} value={operational ? String(operational.processes.length) : operationalError ? 'Erro' : operationalPending ? '…' : '—'} icon={Activity} /></div>}
-              {visible('discovery-review') && <div style={gridStyle('discovery-review')}><MetricCard label={t('dashboard.discoveryReview')} value={operational ? String(operational.discovery) : operationalError ? 'Erro' : operationalPending ? '…' : '—'} icon={Search} /></div>}
-              {visible('snmp-drifts') && <div style={gridStyle('snmp-drifts')}><MetricCard label={t('dashboard.snmpDrifts')} value={operational ? String(operational.drifts) : operationalError ? 'Erro' : operationalPending ? '…' : '—'} icon={Network} /></div>}
-              {visible('active-alerts') && <div className="dashboard-operations-widget" style={gridStyle('active-alerts')}><OperationsPanel showAlerts showQuality={false} /></div>}
-              {visible('quality-queue') && <div className="dashboard-operations-widget" style={gridStyle('quality-queue')}><OperationsPanel showAlerts={false} showQuality /></div>}
+              {visible('recent-changes') && <article className={`panel ipam-card activity-panel ${widgetClass('recent-changes')}`} style={gridStyle('recent-changes')}><div className="panel-heading"><div><span className="section-kicker">REGISTO</span><h2>Atividade recente</h2></div>{canViewAudit && <button className="text-button" onClick={() => { window.location.href = '/auditoria'; }}>Ver auditoria <ArrowUpRight size={14} /></button>}</div><div className="activity-list dashboard-scroll" tabIndex={0} role="region" aria-label={t('dashboard.activityList')} aria-live="polite">{summaryPending ? <div className="no-data">A carregar atividade recente…</div> : summaryError ? <div className="no-data" role="status">Não foi possível carregar a atividade. Tenta atualizar o dashboard.</div> : recentAudit.length ? recentAudit.map((entry) => <div className="activity-row" key={entry.id}><span className="activity-icon dark"><ShieldCheck size={16} /></span><span><strong>{entry.username} · {entry.action}</strong><small>{entry.entityType ?? 'Operação'} · {new Date(entry.createdAt).toLocaleString('pt-PT')}</small></span><ArrowUpRight size={15} className="muted-icon" /></div>) : <div className="no-data">Ainda não existem ações registadas.</div>}</div></article>}
+              {visible('quick-actions') && <article className={`panel ipam-card quick-panel ${widgetClass('quick-actions')}`} style={gridStyle('quick-actions')}><div className="panel-heading"><div><span className="section-kicker">ATALHOS</span><h2>Acesso rápido</h2></div></div><p className="dashboard-toolbar-hint">Aceda às próximas áreas de operação.</p><nav className="dashboard-quick-links dashboard-scroll" aria-label="Atalhos para outras áreas">{canConfigureAlerts && <Link className="dashboard-quick-link" href="/alertas"><Bell size={17} /><span>Regras de alertas</span><ArrowUpRight size={15} className="dashboard-quick-link-arrow" /></Link>}<Link className="dashboard-quick-link" href="/qualidade-inventario"><ClipboardCheck size={17} /><span>Qualidade do inventário</span><ArrowUpRight size={15} className="dashboard-quick-link-arrow" /></Link>{canNetworkChange && <Link className="dashboard-quick-link" href="/descoberta?action=new"><Sparkles size={17} /><span>Iniciar descoberta</span><ArrowUpRight size={15} className="dashboard-quick-link-arrow" /></Link>}</nav></article>}
+              {visible('active-alerts') && <div className={`dashboard-operations-widget ${widgetClass('active-alerts')}`} style={gridStyle('active-alerts')}>{panelsReady ? <OperationsPanel showAlerts showQuality={false} compact siteId={workspace?.siteId} /> : <section className="content-grid operations-compact">{panelPlaceholder('alerts')}</section>}</div>}
+              {visible('quality-queue') && <div className={`dashboard-operations-widget ${widgetClass('quality-queue')}`} style={gridStyle('quality-queue')}>{panelsReady ? <OperationsPanel showAlerts={false} showQuality compact siteId={workspace?.siteId} /> : <section className="content-grid operations-compact">{panelPlaceholder('quality')}</section>}</div>}
             </section>
 
             <footer className="dashboard-footer"><span>COCiber Management Platform · Ambiente local</span><span className="footer-status"><i className={apiOnline === false ? 'offline' : ''} /> {apiOnline === false ? 'API indisponível' : apiOnline === true ? 'API ligada' : 'A verificar API'} · v0.1.0</span></footer>

@@ -1,4 +1,5 @@
 import { apiFetch } from '@/lib/api/client';
+import type { SeverityGroup } from './severity';
 
 export interface DashboardSummary {
   counts: { sites: number; devices: number; vlans: number; subnets: number; ips: number; occupiedIps: number; freeIps: number; applications: number };
@@ -13,7 +14,7 @@ export type DashboardRole = 'ADMIN' | 'NETWORK_OPERATOR' | 'SYSTEMS_OPERATOR' | 
 export interface DashboardWorkspace { id: string; siteId: string; siteName: string; siteCode?: string; role: DashboardRole; selected?: boolean; }
 export interface DashboardWidget { id: string; x: number; y: number; w: number; h: number; visible: boolean; }
 export interface DashboardLayout { siteId: string; role: DashboardRole; revision: number; widgets: DashboardWidget[]; }
-export interface OperationalSummary { alerts: { total: number }; quality: { total: number }; discovery: number; drifts: number; inventory: { sites: number; devices: number; vlans: number; subnets: number; ips: number }; services: Array<{ key: string; label: string; state: string }>; processes: Array<{ id: string; state: string }>; updatedAt: string; }
+export interface OperationalSummary { alerts: { total: number; unread?: number; groups?: SeverityGroup[] }; quality: { total?: number; score?: number; groups?: SeverityGroup[] }; discovery: number; drifts: number; inventory: { sites: number; devices: number; vlans: number; subnets: number; ips: number }; services: Array<{ key: string; label: string; state: string }>; processes: Array<{ id: string; state: string }>; updatedAt: string; }
 export interface DashboardEnvironment { state: 'OPERATIONAL' | 'DEGRADED' | 'UNAVAILABLE'; services: Array<{ key: string; label: string; state: string }>; }
 
 export const getDashboardWorkspaces = (siteId?: string) => apiFetch<{ items: DashboardWorkspace[] }>(`/api/v1/dashboard/workspaces${siteId ? `?siteId=${encodeURIComponent(siteId)}` : ''}`);

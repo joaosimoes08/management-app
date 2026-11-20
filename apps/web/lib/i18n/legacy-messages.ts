@@ -459,6 +459,15 @@ const enUS: LegacyDictionary = {
   'Registar dispositivos, modelos e interfaces.': 'Register devices, models, and interfaces.',
   'Docker, PostgreSQL, Redis, Keycloak e API.': 'Docker, PostgreSQL, Redis, Keycloak, and API.',
   'vs. último período': 'vs. previous period',
+  'Ver tudo': 'View all',
+  'Crítico': 'Critical',
+  'Alto': 'High',
+  'Médio': 'Medium',
+  'Aviso': 'Warning',
+  'Baixo': 'Low',
+  'A carregar alertas…': 'Loading alerts…',
+  'Não foi possível carregar os alertas. Tenta atualizar.': 'Could not load alerts. Try refreshing.',
+  'Sem findings em aberto.': 'No open findings.',
 };
 
 const substitutions: Array<[RegExp, string]> = [
