@@ -28,10 +28,12 @@ so the mismatch is visible at once and an admin who "fixes" it in the editor wou
 
 1. **Back up** the database (below). Do not skip this.
 2. Stop the old app so nobody edits during the switch: `docker compose stop web api snmp`.
-3. Build the new images, then run the schema migration and the data script together, as one one-off container,
-   before the new API or web start:
+3. Point the stack at the new release and pull its images, then run the schema migration and the data script
+   together, as one one-off container, before the new API or web start. Put `APP_IMAGE_TAG=<new tag>` in the `.env`
+   file next to `docker-compose.yml` so step 4 uses the same tag (the compose file has no `build:` sections, so the
+   images come from the registry):
    ```sh
-   docker compose build api web snmp
+   docker compose pull api web
    docker compose run --rm --no-deps api sh -c '
      npx prisma migrate deploy --schema packages/database/prisma/schema.prisma &&
      node apps/api/dist/scripts/migrate-rack-faces.js --dry-run &&
