@@ -83,6 +83,7 @@ describe('RackPduStrip', () => {
   it('shows the used/total and estimated-watts badge with one marker per outlet', () => {
     const { container } = renderStrip();
     expect(container.querySelector('.rack-pdu-badge')).toHaveTextContent('3/32~400 W');
+    expect(container.querySelector('.rack-pdu-art')).toHaveStyle({ backgroundImage: 'url(/assets/pdu-vertical-32.webp)' });
     expect(container.querySelectorAll('.rack-pdu-leds i')).toHaveLength(32);
     expect(container.querySelectorAll('.rack-pdu-leds i[data-used]')).toHaveLength(3);
     expect(screen.getByRole('button', { name: /PDU A \(Rede\): 3 de 32 tomadas em uso/ })).toBeInTheDocument();
@@ -92,7 +93,7 @@ describe('RackPduStrip', () => {
     const { container } = renderStrip({ width: 12 });
     expect(container.querySelector('.rack-pdu')).toHaveClass('rack-pdu-compact');
     expect(container.querySelector('.rack-pdu-thin')).not.toBeNull();
-    expect(container.querySelector('.rack-pdu img')).toBeNull();
+    expect(container.querySelector('.rack-pdu-art')).toBeNull();
   });
 
   it('opens its card on click with devices, outlets, watts and the failover line; Esc closes it', async () => {

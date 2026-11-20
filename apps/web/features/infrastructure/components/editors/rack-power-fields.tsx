@@ -1,7 +1,8 @@
 'use client';
 
 import { useI18n } from '@/lib/i18n';
-import { DEFAULT_PDU_BUDGET_WATTS, DEFAULT_PDU_OUTLETS, defaultPduName } from '../../power';
+import { defaultPduName } from '../../power';
+import { usePowerDefaults } from '../../use-power-defaults';
 import type { PduDraft, RackPowerDraft } from '../../forms';
 import type { PowerConflictDevice, PowerFeedSource, RackPowerMode } from '../../types';
 
@@ -23,6 +24,7 @@ const MODES: { mode: RackPowerMode; key: string; fallback: string }[] = [
 /** Rack form "Alimentação": supplier only (default) or supplier + UPS, with collapsed per-PDU settings. */
 export function RackPowerFields({ value, onChange, blocked, onDisconnectAllUps, disconnecting = false }: RackPowerFieldsProps) {
   const { t } = useI18n();
+  const defaults = usePowerDefaults();
   const sources: PowerFeedSource[] = value.mode === 'SUPPLIER_AND_UPS' ? ['SUPPLIER', 'UPS'] : ['SUPPLIER'];
   const setPdu = (source: PowerFeedSource, patch: Partial<PduDraft>) => {
     const key = source === 'UPS' ? 'ups' : 'supplier';
@@ -45,10 +47,10 @@ export function RackPowerFields({ value, onChange, blocked, onDisconnectAllUps, 
         <div>
           <label htmlFor={`${id}-name`}>{t('power.pduName', 'Nome')}<input id={`${id}-name`} maxLength={80} placeholder={defaultPduName(source)} value={draft.name} onChange={(event) => setPdu(source, { name: event.target.value })} /></label>
           <div className="form-row">
-            <label htmlFor={`${id}-outlets`}>{t('power.pduOutlets', 'Tomadas')}<input id={`${id}-outlets`} type="number" min={1} max={96} required placeholder={String(DEFAULT_PDU_OUTLETS)} value={draft.outletCount} onChange={(event) => setPdu(source, { outletCount: event.target.value })} /></label>
-            <label htmlFor={`${id}-budget`}>{t('power.pduBudget', 'Potência máxima (W)')}<input id={`${id}-budget`} type="number" min={0} max={100000} step={10} placeholder={String(DEFAULT_PDU_BUDGET_WATTS)} value={draft.budgetWatts} onChange={(event) => setPdu(source, { budgetWatts: event.target.value })} /></label>
+            <label htmlFor={`${id}-outlets`}>{t('power.pduOutlets', 'Tomadas')}<input id={`${id}-outlets`} type="number" min={1} max={defaults?.maxPduOutletCount} required={Boolean(defaults)} placeholder={defaults ? String(defaults.pduOutletCount) : ''} value={draft.outletCount} onChange={(event) => setPdu(source, { outletCount: event.target.value })} /></label>
+            <label htmlFor={`${id}-budget`}>{t('power.pduBudget', 'Potência máxima (W)')}<input id={`${id}-budget`} type="number" min={0} max={defaults?.maxWatts} step={10} placeholder={defaults ? String(defaults.pduBudgetWatts) : ''} value={draft.budgetWatts} onChange={(event) => setPdu(source, { budgetWatts: event.target.value })} /></label>
           </div>
-          <p className="form-help">{t('power.pduBudgetHelp', 'Por omissão 3680 W (16 A / 230 V). Os valores são estimativas e nunca bloqueiam a gravação.')}</p>
+          <p className="form-help">{t('power.pduBudgetHelp', 'Por omissão {watts} W. Os valores são estimativas e nunca bloqueiam a gravação.', { watts: defaults?.pduBudgetWatts ?? '…' })}</p>
         </div>
       </details>;
     })}

@@ -99,7 +99,7 @@ export function RackPduStrip({ view, side, width, height, canDisconnect, onDisco
       {compact
         ? <span className="rack-pdu-thin" aria-hidden="true"><span className="rack-pdu-thin-fill" style={{ height: `${fill}%` }} /></span>
         : <>
-          <img src={PDU_IMAGE} alt="" draggable={false} aria-hidden="true" />
+          <span className="rack-pdu-art" style={{ backgroundImage: `url(${PDU_IMAGE})` }} aria-hidden="true" />
           <span className="rack-pdu-leds" aria-hidden="true">{Array.from({ length: view.total }, (_, index) => <i key={index} data-used={usedOutlets.has(index + 1) || undefined} />)}</span>
         </>}
       <span className={`rack-pdu-badge${compact ? ' rack-pdu-badge-compact' : ''}`} aria-hidden="true" data-level={view.level}>

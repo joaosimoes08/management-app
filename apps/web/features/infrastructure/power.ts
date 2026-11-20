@@ -4,27 +4,23 @@ import type { ApiPowerValueSource, Device, DeviceModel, PduConnection, PduOutlet
 export const PDU_IMAGE = '/assets/pdu-vertical-32.webp';
 export const PDU_IMAGE_ASPECT = 95 / 1680;
 
-/** Defaults for a new PDU: 32 outlets on a 16 A / 230 V feed. */
-export const DEFAULT_PDU_OUTLETS = 32;
-export const DEFAULT_PDU_BUDGET_WATTS = 3680;
-/** Plugs assumed when neither the device nor its model says. */
-export const DEFAULT_POWER_PLUGS = 2;
-export const MAX_POWER_PLUGS = 8;
-
-/** Estimated watts by equipment type, used when neither the device nor its model has a value. Editable in one place. */
-export const TYPE_DEFAULT_WATTS: Record<string, number> = {
-  SWITCH: 150,
-  ROUTER: 200,
-  FIREWALL: 200,
-  SERVER: 350,
-  STORAGE: 500,
-  PATCH_PANEL: 0,
-  PASSIVE: 0,
-  OTHER: 100,
-};
-
-/** Share of the budget (or outlets) at which a PDU turns amber. */
-export const PDU_WARN_RATIO = 0.8;
+/**
+ * Power defaults from `GET /api/v1/power/defaults`. The API's `power-defaults.ts` is the only place they are defined:
+ * the UI never hardcodes them. While they load (`null`), forms show no placeholder and badges have no amber tier.
+ */
+export interface PowerDefaults {
+  pduOutletCount: number;
+  pduBudgetWatts: number;
+  maxPduOutletCount: number;
+  powerPlugCount: number;
+  minPowerPlugCount: number;
+  maxPowerPlugCount: number;
+  maxWatts: number;
+  wattsByDeviceType: Record<string, number>;
+  wattsFallback: number;
+  warningRatio: number;
+  criticalRatio: number;
+}
 
 export const FEED_ORDER: PowerFeedSource[] = ['SUPPLIER', 'UPS'];
 
@@ -38,28 +34,31 @@ export function wattsSourceFromApi(source: ApiPowerValueSource | string | null |
 }
 
 /** Plug count of a model when it has one, else the default. */
-export function inheritedPlugCount(model?: Pick<DeviceModel, 'powerPlugCount'> | null): number {
-  return finite(model?.powerPlugCount) ? model.powerPlugCount : DEFAULT_POWER_PLUGS;
+export function inheritedPlugCount(model?: Pick<DeviceModel, 'powerPlugCount'> | null, defaults?: PowerDefaults | null): number | null {
+  if (finite(model?.powerPlugCount)) return model.powerPlugCount;
+  return defaults?.powerPlugCount ?? null;
 }
 
-/** Power plugs of a device: its own value, then the model's, then 2. */
-export function devicePlugCount(device: Pick<Device, 'powerPlugCount' | 'power' | 'model'>): number {
+/** Power plugs of a device: the API's value, its own, the model's, then the default (null while defaults load). */
+export function devicePlugCount(device: Pick<Device, 'powerPlugCount' | 'power' | 'model'>, defaults?: PowerDefaults | null): number | null {
   if (finite(device.power?.plugCount)) return device.power.plugCount;
   if (finite(device.powerPlugCount)) return device.powerPlugCount;
-  return inheritedPlugCount(device.model);
+  return inheritedPlugCount(device.model, defaults);
 }
 
 /** Watts a device gets when it has no value of its own: the model's typical watts, else the type default. */
-export function inheritedWatts(type: string | undefined, model?: Pick<DeviceModel, 'typicalWatts'> | null): { watts: number; source: Exclude<WattsSource, 'manual'> } {
+export function inheritedWatts(type: string | undefined, model?: Pick<DeviceModel, 'typicalWatts'> | null, defaults?: PowerDefaults | null): { watts: number | null; source: Exclude<WattsSource, 'manual'> } {
   if (finite(model?.typicalWatts)) return { watts: model.typicalWatts, source: 'model' };
-  return { watts: TYPE_DEFAULT_WATTS[String(type ?? 'OTHER').toUpperCase()] ?? TYPE_DEFAULT_WATTS.OTHER, source: 'default' };
+  if (!defaults) return { watts: null, source: 'default' };
+  return { watts: defaults.wattsByDeviceType[String(type ?? '').toUpperCase()] ?? defaults.wattsFallback, source: 'default' };
 }
 
 /** Estimated watts of a device and where they come from: manual → model → type default. */
-export function deviceWatts(device: Pick<Device, 'type' | 'estimatedWatts' | 'power' | 'model'>): { watts: number; source: WattsSource } {
+export function deviceWatts(device: Pick<Device, 'type' | 'estimatedWatts' | 'power' | 'model'>, defaults?: PowerDefaults | null): { watts: number; source: WattsSource } {
   if (finite(device.power?.estimatedWatts)) return { watts: device.power.estimatedWatts, source: wattsSourceFromApi(device.power.wattsSource) };
   if (finite(device.estimatedWatts)) return { watts: device.estimatedWatts, source: 'manual' };
-  return inheritedWatts(String(device.type), device.model);
+  const inherited = inheritedWatts(String(device.type), device.model, defaults);
+  return { watts: inherited.watts ?? 0, source: inherited.source };
 }
 
 /** Outlets of a connection as {outletIndex, plugIndex}; bare numbers get plug numbers in order. */
@@ -86,10 +85,10 @@ function plugsByDevice(pdus: RackPdu[]): Map<string, Map<string, number>> {
 }
 
 /** A device's whole estimated load: the API's value when present, else computed from the rack's device list. */
-function connectionFullWatts(connection: PduConnection, devices: Device[]): number {
+function connectionFullWatts(connection: PduConnection, devices: Device[], defaults?: PowerDefaults | null): number {
   if (finite(connection.deviceEstimatedWatts)) return connection.deviceEstimatedWatts;
   const device = devices.find((item) => item.id === connection.deviceId);
-  return device ? deviceWatts(device).watts : 0;
+  return device ? deviceWatts(device, defaults).watts : 0;
 }
 
 export interface PduConnectionView {
@@ -119,14 +118,26 @@ export interface PduView {
 
 export type PowerLevel = 'ok' | 'warn' | 'over';
 
-/** Amber at ≥80% of outlets or budget (normal or failover), red when every outlet is used or the budget is exceeded. */
-export function powerLevel({ used, total, watts, budget, failoverWatts }: { used: number; total: number; watts: number; budget: number | null; failoverWatts?: number | null }): PowerLevel {
+/**
+ * Amber at the defaults' warning ratio of outlets or budget (normal or failover), red when every outlet is used or the
+ * budget is exceeded. Without defaults (still loading) there is no amber tier.
+ */
+export function powerLevel({ used, total, watts, budget, failoverWatts, warningRatio }: { used: number; total: number; watts: number; budget: number | null; failoverWatts?: number | null; warningRatio?: number | null }): PowerLevel {
   const outletRatio = total > 0 ? used / total : 0;
   const wattRatios = budget && budget > 0 ? [watts / budget, (failoverWatts ?? 0) / budget] : [0];
   const wattRatio = Math.max(...wattRatios);
   if (outletRatio >= 1 || wattRatio > 1) return 'over';
-  if (outletRatio >= PDU_WARN_RATIO || wattRatio >= PDU_WARN_RATIO) return 'warn';
+  if (finite(warningRatio) && (outletRatio >= warningRatio || wattRatio >= warningRatio)) return 'warn';
   return 'ok';
+}
+
+const LEVEL_RANK: Record<PowerLevel, number> = { ok: 0, warn: 1, over: 2 };
+const FROM_API: Record<string, PowerLevel> = { ok: 'ok', warning: 'warn', critical: 'over' };
+
+/** The API's own levels (computed with its thresholds), worst of outlets / watts / failover; null when absent. */
+function apiLevel(pdu: RackPdu): PowerLevel | null {
+  if (!pdu.levels) return null;
+  return Object.values(pdu.levels).map((level) => FROM_API[level] ?? 'ok').reduce((worst, level) => (LEVEL_RANK[level] > LEVEL_RANK[worst] ? level : worst), 'ok' as PowerLevel);
 }
 
 /** Default name of a PDU without one. */
@@ -138,7 +149,7 @@ export function defaultPduName(source: PowerFeedSource): string {
  * Everything the strip, its card and the header show for one PDU. API totals win; otherwise a dual-fed device's load is
  * split by its connected plugs, and the failover figure moves each dual-fed device's whole load onto this PDU.
  */
-export function pduView(pdu: RackPdu, rack: Pick<Rack, 'pdus' | 'devices'>): PduView {
+export function pduView(pdu: RackPdu, rack: Pick<Rack, 'pdus' | 'devices'>, defaults?: PowerDefaults | null): PduView {
   const pdus = rack.pdus ?? [pdu];
   const devices = rack.devices ?? [];
   const byDevice = plugsByDevice(pdus);
@@ -146,7 +157,7 @@ export function pduView(pdu: RackPdu, rack: Pick<Rack, 'pdus' | 'devices'>): Pdu
     const outlets = connectionOutlets(connection);
     const perPdu = byDevice.get(connection.deviceId) ?? new Map<string, number>();
     const connectedPlugs = [...perPdu.values()].reduce((total, count) => total + count, 0) || outlets.length || 1;
-    const fullWatts = connectionFullWatts(connection, devices);
+    const fullWatts = connectionFullWatts(connection, devices, defaults);
     const watts = finite(connection.estimatedWattsShare) ? connection.estimatedWattsShare : fullWatts * outlets.length / connectedPlugs;
     return { deviceId: connection.deviceId, deviceName: connection.deviceName, outlets, watts, fullWatts, dualFed: perPdu.size > 1 };
   });
@@ -163,7 +174,7 @@ export function pduView(pdu: RackPdu, rack: Pick<Rack, 'pdus' | 'devices'>): Pdu
     watts,
     budget,
     failoverWatts,
-    level: powerLevel({ used, total: pdu.outletCount, watts, budget, failoverWatts }),
+    level: apiLevel(pdu) ?? powerLevel({ used, total: pdu.outletCount, watts, budget, failoverWatts, warningRatio: defaults?.warningRatio }),
     connections,
   };
 }
@@ -296,7 +307,7 @@ export function withoutPduConnection<T extends Pick<Rack, 'pdus' | 'devices'>>(r
     ...('power' in rack ? { power: null } : {}),
     pdus: rack.pdus.map((pdu) => {
       // On the other feed the device is no longer dual-fed: drop the stale failover figure there too.
-      if (pdu.id !== pduId) return (pdu.connections ?? []).some((connection) => connection.deviceId === deviceId) ? { ...pdu, failoverWatts: undefined } : pdu;
+      if (pdu.id !== pduId) return (pdu.connections ?? []).some((connection) => connection.deviceId === deviceId) ? { ...pdu, failoverWatts: undefined, levels: undefined } : pdu;
       const removed = (pdu.connections ?? []).filter((connection) => connection.deviceId === deviceId);
       if (!removed.length) return pdu;
       const view = pduView(pdu, rack);
@@ -310,6 +321,8 @@ export function withoutPduConnection<T extends Pick<Rack, 'pdus' | 'devices'>>(r
         estimatedWatts: finite(pdu.estimatedWatts) ? Math.max(0, pdu.estimatedWatts - removedWatts) : undefined,
         // The failover figure depends on the other PDU too: let the client recompute it until the API answers.
         failoverWatts: undefined,
+        // The API's levels are stale too: the badge falls back to the local rule until the API answers.
+        levels: undefined,
       };
     }),
   };

@@ -26,6 +26,7 @@ import type {
   VlanListResponse,
 } from './types';
 import { normalizePortLayout, type PortLayoutFaces } from './utils';
+import type { PowerDefaults } from './power';
 
 // ── Access ─────────────────────────────────────────────────────────────────
 
@@ -118,6 +119,11 @@ export function setRackPower(rackId: string, input: RackPowerInput): Promise<Rac
 /** Replaces every plug → PDU/outlet assignment of a device in one go. Plugs left out are "Não ligado". */
 export function setDevicePower(deviceId: string, input: DevicePowerInput): Promise<RackPowerResponse & { unplugged?: unknown[]; warnings?: string[] }> {
   return apiFetch(`/api/v1/devices/${encodeURIComponent(deviceId)}/power`, { method: 'PUT', body: JSON.stringify(input) });
+}
+
+/** PDU / power defaults, defined once in the API (`power-defaults.ts`). */
+export function getPowerDefaults(): Promise<PowerDefaults> {
+  return apiFetch<PowerDefaults>('/api/v1/power/defaults');
 }
 
 /** "Desligar": frees every outlet the device uses on this PDU. */

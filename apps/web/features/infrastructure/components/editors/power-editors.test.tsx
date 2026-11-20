@@ -2,6 +2,8 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { emptyRackPower, type RackPowerDraft } from '../../forms';
 import type { Rack, RackPdu } from '../../types';
+import type { PowerDefaults } from '../../power';
+import { TEST_POWER_DEFAULTS } from '../../__fixtures__/power-defaults';
 import { DevicePowerFields } from './device-power-fields';
 import { DevicePowerStep } from './device-power-step';
 import { RackPowerFields } from './rack-power-fields';
@@ -13,17 +15,34 @@ vi.mock('@/lib/i18n', () => ({
   }),
 }));
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+let mockDefaults: PowerDefaults | null = TEST_POWER_DEFAULTS;
+vi.mock('../../use-power-defaults', () => ({ usePowerDefaults: () => mockDefaults }));
+
+afterEach(() => { cleanup(); vi.restoreAllMocks(); mockDefaults = TEST_POWER_DEFAULTS; });
 
 describe('RackPowerFields', () => {
   it('defaults to "Só rede elétrica" with only the supplier PDU settings, collapsed', () => {
-    const { container } = render(<RackPowerFields value={emptyRackPower()} onChange={vi.fn()} />);
+    const { container } = render(<RackPowerFields value={emptyRackPower(TEST_POWER_DEFAULTS)} onChange={vi.fn()} />);
     expect(screen.getByRole('radio', { name: 'Só rede elétrica' })).toBeChecked();
     const settings = container.querySelectorAll('details.power-pdu-settings');
     expect(settings).toHaveLength(1);
     expect(settings[0]).not.toHaveAttribute('open');
     expect(screen.getByLabelText('Tomadas')).toHaveValue(32);
     expect(screen.getByLabelText('Potência máxima (W)')).toHaveValue(3680);
+  });
+
+  it('takes placeholders and limits from the API defaults, and shows none while they load', () => {
+    const { rerender } = render(<RackPowerFields value={emptyRackPower(null)} onChange={vi.fn()} />);
+    expect(screen.getByLabelText('Tomadas')).toHaveAttribute('placeholder', '32');
+    expect(screen.getByLabelText('Tomadas')).toHaveAttribute('max', '96');
+    expect(screen.getByText(/Por omissão 3680 W/)).toBeInTheDocument();
+    mockDefaults = { ...TEST_POWER_DEFAULTS, pduOutletCount: 48, pduBudgetWatts: 7360 };
+    rerender(<RackPowerFields value={emptyRackPower(mockDefaults)} onChange={vi.fn()} />);
+    expect(screen.getByLabelText('Tomadas')).toHaveValue(48);
+    expect(screen.getByText(/Por omissão 7360 W/)).toBeInTheDocument();
+    mockDefaults = null;
+    rerender(<RackPowerFields value={emptyRackPower(null)} onChange={vi.fn()} />);
+    expect(screen.getByLabelText('Tomadas')).toHaveAttribute('placeholder', '');
   });
 
   it('switches to "Rede + UPS" and shows both PDUs', () => {
@@ -55,6 +74,7 @@ describe('DevicePowerFields', () => {
     render(<DevicePowerFields form={{ type: 'SERVER', modelId: 'm1', powerPlugCount: '', estimatedWatts: '' }} models={models} onChange={vi.fn()} />);
     expect(screen.getByLabelText(/Fontes \/ fichas/)).toHaveAttribute('placeholder', '2');
     expect(screen.getByRole('spinbutton', { name: /Consumo estimado/ })).toHaveAttribute('placeholder', '450');
+    expect(screen.getByLabelText(/Fontes \/ fichas/)).toHaveAttribute('max', '8');
     expect(screen.getByTestId('watts-source')).toHaveTextContent('modelo');
   });
 

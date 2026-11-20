@@ -11,6 +11,7 @@ import { PDU_COMPACT_WIDTH, PDU_THIN_WIDTH, RackPduStrip } from './rack-pdu-stri
 import { RackDeviceZoom } from './rack-device-zoom';
 import { RackEquipmentOverlay } from './rack-equipment-overlay';
 import { RackViewPicker } from './rack-view-picker';
+import { usePowerDefaults } from '../../use-power-defaults';
 import { RackZoomPicker } from './rack-zoom-picker';
 
 const RACK_WIDTH = RACK_IMAGE.width;
@@ -63,8 +64,9 @@ export interface RackDetailProps {
 /** Full 42U view of one rack, including placement preview/confirmation. */
 export function RackDetail({ rack, onOut, onDevice, onEdit, onDelete, deleting, canEdit, onPreviewPlacement, onPlaceDevice, onEditDevice, canEditPower = false, onDisconnectPdu }: RackDetailProps) {
   const { t, locale } = useI18n();
+  const powerDefaults = usePowerDefaults();
   // Supplier PDU left of the racks, UPS PDU right; each is drawn once, also in Ambas.
-  const pdus = useMemo(() => sortedPdus(rack).map((pdu) => pduView(pdu, rack)), [rack]);
+  const pdus = useMemo(() => sortedPdus(rack).map((pdu) => pduView(pdu, rack, powerDefaults)), [rack, powerDefaults]);
   const supplierPdu = pdus.find((view) => view.pdu.source === 'SUPPLIER');
   const upsPdu = pdus.find((view) => view.pdu.source === 'UPS');
   const pduCount = (supplierPdu ? 1 : 0) + (upsPdu ? 1 : 0);

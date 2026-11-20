@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { devicePowerFields, emptyRackPower, rackPowerChanged, rackPowerDraft, rackPowerInput } from './forms';
 import {
-  assignOutlets, defaultPlugRows, deviceWatts, existingPlugRows, formatWatts, nextFreeOutlet, pduView, powerLevel,
+  assignOutlets, defaultPlugRows, deviceWatts, inheritedPlugCount, inheritedWatts, existingPlugRows, formatWatts, nextFreeOutlet, pduView, powerLevel,
   rackPowerTotals, wattsSourceFromApi, withoutPduConnection,
 } from './power';
 import type { Rack, RackPdu } from './types';
+import { TEST_POWER_DEFAULTS as D } from './__fixtures__/power-defaults';
 
 const supplier = (connections: RackPdu['connections'] = [], extra: Partial<RackPdu> = {}): RackPdu => ({ id: 'pdu-s', rackId: 'r', source: 'SUPPLIER', outletCount: 32, budgetWatts: 3680, connections, ...extra });
 const ups = (connections: RackPdu['connections'] = [], extra: Partial<RackPdu> = {}): RackPdu => ({ id: 'pdu-u', rackId: 'r', source: 'UPS', outletCount: 32, budgetWatts: 3680, connections, ...extra });
@@ -51,13 +52,31 @@ describe('power defaults and outlets', () => {
 });
 
 describe('power levels and formatting', () => {
-  it('is amber at 80% and red at 100% of outlets or over budget', () => {
-    expect(powerLevel({ used: 25, total: 32, watts: 0, budget: 3680 })).toBe('ok');
-    expect(powerLevel({ used: 26, total: 32, watts: 0, budget: 3680 })).toBe('warn');
-    expect(powerLevel({ used: 32, total: 32, watts: 0, budget: 3680 })).toBe('over');
-    expect(powerLevel({ used: 1, total: 32, watts: 2944, budget: 3680 })).toBe('warn');
-    expect(powerLevel({ used: 1, total: 32, watts: 3700, budget: 3680 })).toBe('over');
-    expect(powerLevel({ used: 1, total: 32, watts: 3700, budget: null })).toBe('ok');
+  it('is amber at the defaults\' warning ratio and red at 100% of outlets or over budget', () => {
+    const w = D.warningRatio;
+    expect(powerLevel({ used: 25, total: 32, watts: 0, budget: 3680, warningRatio: w })).toBe('ok');
+    expect(powerLevel({ used: 26, total: 32, watts: 0, budget: 3680, warningRatio: w })).toBe('warn');
+    expect(powerLevel({ used: 32, total: 32, watts: 0, budget: 3680, warningRatio: w })).toBe('over');
+    expect(powerLevel({ used: 1, total: 32, watts: 2944, budget: 3680, warningRatio: w })).toBe('warn');
+    expect(powerLevel({ used: 1, total: 32, watts: 3700, budget: 3680, warningRatio: w })).toBe('over');
+    expect(powerLevel({ used: 1, total: 32, watts: 3700, budget: null, warningRatio: w })).toBe('ok');
+    expect(powerLevel({ used: 1, total: 32, watts: 2944, budget: 3680, warningRatio: 0.9 })).toBe('ok');
+  });
+
+  it('has no amber tier before the defaults load, and prefers the API levels', () => {
+    expect(powerLevel({ used: 26, total: 32, watts: 0, budget: 3680 })).toBe('ok');
+    const pdu = supplier([], { levels: { outlets: 'ok', watts: 'warning', failoverWatts: 'ok' } });
+    expect(pduView(pdu, { devices: [], pdus: [pdu] }).level).toBe('warn');
+  });
+
+  it('takes inherited plugs and watts from the API defaults, none while they load', () => {
+    expect(inheritedPlugCount(null, D)).toBe(2);
+    expect(inheritedPlugCount(null, null)).toBeNull();
+    expect(inheritedPlugCount({ powerPlugCount: 1 }, null)).toBe(1);
+    expect(inheritedWatts('server', null, D)).toEqual({ watts: 350, source: 'default' });
+    expect(inheritedWatts('UNKNOWN', null, D)).toEqual({ watts: 100, source: 'default' });
+    expect(inheritedWatts('SERVER', null, null)).toEqual({ watts: null, source: 'default' });
+    expect(inheritedWatts('SERVER', { typicalWatts: 450 }, null)).toEqual({ watts: 450, source: 'model' });
   });
 
   it('formats estimates with "~", 10 W rounding and kW from 1000 W', () => {
@@ -119,9 +138,14 @@ describe('rack power views', () => {
 
 describe('power form helpers', () => {
   it('sends UPS settings only with a UPS, empty name/budget as null', () => {
-    const draft = { ...emptyRackPower(), supplier: { name: ' ', outletCount: '24', budgetWatts: '' } };
+    const draft = { ...emptyRackPower(D), supplier: { name: ' ', outletCount: '24', budgetWatts: '' } };
     expect(rackPowerInput(draft)).toEqual({ mode: 'SUPPLIER_ONLY', supplier: { name: null, outletCount: 24, budgetWatts: null } });
     expect(rackPowerInput({ ...draft, mode: 'SUPPLIER_AND_UPS' }).ups).toEqual({ name: null, outletCount: 32, budgetWatts: 3680 });
+  });
+
+  it('prefills new PDUs from the API defaults, and leaves them empty for the API to fill while loading', () => {
+    expect(emptyRackPower(D).supplier).toEqual({ name: '', outletCount: '32', budgetWatts: '3680' });
+    expect(emptyRackPower(null).supplier).toEqual({ name: '', outletCount: '', budgetWatts: '' });
   });
 
   it('detects power changes against the saved draft', () => {

@@ -1,5 +1,5 @@
 import type { PduSettingsInput, Rack, RackPowerInput, RackPowerMode } from './types';
-import { DEFAULT_PDU_BUDGET_WATTS, DEFAULT_PDU_OUTLETS } from './power';
+import type { PowerDefaults } from './power';
 
 export interface BuildingForm {
   name: string;
@@ -27,12 +27,13 @@ export interface RackForm {
 export interface PduDraft { name: string; outletCount: string; budgetWatts: string }
 export interface RackPowerDraft { mode: RackPowerMode; supplier: PduDraft; ups: PduDraft }
 
-export const emptyPduDraft = (): PduDraft => ({ name: '', outletCount: String(DEFAULT_PDU_OUTLETS), budgetWatts: String(DEFAULT_PDU_BUDGET_WATTS) });
-export const emptyRackPower = (): RackPowerDraft => ({ mode: 'SUPPLIER_ONLY', supplier: emptyPduDraft(), ups: emptyPduDraft() });
+/** A new PDU's settings, prefilled from the API defaults. Without them the fields stay empty and the API fills them in. */
+export const emptyPduDraft = (defaults?: PowerDefaults | null): PduDraft => ({ name: '', outletCount: defaults ? String(defaults.pduOutletCount) : '', budgetWatts: defaults ? String(defaults.pduBudgetWatts) : '' });
+export const emptyRackPower = (defaults?: PowerDefaults | null): RackPowerDraft => ({ mode: 'SUPPLIER_ONLY', supplier: emptyPduDraft(defaults), ups: emptyPduDraft(defaults) });
 
 /** The form's power settings for an existing rack (its PDUs, or the defaults for a PDU it does not have). */
-export function rackPowerDraft(rack: Pick<Rack, 'pdus' | 'powerMode'> | null | undefined): RackPowerDraft {
-  const draft = emptyRackPower();
+export function rackPowerDraft(rack: Pick<Rack, 'pdus' | 'powerMode'> | null | undefined, defaults?: PowerDefaults | null): RackPowerDraft {
+  const draft = emptyRackPower(defaults);
   for (const pdu of rack?.pdus ?? []) {
     const target = pdu.source === 'UPS' ? 'ups' : 'supplier';
     draft[target] = { name: pdu.name ?? '', outletCount: String(pdu.outletCount), budgetWatts: pdu.budgetWatts == null ? '' : String(pdu.budgetWatts) };
