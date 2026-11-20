@@ -1094,7 +1094,15 @@ button { cursor:pointer; }
 .device-image-frame { position:relative; width:min(100%,900px); overflow:visible; background:#eef1f3; }
 .device-image-frame > img,.device-image-frame > .asset-image-placeholder,.device-image-frame > .switch-face-fallback { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
 .device-image-frame > .asset-image-placeholder { display:grid; place-items:center; color:var(--muted); }
-.device-image-frame > .switch-face-fallback { display:grid; place-items:center; gap:6px; color:#334155; background:#e2e8f0; }
+.device-image-frame > .switch-face-fallback { display:grid; place-content:center; place-items:center; gap:6px; box-sizing:border-box; min-height:0; padding:8px 3%; overflow:hidden; color:#334155; background:#e2e8f0; }
+.device-image-frame > .switch-face-fallback > * { min-width:0; max-width:100%; }
+.device-image-frame > .switch-face-fallback--inline { display:flex; flex-wrap:nowrap; align-items:center; justify-content:center; gap:10px; padding-block:4px; }
+.device-image-frame > .switch-face-fallback--inline .equipment-type-icon-large { flex:none; width:auto; height:min(64px,70%); }
+.device-image-frame > .switch-face-fallback strong,.device-image-frame > .switch-face-fallback small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.device-image-frame > .switch-face-fallback:not(.switch-face-fallback--inline)[data-has-ports] > * { opacity:.5; }
+/* Short face with mapped ports: the ports fill the frame, so only the "no image" note stays, in the corner */
+.device-image-frame > .switch-face-fallback--inline[data-has-ports] { align-items:flex-end; justify-content:flex-end; padding:0 1.5% 2px; }
+.device-image-frame > .switch-face-fallback--inline[data-has-ports] > :not(small) { display:none; }
 .device-image-frame .rack-port-hotspot { z-index:3; }
 .device-image-frame .rack-port-hotspot:hover .rack-port-tooltip,.device-image-frame .rack-port-hotspot:focus-visible .rack-port-tooltip { display:block; }
 .rack-focus-loading { position:relative; z-index:1; padding:24px; border-radius:12px; background:#fff; box-shadow:0 18px 50px rgba(15,23,42,.25); }

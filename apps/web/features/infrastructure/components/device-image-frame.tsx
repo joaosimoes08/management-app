@@ -22,13 +22,15 @@ export function DeviceImageFrame({ device, interfaces, face: requestedFace }: De
   const ports = normalizedPortLayoutPorts(device, face);
   const width = Number(layout.imageWidth) || 1000;
   const height = Number(layout.imageHeight) || 300;
+  /** Rack-unit faces are wide and short: lay the no-image placeholder out in one line so it fits the frame. */
+  const shortFace = height / width < 0.3;
   const byPort = (port: { portKey: string }) => interfaces.find((item) => item.portKey === port.portKey || item.name === port.portKey);
   const activeLayoutPort = ports.find((port) => port.portKey === activePort);
   const activeInterface = activeLayoutPort ? byPort(activeLayoutPort) : null;
   const activeVlans = getInterfaceVlans(activeInterface);
 
   return <div className="device-image-frame" data-face={face} style={{ aspectRatio: `${width} / ${height}` }}>
-    {image ? <AssetImage asset={image} alt={`Imagem de ${device.name}`} /> : <div className="switch-face-fallback"><EquipmentTypeIcon type={device.type} alt={`Ícone de ${device.type}`} className="equipment-type-icon-large"/><strong>{device.name}</strong><small>{face === 'rear' ? 'Sem imagem traseira' : 'Sem imagem frontal'}</small></div>}
+    {image ? <AssetImage asset={image} alt={`Imagem de ${device.name}`} /> : <div className={`switch-face-fallback${shortFace ? ' switch-face-fallback--inline' : ''}`} data-has-ports={ports.length > 0 || undefined}><EquipmentTypeIcon type={device.type} alt={`Ícone de ${device.type}`} className="equipment-type-icon-large"/><strong>{device.name}</strong><small>{face === 'rear' ? 'Sem imagem traseira' : 'Sem imagem frontal'}</small></div>}
     {ports.map((port) => {
       const item = byPort(port);
       const allowedVlans = (item?.allowedVlans ?? []).map((x) => x?.vlan?.vlanId ?? x?.vlanId).filter(Boolean);
