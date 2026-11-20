@@ -214,14 +214,20 @@ export class OperationsService implements OnModuleInit, OnModuleDestroy {
     return alert;
   }
 
-  async reconcileSource(source: string, candidates: UpsertOperationalAlert[], scopeSiteId?: string, resolveMissing = true) {
+  /**
+   * resolveKeys: dedup keys whose underlying condition is known to be cleared (e.g. an SNMP
+   * recovery trap). They resolve through the same path as stale alerts, even when a capped
+   * candidate list turns resolveMissing off.
+   */
+  async reconcileSource(source: string, candidates: UpsertOperationalAlert[], scopeSiteId?: string, resolveMissing = true, resolveKeys: string[] = []) {
     const activeKeys = new Set(candidates.map((candidate) => candidate.dedupKey));
     for (const candidate of candidates) {
       const existing = await this.prisma.operationalAlert.findUnique({ where: { dedupKey: candidate.dedupKey } });
       if (!existing || existing.status === 'RESOLVED') await this.upsert(candidate);
       else await this.prisma.operationalAlert.update({ where: { id: existing.id }, data: { severity: candidate.severity, title: candidate.title, detail: candidate.detail, actionHref: candidate.actionHref, lastOccurredAt: new Date() } });
     }
-    const stale = resolveMissing ? await this.prisma.operationalAlert.findMany({ where: { source, status: { not: 'RESOLVED' }, ...(scopeSiteId ? { siteId: scopeSiteId } : {}), ...(activeKeys.size ? { dedupKey: { notIn: [...activeKeys] } } : {}) }, select: { id: true, siteId: true } }) : [];
+    const cleared = resolveKeys.filter((key) => !activeKeys.has(key));
+    const stale = !resolveMissing && cleared.length ? await this.prisma.operationalAlert.findMany({ where: { source, status: { not: 'RESOLVED' }, ...(scopeSiteId ? { siteId: scopeSiteId } : {}), dedupKey: { in: cleared } }, select: { id: true, siteId: true } }) : resolveMissing ? await this.prisma.operationalAlert.findMany({ where: { source, status: { not: 'RESOLVED' }, ...(scopeSiteId ? { siteId: scopeSiteId } : {}), ...(activeKeys.size ? { dedupKey: { notIn: [...activeKeys] } } : {}) }, select: { id: true, siteId: true } }) : [];
     if (stale.length) {
       const now = new Date();
       await this.prisma.operationalAlert.updateMany({ where: { id: { in: stale.map(({ id }) => id) } }, data: { status: 'RESOLVED', resolvedAt: now, resolutionReason: 'Resolvido automaticamente pela reconciliação.' } });

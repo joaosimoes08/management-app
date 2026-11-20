@@ -34,6 +34,7 @@ describe('SNMP trap catalog', () => {
     const oids = TRAP_CATALOG.map((entry) => entry.oid);
     assert.equal(new Set(oids).size, oids.length, 'duplicate OID in catalog');
     assert.equal(TRAP_CATALOG.length, Object.keys(MIB_VERIFIED).length);
+    assert.equal(TRAP_CATALOG.length, 51);
     for (const entry of TRAP_CATALOG) {
       assert.equal(entry.oid, MIB_VERIFIED[entry.name], `${entry.mib}::${entry.name}`);
       assert.match(entry.oid, /^1\.3\.6\.1\.(4\.1\.9\.9|6\.3\.1\.1\.5)\./);

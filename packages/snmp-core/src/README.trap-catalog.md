@@ -1,6 +1,6 @@
 # SNMP trap catalog (Cisco Catalyst 9300)
 
-`trap-catalog.ts` maps notification OIDs to `{ mib, name, category, severity, label, clearScope }`,
+`trap-catalog.ts` maps 51 notification OIDs (5 standard SNMPv2/IF-MIB, 46 Cisco) to `{ mib, name, category, severity, label, clearScope }`,
 decodes the key varbinds into a readable summary, and gives problem/recovery pairs a shared
 clear key. The SNMP worker stores the decoded category and severity on `SnmpTrapEvent`; the
 API operations reconciler turns WARNING+ traps into operational alerts and leaves out problems
@@ -48,10 +48,10 @@ SNMP SET stays disabled; trap reception needs only TRAP-purpose credentials, nev
 | ciscoEnvMonShutdownNotification | CRITICAL | — |
 | EnvMon fan / supply / temperature / voltage (notification and status change) | HIGH, INFO when the state varbind is `normal(1)` | a status change with state `normal` for the same EnvMon index |
 | entSensorThresholdNotification | HIGH | — (no recovery notification in the MIB; ages out after 24 h) |
-| cefcModuleStatusChange | HIGH, INFO when `ok(2)` | `ok` for the same entPhysicalIndex |
-| cefcPowerStatusChange | HIGH, INFO when `on(2)` | `on`, or cefcFRUInserted, for the same entPhysicalIndex |
-| cefcFRURemoved | HIGH | cefcFRUInserted / power `on` for the same entPhysicalIndex |
-| cefcFanTrayStatusChange | HIGH, INFO when `up(2)` | `up` for the same entPhysicalIndex |
+| cefcModuleStatusChange | HIGH, INFO when `ok(2)` | module status `ok` for the same entPhysicalIndex (scope `fruModule`) |
+| cefcPowerStatusChange | HIGH, INFO when `on(2)` | power status `on` for the same entPhysicalIndex (scope `fruPower`) |
+| cefcFRURemoved | HIGH | cefcFRUInserted for the same entPhysicalIndex (scope `fruPresence`) |
+| cefcFanTrayStatusChange | HIGH, INFO when `up(2)` | fan tray `up` for the same entPhysicalIndex (scope `fruFanTray`) |
 | cefcUnrecognizedFRU | WARNING | — |
 | cswStackMemberRemoved | HIGH | cswStackNewMember for the same switch number |
 | cswStackPortChange | WARNING, INFO when `up(1)` | `up` for the same stack-port ifIndex |
@@ -63,6 +63,20 @@ SNMP SET stays disabled; trap reception needs only TRAP-purpose credentials, nev
 | coldStart / authenticationFailure | WARNING / CRITICAL (unchanged) | — |
 | linkUp, warmStart, FRU inserted, new member, CPU falling, config, mem buffer, PSU output mode | INFO | — |
 | StackPower notifications (`.9.9.500.0.0.7`–`.22`) | INFO, never alert | — |
+
+Clear scopes never cross condition families: a module `ok` does not clear a power or fan-tray
+failure on the same entPhysicalIndex, and an insert does not clear a power-off. EnvMon fan, supply,
+temperature and voltage use separate scopes (`envFan`, `envSupply`, `envTemperature`, `envVoltage`).
+
+### Ordering and the 100-trap cap
+
+- A recovery clears a problem only if it happened at or after it. When both traps carry `sysUpTime.0`
+  and the uptime delta matches the receive delta within 5 minutes (same boot), uptime decides, so
+  reordered UDP delivery is handled; otherwise (reboot or counter wrap in between) `receivedAt` decides.
+- The reconciler still builds candidates from the newest 100 WARNING+ traps. Independently, it loads
+  every open `SNMP_TRAP` alert's trap, finds later recoveries and passes those alert keys to
+  `reconcileSource(…, resolveKeys)`, so clears resolve even when more than 100 traps keep the
+  stale-sweep off.
 
 ## OID notes from the MIB check
 

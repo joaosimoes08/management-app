@@ -18,7 +18,7 @@ export type TrapSeverity = 'CRITICAL' | 'HIGH' | 'WARNING' | 'INFO';
 export type StoredVarbind = { oid: string; type?: number; value: unknown };
 
 /** How a trap identifies the thing it is about, so a recovery can resolve the matching problem. */
-export type TrapClearScope = 'interface' | 'cpu' | 'entity' | 'stackMember' | 'stackPort' | 'stackRing' | 'envFan' | 'envSupply' | 'envTemperature' | 'envVoltage';
+export type TrapClearScope = 'interface' | 'cpu' | 'fruModule' | 'fruPower' | 'fruFanTray' | 'fruPresence' | 'stackMember' | 'stackPort' | 'stackRing' | 'envFan' | 'envSupply' | 'envTemperature' | 'envVoltage';
 
 export type TrapCatalogEntry = {
   oid: string;
@@ -74,12 +74,12 @@ export const TRAP_CATALOG: readonly TrapCatalogEntry[] = [
   { oid: `${SENSOR}.1`, mib: 'CISCO-ENTITY-SENSOR-MIB', name: 'entSensorThresholdNotification', category: 'SENSOR_THRESHOLD', severity: 'HIGH', label: 'Limiar de sensor ultrapassado' },
 
   // CISCO-ENTITY-FRU-CONTROL-MIB  cefcMIBNotifications ::= { 9.9.117 2 0 }
-  { oid: `${FRU}.1`, mib: 'CISCO-ENTITY-FRU-CONTROL-MIB', name: 'cefcModuleStatusChange', category: 'FRU_MODULE', severity: 'HIGH', label: 'Falha de módulo', recoveredLabel: 'Módulo operacional', clearScope: 'entity' },
-  { oid: `${FRU}.2`, mib: 'CISCO-ENTITY-FRU-CONTROL-MIB', name: 'cefcPowerStatusChange', category: 'FRU_POWER', severity: 'HIGH', label: 'Falha de alimentação do componente', recoveredLabel: 'Alimentação do componente reposta', clearScope: 'entity' },
-  { oid: `${FRU}.3`, mib: 'CISCO-ENTITY-FRU-CONTROL-MIB', name: 'cefcFRUInserted', category: 'FRU_INSERTED', severity: 'INFO', label: 'Componente inserido', clearScope: 'entity', clears: true },
-  { oid: `${FRU}.4`, mib: 'CISCO-ENTITY-FRU-CONTROL-MIB', name: 'cefcFRURemoved', category: 'FRU_REMOVED', severity: 'HIGH', label: 'Componente removido', clearScope: 'entity' },
+  { oid: `${FRU}.1`, mib: 'CISCO-ENTITY-FRU-CONTROL-MIB', name: 'cefcModuleStatusChange', category: 'FRU_MODULE', severity: 'HIGH', label: 'Falha de módulo', recoveredLabel: 'Módulo operacional', clearScope: 'fruModule' },
+  { oid: `${FRU}.2`, mib: 'CISCO-ENTITY-FRU-CONTROL-MIB', name: 'cefcPowerStatusChange', category: 'FRU_POWER', severity: 'HIGH', label: 'Falha de alimentação do componente', recoveredLabel: 'Alimentação do componente reposta', clearScope: 'fruPower' },
+  { oid: `${FRU}.3`, mib: 'CISCO-ENTITY-FRU-CONTROL-MIB', name: 'cefcFRUInserted', category: 'FRU_INSERTED', severity: 'INFO', label: 'Componente inserido', clearScope: 'fruPresence', clears: true },
+  { oid: `${FRU}.4`, mib: 'CISCO-ENTITY-FRU-CONTROL-MIB', name: 'cefcFRURemoved', category: 'FRU_REMOVED', severity: 'HIGH', label: 'Componente removido', clearScope: 'fruPresence' },
   { oid: `${FRU}.5`, mib: 'CISCO-ENTITY-FRU-CONTROL-MIB', name: 'cefcUnrecognizedFRU', category: 'FRU_UNRECOGNIZED', severity: 'WARNING', label: 'Componente não reconhecido' },
-  { oid: `${FRU}.6`, mib: 'CISCO-ENTITY-FRU-CONTROL-MIB', name: 'cefcFanTrayStatusChange', category: 'FRU_FAN_TRAY', severity: 'HIGH', label: 'Falha de ventoinha', recoveredLabel: 'Ventoinha operacional', clearScope: 'entity' },
+  { oid: `${FRU}.6`, mib: 'CISCO-ENTITY-FRU-CONTROL-MIB', name: 'cefcFanTrayStatusChange', category: 'FRU_FAN_TRAY', severity: 'HIGH', label: 'Falha de ventoinha', recoveredLabel: 'Ventoinha operacional', clearScope: 'fruFanTray' },
   { oid: `${FRU}.7`, mib: 'CISCO-ENTITY-FRU-CONTROL-MIB', name: 'cefcPowerSupplyOutputChange', category: 'FRU_PSU_OUTPUT', severity: 'INFO', label: 'Modo de saída da fonte alterado' },
 
   // CISCO-STACKWISE-MIB  cswMIBNotifications ::= { ciscoStackWiseMIBNotifs(9.9.500.0) 0 }
@@ -461,7 +461,7 @@ export function decodeTrap(trapOid: string | null | undefined, varbinds: unknown
       break;
   }
 
-  if (!subject && index && entry.clearScope === 'entity') subject = `entPhysicalIndex ${index}`;
+  if (!subject && index && entry.clearScope?.startsWith('fru')) subject = `entPhysicalIndex ${index}`;
   if (recovered) severity = 'INFO';
   const isClear = Boolean(entry.clears) || recovered;
   const label = recovered && entry.recoveredLabel ? entry.recoveredLabel : entry.label;

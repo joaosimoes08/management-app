@@ -3,8 +3,7 @@ import { PrismaClient } from '@simoes/database';
 import { Queue } from 'bullmq';
 import { AlertSeverityDto, UpsertOperationalAlert } from './dto';
 import { OperationsService } from './operations.service';
-import { RECOVERY_CAPABLE_TRAP_OIDS } from '@simoes/snmp-core';
-import { trapAlertCandidates } from './trap-alerts';
+import { collectTrapAlerts } from './trap-alerts';
 
 @Injectable()
 export class OperationsReconcilerService implements OnModuleInit, OnModuleDestroy {
@@ -23,11 +22,11 @@ export class OperationsReconcilerService implements OnModuleInit, OnModuleDestro
     const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const driftCutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const redis = await this.queue.getJobCounts('waiting', 'active', 'failed').then(() => true).catch(() => false);
-    const [failedDiscovery, pendingDiscovery, failedSnmp, traps, drifts] = await Promise.all([
+    const [failedDiscovery, pendingDiscovery, failedSnmp, trapAlerts, drifts] = await Promise.all([
       this.prisma.discoveryJob.findMany({ where: { status: 'FAILED', createdAt: { gte: cutoff } }, include: { subnet: { select: { siteId: true, cidr: true } } }, orderBy: { createdAt: 'desc' }, take: 101 }),
       this.prisma.discoveryJob.findMany({ where: { results: { some: { status: 'PENDING' } } }, include: { subnet: { select: { siteId: true } }, _count: { select: { results: { where: { status: 'PENDING' } } } } }, orderBy: { createdAt: 'desc' }, take: 101 }),
       this.prisma.snmpJob.findMany({ where: { status: 'FAILED', createdAt: { gte: cutoff } }, include: { device: { select: { siteId: true, name: true } } }, orderBy: { createdAt: 'desc' }, take: 101 }),
-      this.prisma.snmpTrapEvent.findMany({ where: { receivedAt: { gte: cutoff }, severity: { in: ['CRITICAL', 'HIGH', 'WARNING'] } }, include: { device: { select: { siteId: true, name: true } }, enrollment: { select: { siteId: true } } }, orderBy: { receivedAt: 'desc' }, take: 101 }),
+      collectTrapAlerts(this.prisma, cutoff),
       this.prisma.snmpDrift.findMany({ where: { status: 'PENDING', createdAt: { lte: driftCutoff } }, include: { device: { select: { siteId: true, name: true } } }, orderBy: { createdAt: 'desc' }, take: 101 }),
     ]);
     const system: UpsertOperationalAlert[] = redis ? [] : [{ dedupKey: 'system:redis-unavailable', source: 'SYSTEM_HEALTH', severity: AlertSeverityDto.CRITICAL, title: 'Redis / BullMQ indisponível', detail: 'As filas e os eventos em tempo real estão indisponíveis. A aplicação continua a usar PostgreSQL e polling.', actionHref: '/definicoes?tab=system' }];
@@ -37,9 +36,7 @@ export class OperationsReconcilerService implements OnModuleInit, OnModuleDestro
       ...pendingDiscovery.slice(0, 100).map((job) => ({ dedupKey: `discovery:review:${job.id}`, source: 'DISCOVERY', severity: AlertSeverityDto.INFO, siteId: job.subnet.siteId, entityType: 'DiscoveryJob', entityId: job.id, title: 'Discovery pendente de revisão', detail: `${job._count.results} resultado(s) aguardam revisão.`, actionHref: `/descoberta?jobId=${job.id}` })),
     ], undefined, failedDiscovery.length <= 100 && pendingDiscovery.length <= 100);
     await this.operations.reconcileSource('SNMP_POLL', failedSnmp.slice(0, 100).map((job) => ({ dedupKey: `snmp:failed:${job.id}`, source: 'SNMP_POLL', severity: AlertSeverityDto.WARNING, siteId: job.device.siteId, entityType: 'SnmpJob', entityId: job.id, title: `Polling SNMP falhou em ${job.device.name}`, detail: job.errorCode ?? 'A consulta SNMP terminou com erro.', actionHref: '/snmp' })), undefined, failedSnmp.length <= 100);
-    const trapProblems = traps.slice(0, 100);
-    const trapRecoveries = trapProblems.length ? await this.prisma.snmpTrapEvent.findMany({ where: { receivedAt: { gte: cutoff }, status: 'PROCESSED', trapOid: { in: [...RECOVERY_CAPABLE_TRAP_OIDS] }, OR: [{ deviceId: { in: [...new Set(trapProblems.flatMap((trap) => trap.deviceId ? [trap.deviceId] : []))] } }, { deviceId: null, sourceAddress: { in: [...new Set(trapProblems.map((trap) => trap.sourceAddress))] } }] }, select: { id: true, deviceId: true, sourceAddress: true, trapOid: true, varbinds: true, receivedAt: true }, orderBy: { receivedAt: 'desc' }, take: 1000 }) : [];
-    await this.operations.reconcileSource('SNMP_TRAP', trapAlertCandidates(trapProblems, trapRecoveries), undefined, traps.length <= 100);
+    await this.operations.reconcileSource('SNMP_TRAP', trapAlerts.candidates, undefined, trapAlerts.resolveMissing, trapAlerts.resolveKeys);
     await this.operations.reconcileSource('SNMP_DRIFT', drifts.slice(0, 100).map((drift) => ({ dedupKey: `snmp:drift:${drift.id}`, source: 'SNMP_DRIFT', severity: AlertSeverityDto.HIGH, siteId: drift.device.siteId, entityType: 'SnmpDrift', entityId: drift.id, title: 'Divergência SNMP pendente', detail: `${drift.device.name}: ${drift.field}`, actionHref: '/snmp' })), undefined, drifts.length <= 100);
     } finally { this.running = false; }
   }

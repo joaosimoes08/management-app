@@ -397,7 +397,7 @@
    "expect": {
     "category": "FRU_POWER",
     "severity": "HIGH",
-    "clearKey": "entity:1015",
+    "clearKey": "fruPower:1015",
     "isClear": false,
     "summaryIncludes": "oper failed"
    }
@@ -430,7 +430,7 @@
    "expect": {
     "category": "FRU_POWER",
     "severity": "INFO",
-    "clearKey": "entity:1015",
+    "clearKey": "fruPower:1015",
     "isClear": true,
     "title": "Alimentação do componente reposta – entPhysicalIndex 1015"
    }
@@ -458,7 +458,7 @@
    "expect": {
     "category": "FRU_REMOVED",
     "severity": "HIGH",
-    "clearKey": "entity:1015",
+    "clearKey": "fruPresence:1015",
     "isClear": false
    }
   },
@@ -485,7 +485,7 @@
    "expect": {
     "category": "FRU_INSERTED",
     "severity": "INFO",
-    "clearKey": "entity:1015",
+    "clearKey": "fruPresence:1015",
     "isClear": true
    }
   },
@@ -517,8 +517,40 @@
    "expect": {
     "category": "FRU_MODULE",
     "severity": "HIGH",
-    "clearKey": "entity:1100",
+    "clearKey": "fruModule:1100",
     "isClear": false
+   }
+  },
+  {
+   "name": "fru module ok",
+   "trapOid": "1.3.6.1.4.1.9.9.117.2.0.1",
+   "varbinds": [
+    {
+     "oid": "1.3.6.1.2.1.1.3.0",
+     "type": 67,
+     "value": 123456
+    },
+    {
+     "oid": "1.3.6.1.6.3.1.1.4.1.0",
+     "type": 6,
+     "value": "1.3.6.1.4.1.9.9.117.2.0.1"
+    },
+    {
+     "oid": "1.3.6.1.4.1.9.9.117.1.2.1.1.2.1100",
+     "type": 2,
+     "value": 2
+    },
+    {
+     "oid": "1.3.6.1.4.1.9.9.117.1.2.1.1.4.1100",
+     "type": 67,
+     "value": 500
+    }
+   ],
+   "expect": {
+    "category": "FRU_MODULE",
+    "severity": "INFO",
+    "clearKey": "fruModule:1100",
+    "isClear": true
    }
   },
   {
@@ -544,8 +576,35 @@
    "expect": {
     "category": "FRU_FAN_TRAY",
     "severity": "HIGH",
-    "clearKey": "entity:1013",
+    "clearKey": "fruFanTray:1013",
     "isClear": false
+   }
+  },
+  {
+   "name": "fru fan tray up",
+   "trapOid": "1.3.6.1.4.1.9.9.117.2.0.6",
+   "varbinds": [
+    {
+     "oid": "1.3.6.1.2.1.1.3.0",
+     "type": 67,
+     "value": 123456
+    },
+    {
+     "oid": "1.3.6.1.6.3.1.1.4.1.0",
+     "type": 6,
+     "value": "1.3.6.1.4.1.9.9.117.2.0.6"
+    },
+    {
+     "oid": "1.3.6.1.4.1.9.9.117.1.4.1.1.1.1013",
+     "type": 2,
+     "value": 2
+    }
+   ],
+   "expect": {
+    "category": "FRU_FAN_TRAY",
+    "severity": "INFO",
+    "clearKey": "fruFanTray:1013",
+    "isClear": true
    }
   },
   {
