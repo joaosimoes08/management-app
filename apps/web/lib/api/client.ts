@@ -1,4 +1,4 @@
-import { localizedApiErrors, type ApiErrorPayload } from './errors';
+import { ApiRequestError, apiErrorMessage, type ApiErrorPayload } from './errors';
 import { getPublicRuntimeConfig } from '@/lib/runtime-config';
 
 type TokenProvider = () => Promise<string>;
@@ -49,14 +49,15 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
   }
   if (!response.ok) {
     let detail = '';
+    let payload: ApiErrorPayload | undefined;
     try {
-      const payload = await response.json() as ApiErrorPayload;
+      payload = await response.json() as ApiErrorPayload;
       const locale = window.localStorage.getItem('cociber.locale') === 'en-US' ? 'en-US' : 'pt-PT';
-      detail = (payload.code && localizedApiErrors[locale][payload.code]) || (Array.isArray(payload.message) ? payload.message.join(', ') : payload.message ?? payload.error ?? '');
+      detail = apiErrorMessage(payload, locale);
     } catch {
       // Keep the status as a useful fallback when the API did not return JSON.
     }
-    throw new Error(detail || `Pedido falhou (${response.status})`);
+    throw new ApiRequestError(detail || `Pedido falhou (${response.status})`, response.status, payload);
   }
   const responseText = await response.text();
   return (responseText ? JSON.parse(responseText) : undefined) as T;
