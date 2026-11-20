@@ -2756,6 +2756,8 @@ body { color:var(--ink); background:#e9eef5; }
 .rack-zoom-panel .rack-zoom-fit { justify-content:center; min-height:32px; font-size:11px; }
 @media (min-width:981px) {
   .context-toolbar:has(.rack-view-tools) { flex-wrap:wrap; row-gap:10px; }
+  /* Keep the building/room bar at its natural width so the rack tools wrap below it instead of covering it */
+  .context-toolbar:has(.rack-view-tools) .context-toolbar-navigation { flex:0 0 auto; }
   .context-toolbar:has(.rack-view-tools) .context-toolbar-actions { margin-left:auto; }
 }
 @media (max-width:780px) {
@@ -2802,7 +2804,7 @@ body { color:var(--ink); background:#e9eef5; }
 .port-layout-save-hint { margin-right:auto; color:#8a5300; font-size:11px; font-weight:600; }
 
 /* Sidebar copyright, below the account and collapse controls */
-.app-shell .app-sidebar .sidebar-copyright { display:block; flex:none; min-width:0; margin:6px 0 0; padding:0 6px; overflow:hidden; color:rgba(203,213,225,.5); font-size:9px; line-height:1.4; text-overflow:ellipsis; white-space:nowrap; }
+.app-shell .app-sidebar .sidebar-copyright { display:block; flex:none; min-width:0; margin:6px 0 0; padding:0 6px; overflow:hidden; color:rgba(203,213,225,.72); font-size:10px; line-height:1.4; text-overflow:ellipsis; white-space:nowrap; }
 .app-shell .app-sidebar .sidebar-copyright-short { display:none; }
 @media (min-width:781px) {
   .app-shell.sidebar-collapsed .app-sidebar .sidebar-copyright { padding:0; text-align:center; }
