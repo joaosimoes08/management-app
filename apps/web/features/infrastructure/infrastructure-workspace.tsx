@@ -40,7 +40,7 @@ import {
   saveDeviceModelPortLayout,
   setDeviceModelFaceAsset,
 } from './api';
-import { naturalInterfaceCompare, primaryPortFace, RACK_FACES, readInfrastructureContext, writeInfrastructureContext } from './utils';
+import { expectedPortCount, naturalInterfaceCompare, primaryPortFace, RACK_FACES, readInfrastructureContext, writeInfrastructureContext } from './utils';
 import { BuildingModal } from './components/sites/building-modal';
 import { RoomModal } from './components/sites/room-modal';
 import { RackWorkspace } from './components/rack/rack-workspace';
@@ -505,7 +505,7 @@ export function InfrastructureWorkspace() {
     if (!layoutModel || !layoutFaces) return;
     const current = layoutFaces[face];
     const other = layoutFaces[face === 'front' ? 'rear' : 'front'];
-    const expected = Number(layoutModel.networkPortCount ?? layoutModel.portCount ?? 0) || 0;
+    const expected = expectedPortCount(layoutModel);
     try {
       const proposal = await detectDeviceModelPortLayout(layoutModel.id, {
         assetId: layoutAssetIds[face],

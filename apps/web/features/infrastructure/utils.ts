@@ -158,10 +158,23 @@ export interface PortMappingStatus {
   complete: boolean;
 }
 
+/** Same rule as the API: no network ports when the model says so; an explicit 0 means none. */
+export function expectedPortCount(model: Pick<DeviceModel, 'networkPortCount' | 'portCount' | 'supportsNetworkPorts'> | null | undefined): number {
+  if (!model || model.supportsNetworkPorts === false) return 0;
+  return Math.max(0, Number(model.networkPortCount ?? model.portCount ?? 0) || 0);
+}
+
+/** A port counts only when it has a key, a position and a non-empty box (API rule). */
+export function isPortFullyMapped(port: Partial<PortLayoutPort> | null | undefined): boolean {
+  if (!port) return false;
+  const finite = (value: unknown) => typeof value === 'number' && Number.isFinite(value);
+  return String(port.portKey ?? '').trim() !== '' && finite(port.x) && finite(port.y) && finite(port.width) && finite(port.height) && Number(port.width) > 0 && Number(port.height) > 0;
+}
+
 export function portMappingStatus(model: Pick<DeviceModel, 'portLayout' | 'networkPortCount' | 'portCount' | 'supportsNetworkPorts'> | null | undefined, faces?: PortLayoutFaces): PortMappingStatus {
-  const expected = Math.max(0, Number(model?.networkPortCount ?? model?.portCount ?? 0) || 0);
+  const expected = expectedPortCount(model);
   const source = faces ?? normalizePortLayout(model?.portLayout);
-  const mapped = RACK_FACES.reduce((total, face) => total + (source[face]?.ports.length ?? 0), 0);
+  const mapped = RACK_FACES.reduce((total, face) => total + (source[face]?.ports.filter(isPortFullyMapped).length ?? 0), 0);
   return { expected, mapped, complete: mapped === expected };
 }
 

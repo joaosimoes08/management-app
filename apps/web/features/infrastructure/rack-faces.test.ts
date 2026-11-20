@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { AssetFile, Device, DeviceModel } from './types';
-import { RACK_VIEW_STORAGE_KEY, allPortLayoutPorts, deviceFaceImage, normalizePortLayout, normalizedPortLayoutPorts, portMappingStatus, primaryPortFace, readRackView, writeRackView } from './utils';
+import { RACK_VIEW_STORAGE_KEY, allPortLayoutPorts, expectedPortCount, isPortFullyMapped, deviceFaceImage, normalizePortLayout, normalizedPortLayoutPorts, portMappingStatus, primaryPortFace, readRackView, writeRackView } from './utils';
 
 const asset = (id: string): AssetFile => ({ id, filename: `${id}.png`, mimeType: 'image/png' } as AssetFile);
 const port = (portKey: string) => ({ portKey, label: portKey, x: 0, y: 0, width: 10, height: 10 });
@@ -33,6 +33,23 @@ describe('port mapping status and face choice', () => {
     const split = model({ version: 2, faces: { front: { imageWidth: 1, imageHeight: 1, ports: [port('a')] }, rear: { imageWidth: 1, imageHeight: 1, ports: [port('b'), port('c')] } } });
     expect(portMappingStatus(split)).toEqual({ expected: 3, mapped: 3, complete: true });
     expect(portMappingStatus(model({ version: 2, faces: { rear: { imageWidth: 1, imageHeight: 1, ports: [port('b')] } } }))).toMatchObject({ mapped: 1, complete: false });
+  });
+
+  it('uses the API expected-count rule', () => {
+    const base = { id: 'm', manufacturer: 'X', model: 'Y', portLayout: null } as DeviceModel;
+    expect(expectedPortCount({ ...base, networkPortCount: 4, portCount: 8 })).toBe(4);
+    expect(expectedPortCount({ ...base, networkPortCount: null, portCount: 8 })).toBe(8);
+    expect(expectedPortCount({ ...base, networkPortCount: 0, portCount: 8 })).toBe(0);
+    expect(expectedPortCount({ ...base, supportsNetworkPorts: false, networkPortCount: 4 })).toBe(0);
+    expect(expectedPortCount({ ...base })).toBe(0);
+    expect(portMappingStatus({ ...base, networkPortCount: 0 })).toEqual({ expected: 0, mapped: 0, complete: true });
+  });
+
+  it('counts only fully mapped ports', () => {
+    const half = [{ portKey: 'a', label: 'a', x: 0, y: 0, width: 0, height: 10 }, { portKey: '', label: 'b', x: 0, y: 0, width: 10, height: 10 }, port('c')];
+    expect(portMappingStatus(model({ version: 2, faces: { rear: { imageWidth: 1, imageHeight: 1, ports: half } } }))).toMatchObject({ expected: 3, mapped: 1, complete: false });
+    expect(isPortFullyMapped(port('x'))).toBe(true);
+    expect(isPortFullyMapped({ portKey: 'x', x: Number.NaN, y: 0, width: 1, height: 1 })).toBe(false);
   });
 
   it('opens on the face that has ports when the preferred face has none', () => {
