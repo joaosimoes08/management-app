@@ -221,6 +221,21 @@ export function deleteAsset(id: string): Promise<unknown> {
 
 // ── Devices ────────────────────────────────────────────────────────────────
 
+/** A row of GET /devices/missing-config: one device missing a required config, in any Site the user can manage. */
+export interface MissingConfigDevice {
+  id: string; name: string; type: string; status: string;
+  siteId: string | null; siteName: string | null; rackName: string | null; rackUnitStart: number | null;
+  model: { manufacturer?: string; model?: string } | string | null;
+  /** Device deep link: its Site plus the editor on the missing tab. */
+  href: string;
+}
+export interface MissingConfigDeviceList { items: MissingConfigDevice[]; total: number; totalPages: number; page?: number; pageSize?: number; siteCount?: number }
+
+/** Cross-site list behind a bell alert (no siteId): `total` is the bell's count. */
+export function listMissingConfigDevices(config: string, page = 1, pageSize = 50): Promise<MissingConfigDeviceList> {
+  return apiFetch<MissingConfigDeviceList>(`/api/v1/devices/missing-config?config=${encodeURIComponent(config)}&page=${page}&pageSize=${pageSize}`);
+}
+
 /** `missingConfig` (rearImage | power) limits the list to devices missing that required config. */
 export function listDevices(siteId: string, search: string, page = 1, missingConfig = ''): Promise<DeviceListResponse> {
   return apiFetch<DeviceListResponse>(`/api/v1/devices?siteId=${siteId}&search=${encodeURIComponent(search)}&page=${page}&pageSize=100${missingConfig ? `&missingConfig=${encodeURIComponent(missingConfig)}` : ''}`);

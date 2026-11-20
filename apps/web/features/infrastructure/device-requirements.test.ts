@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { DeviceForm } from './forms';
 import type { DeviceModel } from './types';
 import {
-  deviceSettingsHref, evaluateDeviceRequirements, mapApiFieldErrors, missingConfigFromSearch, satisfiedFeatureConfigs, saveSendsPower, settingsTabFromSearch,
+  deviceSettingsHref, effectiveStatus, evaluateDeviceRequirements, mapApiFieldErrors, missingConfigAllSitesFromSearch, missingConfigFromSearch, satisfiedFeatureConfigs, saveSendsPower, settingsTabFromSearch,
   type RequiredConfigRegistry,
 } from './device-requirements';
 
@@ -100,5 +100,25 @@ describe('deep links', () => {
     expect(settingsTabFromSearch('?settingsTab=nope')).toBeUndefined();
     expect(missingConfigFromSearch('?tab=devices&missingConfig=rearImage')).toBe('rearImage');
     expect(missingConfigFromSearch('?missingConfig=%3Cscript%3E')).toBe('');
+  });
+});
+
+describe('effectiveStatus (mirrors the API status override)', () => {
+  const base: DeviceForm = { name: 'SW', type: 'SWITCH', hostname: '', managementIp: '', managementIpAddressId: '', rackId: 'rack-1', rackUnitStart: '1', rackUnitSize: '1', modelId: '', status: 'RETIRED', isCritical: false, frontAssetId: '', backAssetId: '' };
+  it('racking an ACTIVE/UNKNOWN device stores ACTIVE even when RETIRED is picked', () => {
+    expect(effectiveStatus(base, { isNew: false, opened: { ...base, rackId: '', status: 'UNKNOWN' } })).toBe('ACTIVE');
+    expect(effectiveStatus({ ...base, status: 'MAINTENANCE' }, { isNew: false, opened: { ...base, status: 'ACTIVE' } })).toBe('ACTIVE');
+  });
+  it('keeps the chosen status for a RETIRED device, a new RETIRED device, or no rack', () => {
+    expect(effectiveStatus({ ...base, status: 'INACTIVE' }, { isNew: false, opened: { ...base, status: 'RETIRED' } })).toBe('INACTIVE');
+    expect(effectiveStatus(base, { isNew: true })).toBe('RETIRED');
+    expect(effectiveStatus({ ...base, status: 'UNKNOWN' }, { isNew: true })).toBe('ACTIVE');
+    expect(effectiveStatus({ ...base, rackId: '' }, { isNew: false, opened: { ...base, status: 'ACTIVE' } })).toBe('RETIRED');
+  });
+  it('a missingConfig link without siteId, or with allSites=1, is cross-site', () => {
+    expect(missingConfigAllSitesFromSearch('?tab=devices&missingConfig=power&allSites=1')).toBe(true);
+    expect(missingConfigAllSitesFromSearch('?tab=devices&missingConfig=power')).toBe(true);
+    expect(missingConfigAllSitesFromSearch('?siteId=lx&tab=devices&missingConfig=power')).toBe(false);
+    expect(missingConfigAllSitesFromSearch('?tab=devices')).toBe(false);
   });
 });

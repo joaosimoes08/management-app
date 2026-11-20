@@ -2999,4 +2999,7 @@ body { color:var(--ink); background:#e9eef5; }
 .device-filter-chip button { display:inline-grid; place-items:center; width:18px; height:18px; padding:0; border:0; border-radius:50%; background:transparent; color:inherit; cursor:pointer; }
 .device-filter-chip button:hover { background:#f6e3bb; }
 .device-filter-chip button:focus-visible { outline:2px solid #2c6bed; outline-offset:1px; }
+.cross-site-missing-config-row { color:inherit; text-decoration:none; cursor:pointer; }
+.cross-site-missing-config-row:focus-visible { outline:2px solid #2c6bed; outline-offset:-2px; }
+.cross-site-missing-config-site { flex:none; padding:2px 8px; border-radius:999px; background:#eef2f7; color:#41526b; font-size:11px; font-weight:600; white-space:nowrap; }
 .device-power-auto { display:block; margin-top:6px; }

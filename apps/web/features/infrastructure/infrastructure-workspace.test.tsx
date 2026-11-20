@@ -24,7 +24,8 @@ vi.mock('@/components/layout/app-shell', () => ({
 }));
 vi.mock('./components/rack/rack-workspace', () => ({ RackWorkspace: () => <div /> }));
 vi.mock('./components/devices/deep-link-device-loader', () => ({ DeepLinkDeviceLoader: ({ deviceId }: { deviceId: string | null }) => (deviceId ? <span data-testid="deep-link">{deviceId}</span> : null) }));
-vi.mock('./components/devices/device-list', () => ({ DeviceList: () => null }));
+vi.mock('./components/devices/device-list', () => ({ DeviceList: () => <div data-testid="site-device-list" /> }));
+vi.mock('./components/devices/cross-site-missing-config-list', () => ({ CrossSiteMissingConfigList: ({ config }: { config: string }) => <div data-testid="cross-site-list">{config}</div> }));
 vi.mock('./components/devices/retirement-review-modal', () => ({ RetirementReviewModal: () => null }));
 vi.mock('./components/models/model-list', () => ({ ModelList: () => null }));
 vi.mock('./components/models/interface-workspace', () => ({ InterfaceWorkspace: () => null }));
@@ -61,6 +62,23 @@ describe('InfrastructureWorkspace', () => {
     expect(window.location.search).toBe('?siteId=site-1&tab=devices');
     expect(queryKeys.at(-1)).toBeDefined();
     expect(queryKeys.filter((key) => key[1] === 'devices').at(-1)?.[4]).toBe('');
+  });
+
+  it.each([
+    ['allSites=1 (alert spanning several Sites)', '/infraestrutura?tab=devices&missingConfig=power&allSites=1'],
+    ['an older alert link without siteId', '/infraestrutura?tab=devices&missingConfig=power'],
+  ])('%s shows the cross-site list instead of narrowing to the active Site', (_label, url) => {
+    window.history.replaceState({}, '', url);
+    render(<InfrastructureWorkspace />);
+    expect(screen.getByTestId('cross-site-list')).toHaveTextContent('power');
+    expect(screen.queryByTestId('site-device-list')).not.toBeInTheDocument();
+    expect(screen.getByText(/Configuração em falta: Tomadas de energia · todos os Sites/)).toBeInTheDocument();
+    // The site-scoped device query is not filtered: the count comes from the cross-site endpoint only.
+    expect(queryKeys.filter((key) => key[1] === 'devices').every((key) => key[4] === '')).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Remover filtro de configuração em falta' }));
+    expect(screen.queryByTestId('cross-site-list')).not.toBeInTheDocument();
+    expect(screen.getByTestId('site-device-list')).toBeInTheDocument();
+    expect(window.location.search).toBe('?tab=devices&siteId=site-1');
   });
 
   it('the alert deep link ?tab=devices&deviceId=…&settingsTab=… loads that device for its settings', () => {
