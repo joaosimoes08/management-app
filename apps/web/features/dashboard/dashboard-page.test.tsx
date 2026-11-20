@@ -99,6 +99,16 @@ describe('DashboardPage role-gated toolbar action', () => {
     expect(await screen.findByRole('link', { name: /Adicionar equipamento/ })).toHaveAttribute('href', '/infraestrutura?action=new');
   });
 
+  it('renders widgets without section kickers, the Sparkles icon or the footer', async () => {
+    mocks.role = 'ADMIN';
+    const { container } = render(<DashboardPage />);
+    await screen.findByRole('link', { name: /Iniciar descoberta/ });
+    expect(container.querySelector('.section-kicker')).toBeNull();
+    expect(container.querySelector('.lucide-sparkles')).toBeNull();
+    expect(container.querySelector('.dashboard-footer')).toBeNull();
+    expect(screen.queryByText(/COCiber Management Platform/)).not.toBeInTheDocument();
+  });
+
   it('shows useful cross-module shortcuts according to the current role', async () => {
     mocks.role = 'READ_ONLY';
     render(<DashboardPage />);

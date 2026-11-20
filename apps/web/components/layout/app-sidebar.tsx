@@ -85,6 +85,7 @@ export function AppSidebar({ collapsed, onToggle, onClose }: AppSidebarProps) {
           {collapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
         </button>
       </div>
+      <small className="sidebar-copyright" title={t('shell.copyright')}><span className="sidebar-copyright-full">{t('shell.copyright')}</span><span className="sidebar-copyright-short" aria-hidden="true">{t('shell.copyrightShort')}</span></small>
       <button className="mobile-close icon-button" onClick={() => onClose?.()} aria-label="Fechar menu"><X size={17} /></button>
     </m.aside>
   );

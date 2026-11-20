@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Edit3, Minus, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import { Check, Edit3, Trash2 } from 'lucide-react';
 import { FIXED_RACK_IMAGE, RACK_BOTH_MIN_WIDTH, RACK_IMAGE, RACK_UNITS, readRackView, writeRackView } from '../../utils';
 import { PageToolbarPortal } from '@/components/layout/app-shell';
 import type { Device, Rack, RackEditDraft, RackFace, RackPlacementPlan, RackView } from '../../types';
 import { RackDeviceZoom } from './rack-device-zoom';
 import { RackEquipmentOverlay } from './rack-equipment-overlay';
-import { RackFaceToggle, type RackFaceOption } from './rack-face-toggle';
+import { RackViewPicker } from './rack-view-picker';
+import { RackZoomPicker } from './rack-zoom-picker';
 
 const RACK_WIDTH = RACK_IMAGE.width;
 const RACK_HEIGHT = RACK_IMAGE.height;
@@ -88,11 +89,12 @@ export function RackDetail({ rack, onOut, onDevice, onEdit, onDelete, deleting, 
     setView(next);
     writeRackView(next);
   };
-  const viewOptions: RackFaceOption<RackView>[] = [
-    { value: 'front', label: 'Frente' },
-    { value: 'rear', label: 'Traseira' },
-    ...(wide ? [{ value: 'both' as const, label: 'Ambas' }] : []),
-  ];
+  const fitToStage = () => {
+    setZoom(1);
+    if (stageRef.current) { stageRef.current.scrollTop = 0; stageRef.current.scrollLeft = 0; }
+  };
+  /** Face shown in the device focus: the utility-bar face, or in "Ambas" the face the device was clicked on. */
+  const focusFace: RackFace | undefined = zoomDevice ? (activeView === 'both' ? zoomDevice.face : activeView) : undefined;
   const rackWidth = fitWidth * zoom;
   const rackHeight = fitWidth * RACK_HEIGHT / RACK_WIDTH * zoom;
 
@@ -165,13 +167,8 @@ export function RackDetail({ rack, onOut, onDevice, onEdit, onDelete, deleting, 
 
   return <section className="ipam-card rack-view">
     <div className="rack-zoom-toolbar"><span>{rack.room?.building?.name} / {rack.room?.name} / <strong>{rack.name}</strong></span></div><PageToolbarPortal><div className="rack-view-tools" role="group" aria-label="Vista do bastidor">
-      <RackFaceToggle label="Face do bastidor" value={activeView} options={viewOptions} onChange={changeView} />
-      <div className="infra-menu rack-zoom-tools" role="group" aria-label="Zoom do bastidor">
-        <button type="button" aria-label="Diminuir zoom" disabled={zoom <= 1} onClick={() => setZoom((value) => Math.max(1, +(value - .2).toFixed(2)))}><Minus size={15} /></button>
-        <output className="rack-zoom-value" aria-live="polite" aria-label="Zoom do bastidor">{Math.round(zoom * 100)}%</output>
-        <button type="button" aria-label="Aumentar zoom" disabled={zoom >= 2.5} onClick={() => setZoom((value) => Math.min(2.5, +(value + .2).toFixed(2)))}><Plus size={15} /></button>
-        <button type="button" className="rack-zoom-fit" aria-label="Ajustar ao ecrã" title="Ajustar ao ecrã" onClick={() => { setZoom(1); if (stageRef.current) { stageRef.current.scrollTop = 0; stageRef.current.scrollLeft = 0; } }}><RotateCcw size={14} /><span>Ajustar</span></button>
-      </div>
+      <RackViewPicker value={activeView} onChange={changeView} allowBoth={wide} />
+      <RackZoomPicker zoom={zoom} onZoom={setZoom} onFit={fitToStage} />
     </div></PageToolbarPortal><PageToolbarPortal><div className="button-row rack-detail-actions"><button type="button" className="secondary-button" onClick={onOut}>Voltar aos bastidores</button>{onEdit && <button type="button" className="secondary-button" onClick={() => onEdit(rack)}><Edit3 size={14}/> Editar bastidor</button>}{onDelete && <button type="button" className="secondary-button danger-button" disabled={deleting} onClick={() => onDelete(rack)}><Trash2 size={14}/> {deleting ? 'A eliminar…' : 'Eliminar bastidor'}</button>}</div></PageToolbarPortal>
     <div className="panel-heading"><div><span className="section-kicker">BASTIDOR VISUAL</span><h2>{rack.name}</h2><p>{rack.devices?.length ?? 0} equipamentos · Bastidor padrão · 42U{canEdit ? <>{' · '}<span>Arrasta um equipamento para o mover</span></> : null}</p></div></div>
     <div className="rack-stage-wrap">
@@ -182,7 +179,7 @@ export function RackDetail({ rack, onOut, onDevice, onEdit, onDelete, deleting, 
             <div className="rack-frame" style={{ width: `${rackWidth}px` }}><img src={FIXED_RACK_IMAGE} alt={`Bastidor ${rack.name}, ${FACE_LABEL[face].toLowerCase()}`} draggable={false} /><RackEquipmentOverlay rack={displayRack} face={face} onSelect={(id) => setZoomDevice({ id, face })} onDropDevice={preview} draggingDeviceId={draggingDeviceId} onDragging={setDraggingDeviceId} canEdit={canEdit && !pending} pendingDeviceId={pending?.target?.id} /></div>
           </figure>)}
         </div>
-        {zoomDevice && <RackDeviceZoom deviceId={zoomDevice.id} initialFace={zoomDevice.face} onBack={() => setZoomDevice(null)} onInterfaces={onDevice} onEditDevice={onEditDevice} />}
+        {zoomDevice && focusFace && <RackDeviceZoom deviceId={zoomDevice.id} face={focusFace} onBack={() => setZoomDevice(null)} onInterfaces={onDevice} onEditDevice={onEditDevice} />}
       </div>
     </div>
     {pending && <aside className="rack-placement-confirmation" aria-live="polite">

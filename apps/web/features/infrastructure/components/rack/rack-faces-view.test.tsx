@@ -5,7 +5,8 @@ import { RACK_VIEW_STORAGE_KEY } from '../../utils';
 import { RackDetail } from './rack-detail';
 
 class TestResizeObserver { observe() {} disconnect() {} unobserve() {} }
-vi.mock('./rack-device-zoom', () => ({ RackDeviceZoom: () => null }));
+vi.mock('./rack-device-zoom', () => ({ RackDeviceZoom: ({ deviceId, face }: { deviceId: string; face: string }) => <div data-testid="device-focus" data-device={deviceId} data-face={face} /> }));
+vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }));
 vi.mock('../asset-image', () => ({ AssetImage: ({ alt }: { alt: string }) => <span role="img" aria-label={alt} /> }));
 
 const originalWidth = window.innerWidth;
@@ -29,8 +30,9 @@ describe('RackDetail front and rear views', () => {
   it('shows both faces side by side by default on wide screens', () => {
     setViewport(1920);
     const { container } = renderRack();
-    const toggle = screen.getByRole('radiogroup', { name: 'Face do bastidor' });
-    expect(within(toggle).getByRole('radio', { name: 'Ambas' })).toHaveAttribute('aria-checked', 'true');
+    const picker = screen.getByRole('combobox', { name: 'rack.view' }) as HTMLSelectElement;
+    expect(picker.value).toBe('both');
+    expect(within(picker).getAllByRole('option').map((option) => option.textContent)).toEqual(['rack.view.front', 'rack.view.rear', 'rack.view.both']);
     expect(faces(container)).toEqual(['front', 'rear']);
     expect(screen.getByRole('img', { name: 'Bastidor Core cabinet, frente' })).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'Bastidor Core cabinet, traseira' })).toBeInTheDocument();
@@ -40,20 +42,19 @@ describe('RackDetail front and rear views', () => {
   it('shows one face below 1280px and hides the both option', () => {
     setViewport(1024);
     const { container } = renderRack();
-    expect(screen.queryByRole('radio', { name: 'Ambas' })).not.toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: 'Frente' })).toHaveAttribute('aria-checked', 'true');
+    const picker = screen.getByRole('combobox', { name: 'rack.view' }) as HTMLSelectElement;
+    expect(within(picker).queryByRole('option', { name: 'rack.view.both' })).not.toBeInTheDocument();
+    expect(picker.value).toBe('front');
     expect(faces(container)).toEqual(['front']);
   });
 
-  it('switches face with the keyboard and remembers the choice for the session', () => {
+  it('switches face from the view picker and remembers the choice for the session', () => {
     setViewport(1920);
     const first = renderRack();
-    const front = screen.getByRole('radio', { name: 'Frente' });
-    fireEvent.click(front);
+    const picker = screen.getByRole('combobox', { name: 'rack.view' });
+    fireEvent.change(picker, { target: { value: 'front' } });
     expect(faces(first.container)).toEqual(['front']);
-    fireEvent.keyDown(front, { key: 'ArrowRight' });
-    expect(screen.getByRole('radio', { name: 'Traseira' })).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByRole('radio', { name: 'Traseira' })).toHaveFocus();
+    fireEvent.change(picker, { target: { value: 'rear' } });
     expect(faces(first.container)).toEqual(['rear']);
     expect(sessionStorage.getItem(RACK_VIEW_STORAGE_KEY)).toBe('rear');
     first.unmount();
@@ -70,5 +71,39 @@ describe('RackDetail front and rear views', () => {
     expect(within(front).getByRole('img', { name: 'Vista frontal de Edge switch' })).toBeInTheDocument();
     expect(rear.querySelector('.rack-device-media-missing')).not.toBeNull();
     expect(rear.querySelector('.rack-device-missing-face')).toHaveTextContent('Sem imagem traseira');
+  });
+});
+
+describe('RackDetail device focus face', () => {
+  const openDevice = (container: HTMLElement, face: 'front' | 'rear') => fireEvent.click(container.querySelector(`[data-face="${face}"] .rack-overlay`) as HTMLElement);
+  const focus = () => screen.getByTestId('device-focus');
+
+  it('in Both, shows the face the device was clicked on', () => {
+    setViewport(1920);
+    const { container } = renderRack();
+    openDevice(container, 'rear');
+    expect(focus()).toHaveAttribute('data-device', 'device-1');
+    expect(focus()).toHaveAttribute('data-face', 'rear');
+  });
+
+  it('follows the utility-bar view when it changes while the device is focused', () => {
+    setViewport(1920);
+    const { container } = renderRack();
+    openDevice(container, 'rear');
+    const picker = screen.getByRole('combobox', { name: 'rack.view' });
+    fireEvent.change(picker, { target: { value: 'front' } });
+    expect(focus()).toHaveAttribute('data-face', 'front');
+    fireEvent.change(picker, { target: { value: 'rear' } });
+    expect(focus()).toHaveAttribute('data-face', 'rear');
+    fireEvent.change(picker, { target: { value: 'both' } });
+    expect(focus()).toHaveAttribute('data-face', 'rear');
+  });
+
+  it('in Front or Rear, shows that face', () => {
+    setViewport(1920);
+    sessionStorage.setItem(RACK_VIEW_STORAGE_KEY, 'rear');
+    const { container } = renderRack();
+    openDevice(container, 'rear');
+    expect(focus()).toHaveAttribute('data-face', 'rear');
   });
 });
