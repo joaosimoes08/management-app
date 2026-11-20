@@ -39,7 +39,6 @@ export interface RequiredConfigEntry {
   label: string;
   missingMessage: string;
   appliesWhen?: string;
-  introducedAt?: string | null;
 }
 export interface RequiredConfigRegistry { tabs: { key: string; label: string }[]; configs: RequiredConfigEntry[] }
 
@@ -98,6 +97,29 @@ export interface RequirementContext {
   isNew: boolean;
   /** True when the save will send `power` (outlets assigned by the API in the same transaction). */
   sendsPower: boolean;
+  /** Existing device as the editor opened it, and its model: the baseline for "placement change". */
+  opened?: DeviceForm | null;
+  openedModel?: DeviceModel | null;
+}
+
+function plugCount(form: DeviceForm, model: DeviceModel | null | undefined, defaultPlugCount: number | null | undefined): number {
+  return form.powerPlugCount?.trim() ? Number(form.powerPlugCount) : (model?.powerPlugCount ?? defaultPlugCount ?? 2);
+}
+
+/**
+ * Whether the save places the device in a rack, which the API treats like a create there (rear image + power required,
+ * MISSING): a new racked device, entering a rack from Site only, moving to another rack, leaving RETIRED inside a rack, or
+ * going from 0 plugs to some. Staying in the same rack, or leaving a rack, is not a placement.
+ */
+export function isPlacementChange(form: DeviceForm, context: Omit<RequirementContext, 'sendsPower'>): boolean {
+  if (!form.rackId || form.status === 'RETIRED') return false;
+  if (context.isNew) return true;
+  const opened = context.opened;
+  const openedRack = opened ? opened.rackId ?? '' : form.savedRackId ?? '';
+  if (form.rackId !== openedRack) return true;
+  if (!opened) return false;
+  if (opened.status === 'RETIRED') return true;
+  return plugCount(opened, context.openedModel, context.defaultPlugCount) <= 0 && plugCount(form, context.model, context.defaultPlugCount) > 0;
 }
 
 /** Whether a config applies to the form and whether it is satisfied; `undefined` for a key the UI cannot evaluate. */
@@ -109,8 +131,7 @@ export function configStatus(key: string, form: DeviceForm, context: Requirement
     case 'placement': return { applies: true, satisfied: Boolean(form.rackId || context.siteId) };
     case 'rearImage': return { applies: racked, satisfied: Boolean(form.backAssetId || context.model?.backAssetId || context.model?.backAsset?.id) };
     case 'power': {
-      const plugs = form.powerPlugCount?.trim() ? Number(form.powerPlugCount) : (context.model?.powerPlugCount ?? context.defaultPlugCount ?? 2);
-      const applies = racked && plugs > 0;
+      const applies = racked && plugCount(form, context.model, context.defaultPlugCount) > 0;
       // Satisfied by the save itself (it sends `power`) or, for an existing device, by the outlets it already has.
       return { applies, satisfied: context.sendsPower || (!context.isNew && !(form.requiredMissing ?? []).includes('power')) };
     }
@@ -119,14 +140,11 @@ export function configStatus(key: string, form: DeviceForm, context: Requirement
 }
 
 /**
- * Whether the save sends `power` (`{}` = the API's default outlet distribution, in the same transaction): a device that
- * lands in a rack with at least one plug, new or moved from elsewhere. Required by the API for those saves.
+ * Whether the save sends `power` (`{}` = the API's default outlet distribution, in the same transaction): a placement
+ * change (see isPlacementChange) of a device with at least one plug. Required by the API for those saves.
  */
 export function saveSendsPower(form: DeviceForm, context: Omit<RequirementContext, 'sendsPower'>): boolean {
-  if (!form.rackId || form.status === 'RETIRED') return false;
-  const plugs = form.powerPlugCount?.trim() ? Number(form.powerPlugCount) : (context.model?.powerPlugCount ?? context.defaultPlugCount ?? 2);
-  if (!(plugs > 0)) return false;
-  return context.isNew || form.rackId !== (form.savedRackId ?? '');
+  return plugCount(form, context.model, context.defaultPlugCount) > 0 && isPlacementChange(form, context);
 }
 
 export interface RequirementState {
@@ -137,10 +155,13 @@ export interface RequirementState {
   blocking: boolean;
 }
 
+/** FEATURE configs a placement change must bring (API: MISSING even for a legacy device). */
+const PLACEMENT_CONFIGS = new Set(['rearImage', 'power']);
+
 /**
  * What is missing now, per the API rule. A new device must satisfy every config that applies. An existing device is
- * always blocked by a CORE config; a FEATURE config only blocks when it was satisfied when the editor opened (the save
- * would clear it), else it is a non-blocking hint.
+ * always blocked by a CORE config; a FEATURE config blocks when it was satisfied when the editor opened (the save would
+ * clear it) or, for rear image and power, when the save is a placement change; else it is a non-blocking hint.
  */
 export function evaluateDeviceRequirements(registry: RequiredConfigRegistry | null, form: DeviceForm, context: RequirementContext, options: { isNew: boolean; satisfiedAtOpen?: ReadonlySet<string> }): RequirementState[] {
   const configs = registry?.configs ?? [];
@@ -150,7 +171,8 @@ export function evaluateDeviceRequirements(registry: RequiredConfigRegistry | nu
     if (!status || !status.applies || status.satisfied) continue;
     const target = targetFor(config.fields, config.tab);
     if (!target) continue;
-    const blocking = options.isNew || config.kind === 'CORE' || (options.satisfiedAtOpen?.has(config.key) ?? false);
+    const blocking = options.isNew || config.kind === 'CORE' || (options.satisfiedAtOpen?.has(config.key) ?? false)
+      || (PLACEMENT_CONFIGS.has(config.key) && isPlacementChange(form, context));
     states.push({ config, fieldId: target.fieldId, tab: target.tab, blocking });
   }
   return states;

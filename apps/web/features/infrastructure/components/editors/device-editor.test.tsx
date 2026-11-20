@@ -184,6 +184,75 @@ describe('device editor required fields', () => {
     expect(save).toHaveBeenCalledWith('/api/v1/devices/dev-1', expect.objectContaining({ rackId: 'rack-2', power: {} }));
   });
 
+  describe('a placement change counts like a create (rear image + power, even for a legacy device)', () => {
+    /** Guardar is blocked on Imagens, the save attempt jumps there, and once a rear image is chosen it saves with power. */
+    async function expectBlockedOnRearImageThenSavesWithPower(save: ReturnType<typeof vi.fn>, path: string) {
+      expect(screen.getByTestId('tab-errors-imagens')).toHaveTextContent('1');
+      expect(screen.queryByTestId('tab-hint-imagens')).not.toBeInTheDocument();
+      expect(guardar()).toHaveAttribute('aria-disabled', 'true');
+      fireEvent.click(guardar());
+      await flush();
+      expect(save).not.toHaveBeenCalled();
+      expect(tab(/^Imagens/)).toHaveAttribute('aria-selected', 'true');
+      expect(document.getElementById('device-rear-image')).toHaveFocus();
+      expect(screen.getByText(/Carrega a imagem traseira/)).toBeInTheDocument();
+      fireEvent.change(document.getElementById('device-rear-image')!, { target: { value: 'rear-1' } });
+      expect(guardar()).not.toHaveAttribute('aria-disabled');
+      fireEvent.click(guardar());
+      expect(save).toHaveBeenCalledWith(path, expect.objectContaining({ backAssetId: 'rear-1', power: {} }));
+    }
+
+    it('legacy device moved from Site only into a rack', async () => {
+      const save = vi.fn().mockResolvedValue(undefined);
+      render(<Harness editingId="dev-site" initial={{ ...legacy, rackId: '', rackUnitStart: '', savedRackId: '' }} save={save} />);
+      expect(guardar()).not.toHaveAttribute('aria-disabled');
+      fireEvent.click(tab(/^Localização/));
+      fireEvent.change(document.getElementById('device-rack')!, { target: { value: 'rack-1' } });
+      await expectBlockedOnRearImageThenSavesWithPower(save, '/api/v1/devices/dev-site');
+    });
+
+    it('legacy device moved to another rack', async () => {
+      const save = vi.fn().mockResolvedValue(undefined);
+      render(<Harness editingId="dev-old" initial={legacy} save={save} />);
+      expect(guardar()).not.toHaveAttribute('aria-disabled');
+      fireEvent.click(tab(/^Localização/));
+      fireEvent.change(document.getElementById('device-rack')!, { target: { value: 'rack-2' } });
+      await expectBlockedOnRearImageThenSavesWithPower(save, '/api/v1/devices/dev-old');
+    });
+
+    it('legacy device leaving RETIRED inside its rack', async () => {
+      const save = vi.fn().mockResolvedValue(undefined);
+      render(<Harness editingId="dev-ret" initial={{ ...legacy, status: 'RETIRED' }} save={save} />);
+      expect(screen.queryByTestId('tab-errors-imagens')).not.toBeInTheDocument();
+      fireEvent.change(document.getElementById('device-status')!, { target: { value: 'ACTIVE' } });
+      await expectBlockedOnRearImageThenSavesWithPower(save, '/api/v1/devices/dev-ret');
+    });
+
+    it('legacy device going from 0 plugs to some', async () => {
+      const save = vi.fn().mockResolvedValue(undefined);
+      render(<Harness editingId="dev-0" initial={{ ...legacy, requiredMissing: ['rearImage'], powerPlugCount: '0', savedPower: { plugs: '0', watts: '' } }} save={save} />);
+      expect(guardar()).not.toHaveAttribute('aria-disabled');
+      fireEvent.click(tab(/^Energia/));
+      fireEvent.change(document.getElementById('device-power-plugs')!, { target: { value: '2' } });
+      await expectBlockedOnRearImageThenSavesWithPower(save, '/api/v1/devices/dev-0');
+      expect(save.mock.calls[0][1]).toEqual(expect.objectContaining({ powerPlugCount: 2 }));
+    });
+
+    it('legacy device staying in its rack still saves with its gaps, without power', () => {
+      const save = vi.fn().mockResolvedValue(undefined);
+      render(<Harness editingId="dev-old" initial={legacy} save={save} />);
+      fireEvent.change(screen.getByLabelText(/^Nome/), { target: { value: 'SW-OLD-3' } });
+      fireEvent.click(tab(/^Localização/));
+      fireEvent.change(document.getElementById('device-rack-unit-start')!, { target: { value: '12' } });
+      expect(screen.getByTestId('tab-hint-imagens')).toBeInTheDocument();
+      expect(screen.queryByTestId('tab-errors-imagens')).not.toBeInTheDocument();
+      expect(guardar()).not.toHaveAttribute('aria-disabled');
+      fireEvent.click(guardar());
+      expect(save).toHaveBeenCalledWith('/api/v1/devices/dev-old', expect.objectContaining({ name: 'SW-OLD-3' }));
+      expect(save.mock.calls[0][1]).not.toHaveProperty('power');
+    });
+  });
+
   it('shows API field errors on their fields and tabs, and clears one when the field changes', async () => {
     const save = vi.fn().mockResolvedValue(undefined);
     render(<Harness editingId="dev-old" initial={legacy} save={save} fieldErrors={[{ fieldId: 'device-power-plugs', tab: 'energia', message: 'Não há tomadas livres na PDU.' }]} />);

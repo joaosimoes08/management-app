@@ -8,7 +8,7 @@ import { EQUIPMENT_TYPES } from '../../utils';
 import { deviceImageFields, devicePowerFields, type DeviceForm } from '../../forms';
 import type { AssetFile, DeviceModel, IpAddress, Rack } from '../../types';
 import {
-  DEVICE_EDITOR_TABS, deviceEditorTabLabel, evaluateDeviceRequirements, satisfiedFeatureConfigs, saveSendsPower, useRequiredConfigRegistry,
+  DEVICE_EDITOR_TABS, deviceEditorTabLabel, evaluateDeviceRequirements, isPlacementChange, satisfiedFeatureConfigs, saveSendsPower, useRequiredConfigRegistry,
   type DeviceEditorTab, type MappedFieldError,
 } from '../../device-requirements';
 import { usePowerDefaults } from '../../use-power-defaults';
@@ -58,11 +58,13 @@ export function DeviceEditor({ close, editingId, animateEntry = false, form, set
   const defaults = usePowerDefaults();
   const model = models.find((item) => item.id === form.modelId) ?? null;
   const siteId = typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('siteId');
-  const baseContext = { model, siteId, defaultPlugCount: defaults?.powerPlugCount ?? null, isNew };
+  // Existing device as opened: baseline for clearing a filled config and for placement changes (rack in/move, un-retire, 0→n plugs).
+  const [openedForm] = useState(form);
+  const openedModel = isNew ? null : models.find((item) => item.id === openedForm.modelId) ?? null;
+  const baseContext = { model, siteId, defaultPlugCount: defaults?.powerPlugCount ?? null, isNew, opened: isNew ? null : openedForm, openedModel };
   const sendsPower = saveSendsPower(form, baseContext);
   const context = { ...baseContext, sendsPower };
-  // Existing device: FEATURE configs it satisfied when opened. Only clearing one of those blocks; other gaps are legacy hints.
-  const [openedForm] = useState(form);
+  // Existing device: FEATURE configs it satisfied when opened. Clearing one of those blocks; other gaps are legacy hints unless the save places the device.
   const satisfiedAtOpen = useMemo(() => (isNew ? new Set<string>() : satisfiedFeatureConfigs(registry, openedForm, { model: models.find((item) => item.id === openedForm.modelId) ?? null, siteId, defaultPlugCount: defaults?.powerPlugCount ?? null, isNew, sendsPower: false })),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the baseline is the device as opened (recomputed once the registry arrives).
     [registry, isNew, openedForm, models]);
@@ -259,7 +261,7 @@ export function DeviceEditor({ close, editingId, animateEntry = false, form, set
             </div>
             <div className="device-editor-image">
               {imagePreview(form.backAssetId, model?.backAsset)}
-              <AssetPicker id="device-rear-image" invalid={!!errorFor('device-rear-image')} describedBy={errorFor('device-rear-image') || hintFor('device-rear-image') ? 'device-rear-image-note' : undefined} required={rearRequired && isNew && !(model?.backAssetId || model?.backAsset)} label={rearRequired ? 'Imagem traseira (obrigatória no bastidor)' : 'Imagem traseira (substitui a do modelo)'} emptyLabel={model?.backAssetId || model?.backAsset ? 'Usar a imagem do modelo' : 'Sem imagem'} value={form.backAssetId ?? ''} assets={assets} onChange={(value) => update({ backAssetId: value }, 'device-rear-image')} />
+              <AssetPicker id="device-rear-image" invalid={!!errorFor('device-rear-image')} describedBy={errorFor('device-rear-image') || hintFor('device-rear-image') ? 'device-rear-image-note' : undefined} required={rearRequired && isPlacementChange(form, baseContext) && !(model?.backAssetId || model?.backAsset)} label={rearRequired ? 'Imagem traseira (obrigatória no bastidor)' : 'Imagem traseira (substitui a do modelo)'} emptyLabel={model?.backAssetId || model?.backAsset ? 'Usar a imagem do modelo' : 'Sem imagem'} value={form.backAssetId ?? ''} assets={assets} onChange={(value) => update({ backAssetId: value }, 'device-rear-image')} />
               {note('device-rear-image')}
             </div>
           </div>
