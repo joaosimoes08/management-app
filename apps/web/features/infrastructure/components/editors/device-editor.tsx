@@ -8,7 +8,7 @@ import { EQUIPMENT_TYPES } from '../../utils';
 import { deviceImageFields, devicePowerFields, type DeviceForm } from '../../forms';
 import type { AssetFile, DeviceModel, IpAddress, Rack } from '../../types';
 import {
-  DEVICE_EDITOR_TABS, deviceEditorTabLabel, evaluateDeviceRequirements, isPlacementChange, satisfiedFeatureConfigs, saveSendsPower, useRequiredConfigRegistry,
+  DEVICE_EDITOR_TABS, deviceEditorTabLabel, effectiveStatus, evaluateDeviceRequirements, isPlacementChange, satisfiedFeatureConfigs, saveSendsPower, useRequiredConfigRegistry,
   type DeviceEditorTab, type MappedFieldError,
 } from '../../device-requirements';
 import { usePowerDefaults } from '../../use-power-defaults';
@@ -183,7 +183,10 @@ export function DeviceEditor({ close, editingId, animateEntry = false, form, set
   };
   const a11y = (fieldId: string) => ({ id: fieldId, 'aria-invalid': errorFor(fieldId) ? true : undefined, 'aria-describedby': errorFor(fieldId) || hintFor(fieldId) ? `${fieldId}-note` : undefined });
   const requiredMark = <span className="device-editor-required" aria-hidden="true"> *</span>;
-  const rearRequired = !!form.rackId && form.status !== 'RETIRED';
+  const storedStatus = effectiveStatus(form, baseContext);
+  const rearRequired = !!form.rackId && storedStatus !== 'RETIRED';
+  /** The API stores ACTIVE when a save puts the device in a rack (unless it is RETIRED already). */
+  const statusForcedActive = storedStatus !== form.status;
   /** Decorative preview of the chosen (or inherited) image; the picker below carries the label. */
   const imagePreview = (assetId: string | undefined, fallback: AssetFile | null | undefined) => {
     const asset = assets.find((item) => item.id === assetId) ?? fallback;
@@ -228,6 +231,7 @@ export function DeviceEditor({ close, editingId, animateEntry = false, form, set
             <label htmlFor="device-rack-unit-size">Tamanho U<input {...a11y('device-rack-unit-size')} type="number" min="1" value={form.rackUnitSize} onChange={(event) => update({ rackUnitSize: event.target.value }, 'device-rack-unit-size')} /></label>
           </div>
           {note('device-rack-unit-start')}{note('device-rack-unit-size')}
+          {statusForcedActive && <small className="form-warning device-status-forced" role="note">Ao colocar num bastidor, o estado passa a ACTIVE.</small>}
           <small className="form-help">Num bastidor, o equipamento precisa de imagem traseira e de fichas ligadas à PDU.</small>
         </>)}
 

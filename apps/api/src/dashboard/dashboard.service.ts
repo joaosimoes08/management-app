@@ -24,6 +24,8 @@ export type TopbarAlert = {
   kind?: 'DEVICE_MISSING_CONFIG';
   config?: string;
   count?: number;
+  /** Missing-config alerts: how many Sites the devices are in (> 1 means the href carries allSites=1). */
+  siteCount?: number;
 };
 
 export type GlobalSearchResult = {

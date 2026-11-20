@@ -238,6 +238,17 @@ describe('device editor required fields', () => {
       expect(save.mock.calls[0][1]).toEqual(expect.objectContaining({ powerPlugCount: 2 }));
     });
 
+    it('picking RETIRED while racking an active device still counts: the API stores ACTIVE', async () => {
+      const save = vi.fn().mockResolvedValue(undefined);
+      render(<Harness editingId="dev-site" initial={{ ...legacy, rackId: '', rackUnitStart: '', savedRackId: '', status: 'UNKNOWN' }} save={save} />);
+      expect(screen.queryByText('Ao colocar num bastidor, o estado passa a ACTIVE.')).not.toBeInTheDocument();
+      fireEvent.change(document.getElementById('device-status')!, { target: { value: 'RETIRED' } });
+      fireEvent.click(tab(/^Localização/));
+      fireEvent.change(document.getElementById('device-rack')!, { target: { value: 'rack-1' } });
+      expect(screen.getByText('Ao colocar num bastidor, o estado passa a ACTIVE.')).toBeInTheDocument();
+      await expectBlockedOnRearImageThenSavesWithPower(save, '/api/v1/devices/dev-site');
+    });
+
     it('legacy device staying in its rack still saves with its gaps, without power', () => {
       const save = vi.fn().mockResolvedValue(undefined);
       render(<Harness editingId="dev-old" initial={legacy} save={save} />);

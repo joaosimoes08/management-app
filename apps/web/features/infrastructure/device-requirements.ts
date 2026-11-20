@@ -107,12 +107,23 @@ function plugCount(form: DeviceForm, model: DeviceModel | null | undefined, defa
 }
 
 /**
+ * The status the API will store for this save (infrastructure.service createDevice / updateDevice): a save with a rack
+ * forces ACTIVE unless the device is RETIRED now (update) or is created as RETIRED. So picking RETIRED while racking an
+ * ACTIVE/UNKNOWN device still stores ACTIVE.
+ */
+export function effectiveStatus(form: DeviceForm, context: Pick<RequirementContext, 'isNew' | 'opened'>): string {
+  if (!form.rackId) return form.status;
+  if (context.isNew) return form.status === 'RETIRED' ? form.status : 'ACTIVE';
+  return context.opened && context.opened.status !== 'RETIRED' ? 'ACTIVE' : form.status;
+}
+
+/**
  * Whether the save places the device in a rack, which the API treats like a create there (rear image + power required,
  * MISSING): a new racked device, entering a rack from Site only, moving to another rack, leaving RETIRED inside a rack, or
  * going from 0 plugs to some. Staying in the same rack, or leaving a rack, is not a placement.
  */
 export function isPlacementChange(form: DeviceForm, context: Omit<RequirementContext, 'sendsPower'>): boolean {
-  if (!form.rackId || form.status === 'RETIRED') return false;
+  if (!form.rackId || effectiveStatus(form, context) === 'RETIRED') return false;
   if (context.isNew) return true;
   const opened = context.opened;
   const openedRack = opened ? opened.rackId ?? '' : form.savedRackId ?? '';
@@ -124,7 +135,7 @@ export function isPlacementChange(form: DeviceForm, context: Omit<RequirementCon
 
 /** Whether a config applies to the form and whether it is satisfied; `undefined` for a key the UI cannot evaluate. */
 export function configStatus(key: string, form: DeviceForm, context: RequirementContext): { applies: boolean; satisfied: boolean } | undefined {
-  const racked = Boolean(form.rackId) && form.status !== 'RETIRED';
+  const racked = Boolean(form.rackId) && effectiveStatus(form, context) !== 'RETIRED';
   switch (key) {
     case 'name': return { applies: true, satisfied: Boolean(form.name.trim()) };
     case 'type': return { applies: true, satisfied: Boolean(form.type.trim()) };
@@ -237,6 +248,16 @@ export function deviceSettingsHref(deviceId: string, tab?: DeviceEditorTab, site
 export function settingsTabFromSearch(search: string): DeviceEditorTab | undefined {
   const requested = new URLSearchParams(search).get('settingsTab');
   return isDeviceEditorTab(requested) ? requested : undefined;
+}
+
+/**
+ * Whether a `missingConfig` link asks for the cross-site list: `allSites=1`, or (older alert links) no siteId at all.
+ * The bell counts every Site the user can manage, so its list must not be narrowed to the active Site.
+ */
+export function missingConfigAllSitesFromSearch(search: string): boolean {
+  const query = new URLSearchParams(search);
+  if (!missingConfigFromSearch(search)) return false;
+  return query.get('allSites') === '1' || !query.get('siteId');
 }
 
 /** `missingConfig` list filter from a deep link (rearImage | power, or any key the registry adds). */

@@ -204,8 +204,12 @@ export function deviceSettingsHref(device: { id: string; siteId?: string | null 
   const query = new URLSearchParams({ ...(device.siteId ? { siteId: device.siteId } : {}), tab: 'devices', deviceId: device.id, settingsTab: tab });
   return `/infraestrutura?${query.toString()}`;
 }
-/** Filtered devices list deep link (contract with the web app). */
-export function missingConfigListHref(key: FeatureConfigKey, siteId?: string | null) {
-  const query = new URLSearchParams({ ...(siteId ? { siteId } : {}), tab: 'devices', missingConfig: key });
+/**
+ * Filtered devices list deep link (contract with the web app). One Site: `siteId=<id>`. More than one Site:
+ * `allSites=1`, so the web does not narrow the list to the Site the user has selected (the bell counts every Site).
+ */
+export function missingConfigListHref(key: FeatureConfigKey, siteId?: string | null, siteCount = 1) {
+  const allSites = siteCount > 1;
+  const query = new URLSearchParams({ ...(!allSites && siteId ? { siteId } : {}), tab: 'devices', missingConfig: key, ...(allSites ? { allSites: '1' } : {}) });
   return `/infraestrutura?${query.toString()}`;
 }
