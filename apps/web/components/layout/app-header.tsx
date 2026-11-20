@@ -4,7 +4,8 @@ import { isValidElement, useCallback, useEffect, useRef, useState, type ReactEle
 import { Activity, AlertTriangle, Bell, CheckCircle2, ChevronRight, Menu, Search, X } from 'lucide-react';
 import { apiFetch } from '@/lib/api/client';
 import { SiteSwitcher } from './site-switcher';
-import { unavailableTopbarState, type TopbarState } from './topbar-state';
+import { isMissingConfigAlert, unavailableTopbarState, type TopbarState } from './topbar-state';
+import { MissingConfigAlert } from './missing-config-alert';
 import { readAllOperationalAlerts } from '@/features/operations/api';
 import { useOperationalEvents } from '@/features/operations/use-operational-events';
 import { ResponsiveTabNavigation } from './responsive-overflow';
@@ -61,7 +62,8 @@ export function AppHeader({ section, moduleTabs, onOpenSidebar, onOpenGlobalSear
     id: 'next-steps-ipam-setup', severity: 'INFO' as const, title: t('shell.nextSteps'),
     detail: t('shell.continueIpam'), href: '/ipam', occurredAt: new Date().toISOString(), persistent: true,
   } : null;
-  const alerts = [...(nextStepsAlert ? [nextStepsAlert] : []), ...topbarState.alerts];
+  // Missing-config alerts are persistent whatever the API says: only fixing the devices clears them.
+  const alerts = [...(nextStepsAlert ? [nextStepsAlert] : []), ...topbarState.alerts.map((alert) => (isMissingConfigAlert(alert) ? { ...alert, persistent: true } : alert))];
   const visibleAlerts = alerts.filter((alert) => alert.persistent || !dismissedAlertIds.has(alert.id));
   const clearAlerts = () => {
     setDismissedAlertIds((current) => new Set([...current, ...alerts.filter((alert) => !alert.persistent).map((alert) => alert.id)]));
@@ -76,7 +78,7 @@ export function AppHeader({ section, moduleTabs, onOpenSidebar, onOpenGlobalSear
       <button className="topbar-search-trigger" onClick={onOpenGlobalSearch} aria-label="Pesquisar na aplicação ou neste separador"><Search size={15} /><span>Pesquisar</span><kbd>⌘ K</kbd></button>
       <div className="topbar-popover-anchor" ref={alertsRef}>
         <button className="icon-button alerts-trigger" onClick={() => setAlertsOpen((value) => !value)} aria-label={`${visibleAlerts.length} ${visibleAlerts.length === 1 ? 'alerta ativo' : 'alertas ativos'}`} aria-expanded={alertsOpen} aria-haspopup="dialog"><Bell size={17} />{visibleAlerts.length > 0 && <span className="alert-count">{visibleAlerts.length > 9 ? '9+' : visibleAlerts.length}</span>}</button>
-        {alertsOpen && <section className="topbar-popover alerts-popover" role="dialog" aria-label="Centro de alertas"><PopoverHeading eyebrow="CENTRO DE ALERTAS" title={`${visibleAlerts.length} ${visibleAlerts.length === 1 ? 'ativo' : 'ativos'}`} onClose={closeAlerts} action={visibleAlerts.length ? <button className="clear-alerts-button" type="button" onClick={clearAlerts}>Limpar todos</button> : undefined} />{topbarState.processes.length > 0 && <div className="running-processes"><span><Activity size={13} /> Em execução</span>{topbarState.processes.map((process) => <a href={process.href} key={process.id}><i /><span><strong>{process.label}</strong><small>{process.detail} · {process.state}</small></span><ChevronRight size={13} /></a>)}</div>}<div className="alert-list">{visibleAlerts.length ? visibleAlerts.map((alert) => <a href={alert.href} className={`${alert.severity.toLowerCase()}${alert.persistent ? ' persistent' : ''}`} key={alert.id}><span className="alert-severity">{alert.severity === 'INFO' ? <Activity size={14} /> : <AlertTriangle size={14} />}</span><span><strong>{alert.title}</strong><small>{alert.detail}</small>{!alert.persistent && <time>{new Date(alert.occurredAt).toLocaleString('pt-PT')}</time>}</span><ChevronRight size={13} /></a>) : <div className="alerts-empty"><CheckCircle2 size={20} /><strong>Sem alertas ativos</strong><span>O ambiente não requer atenção.</span></div>}</div></section>}
+        {alertsOpen && <section className="topbar-popover alerts-popover" role="dialog" aria-label="Centro de alertas"><PopoverHeading eyebrow="CENTRO DE ALERTAS" title={`${visibleAlerts.length} ${visibleAlerts.length === 1 ? 'ativo' : 'ativos'}`} onClose={closeAlerts} action={visibleAlerts.length ? <button className="clear-alerts-button" type="button" onClick={clearAlerts}>Limpar todos</button> : undefined} />{topbarState.processes.length > 0 && <div className="running-processes"><span><Activity size={13} /> Em execução</span>{topbarState.processes.map((process) => <a href={process.href} key={process.id}><i /><span><strong>{process.label}</strong><small>{process.detail} · {process.state}</small></span><ChevronRight size={13} /></a>)}</div>}<div className="alert-list">{visibleAlerts.length ? visibleAlerts.map((alert) => isMissingConfigAlert(alert) ? <MissingConfigAlert key={alert.id} alert={alert} /> : <a href={alert.href} className={`${alert.severity.toLowerCase()}${alert.persistent ? ' persistent' : ''}`} key={alert.id}><span className="alert-severity">{alert.severity === 'INFO' ? <Activity size={14} /> : <AlertTriangle size={14} />}</span><span><strong>{alert.title}</strong><small>{alert.detail}</small>{!alert.persistent && <time>{new Date(alert.occurredAt).toLocaleString('pt-PT')}</time>}</span><ChevronRight size={13} /></a>) : <div className="alerts-empty"><CheckCircle2 size={20} /><strong>Sem alertas ativos</strong><span>O ambiente não requer atenção.</span></div>}</div></section>}
       </div>
     </div>
   </header>;
