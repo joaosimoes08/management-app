@@ -6,7 +6,7 @@ import { RackDetail } from './rack-detail';
 
 class TestResizeObserver { observe() {} disconnect() {} unobserve() {} }
 vi.mock('./rack-device-zoom', () => ({ RackDeviceZoom: () => null }));
-vi.mock('../asset-image', () => ({ AssetImage: ({ alt }: { alt: string }) => <img alt={alt} /> }));
+vi.mock('../asset-image', () => ({ AssetImage: ({ alt }: { alt: string }) => <span role="img" aria-label={alt} /> }));
 
 const originalWidth = window.innerWidth;
 function setViewport(width: number) { Object.defineProperty(window, 'innerWidth', { configurable: true, value: width }); }
@@ -32,8 +32,8 @@ describe('RackDetail front and rear views', () => {
     const toggle = screen.getByRole('radiogroup', { name: 'Face do bastidor' });
     expect(within(toggle).getByRole('radio', { name: 'Ambas' })).toHaveAttribute('aria-checked', 'true');
     expect(faces(container)).toEqual(['front', 'rear']);
-    expect(screen.getByAltText('Bastidor Core cabinet, frente')).toBeInTheDocument();
-    expect(screen.getByAltText('Bastidor Core cabinet, traseira')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Bastidor Core cabinet, frente' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Bastidor Core cabinet, traseira' })).toBeInTheDocument();
     expect(container.querySelectorAll('[data-face="front"] .rack-overlay, [data-face="rear"] .rack-overlay')).toHaveLength(2);
   });
 
@@ -67,7 +67,7 @@ describe('RackDetail front and rear views', () => {
     const front = container.querySelector('[data-face="front"] .rack-overlay') as HTMLElement;
     const rear = container.querySelector('[data-face="rear"] .rack-overlay') as HTMLElement;
     expect(front.querySelector('.rack-device-media-missing')).toBeNull();
-    expect(within(front).getByAltText('Vista frontal de Edge switch')).toBeInTheDocument();
+    expect(within(front).getByRole('img', { name: 'Vista frontal de Edge switch' })).toBeInTheDocument();
     expect(rear.querySelector('.rack-device-media-missing')).not.toBeNull();
     expect(rear.querySelector('.rack-device-missing-face')).toHaveTextContent('Sem imagem traseira');
   });

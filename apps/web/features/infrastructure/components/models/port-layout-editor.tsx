@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Check, Plus, X } from 'lucide-react';
 import { Modal } from '@/components/ui/modal';
 import { compactPortGrid, PORT_TYPES, portMappingStatus, RACK_FACES } from '../../utils';
@@ -29,6 +29,15 @@ export interface PortLayoutEditorProps {
 }
 
 export const EMPTY_FACE_LAYOUT: PortLayout = { imageWidth: 1000, imageHeight: 300, ports: [] };
+
+/** Comparable form of a face: a face without ports is just empty, whatever its measured image size. */
+export function faceSnapshot(layout: PortLayout | undefined): string {
+  return layout?.ports?.length ? JSON.stringify(layout) : '[]';
+}
+
+function draftSnapshot(faces: PortLayoutFacesDraft | null, assetIds: PortLayoutAssetsDraft): string {
+  return JSON.stringify({ front: faceSnapshot(faces?.front), rear: faceSnapshot(faces?.rear), assetIds });
+}
 
 const FACE_TEXT: Record<RackFace, { tab: string; image: string; select: string; alt: string }> = {
   front: { tab: 'Frente', image: 'Imagem frontal do modelo', select: 'Seleciona uma imagem frontal para posicionar as portas.', alt: 'Imagem frontal do modelo' },
@@ -104,19 +113,20 @@ function InteractivePortCanvas({ asset, alt, ports, ratio, onUpdate, onDimension
 
 /** Port mapping editor: one tab per face, each over that face's image, with the mapped total checked against the model. */
 export function PortLayoutEditor({ modal, close, layoutModel, faces, setFaces, face, setFace, assets, assetIds, setAssetId, detect, confirm, saving, error }: PortLayoutEditorProps) {
-  const baseline = useRef('');
+  const [baseline, setBaseline] = useState<string | null>(null);
   const wasOpen = useRef(false);
   const tabs = useRef<Partial<Record<RackFace, HTMLButtonElement | null>>>({});
   useEffect(() => {
     const isOpen = Boolean(modal) && Boolean(faces);
-    if (isOpen && !wasOpen.current) baseline.current = JSON.stringify({ faces, assetIds });
+    if (isOpen && !wasOpen.current) setBaseline(draftSnapshot(faces, assetIds));
+    if (!isOpen) setBaseline(null);
     wasOpen.current = isOpen;
   }, [modal, faces, assetIds]);
   if (!modal || !faces) return null;
   const text = FACE_TEXT[face];
   const layout = faces[face];
   const ports = layout.ports;
-  const dirty = baseline.current !== JSON.stringify({ faces, assetIds });
+  const dirty = baseline !== null && baseline !== draftSnapshot(faces, assetIds);
   const status = portMappingStatus(layoutModel, faces);
   const blockers = portLayoutBlockers(layoutModel, faces, assetIds);
   const otherFace: RackFace = face === 'front' ? 'rear' : 'front';

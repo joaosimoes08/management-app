@@ -2,9 +2,9 @@ import { useState } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AssetFile, DeviceModel, PortLayoutPort, RackFace } from '../../types';
-import { EMPTY_FACE_LAYOUT, PortLayoutEditor, portLayoutBlockers, type PortLayoutAssetsDraft, type PortLayoutFacesDraft } from './port-layout-editor';
+import { EMPTY_FACE_LAYOUT, faceSnapshot, PortLayoutEditor, portLayoutBlockers, type PortLayoutAssetsDraft, type PortLayoutFacesDraft } from './port-layout-editor';
 
-vi.mock('../asset-image', () => ({ AssetImage: ({ alt }: { alt: string }) => <img alt={alt} /> }));
+vi.mock('../asset-image', () => ({ AssetImage: ({ alt }: { alt: string }) => <span role="img" aria-label={alt} /> }));
 afterEach(cleanup);
 
 const port = (n: number): PortLayoutPort => ({ portKey: `ethernet1/${n}`, label: `Porta ${n}`, interfaceType: 'ETHERNET', x: .1 * n, y: .1, width: .02, height: .1 });
@@ -33,7 +33,7 @@ describe('PortLayoutEditor faces', () => {
     render(<Harness initial={{ front: { ...EMPTY_FACE_LAYOUT }, rear: { ...EMPTY_FACE_LAYOUT, ports: [1, 2, 3, 4].map(port) } }} confirm={confirm} />);
     const rearTab = screen.getByRole('tab', { name: /Traseira/ });
     expect(rearTab).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByAltText('Imagem traseira do modelo')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Imagem traseira do modelo' })).toBeInTheDocument();
     fireEvent.keyDown(rearTab, { key: 'Home' });
     const frontTab = screen.getByRole('tab', { name: /Frente/ });
     expect(frontTab).toHaveAttribute('aria-selected', 'true');
@@ -60,5 +60,17 @@ describe('portLayoutBlockers', () => {
   it('reports ports above the model count', () => {
     const faces = { front: { ...EMPTY_FACE_LAYOUT, ports: [port(1), port(2)] }, rear: { ...EMPTY_FACE_LAYOUT, ports: [port(3), port(4), port(5)] } };
     expect(portLayoutBlockers(model, faces, { front: 'a', rear: 'b' })).toEqual(['Existem 1 portas a mais do que as 4 do modelo.']);
+  });
+});
+
+describe('faceSnapshot', () => {
+  it('ignores the measured image size of a face without ports', () => {
+    expect(faceSnapshot({ ...EMPTY_FACE_LAYOUT })).toBe(faceSnapshot({ imageWidth: 1100, imageHeight: 100, ports: [] }));
+    expect(faceSnapshot({ ...EMPTY_FACE_LAYOUT, ports: [port(1)] })).not.toBe(faceSnapshot({ imageWidth: 1100, imageHeight: 100, ports: [port(1)] }));
+  });
+
+  it('does not flag an unchanged editor as having unsaved changes', () => {
+    render(<Harness initial={{ front: { ...EMPTY_FACE_LAYOUT }, rear: { ...EMPTY_FACE_LAYOUT, ports: [port(1)] } }} />);
+    expect(screen.queryByText('Alterações por guardar')).not.toBeInTheDocument();
   });
 });

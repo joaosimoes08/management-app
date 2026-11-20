@@ -50,7 +50,7 @@ import { DeepLinkDeviceLoader } from './components/devices/deep-link-device-load
 import { ModelList } from './components/models/model-list';
 import { InterfaceWorkspace } from './components/models/interface-workspace';
 import { InterfaceEditor } from './components/models/interface-editor';
-import { EMPTY_FACE_LAYOUT, PortLayoutEditor, type PortLayoutAssetsDraft, type PortLayoutFacesDraft } from './components/models/port-layout-editor';
+import { EMPTY_FACE_LAYOUT, faceSnapshot, PortLayoutEditor, type PortLayoutAssetsDraft, type PortLayoutFacesDraft } from './components/models/port-layout-editor';
 import { AssetList } from './components/assets/asset-list';
 import { AssetUploadModal } from './components/assets/asset-upload-modal';
 import { EntityEditor } from './components/editors/entity-editor';
@@ -526,7 +526,7 @@ export function InfrastructureWorkspace() {
     try {
       const saved = JSON.parse(savedLayoutFaces.current || '{}') as Partial<PortLayoutFacesDraft>;
       const initialAssets = { front: layoutModel.frontAssetId ?? layoutModel.frontAsset?.id ?? '', rear: layoutModel.backAssetId ?? layoutModel.backAsset?.id ?? '' };
-      const changed = RACK_FACES.filter((face) => JSON.stringify(saved[face]) !== JSON.stringify(layoutFaces[face]) || initialAssets[face] !== layoutAssetIds[face]);
+      const changed = RACK_FACES.filter((face) => faceSnapshot(saved[face]) !== faceSnapshot(layoutFaces[face]) || initialAssets[face] !== layoutAssetIds[face]);
       // PUT replaces one face; the face with more ports goes first so the stored total reaches the model count as early as possible.
       const order = (changed.length ? changed : (['rear'] as RackFace[])).sort((left, right) => layoutFaces[right].ports.length - layoutFaces[left].ports.length);
       const confirmedAt = new Date().toISOString();
