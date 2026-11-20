@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PrismaClient } from '@simoes/database';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { InfrastructureAccessService } from '../infrastructure/infrastructure-access.service';
@@ -14,6 +14,63 @@ export function weeklyWindow(date: Date, timezone: string) {
   const localDate = new Date(`${local.year}-${local.month}-${local.day}T00:00:00.000Z`);
   localDate.setUTCDate(localDate.getUTCDate() - ((localDate.getUTCDay() + 6) % 7));
   return { due, weekStart: localDate };
+}
+
+
+const DAY_MS = 86_400_000;
+export const ATTESTATION_OPENS_AT_HOUR = 9;
+
+function timezoneOffsetMs(instant: Date, timezone: string) {
+  const local = localParts(instant, timezone);
+  const asUtc = Date.UTC(Number(local.year), Number(local.month) - 1, Number(local.day), Number(local.hour), Number(local.minute));
+  return asUtc - Math.floor(instant.getTime() / 60_000) * 60_000;
+}
+
+/** Converts a wall-clock time on a calendar date (given as a UTC-midnight Date) in `timezone` to the real instant. */
+export function zonedWallClockToInstant(calendarDate: Date, hour: number, timezone: string) {
+  const wallClock = Date.UTC(calendarDate.getUTCFullYear(), calendarDate.getUTCMonth(), calendarDate.getUTCDate(), hour);
+  let instant = wallClock - timezoneOffsetMs(new Date(wallClock), timezone);
+  instant = wallClock - timezoneOffsetMs(new Date(instant), timezone);
+  return new Date(instant);
+}
+
+/** A weekly cycle opens Monday 09:00 Site-local and is due when the next cycle opens (the following Monday 09:00). */
+export function cycleWindow(weekStart: Date, timezone: string) {
+  const nextWeekStart = new Date(weekStart.getTime() + 7 * DAY_MS);
+  return { opensAt: zonedWallClockToInstant(weekStart, ATTESTATION_OPENS_AT_HOUR, timezone), dueAt: zonedWallClockToInstant(nextWeekStart, ATTESTATION_OPENS_AT_HOUR, timezone) };
+}
+
+export type DueState = 'overdue' | 'due_this_week' | 'up_to_date' | 'unscheduled';
+type AttestationForDue = { weekStart: Date; outcome: string | null };
+
+/**
+ * Due state of one asset from its attestation rows.
+ * - overdue: a cycle is still pending after its due time (dueDate = oldest overdue cycle's due time)
+ * - due_this_week: the current cycle is pending and not yet due
+ * - up_to_date: every generated cycle is recorded (dueDate = due time of the next cycle to be generated)
+ * - unscheduled: no owner group, or no cycle generated yet (dueDate = next cycle's due time if owned, else null)
+ */
+export function computeDueState(attestations: AttestationForDue[], owned: boolean, timezone: string, now = new Date()) {
+  const pending = attestations.filter((row) => !row.outcome).map((row) => ({ row, ...cycleWindow(row.weekStart, timezone) })).sort((a, b) => a.row.weekStart.getTime() - b.row.weekStart.getTime());
+  const overdue = pending.filter((item) => item.dueAt.getTime() <= now.getTime());
+  const base = { pendingCount: pending.length, overdueCount: overdue.length };
+  if (overdue.length) return { ...base, dueState: 'overdue' as DueState, dueDate: overdue[0].dueAt.toISOString(), dueWeekStart: overdue[0].row.weekStart.toISOString().slice(0, 10) };
+  if (pending.length) return { ...base, dueState: 'due_this_week' as DueState, dueDate: pending[0].dueAt.toISOString(), dueWeekStart: pending[0].row.weekStart.toISOString().slice(0, 10) };
+  const current = weeklyWindow(now, timezone);
+  const latestWeek = attestations.reduce<number | null>((max, row) => max === null || row.weekStart.getTime() > max ? row.weekStart.getTime() : max, null);
+  // The scheduler generates a cycle only on Monday from 09:00 Site-local, so once Monday has passed without one, the next is next week's.
+  const generationClosesAt = zonedWallClockToInstant(new Date(current.weekStart.getTime() + DAY_MS), 0, timezone);
+  const currentGenerated = latestWeek !== null && latestWeek >= current.weekStart.getTime();
+  const nextWeekStart = !currentGenerated && now.getTime() < generationClosesAt.getTime() ? current.weekStart : new Date(current.weekStart.getTime() + 7 * DAY_MS);
+  const next = cycleWindow(nextWeekStart, timezone);
+  if (!owned || latestWeek === null) return { ...base, dueState: 'unscheduled' as DueState, dueDate: owned ? next.dueAt.toISOString() : null, dueWeekStart: owned ? nextWeekStart.toISOString().slice(0, 10) : null };
+  return { ...base, dueState: 'up_to_date' as DueState, dueDate: next.dueAt.toISOString(), dueWeekStart: nextWeekStart.toISOString().slice(0, 10) };
+}
+
+type ReviewerLookup = Map<string, { id: string; username: string; displayName: string | null }>;
+function withReviewer<T extends { confirmedBy: string | null }>(row: T, reviewers: ReviewerLookup) {
+  const reviewer = row.confirmedBy ? reviewers.get(row.confirmedBy) : undefined;
+  return { ...row, confirmedByName: reviewer ? reviewer.displayName || reviewer.username : null, confirmedByUser: reviewer ? { id: reviewer.id, username: reviewer.username, displayName: reviewer.displayName } : null };
 }
 
 @Injectable()
@@ -61,7 +118,31 @@ export class CriticalAssetsService implements OnModuleInit, OnModuleDestroy {
     const mappingByType = new Map(mapped.map((mapping) => [mapping.assetType, mapping.group]));
     const groupIds = user.roles.includes('ADMIN') ? null : (await this.prisma.accessGroupMember.findMany({ where: { userId: user.id }, select: { groupId: true } })).map((item) => item.groupId);
     const rows = await this.prisma.criticalAssetAttestation.findMany({ where: { siteId, deviceId: { in: devices.map(({ id }) => id) } }, orderBy: { weekStart: 'desc' } });
-    return { timezone: site.timezone, mappings: mapped, assets: devices.filter((device) => !groupIds || mapped.some((mapping) => mapping.assetType === device.type && groupIds.includes(mapping.groupId))).map((device) => ({ ...device, assignedGroup: mappingByType.get(device.type) ?? null, attestations: rows.filter((row) => row.deviceId === device.id) })), unassigned: devices.filter((device) => !mappingByType.has(device.type)) };
+    const reviewers = await this.reviewerLookup(rows.map((row) => row.confirmedBy));
+    const now = new Date();
+    const decorate = (device: (typeof devices)[number]) => {
+      const owner = mappingByType.get(device.type) ?? null;
+      const history = rows.filter((row) => row.deviceId === device.id);
+      const latest = history.find((row) => row.outcome) ?? null;
+      return {
+        ...device,
+        assignedGroup: owner,
+        owner,
+        ...computeDueState(history, Boolean(owner), site.timezone, now),
+        latestOutcome: latest?.outcome ?? null,
+        latestConfirmedAt: latest?.confirmedAt ?? null,
+        attestations: history.map((row) => withReviewer(row, reviewers)),
+      };
+    };
+    const visible = devices.filter((device) => !groupIds || mapped.some((mapping) => mapping.assetType === device.type && groupIds.includes(mapping.groupId)));
+    return { timezone: site.timezone, generatedAt: now.toISOString(), mappings: mapped, assets: visible.map(decorate), unassigned: devices.filter((device) => !mappingByType.has(device.type)).map(decorate) };
+  }
+
+  private async reviewerLookup(ids: Array<string | null>): Promise<ReviewerLookup> {
+    const unique = [...new Set(ids.filter((id): id is string => Boolean(id)))];
+    if (!unique.length) return new Map();
+    const users = await this.prisma.user.findMany({ where: { id: { in: unique } }, select: { id: true, username: true, displayName: true } });
+    return new Map(users.map((user) => [user.id, user]));
   }
 
   async setMapping(siteId: string, assetType: string, groupId: string, timezone: string, user: AuthenticatedUser) {
@@ -85,11 +166,29 @@ export class CriticalAssetsService implements OnModuleInit, OnModuleDestroy {
     await this.access.assertSite(user, 'READ', attestation.siteId, 'DEVICE', attestation.device.type);
     const mapping = await this.prisma.criticalAssetGroupMapping.findUnique({ where: { siteId_assetType: { siteId: attestation.siteId, assetType: attestation.device.type } }, include: { group: { include: { members: { where: { userId: user.id } } } } } });
     if (!user.roles.includes('ADMIN') && !mapping?.group.members.length) throw new ForbiddenException('Não tens acesso a esta revisão');
+    if (attestation.outcome) throw this.alreadyRecorded(attestation, await this.reviewerLookup([attestation.confirmedBy]));
     const result = await this.prisma.$transaction(async (tx) => {
-      const saved = await tx.criticalAssetAttestation.update({ where: { id }, data: { outcome, notes, confirmedAt: new Date(), confirmedBy: user.id } });
+      // Guarded write: only a still-pending row is updated, so two concurrent reviews cannot both succeed.
+      const updated = await tx.criticalAssetAttestation.updateMany({ where: { id, outcome: null }, data: { outcome, notes, confirmedAt: new Date(), confirmedBy: user.id } });
+      if (!updated.count) return null;
       await tx.auditLog.create({ data: { userId: user.id, action: 'CRITICAL_ASSET_ATTESTATION_RECORDED', entityType: 'Device', entityId: attestation.deviceId, metadata: { outcome, notes, attestationId: id } } });
-      return saved;
+      return tx.criticalAssetAttestation.findUniqueOrThrow({ where: { id } });
     });
-    return { ...result, inventoryChanged: false };
+    if (!result) {
+      const current = await this.prisma.criticalAssetAttestation.findUniqueOrThrow({ where: { id } });
+      throw this.alreadyRecorded(current, await this.reviewerLookup([current.confirmedBy]));
+    }
+    const reviewers = await this.reviewerLookup([result.confirmedBy]);
+    return { ...withReviewer(result, reviewers), inventoryChanged: false };
+  }
+
+  private alreadyRecorded(row: { id: string; weekStart: Date; outcome: string | null; confirmedAt: Date | null; confirmedBy: string | null }, reviewers: ReviewerLookup) {
+    const reviewed = withReviewer(row, reviewers);
+    const week = row.weekStart.toISOString().slice(0, 10);
+    return new ConflictException({
+      code: 'CRITICAL_ASSET_ATTESTATION_ALREADY_RECORDED',
+      message: `A revisão da semana de ${week} já foi registada${reviewed.confirmedByName ? ` por ${reviewed.confirmedByName}` : ''}. Não é possível registar outra para o mesmo ciclo.`,
+      details: { attestationId: row.id, weekStart: week, outcome: row.outcome, confirmedAt: row.confirmedAt?.toISOString() ?? null, confirmedBy: row.confirmedBy, confirmedByName: reviewed.confirmedByName },
+    });
   }
 }
