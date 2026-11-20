@@ -8,13 +8,15 @@ vi.mock('../asset-image', () => ({ AssetImage: ({ alt }: { alt: string }) => <sp
 afterEach(cleanup);
 
 const port = (n: number): PortLayoutPort => ({ portKey: `ethernet1/${n}`, label: `Porta ${n}`, interfaceType: 'ETHERNET', x: .1 * n, y: .1, width: .02, height: .1 });
-const model = { id: 'model-1', manufacturer: 'Acme', model: 'S4', networkPortCount: 4 } as DeviceModel;
+const model = { id: 'model-1', manufacturer: 'Acme', model: 'S4', supportsNetworkPorts: true, networkPortCount: 4 } as DeviceModel;
+// Real-data shape (Cisco UCS C220 M5, NetApp FAS2750): no network ports declared, management ports mapped anyway.
+const noNetworkModel = { id: 'model-2', manufacturer: 'Cisco', model: 'UCS C220 M5', supportsNetworkPorts: false, portCount: 0, networkPortCount: null } as DeviceModel;
 const assets = [{ id: 'rear-img', filename: 'rear.png', mimeType: 'image/png' } as AssetFile];
 
-function Harness({ initial, assetIds = { front: '', rear: 'rear-img' }, confirm = vi.fn() }: { initial: PortLayoutFacesDraft; assetIds?: PortLayoutAssetsDraft; confirm?: () => void }) {
+function Harness({ initial, assetIds = { front: '', rear: 'rear-img' }, confirm = vi.fn(), layoutModel = model }: { initial: PortLayoutFacesDraft; assetIds?: PortLayoutAssetsDraft; confirm?: () => void; layoutModel?: DeviceModel }) {
   const [faces, setFaces] = useState(initial);
   const [face, setFace] = useState<RackFace>('rear');
-  return <PortLayoutEditor modal close={vi.fn()} layoutModel={model} faces={faces} setFaces={setFaces} face={face} setFace={setFace} assets={assets} assetIds={assetIds} setAssetId={vi.fn()} detect={vi.fn()} confirm={confirm} saving={false} error="" />;
+  return <PortLayoutEditor modal close={vi.fn()} layoutModel={layoutModel} faces={faces} setFaces={setFaces} face={face} setFace={setFace} assets={assets} assetIds={assetIds} setAssetId={vi.fn()} detect={vi.fn()} confirm={confirm} saving={false} error="" />;
 }
 
 const save = () => screen.getByRole('button', { name: /Guardar template/ });
@@ -58,9 +60,45 @@ describe('PortLayoutEditor faces', () => {
 });
 
 describe('portLayoutBlockers', () => {
+  const rear = (...keys: number[]) => ({ front: { ...EMPTY_FACE_LAYOUT }, rear: { ...EMPTY_FACE_LAYOUT, ports: keys.map(port) } });
+  const images = { front: '', rear: 'b' };
+
   it('reports ports above the model count', () => {
     const faces = { front: { ...EMPTY_FACE_LAYOUT, ports: [port(1), port(2)] }, rear: { ...EMPTY_FACE_LAYOUT, ports: [port(3), port(4), port(5)] } };
     expect(portLayoutBlockers(model, faces, { front: 'a', rear: 'b' })).toEqual(['Existem 1 portas a mais do que as 4 do modelo.']);
+  });
+
+  it('still blocks the normal incomplete case', () => {
+    expect(portLayoutBlockers(model, rear(1, 2), images)).toEqual(['Mapeamento incompleto: faltam 2 de 4 portas.']);
+  });
+
+  it('allows any number of mapped ports when the model does not support network ports (D1)', () => {
+    expect(portLayoutBlockers(noNetworkModel, rear(...Array.from({ length: 20 }, (_, i) => i + 1)), images)).toEqual([]);
+    expect(portLayoutBlockers({ ...noNetworkModel, networkPortCount: 4 }, rear(1, 2, 3, 4, 5, 6, 7, 8), images)).toEqual([]);
+    expect(portLayoutBlockers(noNetworkModel, rear(), images)).toEqual([]);
+  });
+
+  it('with network ports but a count of 0, nothing is missing; mapped ports are extra, as the API rejects them', () => {
+    const zero = { ...model, networkPortCount: 0 };
+    expect(portLayoutBlockers(zero, rear(), images)).toEqual([]);
+    expect(portLayoutBlockers(zero, rear(1, 2), images)).toEqual(['Existem 2 portas a mais do que as 0 do modelo.']);
+  });
+
+  it('blocks partly mapped ports on any model, as the API does', () => {
+    const faces = { front: { ...EMPTY_FACE_LAYOUT }, rear: { ...EMPTY_FACE_LAYOUT, ports: [port(1), { ...port(2), portKey: '' }] } };
+    expect(portLayoutBlockers(noNetworkModel, faces, images)).toEqual(['1 porta não está completamente mapeada (interface, posição e tamanho).']);
+  });
+});
+
+describe('PortLayoutEditor without network ports (D1)', () => {
+  it('shows the map as informational and saves 8 management ports on a model with 0 ports', () => {
+    const confirm = vi.fn();
+    render(<Harness layoutModel={noNetworkModel} initial={{ front: { ...EMPTY_FACE_LAYOUT }, rear: { ...EMPTY_FACE_LAYOUT, ports: [1, 2, 3, 4, 5, 6, 7, 8].map(port) } }} confirm={confirm} />);
+    expect(screen.getByText('8 portas mapeadas · sem contagem obrigatória')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(save()).toBeEnabled();
+    fireEvent.click(save());
+    expect(confirm).toHaveBeenCalled();
   });
 });
 

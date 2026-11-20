@@ -27,22 +27,28 @@ describe('normalizePortLayout', () => {
 });
 
 describe('port mapping status and face choice', () => {
-  const model = (portLayout: DeviceModel['portLayout'], networkPortCount = 3) => ({ id: 'm', manufacturer: 'X', model: 'Y', networkPortCount, portLayout } as DeviceModel);
+  const model = (portLayout: DeviceModel['portLayout'], networkPortCount = 3) => ({ id: 'm', manufacturer: 'X', model: 'Y', supportsNetworkPorts: true, networkPortCount, portLayout } as DeviceModel);
 
   it('counts ports on both faces against the model port count', () => {
     const split = model({ version: 2, faces: { front: { imageWidth: 1, imageHeight: 1, ports: [port('a')] }, rear: { imageWidth: 1, imageHeight: 1, ports: [port('b'), port('c')] } } });
-    expect(portMappingStatus(split)).toEqual({ expected: 3, mapped: 3, complete: true });
+    expect(portMappingStatus(split)).toEqual({ expected: 3, mapped: 3, partial: 0, required: true, extra: 0, complete: true });
     expect(portMappingStatus(model({ version: 2, faces: { rear: { imageWidth: 1, imageHeight: 1, ports: [port('b')] } } }))).toMatchObject({ mapped: 1, complete: false });
   });
 
   it('uses the API expected-count rule', () => {
-    const base = { id: 'm', manufacturer: 'X', model: 'Y', portLayout: null } as DeviceModel;
+    const base = { id: 'm', manufacturer: 'X', model: 'Y', supportsNetworkPorts: true, portLayout: null } as DeviceModel;
     expect(expectedPortCount({ ...base, networkPortCount: 4, portCount: 8 })).toBe(4);
     expect(expectedPortCount({ ...base, networkPortCount: null, portCount: 8 })).toBe(8);
     expect(expectedPortCount({ ...base, networkPortCount: 0, portCount: 8 })).toBe(0);
     expect(expectedPortCount({ ...base, supportsNetworkPorts: false, networkPortCount: 4 })).toBe(0);
     expect(expectedPortCount({ ...base })).toBe(0);
-    expect(portMappingStatus({ ...base, networkPortCount: 0 })).toEqual({ expected: 0, mapped: 0, complete: true });
+    expect(expectedPortCount({ ...base, supportsNetworkPorts: undefined, networkPortCount: 4 })).toBe(0);
+    expect(portMappingStatus({ ...base, networkPortCount: 0 })).toEqual({ expected: 0, mapped: 0, partial: 0, required: false, extra: 0, complete: true });
+  });
+
+  it('treats the map as informational when the model has no network ports (D1)', () => {
+    const mgmt = { id: 'm', manufacturer: 'NetApp', model: 'FAS2750', supportsNetworkPorts: false, portCount: 0, portLayout: { version: 2, faces: { rear: { imageWidth: 1, imageHeight: 1, ports: Array.from({ length: 20 }, (_, i) => port(`e0${i}`)) } } } } as DeviceModel;
+    expect(portMappingStatus(mgmt)).toEqual({ expected: 0, mapped: 20, partial: 0, required: false, extra: 0, complete: true });
   });
 
   it('counts only fully mapped ports', () => {

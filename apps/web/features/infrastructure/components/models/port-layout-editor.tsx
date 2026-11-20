@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, Plus, X } from 'lucide-react';
 import { Modal } from '@/components/ui/modal';
-import { compactPortGrid, PORT_TYPES, portMappingStatus, RACK_FACES } from '../../utils';
+import { compactPortGrid, PORT_TYPES, portMappingStatus, RACK_FACES, type PortMappingStatus } from '../../utils';
 import type { AssetFile, DeviceModel, PortLayout, PortLayoutPort, RackFace } from '../../types';
 import { AssetImage } from '../asset-image';
 
@@ -91,24 +91,35 @@ const FACE_TEXT: Record<RackFace, { tab: string; image: string; select: string; 
   rear: { tab: 'Traseira', image: 'Imagem traseira do modelo', select: 'Seleciona uma imagem traseira para posicionar as portas.', alt: 'Imagem traseira do modelo' },
 };
 
-/** Problems that block saving: the mapped total must match the model and every face with ports needs its image. */
+/**
+ * Problems that block saving, mirroring the API: every listed port fully mapped; for a model with network ports
+ * (supportsNetworkPorts and a count above 0) the mapped total must match; a model that supports network ports never
+ * takes more than it declares; every face with ports needs its image. Otherwise the map is informational.
+ */
 export function portLayoutBlockers(model: DeviceModel | null, faces: PortLayoutFacesDraft | null, assetIds: PortLayoutAssetsDraft): string[] {
   if (!model || !faces) return [];
   const blockers: string[] = [];
   const status = portMappingStatus(model, faces);
-  if (status.mapped < status.expected) blockers.push(`Mapeamento incompleto: faltam ${status.expected - status.mapped} de ${status.expected} portas.`);
-  if (status.mapped > status.expected) blockers.push(`Existem ${status.mapped - status.expected} portas a mais do que as ${status.expected} do modelo.`);
+  if (status.partial) blockers.push(status.partial === 1 ? '1 porta não está completamente mapeada (interface, posição e tamanho).' : `${status.partial} portas não estão completamente mapeadas (interface, posição e tamanho).`);
+  if (status.required && status.mapped < status.expected) blockers.push(`Mapeamento incompleto: faltam ${status.expected - status.mapped} de ${status.expected} portas.`);
+  if (status.extra) blockers.push(`Existem ${status.extra} portas a mais do que as ${status.expected} do modelo.`);
   for (const face of RACK_FACES) {
     if (faces[face].ports.length && !assetIds[face]) blockers.push(face === 'front' ? 'A frente tem portas mas não tem imagem.' : 'A traseira tem portas mas não tem imagem.');
   }
   return blockers;
 }
 
+/** Headline of the mapping total: "N de M" when the count is enforced, otherwise just what is mapped. */
+export function portMappingTotal(status: PortMappingStatus): string {
+  if (status.required || status.extra) return `${status.mapped} de ${status.expected} portas mapeadas`;
+  return status.mapped === 1 ? '1 porta mapeada · sem contagem obrigatória' : `${status.mapped} portas mapeadas · sem contagem obrigatória`;
+}
+
 /** Short reason next to the disabled save button: how many ports are left, or a pointer to the warnings. */
 export function portLayoutSaveHint(model: DeviceModel | null, faces: PortLayoutFacesDraft | null, blockers: string[]): string {
   if (!model || !faces || !blockers.length) return '';
   const status = portMappingStatus(model, faces);
-  const left = status.expected - status.mapped;
+  const left = status.required ? status.expected - status.mapped : 0;
   if (left === 1) return 'Falta 1 porta por mapear.';
   if (left > 1) return `Faltam ${left} portas por mapear.`;
   return 'Resolve os avisos acima para guardar.';
@@ -223,7 +234,7 @@ export function PortLayoutEditor({ modal, close, layoutModel, faces, setFaces, f
   return <Modal title={`Mapear portas · ${layoutModel?.manufacturer} ${layoutModel?.model}`} close={requestClose}><div className="port-editor">
     <p className="form-help">Mapeia as portas em cada face do equipamento e associa-as à interface correspondente. Arrasta para mover; usa as setas para ajustes precisos. Alt + setas redimensiona. As posições são relativas à imagem de cada face.</p>
     <div className={`port-mapping-total${status.complete ? ' complete' : ' incomplete'}`} role="status" aria-live="polite">
-      <strong>{`${status.mapped} de ${status.expected} portas mapeadas`}</strong>
+      <strong>{portMappingTotal(status)}</strong>
       <span>{`Frente ${faces.front.ports.length} · Traseira ${faces.rear.ports.length}`}</span>
     </div>
     {blockers.length > 0 && <div className="ipam-alert warning port-mapping-warning" role="alert">{blockers.map((blocker) => <span key={blocker}>{blocker}</span>)}</div>}

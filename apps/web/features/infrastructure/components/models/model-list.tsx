@@ -11,6 +11,7 @@ import type { DeviceModel } from '../../types';
 function mappingSummary(model: DeviceModel): string {
   const status = portMappingStatus(model);
   if (!status.expected && !status.mapped) return 'sem portas de rede';
+  if (!status.required && !status.extra && status.complete) return `${status.mapped} portas mapeadas`;
   if (status.complete) return `${status.mapped} de ${status.expected} portas mapeadas`;
   return `mapeamento incompleto: ${status.mapped} de ${status.expected}`;
 }

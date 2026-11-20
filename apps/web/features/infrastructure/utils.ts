@@ -155,12 +155,18 @@ export function primaryPortFace(model: Pick<DeviceModel, 'portLayout'> | null | 
 export interface PortMappingStatus {
   expected: number;
   mapped: number;
+  /** Ports listed on a face but not fully mapped; the API rejects a face that has any. */
+  partial: number;
+  /** The map must cover exactly `expected` ports (supportsNetworkPorts and expected > 0); otherwise it is informational. */
+  required: boolean;
+  /** Mapped ports over what the API accepts: only checked when the model supports network ports. */
+  extra: number;
   complete: boolean;
 }
 
-/** Same rule as the API: no network ports when the model says so; an explicit 0 means none. */
+/** Same rule as the API: no network ports unless the model supports them (unset means no); an explicit 0 means none. */
 export function expectedPortCount(model: Pick<DeviceModel, 'networkPortCount' | 'portCount' | 'supportsNetworkPorts'> | null | undefined): number {
-  if (!model || model.supportsNetworkPorts === false) return 0;
+  if (!model?.supportsNetworkPorts) return 0;
   return Math.max(0, Number(model.networkPortCount ?? model.portCount ?? 0) || 0);
 }
 
@@ -174,8 +180,14 @@ export function isPortFullyMapped(port: Partial<PortLayoutPort> | null | undefin
 export function portMappingStatus(model: Pick<DeviceModel, 'portLayout' | 'networkPortCount' | 'portCount' | 'supportsNetworkPorts'> | null | undefined, faces?: PortLayoutFaces): PortMappingStatus {
   const expected = expectedPortCount(model);
   const source = faces ?? normalizePortLayout(model?.portLayout);
-  const mapped = RACK_FACES.reduce((total, face) => total + (source[face]?.ports.filter(isPortFullyMapped).length ?? 0), 0);
-  return { expected, mapped, complete: mapped === expected };
+  const ports = RACK_FACES.flatMap((face) => source[face]?.ports ?? []);
+  const mapped = ports.filter(isPortFullyMapped).length;
+  const partial = ports.length - mapped;
+  // API rule (port-layout.ts portMappingStatus / assertWritableFaces): the total only matters for a model with network
+  // ports and a count above 0; the "too many" check runs whenever the model supports network ports.
+  const required = !!model?.supportsNetworkPorts && expected > 0;
+  const extra = model?.supportsNetworkPorts ? Math.max(0, mapped - expected) : 0;
+  return { expected, mapped, partial, required, extra, complete: !partial && (!required || mapped === expected) };
 }
 
 /** Port hotspots from the model layout, or a generated grid fallback. When a face is given, only that face's map is used. */
