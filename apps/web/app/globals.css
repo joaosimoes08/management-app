@@ -2866,6 +2866,10 @@ body { color:var(--ink); background:#e9eef5; }
 .app-shell .sidebar.app-sidebar { top:0; height:100%; min-height:0; }
 .app-shell .content-area { display:flex; flex-direction:column; height:100%; min-height:0; overflow:hidden; }
 .app-shell .context-toolbar { position:relative; top:auto; flex:0 0 auto; }
+/* The toolbar sits in the column flow here, not sticky: drop the mobile sticky offset (top:106px under module tabs),
+   which otherwise shifts it down over the page heading and leaves a gap above it. */
+.app-shell > .global-topbar ~ .dashboard-frame .context-toolbar,
+.app-shell > .global-topbar:has(.module-tabs-slot nav) ~ .dashboard-frame .context-toolbar { top:auto; }
 .app-shell-content { flex:1 1 auto; min-height:0; overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; }
 .app-shell .app-shell-content:has(> .topology-page) { height:auto; min-height:0; overflow-x:hidden; overflow-y:auto; }
 @media (max-width:780px) {
