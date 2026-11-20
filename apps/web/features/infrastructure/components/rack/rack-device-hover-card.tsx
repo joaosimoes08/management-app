@@ -19,29 +19,37 @@ export interface PlaceHoverCardInput {
   stage: HoverCardBox;
   card: { width: number; height: number };
   viewport: { width: number; height: number };
+  /** The side to try first. Ambas: 'left' for the front (left) rack, 'right' for the rear one. Defaults to 'right'. */
+  prefer?: HoverCardPlacement['side'];
 }
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), Math.max(min, max));
 
 /**
- * Viewport coordinates for the device card: to the right of the racks (the whole pair in Ambas, so it never covers the
- * other face), flipped to the left of them when the right side is out of the window, and clamped so it is fully visible;
- * overlapping a rack is only possible in that last case. Vertically it is centred on the device, then kept below the stage's
- * top line and above its bottom line (devices in the top U's open downwards, bottom U's upwards).
+ * Viewport coordinates for the device card, beside the racks and never over them unless nothing else fits.
+ * Horizontally the card opens on the `prefer` side (default right): in Ambas a front-face device prefers the left of the
+ * front rack and a rear-face device the right of the rear rack; single-face views prefer the right. If that side is out of
+ * the window it opens on the other side, and if neither fits it is clamped inside the window (the only case where it may
+ * overlap a rack). Vertically it is centred on the device, then kept below the stage's top line and above its bottom
+ * line (devices in the top U's open downwards, bottom U's upwards).
  */
-export function placeHoverCard({ device, rack, stage, card, viewport }: PlaceHoverCardInput): HoverCardPlacement {
+export function placeHoverCard({ device, rack, stage, card, viewport, prefer = 'right' }: PlaceHoverCardInput): HoverCardPlacement {
   const minLeft = HOVER_CARD_MARGIN;
   const maxLeft = viewport.width - HOVER_CARD_MARGIN - card.width;
-  let side: HoverCardPlacement['side'] = 'right';
-  let left = rack.right + HOVER_CARD_GAP;
-  if (left > maxLeft) {
-    const flipped = rack.left - HOVER_CARD_GAP - card.width;
-    if (flipped >= minLeft) {
-      side = 'left';
-      left = flipped;
-    } else {
-      left = clamp(left, minLeft, maxLeft);
-    }
+  const positions = { right: rack.right + HOVER_CARD_GAP, left: rack.left - HOVER_CARD_GAP - card.width };
+  const fits = { right: positions.right <= maxLeft, left: positions.left >= minLeft };
+  const other = prefer === 'right' ? 'left' : 'right';
+  let side: HoverCardPlacement['side'];
+  let left: number;
+  if (fits[prefer]) {
+    side = prefer;
+    left = positions[prefer];
+  } else if (fits[other]) {
+    side = other;
+    left = positions[other];
+  } else {
+    side = prefer;
+    left = clamp(positions[prefer], minLeft, maxLeft);
   }
 
   // The stage part that is on screen; fall back to the whole viewport when it is too short for the card.
@@ -61,17 +69,22 @@ const box = (element: Element): HoverCardBox => {
   return { top, right, bottom, left };
 };
 
-/** The box around every rack frame on the device's stage, so the card clears both faces in Ambas. */
-function racksBox(anchor: HTMLElement): HoverCardBox {
+/**
+ * The box around every rack frame on the device's stage, so the card clears both faces in Ambas, and the side to try
+ * first: with two or more frames (Ambas) a device in the leftmost frame (front) prefers the left, any other the right.
+ */
+function racksBox(anchor: HTMLElement): { rack: HoverCardBox; prefer: HoverCardPlacement['side'] } {
   const frames = [...(anchor.closest('.rack-stage')?.querySelectorAll('.rack-frame') ?? [])];
   const own = anchor.closest('.rack-frame') ?? anchor;
   const boxes = (frames.length ? frames : [own]).map(box);
-  return {
+  const rack = {
     top: Math.min(...boxes.map((b) => b.top)),
     right: Math.max(...boxes.map((b) => b.right)),
     bottom: Math.max(...boxes.map((b) => b.bottom)),
     left: Math.min(...boxes.map((b) => b.left)),
   };
+  const leftmost = frames.length > 1 && box(own).left <= rack.left + 0.5;
+  return { rack, prefer: leftmost ? 'left' : 'right' };
 }
 
 /** The one device card shown at a time, shared by the front and rear overlays. */
@@ -129,7 +142,7 @@ export function RackDeviceHoverCard({ id, anchor, children }: RackDeviceHoverCar
     const stage = anchor.closest('.rack-stage-wrap') ?? anchor.closest('.rack-stage') ?? anchor;
     const next = placeHoverCard({
       device: box(anchor),
-      rack: racksBox(anchor),
+      ...racksBox(anchor),
       stage: box(stage),
       card: { width: card.offsetWidth, height: card.offsetHeight },
       viewport: { width: document.documentElement.clientWidth || window.innerWidth, height: document.documentElement.clientHeight || window.innerHeight },

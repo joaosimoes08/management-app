@@ -22,29 +22,37 @@ describe('placeHoverCard', () => {
     expect(place).toMatchObject({ side: 'right', left: frontRack.right + HOVER_CARD_GAP });
   });
 
-  it('Ambas: anchors a front-face card to the right edge of the pair, clear of the rear rack', () => {
-    const place = placeHoverCard({ device: rect(420, 500, 260, 14), rack: pair, stage, card, viewport });
-    expect(place).toMatchObject({ side: 'right', left: rearRack.right + HOVER_CARD_GAP });
-    expect(place.left).toBeGreaterThan(rearRack.right);
-  });
-
-  it('Ambas: anchors a rear-face card to the same right edge', () => {
-    const place = placeHoverCard({ device: rect(780, 500, 260, 14), rack: pair, stage, card, viewport });
-    expect(place).toMatchObject({ side: 'right', left: rearRack.right + HOVER_CARD_GAP });
-  });
-
-  it('Ambas: flips to the left of the front rack when the pair has no room on the right', () => {
-    const narrow = { width: 1200, height: 900 };
-    const place = placeHoverCard({ device: rect(780, 500, 260, 14), rack: pair, stage, card, viewport: narrow });
+  it('Ambas: a front-face card opens left of the front rack', () => {
+    const place = placeHoverCard({ device: rect(420, 500, 260, 14), rack: pair, stage, card, viewport, prefer: 'left' });
     expect(place).toMatchObject({ side: 'left', left: frontRack.left - HOVER_CARD_GAP - card.width });
     expect(place.left + card.width).toBeLessThan(frontRack.left);
+  });
+
+  it('Ambas: a front-face card falls back to the right of the pair when the left has no room', () => {
+    const leftEdgePair = rect(150, 220, 664, 600);
+    const place = placeHoverCard({ device: rect(170, 500, 260, 14), rack: leftEdgePair, stage, card, viewport, prefer: 'left' });
+    expect(place).toMatchObject({ side: 'right', left: leftEdgePair.right + HOVER_CARD_GAP });
+  });
+
+  it('Ambas: a rear-face card opens right of the pair, clear of the rear rack', () => {
+    const place = placeHoverCard({ device: rect(780, 500, 260, 14), rack: pair, stage, card, viewport, prefer: 'right' });
+    expect(place).toMatchObject({ side: 'right', left: rearRack.right + HOVER_CARD_GAP });
+  });
+
+  it('Ambas: a rear-face card falls back to the left of the front rack when the right has no room', () => {
+    const narrow = { width: 1200, height: 900 };
+    const place = placeHoverCard({ device: rect(780, 500, 260, 14), rack: pair, stage, card, viewport: narrow, prefer: 'right' });
+    expect(place).toMatchObject({ side: 'left', left: frontRack.left - HOVER_CARD_GAP - card.width });
   });
 
   it('Ambas: clamps inside the viewport as a last resort when neither side of the pair fits', () => {
     const narrow = { width: 900, height: 900 };
     const tightPair = rect(150, 220, 640, 600);
-    const place = placeHoverCard({ device: rect(170, 500, 260, 14), rack: tightPair, stage: rect(0, 200, 900, 640), card, viewport: narrow });
-    expect(place).toMatchObject({ side: 'right', left: narrow.width - HOVER_CARD_MARGIN - card.width });
+    const wide = rect(0, 200, 900, 640);
+    const front = placeHoverCard({ device: rect(170, 500, 260, 14), rack: tightPair, stage: wide, card, viewport: narrow, prefer: 'left' });
+    expect(front).toMatchObject({ side: 'left', left: HOVER_CARD_MARGIN });
+    const rear = placeHoverCard({ device: rect(530, 500, 260, 14), rack: tightPair, stage: wide, card, viewport: narrow, prefer: 'right' });
+    expect(rear).toMatchObject({ side: 'right', left: narrow.width - HOVER_CARD_MARGIN - card.width });
   });
 
   it('keeps a top-U card below the stage top line', () => {
@@ -113,6 +121,25 @@ describe('RackEquipmentOverlay device card', () => {
     expect(front.getAttribute('aria-describedby')).toBeNull();
     fireEvent.mouseLeave(front);
     expect(screen.getAllByRole('tooltip')).toHaveLength(1);
+  });
+
+  it('Ambas: opens the front card left of the front rack and the rear card right of the rear rack', () => {
+    const frameX = { front: 300, rear: 520 };
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      const frame = this.closest('[data-face]');
+      const x = frame ? frameX[frame.getAttribute('data-face') as 'front' | 'rear'] : 0;
+      const isFrame = this.classList.contains('rack-frame');
+      const r = frame ? (isFrame ? { left: x, width: 200 } : { left: x + 10, width: 180 }) : { left: 0, width: 1024 };
+      return { left: r.left, right: r.left + r.width, top: 100, bottom: 700, width: r.width, height: 600, x: r.left, y: 100, toJSON: () => ({}) } as DOMRect;
+    });
+    render(<div className="rack-stage-wrap"><div className="rack-stage">{(['front', 'rear'] as const).map((face) => <div className="rack-frame" data-face={face} key={face}><RackEquipmentOverlay rack={rack} face={face} onSelect={vi.fn()} onDropDevice={vi.fn()} draggingDeviceId="" onDragging={vi.fn()} canEdit /></div>)}</div></div>);
+    const [front, rear] = screen.getAllByRole('button', { name: /Edge switch/ });
+    fireEvent.mouseEnter(front);
+    expect(screen.getByRole('tooltip').getAttribute('data-side')).toBe('left');
+    expect(parseFloat(screen.getByRole('tooltip').style.left)).toBe(frameX.front - HOVER_CARD_GAP);
+    fireEvent.mouseEnter(rear);
+    expect(screen.getByRole('tooltip').getAttribute('data-side')).toBe('right');
+    expect(parseFloat(screen.getByRole('tooltip').style.left)).toBe(frameX.rear + 200 + HOVER_CARD_GAP);
   });
 
   it('subscribes to scroll and resize once, not on every render', () => {
