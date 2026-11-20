@@ -704,6 +704,11 @@ test('required device configs: registry, create validation, legacy updates, grou
   assert.equal(alerts.filter((a: any) => a.id === 'device-missing-config-power').length, 1);
   const powerCount = json(await request('GET', '/api/v1/devices/missing-config?config=power', admin)).total;
   assert.equal(powerAlert.count, powerCount);
+  assert.ok(powerAlert.siteCount >= 1);
+  if (powerAlert.count > 1 && powerAlert.siteCount > 1) {
+    assert.equal(powerAlert.href, '/infraestrutura?tab=devices&missingConfig=power&allSites=1');
+    assert.ok(powerAlert.detail.endsWith(` — em ${powerAlert.siteCount} Sites.`), powerAlert.detail);
+  } else assert.equal(powerAlert.href.includes('allSites'), false);
 
   // Plugging the legacy device in auto-clears it from the group; clearing it again is refused
   const plugged = await request('PUT', `/api/v1/devices/${legacy.id}/power`, admin, {});

@@ -151,9 +151,13 @@ describe('grouped bell alerts', () => {
     const alerts = await subject.topbarAlerts(admin);
     assert.deepEqual(alerts.map(({ id, title, href, persistent, severity }) => ({ id, title, href, persistent, severity })), [
       { id: 'device-missing-config-rearImage', title: '1 dispositivo sem imagem traseira', href: '/infraestrutura?siteId=s1&tab=devices&deviceId=d1&settingsTab=imagens', persistent: true, severity: 'WARNING' },
-      { id: 'device-missing-config-power', title: '4 dispositivos sem tomadas de energia configuradas', href: '/infraestrutura?tab=devices&missingConfig=power', persistent: true, severity: 'WARNING' },
+      { id: 'device-missing-config-power', title: '4 dispositivos sem tomadas de energia configuradas', href: '/infraestrutura?tab=devices&missingConfig=power&allSites=1', persistent: true, severity: 'WARNING' },
     ]);
     assert.ok(alerts[0].detail.startsWith('sw-01: '));
+    assert.equal(alerts[0].siteCount, 1);
+    assert.equal(alerts[0].detail, 'sw-01: A vista traseira do bastidor não os consegue mostrar.');
+    assert.equal(alerts[1].siteCount, 2);
+    assert.equal(alerts[1].detail, 'A carga das PDUs não inclui estes equipamentos — em 2 Sites.');
   });
 
   test('cost: visible rooms once, one grouped query per config, a device lookup only when count is 1', async () => {
@@ -179,6 +183,45 @@ describe('grouped bell alerts', () => {
     assert.deepEqual(calls[0].AND[0], { rack: { roomId: { in: ['room-1'] } }, type: { in: ['SWITCH', 'ROUTER', 'FIREWALL'] } });
     assert.equal(manageableDeviceTypes({ roles: ['READ_ONLY'] } as any), 'none');
     assert.deepEqual(await subject.topbarAlerts({ id: 'u', roles: ['READ_ONLY'] } as any), []);
+  });
+
+  test('2 Sites: the list without siteId uses the bell scope, so its total equals the bell count (allSites=1)', async () => {
+    // In-memory devices: 4 in LX and 2 in QA-PILOT miss power; 1 elsewhere is outside the visible rooms.
+    const devices = [
+      ...Array.from({ length: 4 }, (_, i) => ({ id: `lx-${i}`, name: `lx-${i}`, siteId: 'lx', roomId: 'room-1' })),
+      ...Array.from({ length: 2 }, (_, i) => ({ id: `qa-${i}`, name: `qa-${i}`, siteId: 'qa', roomId: 'room-2' })),
+      { id: 'hidden', name: 'hidden', siteId: 'other', roomId: 'room-9' },
+    ];
+    const wheres: any[] = [];
+    const matching = (where: any) => {
+      wheres.push(where);
+      const [scope] = where.AND;
+      return devices.filter((device) => scope.rack.roomId.in.includes(device.roomId) && (!scope.siteId || scope.siteId === device.siteId));
+    };
+    const prisma: any = {
+      device: {
+        groupBy: async ({ where }: any) => {
+          const bySite = new Map<string, number>();
+          for (const device of matching(where)) bySite.set(device.siteId, (bySite.get(device.siteId) ?? 0) + 1);
+          return JSON.stringify(where).includes('pduOutlets') ? [...bySite].map(([siteId, all]) => ({ siteId, _count: { _all: all } })) : [];
+        },
+        findFirst: async () => null,
+        findMany: async ({ where, skip, take }: any) => matching(where).slice(skip, skip + take).map((device) => ({ ...device, site: { name: device.siteId }, rack: null, model: null })),
+        count: async ({ where }: any) => matching(where).length,
+      },
+    };
+    const access: any = { visibleRoomIds: async () => ['room-1', 'room-2'] };
+    const subject = new DeviceRequiredConfigService(prisma, access);
+    const [alert] = await subject.topbarAlerts(admin);
+    const list = await subject.listMissing(admin, 'power', undefined, '1', '5');
+    assert.deepEqual({ count: alert.count, siteCount: alert.siteCount, href: alert.href }, { count: 6, siteCount: 2, href: '/infraestrutura?tab=devices&missingConfig=power&allSites=1' });
+    assert.equal(list.total, alert.count);
+    assert.equal(list.totalPages, 2);
+    assert.deepEqual([...new Set(list.items.map((item: any) => item.siteName))], ['lx', 'qa']);
+    // Same where for the bell and the list (scope + filter), not just the same number.
+    const powerWheres = wheres.filter((where) => JSON.stringify(where).includes('pduOutlets'));
+    assert.equal(powerWheres.length, 3); // bell groupBy, list findMany, list count
+    for (const where of powerWheres) assert.deepEqual(where, powerWheres[0]);
   });
 
   test('affected-devices list rejects an unknown config', async () => {

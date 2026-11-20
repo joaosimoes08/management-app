@@ -32,6 +32,8 @@ export interface MissingConfigGroup {
   label: string;
   /** Present when every affected device is in one Site. */
   siteId: string | null;
+  /** How many Sites the affected devices are spread over (a device without a Site counts as one group). */
+  siteCount: number;
   /** Present when count === 1. */
   device: { id: string; name: string; siteId: string | null } | null;
   href: string;
@@ -49,6 +51,7 @@ export interface MissingConfigAlert {
   kind: 'DEVICE_MISSING_CONFIG';
   config: FeatureConfigKey;
   count: number;
+  siteCount: number;
 }
 
 @Injectable()
@@ -79,7 +82,8 @@ export class DeviceRequiredConfigService {
       const config = requiredConfig(key);
       const onlySiteId = bySite.length === 1 ? bySite[0].siteId : null;
       const device = count === 1 ? await this.prisma.device.findFirst({ where, select: { id: true, name: true, siteId: true } }) : null;
-      return { config: key, count, tab: config.tab, label: config.label, siteId: onlySiteId, device, href: device ? deviceSettingsHref(device, config.tab) : missingConfigListHref(key, onlySiteId) };
+      const siteCount = bySite.length;
+      return { config: key, count, tab: config.tab, label: config.label, siteId: onlySiteId, siteCount, device, href: device ? deviceSettingsHref(device, config.tab) : missingConfigListHref(key, onlySiteId, siteCount) };
     }));
     return { items: groups.filter((group): group is MissingConfigGroup => group !== null) };
   }
@@ -91,12 +95,16 @@ export class DeviceRequiredConfigService {
     return items.map((group) => {
       const config = requiredConfig(group.config);
       const title = group.count === 1 ? config.alertTitle!.one : config.alertTitle!.other.replace('{count}', String(group.count));
-      const detail = group.device ? `${group.device.name}: ${config.alertDetail}` : config.alertDetail!;
-      return { id: `device-missing-config-${group.config}`, severity: 'WARNING', title, detail, href: group.href, occurredAt, persistent: true, kind: 'DEVICE_MISSING_CONFIG', config: group.config, count: group.count };
+      const base = group.siteCount > 1 ? `${config.alertDetail!.replace(/\.$/, '')} — em ${group.siteCount} Sites.` : config.alertDetail!;
+      const detail = group.device ? `${group.device.name}: ${base}` : base;
+      return { id: `device-missing-config-${group.config}`, severity: 'WARNING', title, detail, href: group.href, occurredAt, persistent: true, kind: 'DEVICE_MISSING_CONFIG', config: group.config, count: group.count, siteCount: group.siteCount };
     });
   }
 
-  /** GET /devices/missing-config?config=…: the affected devices, paginated. */
+  /**
+   * GET /devices/missing-config?config=…: the affected devices, paginated. Without siteId it uses the same scope and
+   * filter as missingSummary/topbarAlerts, so `total` equals the bell `count` (with allSites=1 the web omits siteId).
+   */
   async listMissing(user: AuthenticatedUser, configText: string | undefined, siteId?: string, pageText?: string, pageSizeText?: string) {
     if (!isFeatureConfigKey(configText)) throw new BadRequestException({ code: 'UNKNOWN_REQUIRED_CONFIG', message: `Configuração desconhecida. Usa uma de: ${FEATURE_CONFIG_KEYS.join(', ')}.` });
     const page = Math.max(Number(pageText) || 1, 1);

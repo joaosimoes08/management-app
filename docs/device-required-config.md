@@ -84,10 +84,12 @@ Any violation returns HTTP 400:
 
 ## Affected devices
 
-- `GET /api/v1/devices/missing-config/summary[?siteId=]` returns `{ items: [{ config, count, tab, label, siteId|null, device|null, href }] }`. There is one item per FEATURE config with count > 0. `siteId` is set when every affected device is in one Site; `device` is set when `count === 1`.
+- `GET /api/v1/devices/missing-config/summary[?siteId=]` returns `{ items: [{ config, count, tab, label, siteId|null, siteCount, device|null, href }] }`. There is one item per FEATURE config with count > 0. `siteId` is set when every affected device is in one Site; `siteCount` is how many Sites they are spread over (devices without a Site count as one group); `device` is set when `count === 1`.
 - `GET /api/v1/devices/missing-config?config=power[&siteId=][&page=1][&pageSize=25]` (max 100) returns `{ config, tab, items: [{ id, name, type, status, siteId, siteName, rackId, rackName, rackUnitStart, model, href }], page, pageSize, total, totalPages }`.
 
 Cost per request: `visibleRoomIds` once, then one `GROUP BY siteId` per FEATURE config (in parallel), plus one device lookup only for a config with exactly 1 affected device. The topbar does this once per `topbar-state` call; if it fails, the error is logged (`DashboardService` warn) and the bell shows the other alerts.
+
+Without `siteId`, the list uses exactly the same scope and filter as the summary and the bell, so its `total` equals the bell `count` (a unit test checks this for 2 Sites).
 
 Both are scoped to devices the user can see (rooms) **and** whose type the role can manage. ADMIN and SYSTEMS_OPERATOR see every type; NETWORK_OPERATOR sees SWITCH, ROUTER and FIREWALL; read-only roles see nothing.
 
@@ -106,12 +108,14 @@ Both are scoped to devices the user can see (rooms) **and** whose type the role 
   "persistent": true,
   "kind": "DEVICE_MISSING_CONFIG",
   "config": "power",
-  "count": 3
+  "count": 3,
+  "siteCount": 1
 }
 ```
 
 - The id is stable per config, so a refresh never duplicates the alert. The alert is computed on every request: it disappears once no device is missing that config, and nothing is stored.
 - `persistent: true` means "Limpar todos" must not hide it.
+- `siteCount` is how many Sites the devices are in. When it is more than 1, `detail` ends with " — em N Sites.", e.g. "A carga das PDUs não inclui estes equipamentos — em 2 Sites.", and the href carries `allSites=1`.
 - For a single device, the title is singular ("1 dispositivo sem imagem traseira") and `detail` is prefixed with the device name.
 
 ## Deep links (href contract)
@@ -119,6 +123,9 @@ Both are scoped to devices the user can see (rooms) **and** whose type the role 
 | case | href |
 |---|---|
 | exactly 1 device | `/infraestrutura?siteId=<siteId>&tab=devices&deviceId=<id>&settingsTab=imagens\|energia` |
-| several devices | `/infraestrutura?[siteId=<siteId>&]tab=devices&missingConfig=rearImage\|power` (`siteId` only when they are all in one Site) |
+| several devices, one Site | `/infraestrutura?siteId=<siteId>&tab=devices&missingConfig=rearImage\|power` |
+| several devices, more than one Site | `/infraestrutura?tab=devices&missingConfig=rearImage\|power&allSites=1` |
+
+`allSites=1` tells the web not to narrow the list to the Site currently selected: it calls `GET /devices/missing-config?config=…` without `siteId`, so the list shows the same devices the bell counts. Without `allSites` and without `siteId`, the web may apply the current Site as before.
 
 `tab` is already the Infraestrutura page section, so the device settings tab uses `settingsTab`. Its values are the registry tab keys `geral`, `localizacao`, `imagens` and `energia`.
