@@ -31,6 +31,8 @@ export class CreateDeviceDto {
   @IsOptional() @IsInt() rackUnitStart?: number;
   @IsOptional() @IsInt() rackUnitSize?: number;
   @IsOptional() @IsString() frontAssetId?: string;
+  /** Per-device rear image override; falls back to the model's backAsset. */
+  @IsOptional() @IsString() backAssetId?: string;
   @IsOptional() @IsString() managementIpAddressId?: string;
   @IsOptional() @IsString() notes?: string;
   @IsOptional() @IsBoolean() isCritical?: boolean;
@@ -80,9 +82,9 @@ export class UpdateInterfaceDto extends CreateInterfaceDto {
 }
 
 export class UpdatePortLayoutDto {
-  @IsOptional() imageWidth?: number;
-  @IsOptional() imageHeight?: number;
-  @IsOptional() ports?: unknown[];
+  @IsOptional() @IsInt() @Min(1) imageWidth?: number;
+  @IsOptional() @IsInt() @Min(1) imageHeight?: number;
+  @IsOptional() @IsArray() ports?: unknown[];
   @IsOptional() viewport?: unknown;
   @IsOptional() confidence?: number;
   @IsOptional() confirmedAt?: string;

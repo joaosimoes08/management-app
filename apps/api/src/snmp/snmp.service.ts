@@ -6,6 +6,7 @@ import { decryptCredential, encryptCredential, loadKeyring, rewrapCredential, SN
 import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { InfrastructureAccessService } from '../infrastructure/infrastructure-access.service';
+import { assertPortMappingComplete } from '../infrastructure/port-layout';
 import { AcceptSnmpEnrollmentDto, AcknowledgeSnmpWriteImpactDto, CreateSnmpCredentialDto, CreateSnmpTrapEnrollmentDto, CreateSnmpWritePreviewDto, ReviewSnmpDriftDto, SnmpCredentialSecretDto, SnmpOnboardingDeviceDto, UpsertSnmpConfigDto } from './dto';
 import { interfaceTrafficRates } from './metrics';
 
@@ -342,14 +343,15 @@ export class SnmpService implements OnModuleDestroy, OnModuleInit {
     if (!user.roles.includes('ADMIN') && !user.roles.includes('NETWORK_OPERATOR')) throw new ForbiddenException('Sem permissão para aceitar traps neste scope.');
   }
 
-  private async validateOnboardingAssets(type: string, modelId?: string, frontAssetId?: string) {
+  private async validateOnboardingAssets(type: string, modelId?: string, frontAssetId?: string, backAssetId?: string) {
     if (modelId) {
       const model = await this.prisma.deviceModel.findUnique({ where: { id: modelId }, select: { type: true, portLayout: true, supportsNetworkPorts: true, networkPortCount: true, portCount: true } });
       if (!model) throw new NotFoundException('Modelo não encontrado');
       if (model.type && model.type !== type) throw new BadRequestException({ code: 'SNMP_ONBOARDING_MODEL_TYPE_MISMATCH', message: 'O modelo não corresponde ao tipo de equipamento.' });
-      if (model.supportsNetworkPorts && (model.networkPortCount || model.portCount) && !Array.isArray((model.portLayout as any)?.ports)) throw new ConflictException({ code: 'SNMP_ONBOARDING_MODEL_LAYOUT_REQUIRED', message: 'O modelo com portas exige um layout definido.' });
+      assertPortMappingComplete(model);
     }
     if (frontAssetId && await this.prisma.assetFile.count({ where: { id: frontAssetId } }) !== 1) throw new NotFoundException('Imagem frontal não encontrada');
+    if (backAssetId && await this.prisma.assetFile.count({ where: { id: backAssetId } }) !== 1) throw new NotFoundException('Imagem traseira não encontrada');
   }
 
   private async validateOnboardingRack(dto: SnmpOnboardingDeviceDto, db: any = this.prisma) {
@@ -424,7 +426,7 @@ export class SnmpService implements OnModuleDestroy, OnModuleInit {
     if (enrollment.expiresAt <= new Date()) throw new ConflictException({ code: 'SNMP_ENROLLMENT_EXPIRED', message: 'O enrollment expirou.' });
     if (enrollment.status !== 'DISCOVERED' || !enrollment.firstSeenAt) throw new ConflictException({ code: 'SNMP_ENROLLMENT_NOT_DISCOVERED', message: 'O equipamento ainda não enviou uma trap autenticada.' });
     await this.access.assertSite(user, 'CREATE', enrollment.siteId, 'DEVICE', dto.type);
-    await this.validateOnboardingAssets(dto.type, dto.modelId, dto.frontAssetId);
+    await this.validateOnboardingAssets(dto.type, dto.modelId, dto.frontAssetId, dto.backAssetId);
     const subnets = await this.prisma.subnet.findMany({ where: { siteId: enrollment.siteId, version: 4 }, select: { id: true, cidr: true } });
     const subnet = this.mostSpecificSubnet(enrollment.sourceAddress, subnets);
     if (!subnet) throw new ConflictException({ code: 'SNMP_ENROLLMENT_NO_SUBNET', message: 'Não existe subnet IPv4 compatível no Site.' });
@@ -440,7 +442,7 @@ export class SnmpService implements OnModuleDestroy, OnModuleInit {
         const occupied = await tx.ipAddress.findFirst({ where: { address: current.sourceAddress, deviceId: { not: null }, subnet: { siteId: current.siteId } }, select: { id: true } });
         if (occupied) throw new ConflictException({ code: 'SNMP_ENROLLMENT_IP_OCCUPIED', message: 'O IP já está associado a outro equipamento.' });
         const existingIp = await tx.ipAddress.findUnique({ where: { subnetId_address: { subnetId: subnet.id, address: current.sourceAddress } }, select: { id: true, deviceId: true } });
-        const device = await tx.device.create({ data: { name: deviceName, type: dto.type, hostname: dto.hostname?.trim() || undefined, modelId: dto.modelId, frontAssetId: dto.frontAssetId, siteId: current.siteId, managementIp: current.sourceAddress, source: 'SNMP', status: 'UNKNOWN' } });
+        const device = await tx.device.create({ data: { name: deviceName, type: dto.type, hostname: dto.hostname?.trim() || undefined, modelId: dto.modelId, frontAssetId: dto.frontAssetId, backAssetId: dto.backAssetId, siteId: current.siteId, managementIp: current.sourceAddress, source: 'SNMP', status: 'UNKNOWN' } });
         if (existingIp) {
           const linked = await tx.ipAddress.updateMany({ where: { id: existingIp.id, deviceId: null }, data: { deviceId: device.id, source: 'SNMP', state: 'OCCUPIED' } });
           if (linked.count !== 1) throw new ConflictException({ code: 'SNMP_ENROLLMENT_IP_OCCUPIED', message: 'O IP foi associado por outra operação.' });
@@ -465,7 +467,7 @@ export class SnmpService implements OnModuleDestroy, OnModuleInit {
     if (dto.rackId) await this.access.assertRack(user, 'CREATE', dto.rackId, 'DEVICE', dto.type);
     else await this.access.assertSite(user, 'CREATE', dto.siteId, 'DEVICE', dto.type);
     if (net.isIP(dto.managementIp) === 0) throw new BadRequestException({ code: 'SNMP_MANAGEMENT_IP_REQUIRED', message: 'Define um IP de gestão válido.' });
-    await this.validateOnboardingAssets(dto.type, dto.modelId, dto.frontAssetId);
+    await this.validateOnboardingAssets(dto.type, dto.modelId, dto.frontAssetId, dto.backAssetId);
     await this.validateOnboardingRack(dto);
     const config = { enabled: dto.config.enabled, port: dto.config.port ?? 161, intervalMinutes: dto.config.intervalMinutes ?? 15, timeoutMs: dto.config.timeoutMs ?? 5000, retries: dto.config.retries ?? 2, compatibilitySha1: dto.config.compatibilitySha1 ?? false };
     const readSecret = this.credentialSecret(dto.readCredential, config);
@@ -479,7 +481,7 @@ export class SnmpService implements OnModuleDestroy, OnModuleInit {
       const keyring = await this.assertSecretAvailable(readSecret, {}, tx);
       if (trapSecret) await this.assertSecretAvailable(trapSecret, { v3TrapUsername: dto.trapCredential?.version === 'V3' ? dto.trapCredential.username : undefined }, tx);
       const readEnvelope = encryptCredential(readSecret, keyring); const trapEnvelope = trapSecret ? encryptCredential(trapSecret, keyring) : undefined;
-      const device = await tx.device.create({ data: { name: dto.name, type: dto.type, hostname: dto.hostname, managementIp: dto.managementIp, modelId: dto.modelId, frontAssetId: dto.frontAssetId, siteId: dto.siteId, rackId: dto.rackId, rackUnitStart: dto.rackUnitStart, rackUnitSize: dto.rackUnitSize, source: 'MANUAL', status: 'UNKNOWN' } });
+      const device = await tx.device.create({ data: { name: dto.name, type: dto.type, hostname: dto.hostname, managementIp: dto.managementIp, modelId: dto.modelId, frontAssetId: dto.frontAssetId, backAssetId: dto.backAssetId, siteId: dto.siteId, rackId: dto.rackId, rackUnitStart: dto.rackUnitStart, rackUnitSize: dto.rackUnitSize, source: 'MANUAL', status: 'UNKNOWN' } });
       const snmpConfig = await tx.snmpDeviceConfig.create({ data: { deviceId: device.id, ...config } });
       await tx.snmpCredential.create({ data: { deviceId: device.id, purpose: 'READ', version: dto.readCredential.version, label: dto.readCredential.label, ...readMetadata, ...readEnvelope } });
       let trapCredentialId: string | undefined;

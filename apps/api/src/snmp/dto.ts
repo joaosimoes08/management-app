@@ -51,6 +51,7 @@ export class SnmpOnboardingDeviceDto {
   @IsOptional() @IsString() hostname?: string;
   @IsOptional() @IsUUID() modelId?: string;
   @IsOptional() @IsUUID() frontAssetId?: string;
+  @IsOptional() @IsUUID() backAssetId?: string;
   @IsOptional() @IsUUID() rackId?: string;
   @IsOptional() @IsInt() @Min(1) rackUnitStart?: number;
   @IsOptional() @IsInt() @Min(1) rackUnitSize?: number;
@@ -66,4 +67,5 @@ export class AcceptSnmpEnrollmentDto {
   @IsOptional() @IsString() hostname?: string;
   @IsOptional() @IsUUID() modelId?: string;
   @IsOptional() @IsUUID() frontAssetId?: string;
+  @IsOptional() @IsUUID() backAssetId?: string;
 }

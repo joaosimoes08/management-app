@@ -176,18 +176,23 @@ Remoções com dependências são recusadas para preservar a hierarquia física 
 
 - `GET /api/v1/sites/:siteId/network-map` — devolve VLANs, subnet principal, equipamentos e interfaces associadas.
 - Estados de VLAN: `CONFIGURED`, `MISSING_SUBNET` e `NO_EQUIPMENT`.
-- Racks, devices e modelos aceitam `frontAssetId`; os ícones de devices e modelos são determinados automaticamente pelo tipo.
+- Racks, devices e modelos aceitam `frontAssetId`; devices e modelos aceitam também `backAssetId` (vista traseira). Os ícones de devices e modelos são determinados automaticamente pelo tipo.
+- Criar um modelo exige `frontAssetId` (`400 FRONT_IMAGE_REQUIRED`); editar não pode remover uma imagem frontal existente.
+- Criar equipamentos (manual, importação CSV, alteração de modelo em lote, onboarding SNMP) exige que todas as portas de rede do modelo estejam mapeadas entre as faces (`400 PORT_LAYOUT_INCOMPLETE`, com `expected`, `mapped`, `partialFaces`, `byFace`).
 
-- `GET /api/v1/device-models/:id/port-layout` — layout visual e asset frontal do modelo.
-- `PATCH /api/v1/device-models/:id/port-layout` — atualiza coordenadas normalizadas de portas.
-- `POST /api/v1/device-models/:id/port-layout/generate` — gera um layout inicial com base no número de portas.
+- `GET /api/v1/device-models/:id/port-layout?face=front|rear` — layout v2 do modelo, a face pedida (`faceLayout`), a imagem dessa face (`asset`) e o estado do mapeamento (`mapping`). `face` por omissão: `rear`.
+- `PUT /api/v1/device-models/:id/port-layout?face=front|rear` — substitui só essa face (`imageWidth`, `imageHeight`, `viewport?`, `ports[]`, `assetId?`). Rejeita portas incompletas, `portKey` duplicado entre faces e mais portas do que o modelo tem.
+- `PATCH /api/v1/device-models/:id/port-layout?face=` — alias legado: funde os campos enviados na face.
+- `POST /api/v1/device-models/:id/port-layout/generate?face=` — gera a grelha das portas ainda não mapeadas noutra face.
+- Formato v2 de `portLayout`: `{ version: 2, family?, faces: { front?, rear? } }`; cada face é `{ imageWidth, imageHeight, viewport?, ports[] }`. Layouts antigos (v1) são lidos como `faces.rear`. Migração de dados: `docs/rack-front-rear-migration.md`.
 - Equipamentos aceitam `managementIpAddressId` para associar o IP de gestão ao IPAM; `managementIp` continua disponível como campo rápido.
 
 ### Editor visual de portas
 
 - `POST /api/v1/device-models/:id/assets/front` — associa um AssetFile à imagem frontal do modelo.
-- `POST /api/v1/device-models/:id/port-layout/detect` — devolve uma proposta não persistida de grelha de portas.
-- `PATCH /api/v1/device-models/:id/port-layout` — confirma/atualiza o template com coordenadas normalizadas.
+- `POST /api/v1/device-models/:id/assets/rear` — associa um AssetFile à imagem traseira do modelo.
+- `POST /api/v1/device-models/:id/port-layout/detect?face=` — devolve uma proposta não persistida de grelha de portas.
+- `PUT /api/v1/device-models/:id/port-layout?face=` — confirma o template dessa face com coordenadas normalizadas.
 - `POST /api/v1/devices/:deviceId/interfaces/generate` — cria apenas interfaces que ainda não existem.
 - `POST /api/v1/assets/cleanup-legacy` — limpeza administrativa idempotente dos assets legados pedidos.
 - `DELETE /api/v1/assets/:id` — elimina o asset depois de desassociar referências visuais, com auditoria.
