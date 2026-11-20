@@ -52,6 +52,21 @@ describe('RackDetail viewport fit and interactions', () => {
     expect(parseFloat(inner.style.height)).toBeLessThanOrEqual(height - 24 + 0.001);
   });
 
+  it('keeps the utility-bar tools compact: icon-only View label, no Zoom word, labelled action buttons', () => {
+    render(<RackDetail rack={rack} onOut={vi.fn()} onDevice={vi.fn()} canEdit onPreviewPlacement={vi.fn()} onPlaceDevice={vi.fn()} onEditDevice={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} />);
+    const view = screen.getByRole('combobox', { name: 'rack.view' });
+    expect(view.closest('label')).toHaveAttribute('title', 'rack.view');
+    expect(view.closest('label')?.querySelector('span')).toBeNull();
+    const zoom = screen.getByRole('button', { name: 'rack.zoom: 0%' });
+    expect(zoom).toHaveAttribute('title', 'rack.zoom');
+    expect(zoom).not.toHaveTextContent('rack.zoom');
+    for (const name of ['Voltar aos bastidores', 'Editar bastidor', 'Eliminar bastidor']) {
+      const button = screen.getByRole('button', { name });
+      expect(button).toHaveAttribute('title', name);
+      expect(button.querySelector('.rack-action-label')).toHaveTextContent(name);
+    }
+  });
+
   it('maps the 0–100% zoom slider onto the fitted rack and restores the fit', async () => {
     const { container, setSize } = renderRack();
     setSize(900, 400);

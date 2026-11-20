@@ -32,7 +32,8 @@ describe('RackZoomPicker', () => {
 
   it('opens a slider panel below the trigger and reports the zoom for a slider value', () => {
     const { trigger, onZoom } = renderPicker(1.75);
-    expect(trigger).toHaveTextContent('rack.zoom');
+    expect(trigger).not.toHaveTextContent('rack.zoom');
+    expect(trigger).toHaveAttribute('title', 'rack.zoom');
     expect(trigger).toHaveTextContent('50%');
     expect(screen.queryByRole('slider')).not.toBeInTheDocument();
     fireEvent.click(trigger);

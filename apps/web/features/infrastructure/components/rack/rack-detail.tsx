@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Edit3, Trash2 } from 'lucide-react';
+import { ArrowLeft, Check, Edit3, Trash2 } from 'lucide-react';
 import { FIXED_RACK_IMAGE, RACK_BOTH_MIN_WIDTH, RACK_IMAGE, RACK_UNITS, readRackView, writeRackView } from '../../utils';
 import { PageToolbarPortal } from '@/components/layout/app-shell';
 import type { Device, Rack, RackEditDraft, RackFace, RackPlacementPlan, RackView } from '../../types';
@@ -169,7 +169,7 @@ export function RackDetail({ rack, onOut, onDevice, onEdit, onDelete, deleting, 
     <div className="rack-zoom-toolbar"><span>{rack.room?.building?.name} / {rack.room?.name} / <strong>{rack.name}</strong></span></div><PageToolbarPortal><div className="rack-view-tools" role="group" aria-label="Vista do bastidor">
       <RackViewPicker value={activeView} onChange={changeView} allowBoth={wide} />
       <RackZoomPicker zoom={zoom} onZoom={setZoom} onFit={fitToStage} />
-    </div></PageToolbarPortal><PageToolbarPortal><div className="button-row rack-detail-actions"><button type="button" className="secondary-button" onClick={onOut}>Voltar aos bastidores</button>{onEdit && <button type="button" className="secondary-button" onClick={() => onEdit(rack)}><Edit3 size={14}/> Editar bastidor</button>}{onDelete && <button type="button" className="secondary-button danger-button" disabled={deleting} onClick={() => onDelete(rack)}><Trash2 size={14}/> {deleting ? 'A eliminar…' : 'Eliminar bastidor'}</button>}</div></PageToolbarPortal>
+    </div></PageToolbarPortal><PageToolbarPortal><div className="button-row rack-detail-actions"><button type="button" className="secondary-button" onClick={onOut} aria-label="Voltar aos bastidores" title="Voltar aos bastidores"><ArrowLeft size={14} aria-hidden="true"/><span className="rack-action-label">Voltar aos bastidores</span></button>{onEdit && <button type="button" className="secondary-button" onClick={() => onEdit(rack)} aria-label="Editar bastidor" title="Editar bastidor"><Edit3 size={14} aria-hidden="true"/><span className="rack-action-label">Editar bastidor</span></button>}{onDelete && <button type="button" className="secondary-button danger-button" disabled={deleting} onClick={() => onDelete(rack)} aria-label={deleting ? 'A eliminar…' : 'Eliminar bastidor'} title="Eliminar bastidor"><Trash2 size={14} aria-hidden="true"/><span className="rack-action-label">{deleting ? 'A eliminar…' : 'Eliminar bastidor'}</span></button>}</div></PageToolbarPortal>
     <div className="panel-heading"><div><span className="section-kicker">BASTIDOR VISUAL</span><h2>{rack.name}</h2><p>{rack.devices?.length ?? 0} equipamentos · Bastidor padrão · 42U{canEdit ? <>{' · '}<span>Arrasta um equipamento para o mover</span></> : null}</p></div></div>
     <div className="rack-stage-wrap">
       <div className={`rack-stage${both ? ' rack-stage-both' : ''}`} ref={stageRef} data-view={activeView}>

@@ -2761,11 +2761,34 @@ body { color:var(--ink); background:#e9eef5; }
 .rack-zoom-panel input[type="range"] { width:100%; margin:0; accent-color:#2c6bed; }
 .rack-zoom-scale { display:flex; justify-content:space-between; color:#7b8798; font:10px 'DM Mono',monospace; }
 .rack-zoom-panel .rack-zoom-fit { justify-content:center; min-height:32px; font-size:11px; }
+/* Rack page: the whole utility bar stays on one row. Nothing in it shrinks below its content, so the
+   location pickers are never covered; the View label is the eye icon, and the action labels give way to
+   icons when the bar is too narrow for them. */
+.rack-detail-actions .secondary-button { gap:6px; }
 @media (min-width:981px) {
-  .context-toolbar:has(.rack-view-tools) { flex-wrap:wrap; row-gap:10px; }
-  /* Keep the building/room bar at its natural width so the rack tools wrap below it instead of covering it */
-  .context-toolbar:has(.rack-view-tools) .context-toolbar-navigation { flex:0 0 auto; }
-  .context-toolbar:has(.rack-view-tools) .context-toolbar-actions { margin-left:auto; }
+  .app-shell .context-toolbar:has(.rack-view-tools) { flex-wrap:nowrap; column-gap:8px; padding-right:16px; padding-left:16px; }
+  .app-shell .context-toolbar:has(.rack-view-tools) .context-toolbar-title { flex:0 0 auto; max-width:none; }
+  .app-shell .context-toolbar:has(.rack-view-tools) .context-toolbar-navigation { flex:0 0 auto; }
+  .app-shell .context-toolbar:has(.rack-view-tools) .context-toolbar-actions { flex:0 0 auto; gap:8px; margin-left:auto; }
+  .context-toolbar:has(.rack-view-tools) .context-toolbar-navigation .infra-context-bar { gap:10px; }
+  .context-toolbar:has(.rack-view-tools) .context-toolbar-navigation .infra-context-bar .location-control-group select { width:clamp(110px, 10vw, 160px); min-width:0; max-width:none; text-overflow:ellipsis; }
+  .rack-view-tools { gap:8px; }
+  .rack-toolbar-picker select { min-width:0; width:92px; }
+  .rack-detail-actions { gap:8px; }
+}
+/* Too narrow for the action labels: icon-only buttons with tooltips (measured: labels need ~1,300px of bar) */
+@media (min-width:981px) and (max-width:1559px) {
+  .app-shell:not(.sidebar-collapsed) .rack-detail-actions .rack-action-label { display:none; }
+  .app-shell:not(.sidebar-collapsed) .rack-detail-actions .secondary-button { justify-content:center; width:35px; padding:0; }
+}
+@media (min-width:981px) and (max-width:1339px) {
+  .app-shell.sidebar-collapsed .rack-detail-actions .rack-action-label { display:none; }
+  .app-shell.sidebar-collapsed .rack-detail-actions .secondary-button { justify-content:center; width:35px; padding:0; }
+}
+/* Expanded sidebar under 1180px: one row cannot fit even with icon-only actions, so the rack tools and
+   actions drop to a right-aligned second row instead of covering the pickers */
+@media (min-width:981px) and (max-width:1179px) {
+  .app-shell:not(.sidebar-collapsed) .context-toolbar:has(.rack-view-tools) { flex-wrap:wrap; row-gap:10px; }
 }
 @media (max-width:780px) {
   .context-toolbar-actions > .context-toolbar-contribution:has(.rack-view-tools) { grid-column:1 / -1; }
