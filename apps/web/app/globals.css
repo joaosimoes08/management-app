@@ -2722,3 +2722,9 @@ body { color:var(--ink); background:#e9eef5; }
   .dashboard-kpi-strip { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
   .app-shell-content .dashboard-fit .hero-row.dashboard-hero { flex-direction:column; align-items:flex-start; }
 }
+
+/* Dashboard toolbar: let the action group wrap to its own row instead of overlapping the workspace select. */
+.app-shell .dashboard-context-toolbar { flex-wrap:wrap; row-gap:8px; }
+.app-shell .dashboard-context-toolbar .context-toolbar-navigation { flex:1 1 auto; min-width:min(100%,300px); }
+.app-shell .dashboard-context-toolbar .context-toolbar-actions { flex:0 0 auto; max-width:100%; }
+@media (max-width:780px) { .app-shell .dashboard-context-toolbar .context-toolbar-navigation { min-width:0; } }

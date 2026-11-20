@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Check, Clock3, RefreshCw } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { useSiteContext } from '@/lib/site-context';
@@ -16,24 +16,30 @@ export function SeverityTag({ severity }: { severity: string }) {
 /**
  * Alerts and inventory-quality cards. `compact` is the dashboard variant: lists scroll inside the card
  * (keyboard-focusable, labelled) so the card can live in a fixed-height grid cell.
+ * `siteId` scopes the cards to one site (the dashboard passes its workspace site); when omitted or empty
+ * the cards follow the global site selector, as before.
  */
-export function OperationsPanel({ showAlerts = true, showQuality = true, compact = false }: { showAlerts?: boolean; showQuality?: boolean; compact?: boolean }) {
-  const { siteId } = useSiteContext(); const { hasRole } = useAuth();
+export function OperationsPanel({ showAlerts = true, showQuality = true, compact = false, siteId: scopedSiteId }: { showAlerts?: boolean; showQuality?: boolean; compact?: boolean; siteId?: string }) {
+  const { siteId: contextSiteId } = useSiteContext(); const { hasRole } = useAuth();
+  const siteId = scopedSiteId || contextSiteId;
   const [alerts, setAlerts] = useState<OperationalAlert[]>([]); const [alertTotal, setAlertTotal] = useState(0); const [quality, setQuality] = useState<InventoryQuality>(); const [findings, setFindings] = useState<InventoryFinding[]>();
   const [loaded, setLoaded] = useState(false); const [loadError, setLoadError] = useState(false);
   const canEdit = hasRole('ADMIN') || hasRole('NETWORK_OPERATOR') || hasRole('SYSTEMS_OPERATOR');
+  const requestRef = useRef(0);
   const load = useCallback(async () => {
+    const request = ++requestRef.current; // ignore a slower response for a previous site scope
     try {
       const [nextAlerts, nextQuality, nextFindings] = await Promise.all([
         showAlerts ? listOperationalAlerts(siteId || undefined) : undefined,
         showQuality ? getInventoryQuality(siteId || undefined) : undefined,
         showQuality && compact ? getInventoryQualityItems(siteId || undefined).catch(() => undefined) : undefined,
       ]);
+      if (request !== requestRef.current) return;
       if (nextAlerts) { setAlerts(nextAlerts.items ?? []); setAlertTotal(nextAlerts.total ?? nextAlerts.items?.length ?? 0); }
       if (nextQuality) setQuality(nextQuality);
       if (nextFindings) setFindings(nextFindings.items ?? []);
       setLoadError(false);
-    } catch { setLoadError(true); } finally { setLoaded(true); }
+    } catch { if (request === requestRef.current) setLoadError(true); } finally { if (request === requestRef.current) setLoaded(true); }
   }, [siteId, showAlerts, showQuality, compact]);
   useEffect(() => { void load(); }, [load]);
   useOperationalEvents({ fallback: load, onEvent: (event) => { if (event.event !== 'heartbeat') void load(); } });

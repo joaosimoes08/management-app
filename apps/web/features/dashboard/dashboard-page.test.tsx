@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import DashboardPage from './dashboard-page';
 
@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   getDashboardLayout: vi.fn(),
   saveDashboardPreference: vi.fn(),
   operational: {} as Record<string, unknown>,
+  operationsPanelProps: [] as Array<{ siteId?: string; showAlerts?: boolean; showQuality?: boolean }>,
   environment: { state: 'OPERATIONAL', services: [{ key: 'api', label: 'API', state: 'OPERATIONAL' }, { key: 'postgres', label: 'PostgreSQL', state: 'OPERATIONAL' }, { key: 'redis', label: 'Redis / BullMQ', state: 'OPERATIONAL' }], updatedAt: '2026-11-14T10:00:00Z' },
 }));
 
@@ -37,7 +38,7 @@ vi.mock('@/components/layout/app-shell', () => ({
   AppShell: ({ children, actions, toolbar }: { children: React.ReactNode; actions: React.ReactNode; toolbar: React.ReactNode }) => <div><div aria-label="Controlos do dashboard">{toolbar}</div><div aria-label="Ações do dashboard">{actions}</div>{children}</div>,
   ToolbarMore: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
-vi.mock('@/features/operations/operations-panel', () => ({ OperationsPanel: () => <div /> }));
+vi.mock('@/features/operations/operations-panel', () => ({ OperationsPanel: (props: { siteId?: string; showAlerts?: boolean; showQuality?: boolean }) => { mocks.operationsPanelProps.push(props); return <div />; } }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ user: { username: 'tester' }, profile: null, hasRole: (role: string) => mocks.role === role }) }));
 vi.mock('@/lib/site-context', () => ({ useSiteContext: () => ({ siteId: null }) }));
 vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string, _fallback?: string, params?: Record<string, unknown>) => params ? `${key}(${Object.values(params).join(',')})` : key }) }));
@@ -47,6 +48,7 @@ vi.mock('next/link', () => ({ default: ({ href, children, ...props }: React.Anch
 const baseOperational = { services: [], inventory: {}, processes: [], discovery: 0, drifts: 0, updatedAt: '2026-11-14T10:00:00Z' };
 beforeEach(() => {
   mocks.operational = { ...baseOperational };
+  mocks.operationsPanelProps = [];
   mocks.environment = { state: 'OPERATIONAL', services: [{ key: 'api', label: 'API', state: 'OPERATIONAL' }, { key: 'postgres', label: 'PostgreSQL', state: 'OPERATIONAL' }, { key: 'redis', label: 'Redis / BullMQ', state: 'OPERATIONAL' }], updatedAt: '2026-11-14T10:00:00Z' };
   mocks.getDashboardSummary.mockResolvedValue({ counts: {}, recentAudit: [] });
   mocks.getDashboardWorkspaces.mockResolvedValue({ items: [{ id: 'workspace-1', siteId: 'site-1', siteName: 'Site', role: mocks.role, selected: true }] });
@@ -149,5 +151,22 @@ describe('DashboardPage role-gated toolbar action', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'dashboard.editLayout' }));
     expect(await screen.findByText('dashboard.fitOverflowWarning')).toBeInTheDocument();
     expect(screen.getByText('dashboard.kpiWidget')).toBeInTheDocument();
+  });
+
+  it('scopes the alerts and quality cards to the selected workspace site, not the global site selector', async () => {
+    mocks.getDashboardWorkspaces.mockResolvedValueOnce({ items: [
+      { id: 'workspace-1', siteId: 'site-1', siteName: 'Site one', role: 'READ_ONLY', selected: true },
+      { id: 'workspace-2', siteId: 'site-2', siteName: 'Site two', role: 'READ_ONLY', selected: false },
+    ] });
+    render(<DashboardPage />);
+    const selector = await screen.findByRole('combobox');
+    await waitFor(() => expect(mocks.operationsPanelProps.at(-1)?.siteId).toBe('site-1'));
+    fireEvent.change(selector, { target: { value: 'workspace-2' } });
+    await waitFor(() => {
+      const latest = mocks.operationsPanelProps.slice(-2);
+      expect(latest.map((props) => props.siteId)).toEqual(['site-2', 'site-2']);
+      expect(latest.some((props) => props.showAlerts)).toBe(true);
+      expect(latest.some((props) => props.showQuality)).toBe(true);
+    });
   });
 });
