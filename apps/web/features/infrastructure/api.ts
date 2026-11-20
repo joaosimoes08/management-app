@@ -3,7 +3,6 @@ import type {
   AssetFile,
   BuildingWithRooms,
   Device,
-  DeviceInput,
   DeviceInterface,
   DeviceListResponse,
   DeviceModel,
@@ -242,16 +241,8 @@ export type DeviceRetirementReview = { device: { id: string; name: string }; int
 export const getDeviceRetirementReview = (id: string) => apiFetch<DeviceRetirementReview>(`/api/v1/devices/${id}/retirement-review`);
 export const retireDevice = (id: string) => apiFetch(`/api/v1/devices/${id}/retire`, { method: 'POST', body: JSON.stringify({ operatorConfirmed: true }) });
 
-export function createDevice(body: DeviceInput): Promise<Device> {
-  return apiFetch<Device>('/api/v1/devices', { method: 'POST', body: JSON.stringify(body) });
-}
-
 export function createSnmpOnboardedDevice(body: Record<string, unknown>): Promise<Device> {
   return apiFetch<Device>('/api/v1/snmp/onboarding/devices', { method: 'POST', body: JSON.stringify(body) });
-}
-
-export function updateDevice(id: string, body: Partial<DeviceInput>): Promise<Device> {
-  return apiFetch<Device>(`/api/v1/devices/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
 export function previewDeviceImport(siteId: string, rows: Record<string, unknown>[]) {

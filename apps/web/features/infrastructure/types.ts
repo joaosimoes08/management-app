@@ -348,25 +348,6 @@ export interface InfrastructurePermission {
 
 // ── Request payloads ───────────────────────────────────────────────────────
 
-export interface DeviceInput {
-  name: string;
-  type: EquipmentType | string;
-  hostname?: string | null;
-  managementIp?: string | null;
-  managementIpAddressId?: string | null;
-  rackId?: string | null;
-  rackUnitStart?: number | null;
-  rackUnitSize?: number;
-  modelId?: string | null;
-  status?: AssetStatus | string;
-  frontAssetId?: string | null;
-  backAssetId?: string | null;
-  siteId?: string | null;
-  notes?: string | null;
-  powerPlugCount?: number | null;
-  estimatedWatts?: number | null;
-}
-
 /** Per-PDU settings. Omitted = keep (or default on creation); null clears name / budget. */
 export interface PduSettingsInput { name?: string | null; outletCount?: number; budgetWatts?: number | null }
 
