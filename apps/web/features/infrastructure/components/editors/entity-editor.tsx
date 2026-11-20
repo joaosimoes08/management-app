@@ -36,15 +36,18 @@ export function EntityEditor({ modal, close, editingId, animateDeviceEntry = fal
 
   if (modal === 'device') return <Modal title={editingId ? 'Gerir equipamento' : 'Novo equipamento'} close={close} entryMotion={editingId !== '' && animateDeviceEntry}><form className="modal-form" onSubmit={(event) => {
     event.preventDefault();
-    const { snmpEnabled, snmpVersion, snmpReadUsername, snmpReadCommunity, snmpReadAuthKey, snmpReadPrivKey, snmpTrapEnabled, snmpTrapUsername, snmpTrapCommunity, snmpTrapAuthKey, snmpTrapPrivKey, snmpAuthProtocol, snmpPrivProtocol, snmpCompatibilitySha1, snmpPort, snmpIntervalMinutes, snmpTimeoutMs, snmpRetries, savedAssetIds: _savedAssetIds, frontAssetId: _frontAssetId, backAssetId: _backAssetId, ...devicePayload } = form.device;
+    const { snmpEnabled, snmpVersion, snmpReadUsername, snmpReadCommunity, snmpReadAuthKey, snmpReadPrivKey, snmpTrapEnabled, snmpTrapUsername, snmpTrapCommunity, snmpTrapAuthKey, snmpTrapPrivKey, snmpAuthProtocol, snmpPrivProtocol, snmpCompatibilitySha1, snmpPort, snmpIntervalMinutes, snmpTimeoutMs, snmpRetries, ...devicePayload } = form.device;
     if (!editingId && snmpEnabled) {
       const version = snmpVersion ?? 'V3'; const protocols = { authProtocol: snmpAuthProtocol ?? 'SHA256', privProtocol: snmpPrivProtocol ?? 'AES128' };
       const readCredential = version === 'V2C' ? { version, community: snmpReadCommunity } : { version, username: snmpReadUsername, authKey: snmpReadAuthKey, privKey: snmpReadPrivKey, ...protocols };
       const trapCredential = !snmpTrapEnabled ? undefined : version === 'V2C' ? { version, community: snmpTrapCommunity } : { version, username: snmpTrapUsername, authKey: snmpTrapAuthKey, privKey: snmpTrapPrivKey, ...protocols };
       void save('/api/v1/snmp/onboarding/devices', { siteId: new URLSearchParams(location.search).get('siteId'), name: devicePayload.name, type: devicePayload.type, hostname: devicePayload.hostname || undefined, managementIp: devicePayload.managementIp, modelId: devicePayload.modelId || undefined, frontAssetId: form.device.frontAssetId || undefined, rackId: devicePayload.rackId || undefined, rackUnitStart: devicePayload.rackId && devicePayload.rackUnitStart ? Number(devicePayload.rackUnitStart) : undefined, rackUnitSize: devicePayload.rackId ? Number(devicePayload.rackUnitSize || 1) : undefined, config: { enabled: true, port: Number(snmpPort || 161), intervalMinutes: Number(snmpIntervalMinutes || 15), timeoutMs: Number(snmpTimeoutMs || 5000), retries: Number(snmpRetries || 2), compatibilitySha1: !!snmpCompatibilitySha1 }, readCredential, trapCredential }, 'POST'); return;
     }
+    // Image overrides go through deviceImageFields so an edit never clears an image it did not change.
+    const deviceBody: Record<string, unknown> = { ...devicePayload };
+    delete deviceBody.savedAssetIds; delete deviceBody.frontAssetId; delete deviceBody.backAssetId;
     void save(editingId ? `/api/v1/devices/${editingId}` : '/api/v1/devices', {
-      ...devicePayload,
+      ...deviceBody,
       siteId: new URLSearchParams(location.search).get('siteId'),
       rackId: form.device.rackId || null,
       rackUnitStart: form.device.rackUnitStart ? Number(form.device.rackUnitStart) : null,
