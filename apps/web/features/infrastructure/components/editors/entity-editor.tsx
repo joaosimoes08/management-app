@@ -3,7 +3,7 @@
 import { Modal } from '@/components/ui/modal';
 import { useAuth } from '@/lib/auth';
 import { EQUIPMENT_TYPES } from '../../utils';
-import type { DeviceForm, ModelForm, RackForm } from '../../forms';
+import { deviceImageFields, type DeviceForm, type ModelForm, type RackForm } from '../../forms';
 import type { AssetFile, DeviceModel, IpAddress, Rack, RoomWithBuilding } from '../../types';
 import { AssetPicker, AssetUploadPicker, FormError, ModalActions } from './editor-shared';
 
@@ -36,12 +36,12 @@ export function EntityEditor({ modal, close, editingId, animateDeviceEntry = fal
 
   if (modal === 'device') return <Modal title={editingId ? 'Gerir equipamento' : 'Novo equipamento'} close={close} entryMotion={editingId !== '' && animateDeviceEntry}><form className="modal-form" onSubmit={(event) => {
     event.preventDefault();
-    const { snmpEnabled, snmpVersion, snmpReadUsername, snmpReadCommunity, snmpReadAuthKey, snmpReadPrivKey, snmpTrapEnabled, snmpTrapUsername, snmpTrapCommunity, snmpTrapAuthKey, snmpTrapPrivKey, snmpAuthProtocol, snmpPrivProtocol, snmpCompatibilitySha1, snmpPort, snmpIntervalMinutes, snmpTimeoutMs, snmpRetries, ...devicePayload } = form.device;
+    const { snmpEnabled, snmpVersion, snmpReadUsername, snmpReadCommunity, snmpReadAuthKey, snmpReadPrivKey, snmpTrapEnabled, snmpTrapUsername, snmpTrapCommunity, snmpTrapAuthKey, snmpTrapPrivKey, snmpAuthProtocol, snmpPrivProtocol, snmpCompatibilitySha1, snmpPort, snmpIntervalMinutes, snmpTimeoutMs, snmpRetries, savedAssetIds: _savedAssetIds, frontAssetId: _frontAssetId, backAssetId: _backAssetId, ...devicePayload } = form.device;
     if (!editingId && snmpEnabled) {
       const version = snmpVersion ?? 'V3'; const protocols = { authProtocol: snmpAuthProtocol ?? 'SHA256', privProtocol: snmpPrivProtocol ?? 'AES128' };
       const readCredential = version === 'V2C' ? { version, community: snmpReadCommunity } : { version, username: snmpReadUsername, authKey: snmpReadAuthKey, privKey: snmpReadPrivKey, ...protocols };
       const trapCredential = !snmpTrapEnabled ? undefined : version === 'V2C' ? { version, community: snmpTrapCommunity } : { version, username: snmpTrapUsername, authKey: snmpTrapAuthKey, privKey: snmpTrapPrivKey, ...protocols };
-      void save('/api/v1/snmp/onboarding/devices', { siteId: new URLSearchParams(location.search).get('siteId'), name: devicePayload.name, type: devicePayload.type, hostname: devicePayload.hostname || undefined, managementIp: devicePayload.managementIp, modelId: devicePayload.modelId || undefined, frontAssetId: devicePayload.frontAssetId || undefined, rackId: devicePayload.rackId || undefined, rackUnitStart: devicePayload.rackId && devicePayload.rackUnitStart ? Number(devicePayload.rackUnitStart) : undefined, rackUnitSize: devicePayload.rackId ? Number(devicePayload.rackUnitSize || 1) : undefined, config: { enabled: true, port: Number(snmpPort || 161), intervalMinutes: Number(snmpIntervalMinutes || 15), timeoutMs: Number(snmpTimeoutMs || 5000), retries: Number(snmpRetries || 2), compatibilitySha1: !!snmpCompatibilitySha1 }, readCredential, trapCredential }, 'POST'); return;
+      void save('/api/v1/snmp/onboarding/devices', { siteId: new URLSearchParams(location.search).get('siteId'), name: devicePayload.name, type: devicePayload.type, hostname: devicePayload.hostname || undefined, managementIp: devicePayload.managementIp, modelId: devicePayload.modelId || undefined, frontAssetId: form.device.frontAssetId || undefined, rackId: devicePayload.rackId || undefined, rackUnitStart: devicePayload.rackId && devicePayload.rackUnitStart ? Number(devicePayload.rackUnitStart) : undefined, rackUnitSize: devicePayload.rackId ? Number(devicePayload.rackUnitSize || 1) : undefined, config: { enabled: true, port: Number(snmpPort || 161), intervalMinutes: Number(snmpIntervalMinutes || 15), timeoutMs: Number(snmpTimeoutMs || 5000), retries: Number(snmpRetries || 2), compatibilitySha1: !!snmpCompatibilitySha1 }, readCredential, trapCredential }, 'POST'); return;
     }
     void save(editingId ? `/api/v1/devices/${editingId}` : '/api/v1/devices', {
       ...devicePayload,
@@ -51,8 +51,7 @@ export function EntityEditor({ modal, close, editingId, animateDeviceEntry = fal
       rackUnitSize: Number(form.device.rackUnitSize),
       modelId: form.device.modelId || null,
       managementIpAddressId: form.device.managementIpAddressId || null,
-      frontAssetId: form.device.frontAssetId || null,
-      backAssetId: form.device.backAssetId || null,
+      ...deviceImageFields(form.device),
     });
   }}>
     <label>Nome<input required value={form.device.name} onChange={(event) => setForm.device({ ...form.device, name: event.target.value })} /></label>
