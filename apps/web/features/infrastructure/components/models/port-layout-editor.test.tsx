@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AssetFile, DeviceModel, PortLayoutPort, RackFace } from '../../types';
-import { buildFacesSave, EMPTY_FACE_LAYOUT, faceSnapshot, PortLayoutEditor, portLayoutBlockers, type PortLayoutAssetsDraft, type PortLayoutFacesDraft } from './port-layout-editor';
+import { buildFacesSave, EMPTY_FACE_LAYOUT, faceSnapshot, PortLayoutEditor, portLayoutBlockers, portLayoutSaveHint, type PortLayoutAssetsDraft, type PortLayoutFacesDraft } from './port-layout-editor';
 
 vi.mock('../asset-image', () => ({ AssetImage: ({ alt }: { alt: string }) => <span role="img" aria-label={alt} /> }));
 afterEach(cleanup);
@@ -26,6 +26,7 @@ describe('PortLayoutEditor faces', () => {
     expect(screen.getByText('Frente 0 · Traseira 2')).toBeInTheDocument();
     expect(screen.getByRole('alert')).toHaveTextContent('Mapeamento incompleto: faltam 2 de 4 portas.');
     expect(save()).toBeDisabled();
+    expect(save()).toHaveAccessibleDescription('Faltam 2 portas por mapear.');
   });
 
   it('switches tabs by keyboard, shows the empty-face message and allows saving when the other face holds every port', () => {
@@ -100,5 +101,15 @@ describe('buildFacesSave', () => {
   it('sends the image only when it changed', () => {
     const body = buildFacesSave({ front: face(1), rear: face() }, { front: face(1), rear: face() }, assets('f', ''), assets('f', 'r2'));
     expect(body).toEqual({ rear: expect.objectContaining({ assetId: 'r2', ports: [] }) });
+  });
+});
+
+describe('portLayoutSaveHint', () => {
+  const faces = (...keys: number[]) => ({ front: { ...EMPTY_FACE_LAYOUT }, rear: { ...EMPTY_FACE_LAYOUT, ports: keys.map(port) } });
+  it('counts the ports left, or points at the warnings', () => {
+    expect(portLayoutSaveHint(model, faces(1, 2, 3), ['x'])).toBe('Falta 1 porta por mapear.');
+    expect(portLayoutSaveHint(model, faces(1), ['x'])).toBe('Faltam 3 portas por mapear.');
+    expect(portLayoutSaveHint(model, faces(1, 2, 3, 4), ['image'])).toBe('Resolve os avisos acima para guardar.');
+    expect(portLayoutSaveHint(model, faces(1, 2, 3, 4), [])).toBe('');
   });
 });

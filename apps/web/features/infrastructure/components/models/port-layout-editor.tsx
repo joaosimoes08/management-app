@@ -104,6 +104,16 @@ export function portLayoutBlockers(model: DeviceModel | null, faces: PortLayoutF
   return blockers;
 }
 
+/** Short reason next to the disabled save button: how many ports are left, or a pointer to the warnings. */
+export function portLayoutSaveHint(model: DeviceModel | null, faces: PortLayoutFacesDraft | null, blockers: string[]): string {
+  if (!model || !faces || !blockers.length) return '';
+  const status = portMappingStatus(model, faces);
+  const left = status.expected - status.mapped;
+  if (left === 1) return 'Falta 1 porta por mapear.';
+  if (left > 1) return `Faltam ${left} portas por mapear.`;
+  return 'Resolve os avisos acima para guardar.';
+}
+
 interface InteractivePortCanvasProps {
   asset: AssetFile;
   alt: string;
@@ -176,6 +186,7 @@ export function PortLayoutEditor({ modal, close, layoutModel, faces, setFaces, f
   const dirty = baseline !== null && baseline !== draftSnapshot(faces, assetIds);
   const status = portMappingStatus(layoutModel, faces);
   const blockers = portLayoutBlockers(layoutModel, faces, assetIds);
+  const saveHint = portLayoutSaveHint(layoutModel, faces, blockers);
   const otherFace: RackFace = face === 'front' ? 'rear' : 'front';
   const requestClose = () => {
     if (dirty && !window.confirm('Existem alterações por guardar. Queres sair sem guardar?')) return;
@@ -228,6 +239,6 @@ export function PortLayoutEditor({ modal, close, layoutModel, faces, setFaces, f
       {asset ? <InteractivePortCanvas asset={asset} alt={text.alt} ports={ports} ratio={ratio} onUpdate={updateCanvasPort} onDimensions={captureDimensions} /> : <div className="port-editor-empty" role="status">{text.select}</div>}
       <div className="port-table" role="list" aria-label={`Portas mapeadas · ${text.tab}`}>{ports.map((port, index) => <div className="port-editor-row" role="listitem" key={`${port.portKey}-${index}`}><label><span>Nome</span><input aria-label={`Nome da porta ${index + 1}`} value={port.label ?? ''} onChange={(event) => updatePort(index, 'label', event.target.value)} placeholder="Nome" /></label><label><span>Interface</span><input aria-label={`Chave da interface ${index + 1}`} value={port.portKey ?? ''} onChange={(event) => updatePort(index, 'portKey', event.target.value)} placeholder="portKey" /></label><label><span>Tipo</span><select aria-label={`Tipo da porta ${index + 1}`} value={port.interfaceType ?? 'ETHERNET'} onChange={(event) => updatePort(index, 'interfaceType', event.target.value)}>{PORT_TYPES.map((type) => <option key={type}>{type}</option>)}</select></label>{(['x', 'y', 'width', 'height'] as const).map((field) => <label key={field}><span>{field === 'width' ? 'Largura' : field === 'height' ? 'Altura' : field.toUpperCase()}</span><input aria-label={`${field} da porta ${index + 1}`} type="number" min="0" max="1" step=".001" value={port[field] ?? 0} onChange={(event) => updatePort(index, field, event.target.value)} /></label>)}<button type="button" className="icon-button subtle" aria-label={`Remover porta ${port.label || index + 1}`} onClick={() => removePort(index)}><X size={14} /></button></div>)}</div>
     </div>
-    <div className="modal-actions"><button type="button" className="secondary-button" onClick={requestClose}>Cancelar</button><button type="button" className="primary-button" onClick={confirm} disabled={saving || !layoutModel || blockers.length > 0}>{saving ? 'A guardar…' : <><Check size={14} /> Guardar template</>}</button></div>
+    <div className="modal-actions port-layout-actions">{saveHint && <small id="port-layout-save-hint" className="port-layout-save-hint" aria-live="polite">{saveHint}</small>}<button type="button" className="secondary-button" onClick={requestClose}>Cancelar</button><button type="button" className="primary-button" onClick={confirm} disabled={saving || !layoutModel || blockers.length > 0} aria-describedby={saveHint ? 'port-layout-save-hint' : undefined}>{saving ? 'A guardar…' : <><Check size={14} /> Guardar template</>}</button></div>
   </div></Modal>;
 }
