@@ -20,6 +20,17 @@ import type {
   ServiceInput,
   IpamAction,
   IpamPermissionGroup,
+  NatRule,
+  NatRuleInput,
+  NatRuleType,
+  RipeImportInput,
+  RipeImportRecord,
+  RipeImportResult,
+  RipePreview,
+  RipeQueryType,
+  Vrf,
+  VrfDetail,
+  VrfInput,
 } from './types';
 
 export function listPermissionGroups(siteId?: string): Promise<IpamPermissionGroup[]> {
@@ -150,4 +161,65 @@ export function updateService(id: string, body: Partial<{ [Key in keyof Omit<Ser
 
 export function deleteService(id: string): Promise<unknown> {
   return apiFetch(`/api/v1/services/${id}`, { method: 'DELETE' });
+}
+
+// ── VRFs ───────────────────────────────────────────────────────────────────
+
+export function listVrfs(siteId: string): Promise<Vrf[]> {
+  return apiFetch<Vrf[]>(`/api/v1/vrfs?siteId=${encodeURIComponent(siteId)}`);
+}
+
+export function getVrf(id: string): Promise<VrfDetail> {
+  return apiFetch<VrfDetail>(`/api/v1/vrfs/${id}`);
+}
+
+export function createVrf(body: VrfInput): Promise<Vrf> {
+  return apiFetch<Vrf>('/api/v1/vrfs', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function updateVrf(id: string, body: VrfInput): Promise<Vrf> {
+  return apiFetch<Vrf>(`/api/v1/vrfs/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
+export function deleteVrf(id: string): Promise<unknown> {
+  return apiFetch(`/api/v1/vrfs/${id}`, { method: 'DELETE' });
+}
+
+// ── NAT rules ──────────────────────────────────────────────────────────────
+
+export function listNatRules(siteId: string, filters: { vrfId?: string; type?: NatRuleType | '' } = {}): Promise<NatRule[]> {
+  const params = new URLSearchParams({ siteId });
+  if (filters.vrfId) params.set('vrfId', filters.vrfId);
+  if (filters.type) params.set('type', filters.type);
+  return apiFetch<NatRule[]>(`/api/v1/nat-rules?${params.toString()}`);
+}
+
+export function createNatRule(body: NatRuleInput): Promise<NatRule> {
+  return apiFetch<NatRule>('/api/v1/nat-rules', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function updateNatRule(id: string, body: NatRuleInput): Promise<NatRule> {
+  return apiFetch<NatRule>(`/api/v1/nat-rules/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
+export function deleteNatRule(id: string): Promise<unknown> {
+  return apiFetch(`/api/v1/nat-rules/${id}`, { method: 'DELETE' });
+}
+
+// ── RIPE ───────────────────────────────────────────────────────────────────
+
+export function previewRipe(query: string, queryType?: RipeQueryType): Promise<RipePreview> {
+  return apiFetch<RipePreview>('/api/v1/ipam/ripe/preview', { method: 'POST', body: JSON.stringify({ query, ...(queryType ? { queryType } : {}) }) });
+}
+
+export function importRipe(body: RipeImportInput): Promise<RipeImportResult> {
+  return apiFetch<RipeImportResult>('/api/v1/ipam/ripe/import', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function listRipeImports(): Promise<RipeImportRecord[]> {
+  return apiFetch<RipeImportRecord[]>('/api/v1/ipam/ripe/imports');
+}
+
+export function getRipeImport(id: string): Promise<RipeImportRecord> {
+  return apiFetch<RipeImportRecord>(`/api/v1/ipam/ripe/imports/${id}`);
 }
