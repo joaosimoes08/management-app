@@ -3070,3 +3070,10 @@ a.dashboard-kpi:focus-visible { box-shadow:0 9px 24px rgba(35,55,87,.09); outlin
 .device-360-facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; }
 .device-360-facts dd { margin: 0; overflow-wrap: anywhere; }
 .device-360-list { margin: 0; padding-left: 18px; display: grid; gap: 4px; overflow-wrap: anywhere; }
+/* Step 31: Definições → Notificações (Microsoft Teams) */
+.settings-form fieldset.notification-channel-fieldset { display:grid; gap:12px; }
+.settings-form fieldset.notification-channel-fieldset .panel-description { margin:0; }
+.notification-delivery-heading { margin-top:24px; }
+.notification-delivery-filters { align-items:flex-end; }
+.notification-delivery-filters label { display:grid; gap:5px; color:#666269; font-size:10px; }
+.notification-delivery-filters select { padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:#fff; font-size:11px; }
