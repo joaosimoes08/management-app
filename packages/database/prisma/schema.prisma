@@ -212,6 +212,7 @@ model User {
   roleRequests                RoleRequest[]
   reviewedRoleRequests        RoleRequest[]               @relation("RoleRequestReviewer")
   notifications               Notification[]
+  notificationMutes           NotificationMute[]
   lifecycleDatesAssigned      LifecycleDate[]             @relation("LifecycleDateResponsibleUser")
   lifecycleReminderDeliveries LifecycleReminderDelivery[]
   alertStates                 OperationalAlertUserState[]
@@ -259,12 +260,22 @@ model Notification {
   type          String
   title         String
   message       String
+  sourceHref    String?
   readAt        DateTime?
   createdAt     DateTime     @default(now())
   user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   roleRequest   RoleRequest? @relation(fields: [roleRequestId], references: [id], onDelete: SetNull)
 
   @@index([userId, readAt, createdAt])
+  @@index([userId, createdAt, id])
+}
+
+model NotificationMute {
+  userId String @db.Uuid
+  type   String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, type])
 }
 
 model UserRole {
@@ -300,6 +311,9 @@ model Site {
   region                    String?
   country                   String?
   timezone                  String                      @default("Europe/Lisbon")
+  criticalCadenceT1Weeks    Int                         @default(1)
+  criticalCadenceT2Weeks    Int                         @default(2)
+  criticalCadenceT3Weeks    Int                         @default(4)
   buildings                 Building[]
   subnets                   Subnet[]
   vlans                     Vlan[]
@@ -380,9 +394,23 @@ model Rack {
   room         Room       @relation(fields: [roomId], references: [id], onDelete: Cascade)
   devices      Device[]
   pdus         RackPdu[]
+  capacitySamples RackCapacitySample[]
 
   @@unique([roomId, name])
   @@index([roomId, displayOrder])
+}
+
+/// Daily inventory-derived capacity for rack units, rack power and individual PDUs.
+model RackCapacitySample {
+  rackId      String   @db.Uuid
+  resourceKey String
+  sampledAt   DateTime
+  used        Float
+  total       Float
+  rack        Rack     @relation(fields: [rackId], references: [id], onDelete: Cascade)
+
+  @@id([rackId, resourceKey, sampledAt])
+  @@index([sampledAt])
 }
 
 model RackModel {
@@ -459,6 +487,8 @@ model Device {
   managementIp              String?
   notes                     String?
   isCritical                Boolean                    @default(false)
+  criticalityTier           CriticalityTier?
+  criticalityTierReviewed   Boolean                    @default(false)
   source                    SourceType                 @default(MANUAL)
   status                    AssetStatus                @default(UNKNOWN)
   modelId                   String?                    @db.Uuid
@@ -1483,6 +1513,12 @@ model CriticalAssetGroupMapping {
 
   @@unique([siteId, assetType])
   @@index([groupId])
+}
+
+enum CriticalityTier {
+  T1
+  T2
+  T3
 }
 
 enum CriticalAssetOutcome {

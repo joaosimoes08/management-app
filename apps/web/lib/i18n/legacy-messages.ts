@@ -3,6 +3,7 @@ import type { AppLocale } from './i18n';
 type LegacyDictionary = Record<string, string>;
 
 const enUS: LegacyDictionary = {
+  'Revisão ligada à notificação': 'Review linked to the notification',
   // Step 35: SNMP device view and consistency labels
   'Operação submetida com sucesso.': 'Operation submitted successfully.',
   'A operação falhou.': 'The operation failed.',
@@ -304,6 +305,9 @@ const enUS: LegacyDictionary = {
   'As configurações e credenciais SNMP são apenas para administradores; a sincronização também exige o papel de operador de rede.': 'SNMP settings and credentials are for administrators only; synchronizing also requires the network operator role.',
   'As divergências podem ser aceites ou ignoradas. A vista de divergências junta todos os equipamentos do Site.': 'Drifts can be accepted or ignored. The drifts view gathers all devices of the Site.',
   'Uma operação SET exige pré-visualização do impacto e confirmação antes de ser executada.': 'A SET operation requires an impact preview and confirmation before it runs.',
+  'Associar a uma alteração': 'Attach to a change',
+  'Não associar': 'Do not attach',
+  'Alterações aprovadas ou em curso com este equipamento e a janela aberta agora. A escrita fica registada na alteração.': 'Approved or in-progress changes that include this device and whose window is open now. The write is recorded on the change.',
   // Alterações: implementation and close-out (Step 30)
   'Revertida': 'Rolled back',
   'Concluídas': 'Completed',
@@ -397,6 +401,14 @@ const enUS: LegacyDictionary = {
   'A verificar API': 'Checking API',
   'Abrir aplicação': 'Open application',
   'Abrir equipamento': 'Open device',
+  'Host e serviços': 'Host and services',
+  'Ver em Servidores': 'View in Servers',
+  'Sem host associado.': 'No linked host.',
+  'Sem serviços registados.': 'No services recorded.',
+  'Criticidade': 'Criticality',
+  'T1 · Vital': 'T1 · Vital',
+  'T2 · Importante': 'T2 · Important',
+  'T3 · Padrão': 'T3 · Standard',
   'Abrir detalhes': 'Open details',
   'Abrir ficha completa': 'Open full record',
   'Abrir VLAN no IPAM': 'Open VLAN in IPAM',
@@ -1112,6 +1124,9 @@ const enUS: LegacyDictionary = {
   'Em dia': 'Up to date',
   'Sem agendamento': 'Not scheduled',
   'Correção pedida': 'Correction requested',
+  'Tier 1 · Vital': 'Tier 1 · Vital',
+  'Tier 2 · Importante': 'Tier 2 · Important',
+  'Tier 3 · Padrão': 'Tier 3 · Standard',
   'Confirmado': 'Confirmed',
   'Pendente': 'Pending',
   'Sem responsável': 'No owner',
@@ -1643,6 +1658,10 @@ const substitutions: Array<[RegExp, string]> = [
   [/^Abrir registo de (.+)$/g, 'Open record of $1'],
   [/^Apagar vista (.+)$/g, 'Delete view $1'],
   [/^Ajuda: (.+)$/g, 'Help: $1'],
+  [/^(.+) · Aprovada · até (.+)$/g, '$1 · Approved · until $2'],
+  [/^(.+) · Em curso · até (.+)$/g, '$1 · In progress · until $2'],
+  [/^Escrita SNMP submetida, mas não foi associada à alteração: (.+)$/g, 'SNMP write submitted, but it was not attached to the change: $1'],
+  [/^Abrir equipamento de (.+)$/g, 'Open device of $1'],
   [/^Finding: (.+)$/g, 'Finding: $1'],
   [/^Reconhecer (.+)$/g, 'Acknowledge $1'],
   [/^Atribuir (.+)$/g, 'Assign $1'],

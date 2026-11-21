@@ -7,7 +7,7 @@ import { Device360Page } from './device-360-page';
 
 vi.mock('@/components/layout/app-shell', () => ({ AppShell: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 const roles = vi.hoisted(() => ({ current: ['ADMIN'] as string[] }));
-vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: (role: string) => roles.current.includes(role) }) }));
+vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: (role: string) => roles.current.includes(role), user: { id: 'u1' } }) }));
 vi.mock('@/lib/api/client', () => ({ apiFetch: vi.fn() }));
 vi.mock('@/lib/runtime-config', () => ({ getPublicRuntimeConfig: () => ({ apiUrl: '' }) }));
 
@@ -30,6 +30,15 @@ beforeEach(() => { roles.current = ['ADMIN']; vi.mocked(apiFetch).mockReset(); }
 afterEach(cleanup);
 
 describe('Device360Page', () => {
+  it('remembers the device page in recently viewed items', async () => {
+    window.localStorage.clear();
+    routeApi();
+    renderPage();
+    await screen.findByRole('heading', { level: 1, name: 'core-sw-01' });
+    const recent = JSON.parse(window.localStorage.getItem('management-app:recent-items:u1') ?? '[]');
+    expect(recent[0]).toMatchObject({ id: 'device:d1', kind: 'Equipamento', label: 'core-sw-01', href: '/infraestrutura/equipamentos/d1?siteId=s1' });
+  });
+
   it('shows an explicit empty state in every section, never a blank', async () => {
     routeApi();
     renderPage();
@@ -39,7 +48,7 @@ describe('Device360Page', () => {
     expect(await within(section('Ligações')).findByText('Sem ligações registadas.')).toBeInTheDocument();
     expect(within(section('Energia')).getByText('Sem tomadas de PDU ligadas.')).toBeInTheDocument();
     expect(await within(section('SNMP')).findByText('Sem SNMP configurado.')).toBeInTheDocument();
-    expect(within(section('Host e serviços')).getByText(/Ainda não disponível/)).toBeInTheDocument();
+    expect(await within(section('Host e serviços')).findByText('Sem host associado.')).toBeInTheDocument();
     expect(await within(section('Ciclo de vida')).findByText('Sem datas de ciclo de vida.')).toBeInTheDocument();
     expect(within(section('Atestação')).getByText('Não é um ativo crítico.')).toBeInTheDocument();
     expect(await within(section('Alterações')).findByText('Sem alterações abertas ou agendadas.')).toBeInTheDocument();
@@ -55,6 +64,7 @@ describe('Device360Page', () => {
     expect(within(section('Ligações')).getByRole('link', { name: /Topologia/ })).toHaveAttribute('href', '/topology?siteId=s1&deviceId=d1');
     expect(within(section('SNMP')).getByRole('link', { name: /SNMP/ })).toHaveAttribute('href', '/snmp?deviceId=d1');
     expect(within(section('Histórico')).getByRole('link', { name: /Auditoria/ })).toHaveAttribute('href', '/auditoria?entityType=Device&entityId=d1&q=d1');
+    expect(within(section('Host e serviços')).getByRole('link', { name: /Servidores/ })).toHaveAttribute('href', '/infraestrutura?tab=hosts&hosts-site=s1');
   });
 
   it('"Editar" opens today\'s edit form unchanged', async () => {
@@ -79,19 +89,41 @@ describe('Device360Page', () => {
     expect(urls.some((url) => url.startsWith('/api/v1/critical-assets'))).toBe(false);
   });
 
-  it('renders related data, the critical badge, and feature-detected tier and host once present', async () => {
+  it('renders related data, the tier badge, and the linked Linux host with its services', async () => {
     routeApi({
       '/api/v1/topology/connections': { items: [{ id: 'c1', type: 'PHYSICAL', sourceDeviceId: 'd1', targetDeviceId: 'd2', sourceDevice: device, targetDevice: { id: 'd2', name: 'fw-01' }, sourceInterface: { name: 'Gi1/0/1' } }, { id: 'c2', sourceDeviceId: 'x', targetDeviceId: 'y' }] },
       '/api/v1/change-plans': { items: [{ id: 'p1', title: 'Troca do core', status: 'APPROVED', plannedStartAt: '2026-12-01T10:00:00Z', items: [{ entityType: 'DEVICE', entityId: 'd1' }] }, { id: 'p2', title: 'Fechada', status: 'COMPLETED', plannedStartAt: '2026-10-01T10:00:00Z', items: [{ entityType: 'DEVICE', entityId: 'd1' }] }] },
-    }, { ...device, isCritical: true, criticalityTier: 1, host: { id: 'h1', name: 'core', services: [{ id: 's1', name: 'ssh', port: 22 }] } });
+      '/api/v1/linux-agents/hosts/h1/services': [{ id: 'sv1', name: 'ssh', protocol: 'tcp', port: 22, observedStatus: 'RUNNING' }],
+      '/api/v1/linux-agents/hosts': { staleMinutes: 15, items: [{ id: 'h1', name: 'core-host', operatingSystem: 'Debian 12', device: { id: 'd1', name: 'core-sw-01', siteId: 's1' }, agent: { state: 'ONLINE' } }, { id: 'h2', name: 'other-host', device: { id: 'd9' } }] },
+    }, { ...device, isCritical: true, criticalityTier: 'T1' });
     renderPage();
-    expect(await screen.findByTestId('tier-badge')).toHaveTextContent('Tier 1');
+    expect(await screen.findByTestId('tier-badge')).toHaveTextContent('T1 · Vital');
     const link = await within(section('Ligações')).findByRole('link', { name: 'fw-01' });
     expect(link).toHaveAttribute('href', '/infraestrutura/equipamentos/d2?siteId=s1');
     expect(within(section('Ligações')).getAllByRole('listitem')).toHaveLength(1);
     expect(await within(section('Alterações')).findByText('Troca do core')).toBeInTheDocument();
     expect(within(section('Alterações')).queryByText('Fechada')).not.toBeInTheDocument();
-    expect(within(section('Host e serviços')).getByText('ssh:22')).toBeInTheDocument();
+    const host = section('Host e serviços');
+    expect(await within(host).findByText('core-host')).toBeInTheDocument();
+    expect(within(host).getByText('ssh:22 (tcp) · RUNNING')).toBeInTheDocument();
+    expect(within(host).queryByText('other-host')).not.toBeInTheDocument();
+    expect(vi.mocked(apiFetch).mock.calls.map(([url]) => String(url))).toContain('/api/v1/linux-agents/hosts?siteId=s1');
+  });
+
+  it('shows "Crítico" for a critical device without a tier, and no host section for roles without host access', async () => {
+    roles.current = ['STORAGE_OPERATOR'];
+    routeApi({}, { ...device, isCritical: true });
+    renderPage();
+    expect(await screen.findByTestId('tier-badge')).toHaveTextContent('Crítico');
+    expect(screen.queryByRole('region', { name: 'Host e serviços' })).not.toBeInTheDocument();
+    expect(vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).startsWith('/api/v1/linux-agents'))).toBe(false);
+  });
+
+  it('never lists hosts across all Sites when the device has no Site', async () => {
+    routeApi({}, { ...device, siteId: null });
+    renderPage();
+    expect(await within(await screen.findByRole('region', { name: 'Host e serviços' })).findByText('Sem host associado.')).toBeInTheDocument();
+    expect(vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).startsWith('/api/v1/linux-agents'))).toBe(false);
   });
 
   it('shows a clear message instead of a blank page when the device cannot load', async () => {

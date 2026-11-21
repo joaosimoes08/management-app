@@ -2,9 +2,9 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Clock3, ExternalLink, RefreshCw, UserPlus, X } from 'lucide-react';
+import { Check, Clock3, ExternalLink, RefreshCw, Server, UserPlus, X } from 'lucide-react';
 import { AppShell, PageToolbarPortal } from '@/components/layout/app-shell';
-import { DataTable, SavedViews, sortByColumns, useTableUrlState, type DataTableColumn } from '@/components/data-table';
+import { DataTable, entityHref, SavedViews, sortByColumns, useTableUrlState, type DataTableColumn } from '@/components/data-table';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useAuth } from '@/lib/auth';
 import { useSiteContext } from '@/lib/site-context';
@@ -12,7 +12,7 @@ import { formatDateTime } from '@/lib/format/date';
 import { bulkInventoryFindings, getInventoryQualityAssignees, getInventoryQualityFacets, listInventoryFindings, type BulkFindingAction, type InventoryFinding } from './api';
 import { QualityBulkDialog, type BulkParams } from './quality-bulk-dialog';
 import {
-  ALL, BULK_LIMIT, bulkOutcome, findingQueryFrom, findingSeverities, findingStatuses, groupByRule, hasQualityFilters, isActionable,
+  ALL, BULK_LIMIT, bulkOutcome, findingDeviceId, findingQueryFrom, findingSeverities, findingStatuses, groupByRule, hasQualityFilters, isActionable,
   personName, qualityTableConfig, ruleLabel, severityLabels, severityRank, statusCount, statusLabels, statusTabLabels, visibleSelection, type BulkOutcome,
 } from './quality-workspace';
 
@@ -74,6 +74,7 @@ export function InventoryQualityPage() {
         <button type="button" className="icon-button subtle" disabled={running} onClick={() => openDialog('ASSIGN', row)} aria-label={`Atribuir ${row.title}`} title="Atribuir…"><UserPlus size={14} /></button>
         <button type="button" className="icon-button subtle" disabled={running} onClick={() => openDialog('SNOOZE', row)} aria-label={`Adiar ${row.title}`} title="Adiar…"><Clock3 size={14} /></button>
       </>}
+      {findingDeviceId(row) && <a className="icon-button subtle" href={entityHref({ kind: 'device', id: findingDeviceId(row)!, siteId: row.siteId })} aria-label={`Abrir equipamento de ${row.title}`} title="Abrir equipamento"><Server size={14} /></a>}
       {row.actionHref && <a className="icon-button subtle" href={row.actionHref} aria-label={`Abrir registo de ${row.title}`} title="Abrir registo"><ExternalLink size={14} /></a>}
     </span> },
   ];

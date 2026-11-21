@@ -24,6 +24,8 @@ export type ApiAsset = {
   dueState?: DueState;
   dueDate?: string | null;
   dueWeekStart?: string | null;
+  /** Criticality tier (T1 vital, T2 important, T3 standard). */
+  criticalityTier?: 'T1' | 'T2' | 'T3' | null;
   pendingCount?: number;
   overdueCount?: number;
   latestOutcome?: string | null;
@@ -46,8 +48,8 @@ export type AssetRow = ApiAsset & {
   pending: Attestation[];
 };
 
-export type Filters = { type: string; owner: string; outcome: string; due: string };
-export const emptyFilters: Filters = { type: '', owner: '', outcome: '', due: '' };
+export type Filters = { type: string; owner: string; outcome: string; due: string; tier: string };
+export const emptyFilters: Filters = { type: '', owner: '', outcome: '', due: '', tier: '' };
 export const NO_OWNER = '__none__';
 export const NO_OUTCOME = '__none__';
 export const assetTypes = ['SWITCH', 'ROUTER', 'FIREWALL', 'SERVER', 'STORAGE', 'OTHER'];
@@ -101,6 +103,7 @@ export function filterRows(rows: AssetRow[], search: string, filters: Filters): 
     if (filters.owner === NO_OWNER ? row.owner : filters.owner && row.owner?.id !== filters.owner) return false;
     if (filters.outcome === NO_OUTCOME ? row.latestOutcome : filters.outcome && row.latestOutcome !== filters.outcome) return false;
     if (filters.due && row.dueState !== filters.due) return false;
+    if (filters.tier && row.criticalityTier !== filters.tier) return false;
     if (!term) return true;
     return [row.name, row.type, row.hostname, row.managementIp, row.serialNumber, row.assetTag, row.owner?.name].some((value) => value?.toLowerCase().includes(term));
   });

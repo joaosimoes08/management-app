@@ -19,6 +19,8 @@ import { configureApp } from '../src/app.factory';
 import { AuthGuard } from '../src/auth/auth.guard';
 import { IS_PUBLIC_KEY } from '../src/auth/public.decorator';
 import { KeycloakAdminService } from '../src/settings/keycloak-admin.service';
+import { deliverLifecycleReminders } from '../src/infrastructure/lifecycle-reminders';
+import { CriticalAssetsService } from '../src/critical-assets/critical-assets.service';
 
 const databaseUrl = process.env.DATABASE_URL ?? '';
 if (!/[_-]test(?:\?|$)/i.test(databaseUrl)) throw new Error('HTTP integration tests require an isolated DATABASE_URL whose database name ends in _test.');
@@ -195,6 +197,45 @@ after(async () => {
   if (originalKeyringFile === undefined) delete process.env.SNMP_KEYRING_FILE;
   else process.env.SNMP_KEYRING_FILE = originalKeyringFile;
   await rm(keyringDirectory, { recursive: true, force: true });
+});
+
+test('site capacity outlook respects source access and reads saved daily NetApp and rack samples', async () => {
+  const observedAt = new Date();
+  const past = (days: number) => new Date(observedAt.getTime() - days * 86_400_000);
+  const bytes = Buffer.from([0]);
+  const integration = await prisma.netAppIntegration.create({ data: {
+    siteId: ids.siteA, endpointUrl: 'https://ontap.example.test', username: 'capacity-fixture',
+    ciphertext: bytes, iv: bytes, authTag: bytes, wrappedDek: bytes, wrapIv: bytes, wrapAuthTag: bytes, keyId: 'fixture',
+    snapshot: { observedAt: observedAt.toISOString(), aggregates: [], volumes: [{ uuid: 'fixture-volume', name: 'Fixture volume', sizeBytes: 100, usedBytes: 70 }] },
+  } });
+  try {
+    await prisma.netAppCapacitySample.createMany({ data: [
+      { integrationId: integration.id, kind: 'VOLUME', objectKey: 'fixture-volume', name: 'Fixture volume', sizeBytes: 100n, usedBytes: 50n, observedAt: past(14) },
+      { integrationId: integration.id, kind: 'VOLUME', objectKey: 'fixture-volume', name: 'Fixture volume', sizeBytes: 100n, usedBytes: 60n, observedAt: past(7) },
+    ] });
+    await prisma.rackCapacitySample.create({ data: { rackId: ids.rackA, resourceKey: 'space', sampledAt: past(1), used: 1, total: 42 } });
+
+    const url = `/api/v1/sites/${ids.siteA}/capacity-outlook`;
+    assert.equal((await request('GET', url)).statusCode, 401);
+    assert.equal((await request('GET', url, 'qa-network-legacy')).statusCode, 404);
+    assert.equal((await request('GET', `${url}?warningPercent=90&criticalPercent=85`, 'qa-readonly')).statusCode, 400);
+    const response = await request('GET', `${url}?warningPercent=75&criticalPercent=85`, 'qa-readonly');
+    assert.equal(response.statusCode, 200, response.body);
+    const outlook = json(response);
+    assert.deepEqual(outlook.thresholds, { warningPercent: 75, criticalPercent: 85 });
+    assert.ok(outlook.items.some((item: { id: string }) => item.id === ids.subnetA));
+    assert.ok(!outlook.items.some((item: { id: string }) => item.id === ids.rackSibling));
+    const space = outlook.items.find((item: { kind: string }) => item.kind === 'RACK_SPACE');
+    assert.equal(space.sampleCount, 2);
+    assert.equal(space.estimatedAt, null);
+    const volume = outlook.items.find((item: { kind: string }) => item.kind === 'NETAPP_VOLUME');
+    assert.equal(volume.currentPercent, 70);
+    assert.equal(volume.sampleCount, 3);
+    assert.equal(Date.parse(volume.estimatedAt) - observedAt.getTime(), 10.5 * 86_400_000);
+  } finally {
+    await prisma.netAppIntegration.delete({ where: { id: integration.id } });
+    await prisma.rackCapacitySample.deleteMany({ where: { rackId: ids.rackA, sampledAt: past(1) } });
+  }
 });
 
 test('enforces authentication and persona-level RBAC over HTTP', async () => {
@@ -484,6 +525,94 @@ test('normalizes conflicts and records audited ADMIN mutations', async () => {
   assert.equal(duplicate.statusCode, 409);
   assert.equal(json(duplicate).code, 'IP_CONFLICT');
   assert.equal(await prisma.auditLog.count({ where: { action: 'IP_ADDRESS_CREATED', userId: ids.admin } }), 1);
+});
+
+test('pages older notifications, isolates users and tracks individual read state in the bell', async (context) => {
+  const notifications = '/api/v1/notifications';
+  const user = 'qa-readonly';
+  const old = new Date('2025-09-01T08:00:00Z');
+  const titlePrefix = 'Step 27 archive';
+  const foreign = await prisma.notification.create({ data: { userId: ids.legacy, type: 'LIFECYCLE_DATE', title: `${titlePrefix} other`, message: 'Private' } });
+  await prisma.notification.createMany({ data: Array.from({ length: 27 }, (_, index) => ({
+    userId: ids.readonly, type: index === 0 ? 'ROLE_REQUEST_APPROVED' : 'LIFECYCLE_DATE',
+    title: `${titlePrefix} ${index}`, message: 'Archived', createdAt: old,
+  })) });
+  context.after(() => prisma.notification.deleteMany({ where: { title: { startsWith: titlePrefix } } }).then(() => undefined));
+  assert.equal((await request('GET', notifications)).statusCode, 401);
+  assert.equal((await request('GET', `${notifications}?status=unknown`, user)).statusCode, 400);
+  const page1 = json(await request('GET', `${notifications}?status=all`, user));
+  assert.equal(page1.items.length, 25);
+  assert.ok(page1.nextCursor);
+  const page2 = json(await request('GET', `${notifications}?status=all&cursor=${page1.nextCursor}`, user));
+  assert.equal(page2.items.length, 2);
+  assert.equal(page2.nextCursor, null);
+  const rows = [...page1.items, ...page2.items];
+  assert.equal(new Set(rows.map((item) => item.id)).size, 27);
+  assert.equal(rows.some((item) => item.id === foreign.id), false);
+  assert.ok(rows.every((item) => item.createdAt === old.toISOString()));
+  assert.equal(json(await request('GET', `${notifications}?type=ROLE_REQUEST`, user)).items.length, 1);
+
+  const badge = async () => json(await request('GET', '/api/v1/dashboard/topbar-state', user)).notificationUnreadCount;
+  assert.equal(await badge(), 27);
+  assert.equal((await request('PATCH', `${notifications}/${foreign.id}/read`, user, { read: true })).statusCode, 404);
+  assert.equal((await request('GET', `${notifications}?cursor=${foreign.id}`, user)).statusCode, 404);
+  const id = page1.nextCursor;
+  assert.equal((await request('PATCH', `${notifications}/${id}/read`, user, { read: true })).statusCode, 200);
+  assert.equal(await badge(), 26);
+  assert.equal((await prisma.notification.findFirstOrThrow({ where: { id: foreign.id } })).readAt, null);
+  assert.equal(json(await request('GET', `${notifications}?status=unread&cursor=${id}`, user)).items.length, 2);
+  assert.equal((await request('PATCH', `${notifications}/${id}/read`, user, { read: false })).statusCode, 200);
+  assert.equal(await badge(), 27);
+  assert.equal(json(await request('PATCH', '/api/v1/dashboard/notifications/read-all', user)).updated, 27);
+  assert.equal(await badge(), 0);
+  assert.deepEqual(json(await request('GET', `${notifications}?status=unread`, user)), { items: [], nextCursor: null });
+});
+
+test('persists per-user preferences and skips delivery for each muted notification topic', async (context) => {
+  const root = '/api/v1/notifications/preferences';
+  const muted = 'qa-readonly';
+  const receiver = 'qa-auditor';
+  const users = [ids.readonly, ids.auditor];
+  const topics = ['ROLE_REQUEST', 'CRITICAL_ASSET_ATTESTATION', 'LIFECYCLE_DATE'];
+  const due = new Date('2026-11-23T10:00:00Z');
+  const group = await prisma.accessGroup.create({ data: { name: 'Step 27 recipients', members: { create: users.map((userId) => ({ userId })) } } });
+  const device = await prisma.device.create({ data: { name: 'Step 27 notification device', type: 'SERVER', siteId: ids.siteB, isCritical: true } });
+  await prisma.criticalAssetGroupMapping.create({ data: { siteId: ids.siteB, assetType: 'SERVER', groupId: group.id } });
+  const date = await prisma.lifecycleDate.create({ data: { kind: 'SUPPORT', deviceId: device.id, dueDate: due, reminderDays: [0], responsibleGroupId: group.id } });
+  const roleRequests = await Promise.all(users.map((userId) => prisma.roleRequest.create({ data: { userId, roles: ['SYSTEMS_OPERATOR'] } })));
+  context.after(async () => {
+    await prisma.notification.deleteMany({ where: { OR: [{ roleRequestId: { in: roleRequests.map((row) => row.id) } }, { sourceHref: { contains: device.id } }, { sourceHref: { contains: date.id } }] } });
+    await prisma.roleRequest.deleteMany({ where: { id: { in: roleRequests.map((row) => row.id) } } });
+    await prisma.notificationMute.deleteMany({ where: { userId: { in: users } } });
+    await prisma.device.delete({ where: { id: device.id } });
+    await prisma.accessGroup.delete({ where: { id: group.id } });
+  });
+
+  for (const topic of topics) {
+    assert.equal((await request('PATCH', `${root}/${topic}`, muted, { muted: true })).statusCode, 200);
+  }
+  assert.equal((await request('GET', root)).statusCode, 401);
+  assert.deepEqual(json(await request('GET', root, muted)).map((item: { muted: boolean }) => item.muted), [true, true, true]);
+  assert.deepEqual(json(await request('GET', root, receiver)).map((item: { muted: boolean }) => item.muted), [false, false, false]);
+  for (const item of roleRequests) {
+    assert.equal((await request('PATCH', `/api/v1/settings/role-requests/${item.id}`, 'qa-admin', { decision: 'REJECT' })).statusCode, 200);
+  }
+  await app.get(CriticalAssetsService).runWeeklyChecks(due);
+  await deliverLifecycleReminders(prisma, due);
+  const inbox = async (persona: string) => json(await request('GET', '/api/v1/notifications', persona)).items;
+  // Muted topics silence incoming notices, but the requester's own role-request outcome always reaches them.
+  assert.deepEqual((await inbox(muted)).map((item: { type: string }) => item.type), ['ROLE_REQUEST_REJECTED']);
+  const received = await inbox(receiver);
+  assert.deepEqual(received.map((item: { type: string }) => item.type).sort(), ['CRITICAL_ASSET_ATTESTATION', 'LIFECYCLE_DATE', 'ROLE_REQUEST_REJECTED']);
+  assert.ok(received.find((item: { type: string }) => item.type === 'LIFECYCLE_DATE').href.includes(`lifecycleId=${date.id}`));
+  assert.ok(received.find((item: { type: string }) => item.type === 'CRITICAL_ASSET_ATTESTATION').href.includes(`assetId=${device.id}`));
+  assert.ok(received.find((item: { type: string }) => item.type === 'ROLE_REQUEST_REJECTED').href.endsWith(`&requestId=${roleRequests[1].id}`));
+
+  assert.equal((await request('PATCH', `${root}/ROLE_REQUEST`, muted, { muted: false })).statusCode, 200);
+  const newRequest = await prisma.roleRequest.create({ data: { userId: ids.readonly, roles: ['AUDITOR'] } });
+  roleRequests.push(newRequest);
+  assert.equal((await request('PATCH', `/api/v1/settings/role-requests/${newRequest.id}`, 'qa-admin', { decision: 'REJECT' })).statusCode, 200);
+  assert.equal((await inbox(muted)).length, 2);
 });
 
 test('protects the last ADMIN through the HTTP settings endpoint', async () => {
@@ -1642,4 +1771,64 @@ test('Step 16 NetApp trend: each refresh appends history, trend per aggregate/vo
   assert.equal((await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend?days=401`, 'qa-readonly')).statusCode, 400);
   assert.equal((await request('GET', `/api/v1/netapp/sites/${ids.siteB}/trend`, 'qa-admin')).statusCode, 404);
   assert.equal((await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend`, 'qa-network-legacy')).statusCode, 404);
+});
+
+test('Step 34 topology impact: core switch, loops, depth bound, PDU feeds, path view and the 2 s budget on a large site', async () => {
+  const uid = (n: number) => `34000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  const site = uid(1), building = uid(2), room = uid(3), rack = uid(4), pduA = uid(5), pduB = uid(6);
+  await prisma.site.create({ data: { id: site, name: 'HTTP Impact Site', code: 'HTTP-IMPACT' } });
+  await prisma.building.create({ data: { id: building, name: 'Impact Building', siteId: site } });
+  await prisma.room.create({ data: { id: room, name: 'Impact Room', buildingId: building } });
+  await prisma.rack.create({ data: { id: rack, name: 'Impact Rack', roomId: room } });
+  const named = ['fw', 'core1', 'core2', 'dist1', 'dist2', 'acc1', 'acc2', 'acc3', 'srv1', 'srv2', 'srv3'];
+  const dev = new Map(named.map((name, index) => [name, uid(100 + index)]));
+  for (let ring = 0; ring < 30; ring += 1) dev.set(`ring${ring}`, uid(200 + ring));
+  for (let server = 0; server < 3000; server += 1) dev.set(`bulk${server}`, uid(1000 + server));
+  const typeOf = (name: string) => name === 'fw' ? 'FIREWALL' : /^(srv|bulk)/.test(name) ? 'SERVER' : 'SWITCH';
+  await prisma.device.createMany({ data: [...dev.entries()].map(([name, id]) => ({ id, name: `IMPACT ${name}`, type: typeOf(name), siteId: site, rackId: named.includes(name) ? rack : null, hostname: name === 'srv1' ? 'impact-srv1.corp.local' : null, criticalityTier: name === 'srv1' ? 'T1' as const : null })) });
+  const pairs: [string, string][] = [
+    ['fw', 'core1'], ['core1', 'dist1'], ['dist1', 'acc1'], ['acc1', 'srv1'], ['dist1', 'acc2'], ['acc2', 'srv2'], ['acc1', 'acc2'],
+    ['core1', 'dist2'], ['dist2', 'acc3'], ['acc3', 'srv3'], ['core2', 'dist2'], ['core2', 'fw'],
+  ];
+  for (let ring = 0; ring < 30; ring += 1) pairs.push([ring === 0 ? 'acc3' : `ring${ring - 1}`, `ring${ring}`]);
+  pairs.push(['ring29', 'acc3']);
+  for (let server = 0; server < 3000; server += 1) pairs.push([`ring${server % 30}`, `bulk${server}`]);
+  await prisma.deviceConnection.createMany({ data: pairs.map(([a, b], index) => ({ id: uid(10_000 + index), siteId: site, type: 'PHYSICAL' as const, sourceDeviceId: index % 2 ? dev.get(b)! : dev.get(a)!, targetDeviceId: index % 2 ? dev.get(a)! : dev.get(b)! })) });
+  await prisma.rackPdu.createMany({ data: [{ id: pduA, rackId: rack, source: 'SUPPLIER' }, { id: pduB, rackId: rack, source: 'UPS' }] });
+  await prisma.pduOutletAssignment.createMany({ data: [
+    { pduId: pduA, outletIndex: 1, deviceId: dev.get('srv1')!, plugIndex: 1 }, { pduId: pduB, outletIndex: 1, deviceId: dev.get('srv1')!, plugIndex: 2 },
+    { pduId: pduA, outletIndex: 2, deviceId: dev.get('srv2')!, plugIndex: 1 },
+  ] });
+  await prisma.host.create({ data: { name: 'impact-srv1', hostname: 'impact-srv1.corp.local', deviceId: dev.get('srv1')!, services: { create: [{ name: 'https', protocol: 'tcp', port: 443 }] } } });
+  await prisma.applicationLink.create({ data: { name: 'Impact ERP', url: 'https://impact-srv1.corp.local/erp' } });
+
+  const timed = async (path: string) => { const started = performance.now(); const response = await request('GET', path, 'qa-admin'); const elapsed = performance.now() - started; assert.equal(response.statusCode, 200, response.body); return { body: json(response), elapsed }; };
+  const core = await timed(`/api/v1/topology/impact?deviceId=${dev.get('core1')}`);
+  assert.deepEqual(core.body.affected.map((item: { name: string }) => item.name).sort(), ['IMPACT acc1', 'IMPACT acc2', 'IMPACT dist1', 'IMPACT srv1', 'IMPACT srv2']);
+  assert.equal(core.body.anchorMode, 'gateway-devices');
+  assert.deepEqual(core.body.critical.T1, [dev.get('srv1')]);
+  assert.deepEqual(core.body.hosts.map((item: { name: string }) => item.name), ['impact-srv1']);
+  assert.deepEqual(core.body.applications.map((item: { name: string }) => item.name), ['Impact ERP']);
+  assert.ok(core.elapsed < 2000, `core impact took ${core.elapsed} ms`);
+
+  const wide = await timed(`/api/v1/topology/impact?deviceId=${dev.get('dist2')}&maxDepth=32`);
+  assert.equal(wide.body.affected.length, 3032, 'acc3, srv3, the 30-switch ring and its 3,000 servers');
+  assert.equal(wide.body.truncated, false);
+  assert.ok(wide.elapsed < 2000, `wide impact took ${wide.elapsed} ms`);
+  const bounded = await timed(`/api/v1/topology/impact?deviceId=${dev.get('dist2')}&maxDepth=3`);
+  assert.equal(bounded.body.truncated, true);
+  assert.ok(bounded.body.affected.every((item: { hops: number }) => item.hops <= 3));
+
+  const power = await timed(`/api/v1/topology/impact?pduId=${pduA}`);
+  assert.deepEqual(power.body.down.map((item: { name: string; reason: string }) => [item.name, item.reason]), [['IMPACT srv2', 'POWER']]);
+  assert.deepEqual(power.body.powerDegraded.map((item: { name: string }) => item.name), ['IMPACT srv1']);
+
+  const path = await timed(`/api/v1/topology/path?fromDeviceId=${dev.get('srv1')}&toDeviceId=${dev.get('bulk2999')}`);
+  assert.equal(path.body.found, true);
+  assert.deepEqual(path.body.steps.slice(0, 6).map((item: { name: string }) => item.name), ['IMPACT srv1', 'IMPACT acc1', 'IMPACT dist1', 'IMPACT core1', 'IMPACT dist2', 'IMPACT acc3']);
+  assert.ok(path.elapsed < 2000, `path took ${path.elapsed} ms`);
+
+  for (const bad of ['', `deviceId=${dev.get('fw')}&rackId=${rack}`, 'deviceId=not-a-uuid']) assert.equal((await request('GET', `/api/v1/topology/impact?${bad}`, 'qa-admin')).statusCode, 400, bad);
+  assert.equal((await request('GET', `/api/v1/topology/impact?deviceId=${dev.get('core1')}`, 'qa-systems-scoped')).statusCode, 404, 'out-of-scope devices are not revealed');
+  console.log(`[step34] core ${core.elapsed.toFixed(0)} ms (server ${core.body.elapsedMs} ms), wide ${wide.elapsed.toFixed(0)} ms (server ${wide.body.elapsedMs} ms), path ${path.elapsed.toFixed(0)} ms`);
 });

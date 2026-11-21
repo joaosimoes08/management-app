@@ -74,3 +74,16 @@ test('post-change check never echoes secret-looking fields', () => {
   assert.deepEqual(result.fields.map((f) => f.field), ['hostname']);
   assert.equal(checkItem({ entityType: 'DEVICE', entityId: 'd', operationSummary: 'x', proposedValue: { password: 'x' } }, { password: 'y' }).result, 'NOT_COMPARABLE');
 });
+
+test('post-change check skips the summary text the plan editor saves as a proposed value', () => {
+  const uiPlan = { entityType: 'DEVICE', entityId: 'd', operationSummary: 'Trocar firmware', proposedValue: { summary: 'Atualizar para 17.9' } };
+  const onlySummary = checkItem(uiPlan, { hostname: 'sw-01', name: 'SW 01' });
+  assert.equal(onlySummary.result, 'NOT_COMPARABLE');
+  assert.deepEqual(onlySummary.fields, []);
+  assert.equal(summarizeCheck([onlySummary]).result, 'NOT_COMPARABLE');
+  const withField = checkItem({ ...uiPlan, proposedValue: { summary: 'Renomear', hostname: 'SW-01' } }, { hostname: 'sw-01' });
+  assert.equal(withField.result, 'AS_PLANNED');
+  assert.deepEqual(withField.fields.map((field) => field.field), ['hostname']);
+  // A record that really has a summary field is still compared.
+  assert.equal(checkItem({ ...uiPlan, proposedValue: { summary: 'novo' } }, { summary: 'antigo' }).result, 'DIFFERENT');
+});

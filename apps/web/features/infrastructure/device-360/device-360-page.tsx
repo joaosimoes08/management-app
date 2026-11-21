@@ -1,10 +1,11 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ExternalLink, Pencil, Plus, Server } from 'lucide-react';
 import { AppShell } from '@/components/layout/app-shell';
-import { deviceEditHref } from '@/components/data-table/entity-link';
+import { deviceEditHref, entityHref } from '@/components/data-table/entity-link';
+import { rememberRecentItem } from '@/lib/recent-items';
 import { apiFetch } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth';
 import { getDevice, listDeviceIpAddresses, listInterfaces } from '../api';
@@ -17,9 +18,10 @@ import { assetFileUrl } from '../utils';
  * Every section loads on its own from an existing endpoint, so one slow or
  * forbidden source never blanks the page. A section the user's roles cannot
  * read is not rendered at all (same role lists as the API controllers).
- * "Host e serviços" (Step 26) and the criticality tier (Step 28b) are
- * feature-detected on the device payload and show an explicit empty state
- * until those land.
+ * "Host e serviços" reads the Linux host inventory (Step 26, #91): hosts
+ * linked to this device and their observed services. The criticality tier
+ * (Step 28b, `Device.criticalityTier` T1/T2/T3) is feature-detected on the
+ * device payload; without it a critical device shows "Crítico".
  */
 
 const ROLES = {
@@ -29,6 +31,7 @@ const ROLES = {
   changes: ['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'AUDITOR', 'READ_ONLY'],
   changeCreate: ['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR'],
   audit: ['ADMIN', 'AUDITOR'],
+  hosts: ['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'AUDITOR', 'READ_ONLY'],
   edit: ['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'STORAGE_OPERATOR'],
 } as const;
 
@@ -41,8 +44,14 @@ type ChangeItem = { entityType: string; entityId: string };
 type ChangePlan = { id: string; title: string; status: string; plannedStartAt: string; items?: ChangeItem[] };
 type CriticalAsset = { id: string; latestOutcome?: string | null; latestConfirmedAt?: string | null; dueState?: string; dueDate?: string | null };
 type AuditEvent = { id: string; action: string; createdAt: string; user?: { username: string; displayName?: string | null } | null; actor?: { username: string; displayName?: string | null } | null };
-/** Fields Step 26 / 28b will add to the device payload; read defensively until then. */
-type FutureDeviceFields = { criticalityTier?: string | number | null; host?: { id: string; name?: string; services?: Array<{ id: string; name: string; port?: number | null }> } | null };
+/** Step 28b adds this to the device payload (#97); read defensively until then. */
+type FutureDeviceFields = { criticalityTier?: 'T1' | 'T2' | 'T3' | null };
+/** Same labels as the cadence settings (Step 28b). */
+const TIER_LABELS: Record<string, string> = { T1: 'T1 · Vital', T2: 'T2 · Importante', T3: 'T3 · Padrão' };
+/** Linux host inventory (Step 26): `GET /api/v1/linux-agents/hosts` and `/hosts/:id/services`. */
+type LinuxHost = { id: string; name: string; hostname?: string | null; operatingSystem?: string | null; device?: { id: string } | null; agent?: { state?: string; lastHeartbeatAt?: string | null } | null };
+type HostService = { id: string; name: string; protocol?: string | null; port?: number | null; version?: string | null; observedStatus?: string | null };
+type HostWithServices = LinuxHost & { services: HostService[] };
 
 const fmt = (value?: string | null) => (value ? new Date(value).toLocaleString('pt-PT', { dateStyle: 'short', timeStyle: 'short' }) : '—');
 const q = (values: Record<string, string | null | undefined>) => { const p = new URLSearchParams(); for (const [k, v] of Object.entries(values)) if (v) p.set(k, v); const s = p.toString(); return s ? `?${s}` : ''; };
@@ -66,13 +75,17 @@ function SectionBody<T>({ query, empty, children }: { query: { data?: T; isLoadi
 }
 
 export function Device360Page({ deviceId }: { deviceId: string }) {
-  const { hasRole } = useAuth();
+  const { hasRole, user } = useAuth();
   const can = (key: keyof typeof ROLES) => ROLES[key].some((role) => hasRole(role));
 
   const deviceQuery = useQuery({ queryKey: ['device-360', deviceId], queryFn: () => getDevice(deviceId), enabled: Boolean(deviceId) });
   const device = deviceQuery.data as (Device & FutureDeviceFields) | undefined;
   const siteId = device?.siteId ?? device?.site?.id ?? '';
   const ready = Boolean(device);
+  const deviceName = device?.name;
+  useEffect(() => {
+    if (deviceName) rememberRecentItem(user?.id, { id: `device:${deviceId}`, kind: 'Equipamento', label: deviceName, href: entityHref({ kind: 'device', id: deviceId, siteId }) });
+  }, [user?.id, deviceId, deviceName, siteId]);
 
   const interfaces = useQuery({ queryKey: ['device-360', deviceId, 'interfaces'], queryFn: () => listInterfaces(deviceId), enabled: ready && can('interfaces') });
   const ips = useQuery({ queryKey: ['device-360', deviceId, 'ips', siteId], queryFn: () => listDeviceIpAddresses(siteId, deviceId), enabled: ready && Boolean(siteId) });
@@ -81,6 +94,10 @@ export function Device360Page({ deviceId }: { deviceId: string }) {
   const lifecycle = useQuery({ queryKey: ['device-360', deviceId, 'lifecycle', siteId], queryFn: async () => itemsOf<LifecycleDate>(await apiFetch(`/api/v1/lifecycle-dates${q({ siteId, from: '2000-01-01', to: '2100-01-01' })}`)).filter((d) => d.deviceId === deviceId), enabled: ready && Boolean(siteId) });
   const attestation = useQuery({ queryKey: ['device-360', deviceId, 'attestation', siteId], queryFn: async () => { const r = await apiFetch<{ assets?: CriticalAsset[]; unassigned?: CriticalAsset[] }>(`/api/v1/critical-assets${q({ siteId })}`); return [...(r.assets ?? []), ...(r.unassigned ?? [])].find((a) => a.id === deviceId) ?? null; }, enabled: ready && Boolean(siteId) && Boolean(device?.isCritical) && can('attestation') });
   const changes = useQuery({ queryKey: ['device-360', deviceId, 'changes', siteId], queryFn: async () => itemsOf<ChangePlan>(await apiFetch(`/api/v1/change-plans${q({ siteId })}`)).filter((p) => !CLOSED_CHANGE.has(p.status) && (p.items ?? []).some((i) => i.entityType === 'DEVICE' && i.entityId === deviceId)), enabled: ready && Boolean(siteId) && can('changes') });
+  const hosts = useQuery({ queryKey: ['device-360', deviceId, 'hosts', siteId], enabled: ready && Boolean(siteId) && can('hosts'), queryFn: async (): Promise<HostWithServices[]> => {
+    const linked = itemsOf<LinuxHost>(await apiFetch(`/api/v1/linux-agents/hosts${q({ siteId })}`)).filter((h) => h.device?.id === deviceId);
+    return Promise.all(linked.map(async (h) => ({ ...h, services: itemsOf<HostService>(await apiFetch(`/api/v1/linux-agents/hosts/${encodeURIComponent(h.id)}/services`)) })));
+  } });
   const audit = useQuery({ queryKey: ['device-360', deviceId, 'audit'], queryFn: async () => itemsOf<AuditEvent>(await apiFetch(`/api/v1/audit/events/page${q({ entityType: 'Device', entityId: deviceId, limit: '10' })}`)), enabled: ready && can('audit') });
 
   if (!deviceId || deviceQuery.error) return <AppShell section="Mapa físico"><main className="module-page device-360"><section className="ipam-card empty-context" role="alert"><Server size={28} /><strong>Equipamento não encontrado</strong><span>Não foi possível abrir este equipamento ou não tens acesso a ele.</span><a className="secondary-button" href="/infraestrutura?tab=devices">Voltar à lista de equipamentos</a></section></main></AppShell>;
@@ -105,7 +122,7 @@ export function Device360Page({ deviceId }: { deviceId: string }) {
         <p>{location || 'Sem localização'}</p>
         <p className="device-360-badges">
           <span className="state-badge"><i />{device.status}</span>
-          {tier != null ? <span className="state-badge warning" data-testid="tier-badge">Tier {tier}</span> : device.isCritical ? <span className="state-badge warning" data-testid="tier-badge">Crítico</span> : null}
+          {tier ? <span className="state-badge warning" data-testid="tier-badge" title="Criticidade">{TIER_LABELS[tier] ?? tier}</span> : device.isCritical ? <span className="state-badge warning" data-testid="tier-badge">Crítico</span> : null}
         </p>
       </div>
       <div className="device-360-actions">
@@ -145,9 +162,9 @@ export function Device360Page({ deviceId }: { deviceId: string }) {
         <SectionBody query={snmp} empty={(r) => (r.config ? null : 'Sem SNMP configurado.')}>{(r) => { const open = (r.drifts ?? []).filter((d) => !d.status || d.status === 'OPEN').length; return <dl className="device-360-facts"><dt>Estado</dt><dd>{r.config?.enabled === false ? 'Desativado' : 'Ativo'}</dd><dt>Última recolha</dt><dd>{fmt(r.latestSnapshot?.collectedAt ?? r.latestSnapshot?.createdAt)}</dd><dt>Drifts abertos</dt><dd>{open}</dd><dt>Traps recentes</dt><dd>{(r.traps ?? []).length}</dd></dl>; }}</SectionBody>
       </Section>}
 
-      <Section id="host" title="Host e serviços" fullHref={device.host ? `/ipam${q({ siteId, hostId: device.host.id })}` : undefined}>
-        {device.host === undefined ? <EmptyLine>Ainda não disponível: os hosts e serviços ligados a este equipamento aparecem aqui quando a secção de hosts estiver ativa.</EmptyLine> : !device.host ? <EmptyLine>Sem host associado.</EmptyLine> : (device.host.services ?? []).length ? <ul className="device-360-list">{device.host.services!.map((s) => <li key={s.id}>{s.name}{s.port ? `:${s.port}` : ''}</li>)}</ul> : <EmptyLine>{device.host.name ?? 'Host'} sem serviços registados.</EmptyLine>}
-      </Section>
+      {can('hosts') && <Section id="host" title="Host e serviços" fullHref={`/infraestrutura${q({ tab: 'hosts', 'hosts-site': siteId })}`} fullLabel="Ver em Servidores">
+        {siteId ? <SectionBody query={hosts} empty={(list) => (list.length ? null : 'Sem host associado.')}>{(list) => <ul className="device-360-list">{list.map((h) => <li key={h.id}><strong>{h.name}</strong>{h.operatingSystem ? ` · ${h.operatingSystem}` : ''}{h.agent?.state ? ` · agente ${h.agent.state}` : ''}{h.services.length ? <ul className="device-360-list">{h.services.map((sv) => <li key={sv.id}>{sv.name}{sv.port ? `:${sv.port}` : ''}{sv.protocol ? ` (${sv.protocol})` : ''}{sv.observedStatus ? ` · ${sv.observedStatus}` : ''}</li>)}</ul> : <EmptyLine>Sem serviços registados.</EmptyLine>}</li>)}</ul>}</SectionBody> : <EmptyLine>Sem host associado.</EmptyLine>}
+      </Section>}
 
       <Section id="ciclo" title="Ciclo de vida" fullHref={`/infraestrutura${q({ siteId, tab: 'lifecycle' })}`} fullLabel="Ver datas de ciclo de vida">
         {siteId ? <SectionBody query={lifecycle} empty={(list) => (list.length ? null : 'Sem datas de ciclo de vida.')}>{(list) => <ul className="device-360-list">{list.map((d) => <li key={d.id}>{d.kind} · {fmt(d.dueDate)}</li>)}</ul>}</SectionBody> : <EmptyLine>Sem datas de ciclo de vida.</EmptyLine>}
