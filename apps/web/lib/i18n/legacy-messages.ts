@@ -721,6 +721,26 @@ const enUS: LegacyDictionary = {
   'Apagar todas as permissões IPAM deste grupo nos Sites selecionados?': 'Delete all IPAM permissions of this group in the selected Sites?',
   'Apagar todas as permissões deste grupo no âmbito selecionado?': 'Delete all permissions of this group in the selected scope?',
   'Existem alterações por guardar. Queres sair sem guardar?': 'There are unsaved changes. Leave without saving?',
+  // Phase E power/NetApp/Portal
+  ' · todos os Sites': ' · all Sites',
+  '· todos os Sites': '· all Sites',
+  'Remover filtro de configuração em falta': 'Remove missing-configuration filter',
+  'Não foi possível carregar o resumo de energia.': 'Could not load the power summary.',
+  'Energia OK': 'Power OK',
+  'Energia em aviso': 'Power warning',
+  'Energia crítica': 'Power critical',
+  'Limiares de energia': 'Power thresholds',
+  'Consumo estimado': 'Estimated draw',
+  'Utilização Rede': 'Supplier utilisation',
+  'Utilização UPS': 'UPS utilisation',
+  'Pior caso em failover': 'Worst-case failover',
+  'Tomadas ocupadas': 'Used outlets',
+  'Equipamentos sem energia': 'Unpowered devices',
+  'Uma PDU não tem orçamento de potência definido.': 'One PDU has no power budget set.',
+  'Perto do limite': 'Near the limit',
+  'Aviso (% do orçamento ou das tomadas)': 'Warning (% of budget or outlets)',
+  'Crítico (% do orçamento ou das tomadas)': 'Critical (% of budget or outlets)',
+  'Repor predefinição': 'Reset to default',
 };
 
 const substitutions: Array<[RegExp, string]> = [
@@ -847,6 +867,13 @@ const substitutions: Array<[RegExp, string]> = [
   [/^Responsável por (.+) guardado\.$/g, 'Owner for $1 saved.'],
   [/: confirmação registada\.$/g, ': confirmation recorded.'],
   [/: pedido de correção registado\.$/g, ': correction request recorded.'],
+  // Phase E power/NetApp/Portal
+  [/^Limiares: aviso (.+) · crítico (.+)$/g, 'Thresholds: warning $1 · critical $2'],
+  [/^(~[\d.,\s]+k?W) de (~[\d.,\s]+k?W)$/g, '$1 of $2'],
+  [/^(\d+) PDUs não têm orçamento de potência definido\.$/g, '$1 PDUs have no power budget set.'],
+  [/( — perto do limite em: .*)potência/g, '$1power'],
+  [/( — perto do limite em: .*)tomadas/g, '$1outlets'],
+  [/ — perto do limite em: /g, ' — near the limit on: '],
 ];
 
 export function translateLegacyText(locale: AppLocale, input: string): string {

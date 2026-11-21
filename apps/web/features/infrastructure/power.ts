@@ -134,6 +134,11 @@ export function powerLevel({ used, total, watts, budget, failoverWatts, warningR
 const LEVEL_RANK: Record<PowerLevel, number> = { ok: 0, warn: 1, over: 2 };
 const FROM_API: Record<string, PowerLevel> = { ok: 'ok', warning: 'warn', critical: 'over' };
 
+/** Maps an API load level (ok / warning / critical) to the UI's power level; unknown values are ok. */
+export function powerLevelFromApi(level: string | null | undefined): PowerLevel {
+  return (level && FROM_API[level]) || 'ok';
+}
+
 /** The API's own levels (computed with its thresholds), worst of outlets / watts / failover; null when absent. */
 function apiLevel(pdu: RackPdu): PowerLevel | null {
   if (!pdu.levels) return null;

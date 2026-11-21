@@ -1342,6 +1342,9 @@ button { cursor:pointer; }
 .rack-preview-device.moving,.rack-overlay.moving { opacity:.35; }
 .rack-preview-device:focus-visible { z-index:4; outline:2px solid #2c6bed; outline-offset:2px; }
 .rack-overlay.pending-placement .rack-device-media::after { opacity:1; border-color:#2c6bed; box-shadow:0 0 0 3px rgba(44,107,237,.18); }
+/* Phase E: devices the rack power summary marks near the limit (same amber / red as the PDU LEDs). */
+.rack-overlay[data-power-level="warn"] .rack-device-media::after { opacity:1; border-color:#f2b33d; box-shadow:0 0 0 3px rgba(242,179,61,.22); }
+.rack-overlay[data-power-level="over"] .rack-device-media::after { opacity:1; border-color:#f0614f; box-shadow:0 0 0 3px rgba(240,97,79,.22); }
 .rack-placement-confirmation {
   display:flex;
   align-items:center;
