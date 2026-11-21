@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/api/client';
 import { entityHref } from '@/components/data-table/entity-link';
@@ -65,6 +65,19 @@ describe('Device360Page', () => {
     expect(within(section('SNMP')).getByRole('link', { name: /SNMP/ })).toHaveAttribute('href', '/snmp?deviceId=d1');
     expect(within(section('Histórico')).getByRole('link', { name: /Auditoria/ })).toHaveAttribute('href', '/auditoria?entityType=Device&entityId=d1&q=d1');
     expect(within(section('Host e serviços')).getByRole('link', { name: /Servidores/ })).toHaveAttribute('href', '/infraestrutura?tab=hosts&hosts-site=s1');
+  });
+
+  it('"Impacto" shows what goes down for this device and links the path view (Step 34)', async () => {
+    routeApi({ '/api/v1/topology/impact': { origin: { kind: 'DEVICE', id: 'd1', name: 'core-sw-01' }, siteId: 's1', maxDepth: 12, includeLogical: false, truncated: true, anchorMode: 'explicit', anchorDeviceIds: ['fw'], down: [], affected: [], powerDegraded: [], hosts: [], applications: [], critical: { T1: [], T2: [], T3: [], untiered: [] }, counts: { down: 0, affected: 0, powerDegraded: 0, hosts: 0, services: 0, applications: 0, tier1: 0 }, hiddenCount: 0, elapsedMs: 1 } });
+    renderPage();
+    await screen.findByRole('heading', { level: 1, name: 'core-sw-01' });
+    expect(screen.getByRole('link', { name: /Caminho até/ })).toHaveAttribute('href', '/topology?siteId=s1&pathFrom=d1');
+    const button = screen.getByRole('button', { name: 'Impacto' });
+    expect(button).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(button);
+    expect(button).toHaveAttribute('aria-expanded', 'true');
+    expect(await screen.findByTestId('impact-truncated')).toBeInTheDocument();
+    expect(vi.mocked(apiFetch).mock.calls.map(([url]) => String(url))).toContain('/api/v1/topology/impact?deviceId=d1');
   });
 
   it('"Editar" opens today\'s edit form unchanged', async () => {

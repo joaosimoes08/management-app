@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Check, Edit3, Trash2 } from 'lucide-react';
+import { Activity, ArrowLeft, Check, Edit3, Trash2 } from 'lucide-react';
+import { ImpactDialog } from '@/features/topology/impact-panel';
 import { FIXED_RACK_IMAGE, RACK_BOTH_MIN_WIDTH, RACK_IMAGE, RACK_UNITS, readRackView, writeRackView } from '../../utils';
 import { PageToolbarPortal } from '@/components/layout/app-shell';
 import { useI18n } from '@/lib/i18n';
@@ -69,6 +70,7 @@ export function RackDetail({ rack, onOut, onDevice, onEdit, onDelete, deleting, 
   const powerDefaults = usePowerDefaults();
   const [thresholds, setThresholds] = useState<RackPowerThresholds>(readPowerThresholds);
   const [editingThresholds, setEditingThresholds] = useState(false);
+  const [impactOpen, setImpactOpen] = useState(false);
   const { summary: powerStatus, error: powerStatusError, setSummary: setPowerStatus } = useRackPowerSummary(rack, thresholds);
   const pduLevels = useMemo(() => summaryPduLevels(powerStatus), [powerStatus]);
   const devicePowerLevels = useMemo(() => summaryDeviceLevels(powerStatus), [powerStatus]);
@@ -223,8 +225,9 @@ export function RackDetail({ rack, onOut, onDevice, onEdit, onDelete, deleting, 
     <div className="rack-zoom-toolbar"><span>{rack.room?.building?.name} / {rack.room?.name} / <strong>{rack.name}</strong></span></div><PageToolbarPortal><div className="rack-view-tools" role="group" aria-label="Vista do bastidor">
       {focusFace ? <RackViewPicker value={focusFace} onChange={changeFocusFace} allowBoth={wide} focused /> : <RackViewPicker value={activeView} onChange={changeView} allowBoth={wide} />}
       <RackZoomPicker zoom={zoom} onZoom={setZoom} onFit={fitToStage} />
-    </div></PageToolbarPortal><PageToolbarPortal><div className="button-row rack-detail-actions"><button type="button" className="secondary-button" onClick={onOut} aria-label={t('rack.back')} title={t('rack.back')}><ArrowLeft size={14} aria-hidden="true"/><span className="rack-action-label">{t('rack.back')}</span></button>{onEdit && <button type="button" className="secondary-button" onClick={() => onEdit(rack)} aria-label={t('rack.edit')} title={t('rack.edit')}><Edit3 size={14} aria-hidden="true"/><span className="rack-action-label">{t('rack.edit')}</span></button>}{onDelete && <button type="button" className="secondary-button danger-button" disabled={deleting} onClick={() => onDelete(rack)} aria-label={deleteLabel} title={deleteLabel}><Trash2 size={14} aria-hidden="true"/><span className="rack-action-label">{deleteLabel}</span></button>}</div></PageToolbarPortal>
+    </div></PageToolbarPortal><PageToolbarPortal><div className="button-row rack-detail-actions"><button type="button" className="secondary-button" onClick={onOut} aria-label={t('rack.back')} title={t('rack.back')}><ArrowLeft size={14} aria-hidden="true"/><span className="rack-action-label">{t('rack.back')}</span></button><button type="button" className="secondary-button" onClick={() => setImpactOpen(true)} aria-label="Impacto do bastidor ou de uma PDU" title="Impacto do bastidor ou de uma PDU"><Activity size={14} aria-hidden="true"/><span className="rack-action-label">Impacto</span></button>{onEdit && <button type="button" className="secondary-button" onClick={() => onEdit(rack)} aria-label={t('rack.edit')} title={t('rack.edit')}><Edit3 size={14} aria-hidden="true"/><span className="rack-action-label">{t('rack.edit')}</span></button>}{onDelete && <button type="button" className="secondary-button danger-button" disabled={deleting} onClick={() => onDelete(rack)} aria-label={deleteLabel} title={deleteLabel}><Trash2 size={14} aria-hidden="true"/><span className="rack-action-label">{deleteLabel}</span></button>}</div></PageToolbarPortal>
     <div className="panel-heading"><div><span className="section-kicker">BASTIDOR VISUAL</span><h2>{rack.name}</h2><p>{rack.devices?.length ?? 0} equipamentos · Bastidor padrão · 42U{canEdit ? <>{' · '}<span>Arrasta um equipamento para o mover</span></> : null}</p>{powerSummary && <p className="rack-power-summary" data-testid="rack-power-summary">{powerSummary}</p>}</div></div>
+    {impactOpen && <ImpactDialog title="Impacto" siteId={rack.room?.building?.siteId} close={() => setImpactOpen(false)} targets={[{ kind: 'RACK', id: rack.id, label: rack.name }, ...sortedPdus(rack).map((pdu) => ({ kind: 'PDU' as const, id: pdu.id, label: pdu.name?.trim() || (pdu.source === 'UPS' ? 'PDU UPS' : 'PDU Rede') }))]} />}
     <RackPowerSummaryStrip summary={powerStatus} error={powerStatusError} onEditThresholds={() => setEditingThresholds(true)} />
     {editingThresholds && <RackPowerThresholdsModal rackId={rack.id} value={{ warningPercent: thresholds.warningPercent ?? powerStatus?.thresholds.warningPercent ?? 80, criticalPercent: thresholds.criticalPercent ?? powerStatus?.thresholds.criticalPercent ?? 90 }} close={() => setEditingThresholds(false)} onSaved={(next, nextSummary) => { setThresholds(next); setPowerStatus(nextSummary); setEditingThresholds(false); }} />}
     <div className="rack-stage-wrap">
