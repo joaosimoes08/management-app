@@ -1,3 +1,5 @@
+import { parsePositiveInt, ConfirmDto, CloseCorrectionDto, NOTES_MAX_LENGTH, REFERENCE_MAX_LENGTH } from './critical-assets.controller';
+import { validateSync } from 'class-validator';
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
@@ -201,4 +203,42 @@ test('cadence is site-scoped: a user without READ access on the Site gets 403 an
   await assert.rejects(service.cadence('site-a', { id: 'outsider', roles: ['NETWORK_OPERATOR'] } as any), ForbiddenException);
   assert.equal(siteReads, 0);
   assert.deepEqual(await service.cadence('site-a', { id: 'site-member', roles: ['NETWORK_OPERATOR'] } as any), { T1: 1, T2: 2, T3: 4 });
+});
+
+test('paging parameters must be positive whole numbers; absent is fine', () => {
+  assert.equal(parsePositiveInt(undefined, 'page'), undefined);
+  assert.equal(parsePositiveInt('3', 'page'), 3);
+  for (const bad of ['0', '-1', 'abc', '1.5', '2e3', ' 4']) {
+    assert.throws(() => parsePositiveInt(bad, 'pageSize'), BadRequestException, bad);
+  }
+});
+
+test('confirm notes and correction reference/note have length limits', () => {
+  const long = (n: number) => 'x'.repeat(n);
+  const confirm = Object.assign(new ConfirmDto(), { outcome: 'CONFIRMED', notes: long(NOTES_MAX_LENGTH + 1) });
+  assert.ok(validateSync(confirm).length > 0);
+  assert.equal(validateSync(Object.assign(new ConfirmDto(), { outcome: 'CONFIRMED', notes: long(NOTES_MAX_LENGTH) })).length, 0);
+  const close = Object.assign(new CloseCorrectionDto(), { changeReference: long(REFERENCE_MAX_LENGTH + 1) });
+  assert.ok(validateSync(close).length > 0);
+  assert.ok(validateSync(Object.assign(new CloseCorrectionDto(), { note: long(NOTES_MAX_LENGTH + 1) })).length > 0);
+  assert.equal(validateSync(Object.assign(new CloseCorrectionDto(), { changeReference: 'CHG-1', note: 'ok' })).length, 0);
+});
+
+test('attestation dueAt follows the tier cadence: T2 due two weeks after opening, T3 four weeks, both Monday 09:00 Lisbon', async () => {
+  const weekStart = new Date('2026-11-16T00:00:00.000Z');
+  const device = (id: string, tier: string) => ({ id, name: id, type: 'SWITCH', criticalityTier: tier, criticalityTierReviewed: true, hostname: null, managementIp: null, serialNumber: null, assetTag: null, status: 'ACTIVE' });
+  const attestation = (id: string, deviceId: string) => ({ id, deviceId, siteId: 'site-a', weekStart, outcome: null, notes: null, confirmedAt: null, confirmedBy: null });
+  const prisma: any = {
+    site: { findUniqueOrThrow: async () => ({ timezone: 'Europe/Lisbon', criticalCadenceT1Weeks: 1, criticalCadenceT2Weeks: 2, criticalCadenceT3Weeks: 4 }) },
+    device: { findMany: async () => [device('dev-t2', 'T2'), device('dev-t3', 'T3')] },
+    criticalAssetGroupMapping: { findMany: async () => [{ assetType: 'SWITCH', groupId: 'g1', group: { id: 'g1', name: 'Network' } }] },
+    criticalAssetAttestation: { findMany: async () => [attestation('a2', 'dev-t2'), attestation('a3', 'dev-t3')] },
+    user: { findMany: async () => [] },
+  };
+  const access: any = { assertSite: async () => undefined };
+  const service = new CriticalAssetsService(prisma, access);
+  const page = await service.page('site-a', {}, { id: 'admin', roles: ['ADMIN'] } as any);
+  const dueOf = (name: string) => (page.items as any[]).find((item) => item.id === name).attestations[0].dueAt;
+  assert.equal(dueOf('dev-t2'), '2026-11-30T09:00:00.000Z');
+  assert.equal(dueOf('dev-t3'), '2026-12-14T09:00:00.000Z');
 });

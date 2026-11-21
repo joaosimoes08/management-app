@@ -124,6 +124,7 @@ export function CriticalAssetsPage() {
   // Dependencies: topology connections that name this device at either end (search matches the device name, so filter by id).
   const { data: connectionData } = useQuery({ queryKey: ['critical-asset-connections', siteId, detail?.id], queryFn: () => apiFetch<{ items: Connection[] }>(`/api/v1/topology/connections?siteId=${encodeURIComponent(siteId)}&search=${encodeURIComponent(detail?.name ?? '')}&pageSize=100`), enabled: Boolean(detail && siteId && hydrated) });
   const dependencies = detail ? (connectionData?.items ?? []).filter((item) => item.sourceDevice.id === detail.id || item.targetDevice.id === detail.id).map((item) => (item.sourceDevice.id === detail.id ? { item, other: item.targetDevice, direction: 'Liga a' } : { item, other: item.sourceDevice, direction: 'Liga de' })) : [];
+  // The compliance view and CSV export use the full asset list, not the current page: acceptable at current site sizes; move to a server aggregate if a site outgrows it.
   const compliance = useMemo(() => complianceCells(rows), [rows]);
   const correctionRows = (correctionData?.items ?? []).filter((item) => (correctionTab === 'open' ? item.status === 'OPEN' : item.status !== 'OPEN'));
   const openCorrectionCount = (correctionData?.items ?? []).filter((item) => item.status === 'OPEN').length;
