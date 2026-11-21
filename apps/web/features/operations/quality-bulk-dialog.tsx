@@ -32,15 +32,18 @@ export function QualityBulkDialog({ action, count, finding, assignees, running, 
   const [hours, setHours] = useState(DEFAULT_SNOOZE_HOURS);
   const done = outcome !== null && !running;
   const allOk = outcome !== null && outcome.failed === 0;
+  const selectionDescription = count === 1
+    ? '1 finding selecionado.'
+    : `${count} findings selecionados. Cada finding é verificado à parte; uma falha não impede os restantes.`;
 
   return <IpamModal title={finding ? singleTitles[action] : titles[action]} close={running ? () => undefined : close}><form className="modal-form" onSubmit={(event) => { event.preventDefault(); run(action === 'ASSIGN' ? { userId: userId || null } : action === 'SNOOZE' ? { durationHours: hours } : {}); }}>
     {!outcome && <>
-      <p className="panel-description">{finding ? `Finding: ${finding}` : `${count} findings selecionados. Cada finding é verificado à parte; uma falha não impede os restantes.`}</p>
+      <p className="panel-description">{finding ? `Finding: ${finding}` : selectionDescription}</p>
       {action === 'ASSIGN' && <label>Responsável<select value={userId} onChange={(event) => setUserId(event.target.value)}><option value="">Sem responsável</option>{assignees.map((person) => <option key={person.id} value={person.id}>{personName(person)}</option>)}</select></label>}
       {action === 'SNOOZE' && <label>Adiar durante<select value={hours} onChange={(event) => setHours(Number(event.target.value))}>{snoozeOptions.map((option) => <option key={option.hours} value={option.hours}>{option.label}</option>)}</select></label>}
     </>}
     {done && <div className={`ipam-alert ${allOk ? 'success' : 'error'}`} role="status">{allOk ? <CheckCircle2 size={15} /> : <X size={15} />}{`${outcome.succeeded} de ${outcome.items.length} aplicados.`}{outcome.snoozedUntil ? ` ${`Adiados até ${formatDateTime(outcome.snoozedUntil, { dateStyle: 'short', timeStyle: 'short' })}.`}` : ''}</div>}
-    {outcome && <div className="ip-table-wrap" role="region" aria-label="Resultado por finding" tabIndex={0}><table className="ip-table">
+    {outcome && <div className="ip-table-wrap quality-bulk-results" role="region" aria-label="Resultado por finding" tabIndex={0}><table className="ip-table">
       <thead><tr><th scope="col">Finding</th><th scope="col">Resultado</th></tr></thead>
       <tbody>{outcome.items.map((item) => <tr key={item.id}><td>{item.title}</td><td><span className={`state-badge ${item.ok ? 'occupied' : 'excluded'}`}><i />{item.message}</span></td></tr>)}</tbody>
     </table></div>}

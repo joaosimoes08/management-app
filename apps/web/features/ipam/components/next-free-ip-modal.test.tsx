@@ -6,7 +6,9 @@ import { apiFetch } from '@/lib/api/client';
 import { ApiRequestError } from '@/lib/api/errors';
 import { NextFreeIpModal, reserveNextErrorMessage } from './next-free-ip-modal';
 import { SubnetsView, type SubnetsViewProps } from './subnets-view';
-import { utilizationBadge } from '../utilization';
+import { utilizationBadge, formatIpamPercent } from '../utilization';
+import { ipStateLabel } from '../ip-state';
+import { setFormatLocale } from '@/lib/format/date';
 import type { Subnet } from '../types';
 
 vi.mock('@/lib/api/client', () => ({ apiFetch: vi.fn() }));
@@ -115,7 +117,7 @@ describe('Subnet utilisation column', () => {
   const cidrs = (table: HTMLElement) => within(table).getAllByRole('row').slice(1).map((row) => within(row).getAllByRole('cell')[0].textContent?.trim());
 
   it('maps bands to badges and keeps IPv6 untracked', () => {
-    expect(utilizationBadge(items[0].utilization)).toMatchObject({ tone: 'occupied', label: '12.5%' });
+    expect(utilizationBadge(items[0].utilization)).toMatchObject({ tone: 'occupied', label: '12,5%' });
     expect(utilizationBadge(items[1].utilization)).toMatchObject({ tone: 'excluded', label: '95% · Crítica' });
     expect(utilizationBadge(items[2].utilization)).toMatchObject({ tone: '', label: 'Não contabilizada' });
     expect(utilizationBadge({ utilizationPercent: 50, band: 'NEW_BAND' })).toMatchObject({ tone: '', label: '50% · NEW_BAND' });
@@ -149,5 +151,25 @@ describe('Subnet utilisation column', () => {
     fireEvent.click(screen.getByRole('button', { name: /Próximo IP livre/ }));
     expect(await screen.findByText('10.0.0.10')).toBeInTheDocument();
     expect(screen.getByRole('form', { name: 'Reservar IPs livres' })).toBeInTheDocument();
+  });
+});
+
+describe('IPAM display labels', () => {
+  it('keeps two decimal digits and uses the active locale', () => {
+    expect(formatIpamPercent(0.39)).toBe('0,39%');
+    setFormatLocale('en-US');
+    try {
+      expect(formatIpamPercent(0.39)).toBe('0.39%');
+    } finally {
+      setFormatLocale('pt-PT');
+    }
+  });
+
+  it('labels managed and observed states and handles missing and unknown values', () => {
+    expect(ipStateLabel('FREE')).toBe('Livre');
+    expect(ipStateLabel('RESERVED')).toBe('Reservado');
+    expect(ipStateLabel('UNREACHABLE')).toBe('Inacessível');
+    expect(ipStateLabel('UNRECOGNIZED')).toBe('Desconhecido');
+    expect(ipStateLabel(null)).toBe('—');
   });
 });

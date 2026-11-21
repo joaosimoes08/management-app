@@ -1,5 +1,6 @@
 'use client';
 
+import { useEscapeClose } from '@/components/ui/use-escape-close';
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, ChevronDown, MapPin, Plus, ShieldCheck, X } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
@@ -61,7 +62,7 @@ function SiteWalkthrough({ onClose, onCreated, onActivate }: { onClose: () => vo
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const update = (field: keyof SiteForm, value: string) => setForm((current) => ({ ...current, [field]: value }));
-  useEffect(() => { const close = (event: KeyboardEvent) => { if (event.key === 'Escape' && !saving) onClose(); }; window.addEventListener('keydown', close); return () => window.removeEventListener('keydown', close); }, [onClose, saving]);
+  useEscapeClose(() => { if (!saving) onClose(); });
   const field = (name: keyof SiteForm, label: string, placeholder: string, required = false) => <label className="setup-field">{label}{required && <b> *</b>}<input autoFocus={name === 'name' && step === 0} required={required} value={form[name]} onChange={(event) => update(name, event.target.value)} placeholder={placeholder}/></label>;
   const create = async () => {
     setSaving(true); setError('');

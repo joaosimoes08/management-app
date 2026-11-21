@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChangePlansPage } from './change-plans-page';
 import type { CalendarChangePlan, ChangePlan, ImpactPreview } from './api';
@@ -64,8 +64,12 @@ describe('ChangePlansPage impact preview transition', () => {
     expect(screen.getByRole('dialog', { name: 'Criar alteração' })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Título'), { target: { value: created.title } });
     fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: created.reason } });
-    fireEvent.change(screen.getByLabelText('Início planeado'), { target: { value: '2026-11-20T10:00' } });
-    fireEvent.change(screen.getByLabelText('Fim planeado'), { target: { value: '2026-11-20T11:00' } });
+    const starts = within(screen.getByRole('group', { name: 'Início planeado' }));
+    fireEvent.change(starts.getByLabelText('Início planeado'), { target: { value: '2026-11-20' } });
+    fireEvent.change(starts.getByLabelText('Hora (24 h)'), { target: { value: '10:00' } });
+    const ends = within(screen.getByRole('group', { name: 'Fim planeado' }));
+    fireEvent.change(ends.getByLabelText('Fim planeado'), { target: { value: '2026-11-20' } });
+    fireEvent.change(ends.getByLabelText('Hora (24 h)'), { target: { value: '11:00' } });
     fireEvent.change(screen.getByLabelText('Alvo'), { target: { value: 'device-1' } });
     fireEvent.change(screen.getByLabelText('Operação proposta'), { target: { value: 'Replace switch' } });
     fireEvent.click(screen.getByRole('button', { name: 'Adicionar alvo' }));
