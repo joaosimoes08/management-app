@@ -6,3 +6,4 @@ DROP TABLE "ScheduledReportRun";
 DROP TABLE "ScheduledReportRecipient";
 DROP TABLE "ScheduledReport";
 DROP TYPE "ScheduledReportFrequency";
+DELETE FROM "_prisma_migrations" WHERE "migration_name" = '20261122150000_scheduled_reports';
