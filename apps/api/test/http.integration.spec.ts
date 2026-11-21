@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { CanActivate, ConflictException, ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { CanActivate, ConflictException, ExecutionContext, Logger, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
@@ -1908,6 +1908,10 @@ test('Step 31: per-user Teams opt-in queues a copy without blocking the request,
   // Muting in-app and opting out of Teams are independent fields; a muted-only PATCH keeps the Teams choice.
   assert.equal(json(await request('PATCH', `${prefs}/LIFECYCLE_DATE`, 'qa-readonly', { muted: true })).teams, false);
 
+  // Earlier tests may leave a request for these personas; one open request per user is allowed.
+  const leftovers = (await prisma.roleRequest.findMany({ where: { userId: { in: [ids.readonly, ids.auditor] } }, select: { id: true } })).map((row) => row.id);
+  await prisma.notification.deleteMany({ where: { roleRequestId: { in: leftovers } } });
+  await prisma.roleRequest.deleteMany({ where: { id: { in: leftovers } } });
   const optedIn = await prisma.roleRequest.create({ data: { userId: ids.readonly, roles: ['SYSTEMS_OPERATOR'] } });
   const notOpted = await prisma.roleRequest.create({ data: { userId: ids.auditor, roles: ['SYSTEMS_OPERATOR'] } });
   requests.push(optedIn.id, notOpted.id);
@@ -1924,6 +1928,10 @@ test('Step 31: per-user Teams opt-in queues a copy without blocking the request,
   const writes = [process.stdout.write, process.stderr.write];
   process.stdout.write = ((chunk: unknown, ...rest: unknown[]) => { output.push(String(chunk)); return (writes[0] as any).call(process.stdout, chunk, ...rest); }) as typeof process.stdout.write;
   process.stderr.write = ((chunk: unknown, ...rest: unknown[]) => { output.push(String(chunk)); return (writes[1] as any).call(process.stderr, chunk, ...rest); }) as typeof process.stderr.write;
+  // Nest may not print in test mode, so also capture what the application hands to its logger.
+  const levels = ['log', 'warn', 'error', 'debug', 'verbose'] as const;
+  const originalLogger = levels.map((level) => Logger.prototype[level]);
+  for (const level of levels) Logger.prototype[level] = function (this: Logger, ...args: unknown[]) { output.push(args.map(String).join(' ')); } as never;
   try {
     await service.kick();
     let row = await prisma.notificationDelivery.findUniqueOrThrow({ where: { id: queued[0].id } });
@@ -1946,6 +1954,7 @@ test('Step 31: per-user Teams opt-in queues a copy without blocking the request,
   } finally {
     process.stdout.write = writes[0] as typeof process.stdout.write;
     process.stderr.write = writes[1] as typeof process.stderr.write;
+    levels.forEach((level, index) => { Logger.prototype[level] = originalLogger[index] as never; });
   }
   assert.ok(output.join('').includes('HTTP_503'), 'the failure is logged');
   assertNoSecret('process logs', output.join(''));
