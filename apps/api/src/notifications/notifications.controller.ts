@@ -1,8 +1,9 @@
-import { Body, Controller, Get, NotFoundException, Param, ParseEnumPipe, ParseUUIDPipe, Patch, Query, Req } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, Get, NotFoundException, Param, ParseEnumPipe, ParseUUIDPipe, Patch, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Prisma, PrismaClient } from '@simoes/database';
 import { IsBoolean, IsEnum, IsOptional, IsUUID } from 'class-validator';
 import type { AuthenticatedUser } from '../auth/auth.service';
+import { teamsAvailableForUsers } from './delivery/delivery-queue';
 import { NotificationTopic, notificationHref } from './notification-preferences';
 
 enum NotificationStatus { UNREAD = 'unread', ALL = 'all' }
@@ -24,8 +25,13 @@ class UpdateReadStatusDto {
 }
 
 class UpdateNotificationPreferenceDto {
-  @IsBoolean()
-  muted!: boolean;
+  /** In-app delivery (Step 27). A muted topic gets no notification on any channel. */
+  @IsOptional() @IsBoolean()
+  muted?: boolean;
+
+  /** Also post this topic to Microsoft Teams (Step 31). Needs the ADMIN Teams channel to be enabled. */
+  @IsOptional() @IsBoolean()
+  teams?: boolean;
 }
 
 const PAGE_SIZE = 25;
@@ -76,17 +82,37 @@ export class NotificationsController {
 
   @Get('preferences')
   async preferences(@Req() { user }: UserRequest) {
-    const muted = new Set((await this.prisma.notificationMute.findMany({ where: { userId: user.id }, select: { type: true } })).map(({ type }) => type));
-    return Object.values(NotificationTopic).map((type) => ({ type, muted: muted.has(type) }));
+    const [mutes, channels, teamsAvailable] = await Promise.all([
+      this.prisma.notificationMute.findMany({ where: { userId: user.id }, select: { type: true } }),
+      this.prisma.notificationChannelPreference.findMany({ where: { userId: user.id, channel: 'TEAMS' }, select: { type: true } }),
+      teamsAvailableForUsers(this.prisma),
+    ]);
+    const muted = new Set(mutes.map(({ type }) => type));
+    const teams = new Set(channels.map(({ type }) => type));
+    return Object.values(NotificationTopic).map((type) => ({ type, muted: muted.has(type), teams: teams.has(type), teamsAvailable }));
+  }
+
+  /** Which external channels an ADMIN has turned on, so Perfil can show or disable the per-topic toggles. */
+  @Get('channels')
+  async channels() {
+    return { teams: { available: await teamsAvailableForUsers(this.prisma) } };
   }
 
   @Patch('preferences/:type')
   async setPreference(@Req() { user }: UserRequest, @Param('type', new ParseEnumPipe(NotificationTopic)) type: NotificationTopic, @Body() dto: UpdateNotificationPreferenceDto) {
-    if (dto.muted) {
-      await this.prisma.notificationMute.createMany({ data: [{ userId: user.id, type }], skipDuplicates: true });
-    } else {
-      await this.prisma.notificationMute.deleteMany({ where: { userId: user.id, type } });
+    if (dto.muted === undefined && dto.teams === undefined) throw new BadRequestException({ code: 'NOTIFICATION_PREFERENCE_EMPTY', message: 'Indica muted e/ou teams.' });
+    if (dto.teams === true && !(await teamsAvailableForUsers(this.prisma))) {
+      throw new ConflictException({ code: 'NOTIFICATION_CHANNEL_UNAVAILABLE', message: 'O canal Microsoft Teams não está ativo. Pede a um ADMIN para o configurar em Definições.' });
     }
-    return { type, muted: dto.muted };
+    if (dto.muted === true) await this.prisma.notificationMute.createMany({ data: [{ userId: user.id, type }], skipDuplicates: true });
+    else if (dto.muted === false) await this.prisma.notificationMute.deleteMany({ where: { userId: user.id, type } });
+    if (dto.teams === true) await this.prisma.notificationChannelPreference.createMany({ data: [{ userId: user.id, type, channel: 'TEAMS' }], skipDuplicates: true });
+    else if (dto.teams === false) await this.prisma.notificationChannelPreference.deleteMany({ where: { userId: user.id, type, channel: 'TEAMS' } });
+    const [muted, teams, teamsAvailable] = await Promise.all([
+      this.prisma.notificationMute.findUnique({ where: { userId_type: { userId: user.id, type } }, select: { type: true } }),
+      this.prisma.notificationChannelPreference.findUnique({ where: { userId_type_channel: { userId: user.id, type, channel: 'TEAMS' } }, select: { type: true } }),
+      teamsAvailableForUsers(this.prisma),
+    ]);
+    return { type, muted: Boolean(muted), teams: Boolean(teams), teamsAvailable };
   }
 }

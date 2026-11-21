@@ -1,3 +1,5 @@
+import { queueUserDeliveries } from '../notifications/delivery/delivery-queue';
+import { NotificationTopic } from '../notifications/notification-preferences';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@simoes/database';
 import { AuditService } from '../audit/audit.service';
@@ -86,6 +88,7 @@ export class RoleRequestService {
       if (!result.count) throw new ConflictException({ code: 'ROLE_REQUEST_NOT_PENDING', message: 'O pedido já foi processado.' });
       // The requester's own outcome always reaches them; the ROLE_REQUEST mute only silences incoming notices for approvers.
       await tx.notification.create({ data: { userId, roleRequestId: id, type: `ROLE_REQUEST_${status}`, title, message } });
+      await queueUserDeliveries(tx, [{ userId, type: NotificationTopic.ROLE_REQUEST, title, message, href: `/perfil?tab=roles&requestId=${id}` }]);
       return tx.roleRequest.findUniqueOrThrow({ where: { id } });
     });
   }

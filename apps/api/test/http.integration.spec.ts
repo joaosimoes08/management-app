@@ -21,9 +21,14 @@ import { IS_PUBLIC_KEY } from '../src/auth/public.decorator';
 import { KeycloakAdminService } from '../src/settings/keycloak-admin.service';
 import { deliverLifecycleReminders } from '../src/infrastructure/lifecycle-reminders';
 import { CriticalAssetsService } from '../src/critical-assets/critical-assets.service';
+import { NotificationDeliveryService } from '../src/notifications/delivery/notification-delivery.service';
+import { OperationsService } from '../src/operations/operations.service';
 
 const databaseUrl = process.env.DATABASE_URL ?? '';
 if (!/[_-]test(?:\?|$)/i.test(databaseUrl)) throw new Error('HTTP integration tests require an isolated DATABASE_URL whose database name ends in _test.');
+
+// Step 31: the background poll is off so these tests drive delivery explicitly; the immediate kick still runs.
+process.env.NOTIFICATION_DELIVERY_DISABLED = 'true';
 
 const prisma = new PrismaClient();
 const ids = {
@@ -1731,4 +1736,237 @@ test('Step 16 NetApp trend: each refresh appends history, trend per aggregate/vo
   assert.equal((await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend?days=401`, 'qa-readonly')).statusCode, 400);
   assert.equal((await request('GET', `/api/v1/netapp/sites/${ids.siteB}/trend`, 'qa-admin')).statusCode, 404);
   assert.equal((await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend`, 'qa-network-legacy')).statusCode, 404);
+});
+
+// ----- Step 31: Microsoft Teams delivery -----
+const TEAMS_URL = 'https://contoso.webhook.office.com/webhookb2/step31-secret-token/IncomingWebhook/abc/def';
+const TEAMS_ALERTS_URL = 'https://prod-01.westeurope.logic.azure.com/workflows/step31-alerts-secret/triggers/manual/paths/invoke?sig=step31-sig';
+const SECRET_PARTS = ['step31-secret-token', 'step31-alerts-secret', 'step31-sig'];
+const assertNoSecret = (label: string, text: string) => { for (const part of SECRET_PARTS) assert.ok(!text.includes(part), `${label} leaked a webhook secret`); };
+type TeamsCall = { url: string; body: any; at: number };
+function mockTeams(statusFor: (call: TeamsCall) => number | 'network') {
+  const calls: TeamsCall[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: URL | string, init?: RequestInit) => {
+    const call = { url: String(input), body: JSON.parse(String(init?.body ?? '{}')), at: Date.now() };
+    calls.push(call);
+    const status = statusFor(call);
+    if (status === 'network') throw new TypeError(`fetch failed: ${call.url}`);
+    return new Response(status < 300 ? '1' : 'error', { status });
+  }) as typeof fetch;
+  return { calls, restore: () => { globalThis.fetch = originalFetch; } };
+}
+async function cleanTeams() {
+  await prisma.notificationDelivery.deleteMany({});
+  await prisma.notificationChannelPreference.deleteMany({});
+  await prisma.deliveryChannelConfig.deleteMany({});
+}
+
+test('Step 31: ADMIN Teams settings start off, store the webhook encrypted and never return or log it', async (context) => {
+  context.after(cleanTeams);
+  await cleanTeams();
+  const root = '/api/v1/settings/notification-channels';
+  const initial = json(await request('GET', root, 'qa-admin'));
+  assert.deepEqual(initial.channels.map((item: any) => [item.target, item.enabled, item.configured]), [['USER_NOTIFICATIONS', false, false], ['GROUP_ALERTS', false, false]]);
+  assert.equal(initial.keyringAvailable, true);
+  assert.equal((await request('GET', root, 'qa-auditor')).statusCode, 403);
+  assert.equal((await request('PUT', `${root}/TEAMS/USER_NOTIFICATIONS`, 'qa-network-scoped', { enabled: true, webhookUrl: TEAMS_URL })).statusCode, 403);
+
+  const invalid = await request('PUT', `${root}/TEAMS/USER_NOTIFICATIONS`, 'qa-admin', { enabled: false, webhookUrl: 'https://evil.example/step31-secret-token' });
+  assert.equal(invalid.statusCode, 400);
+  assert.equal(json(invalid).code, 'TEAMS_WEBHOOK_INVALID');
+  assertNoSecret('invalid URL response', invalid.body);
+  const notConfigured = await request('PUT', `${root}/TEAMS/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true });
+  assert.equal(notConfigured.statusCode, 409);
+  assert.equal((await request('PUT', `${root}/TEAMS/USER_NOTIFICATIONS`, 'qa-admin', { enabled: false, webhookUrl: TEAMS_URL, minSeverity: 'HIGH' })).statusCode, 400, 'minSeverity is for the group channel only');
+
+  const saved = await request('PUT', `${root}/TEAMS/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true, webhookUrl: TEAMS_URL });
+  assert.equal(saved.statusCode, 200, saved.body);
+  assert.deepEqual([json(saved).enabled, json(saved).configured], [true, true]);
+  assertNoSecret('save response', saved.body);
+  const group = await request('PUT', `${root}/TEAMS/GROUP_ALERTS`, 'qa-admin', { enabled: false, webhookUrl: TEAMS_ALERTS_URL, minSeverity: 'CRITICAL' });
+  assert.equal(json(group).minSeverity, 'CRITICAL');
+  // Re-saving without a URL keeps the stored one.
+  assert.equal(json(await request('PUT', `${root}/TEAMS/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true })).configured, true);
+  const listed = await request('GET', root, 'qa-admin');
+  assertNoSecret('channel list', listed.body);
+
+  const stored = await prisma.deliveryChannelConfig.findMany();
+  for (const row of stored) assertNoSecret('stored ciphertext', Buffer.from(row.ciphertext!).toString('latin1') + JSON.stringify({ ...row, ciphertext: undefined }));
+  const audit = await prisma.auditLog.findMany({ where: { action: { contains: 'NOTIFICATION_CHANNEL' } } });
+  assert.ok(audit.length >= 3);
+  assertNoSecret('audit log', JSON.stringify(await prisma.auditLog.findMany({ orderBy: { createdAt: 'desc' }, take: 100 })));
+
+  const cleared = await request('DELETE', `${root}/TEAMS/USER_NOTIFICATIONS`, 'qa-admin');
+  assert.deepEqual([json(cleared).enabled, json(cleared).configured], [false, false]);
+});
+
+test('Step 31: the test button sends one message, logs success or the failure reason, and failures can be retried', async (context) => {
+  await cleanTeams();
+  const service = app.get(NotificationDeliveryService);
+  let status: number | 'network' = 200;
+  const teams = mockTeams(() => status);
+  context.after(async () => { teams.restore(); await cleanTeams(); });
+  const root = '/api/v1/settings/notification-channels/TEAMS/GROUP_ALERTS';
+  assert.equal((await request('POST', `${root}/test`, 'qa-admin')).statusCode, 409, 'cannot test before a URL is saved');
+  await request('PUT', root, 'qa-admin', { enabled: false, webhookUrl: TEAMS_ALERTS_URL });
+
+  const ok = await request('POST', `${root}/test`, 'qa-admin');
+  assert.equal(ok.statusCode, 201, ok.body);
+  assert.deepEqual([json(ok).status, json(ok).failureReason], ['SENT', null]);
+  assert.equal(teams.calls.length, 1);
+  assert.equal(teams.calls[0].url, TEAMS_ALERTS_URL);
+  assert.equal(teams.calls[0].body.attachments[0].content.body[0].text, 'Mensagem de teste');
+
+  status = 'network';
+  const failed = await request('POST', `${root}/test`, 'qa-admin');
+  assert.deepEqual([json(failed).status, json(failed).failureReason], ['FAILED', 'NETWORK_ERROR']);
+  assertNoSecret('test failure response', failed.body);
+
+  const log = await request('GET', '/api/v1/settings/notification-deliveries', 'qa-admin');
+  assert.equal(log.statusCode, 200);
+  assert.deepEqual(json(log).items.map((item: any) => [item.topic, item.status, item.failureReason]), [['TEST', 'FAILED', 'NETWORK_ERROR'], ['TEST', 'SENT', null]]);
+  assert.deepEqual([json(log).counts.SENT, json(log).counts.FAILED], [1, 1]);
+  assertNoSecret('delivery log', log.body);
+  assert.equal((await request('GET', '/api/v1/settings/notification-deliveries', 'qa-readonly')).statusCode, 403);
+  assert.equal(json(await request('GET', '/api/v1/settings/notification-deliveries?status=FAILED', 'qa-admin')).items.length, 1);
+
+  status = 200;
+  const failedId = json(failed).deliveryId;
+  assert.equal((await request('POST', `/api/v1/settings/notification-deliveries/${json(ok).deliveryId}/retry`, 'qa-admin')).statusCode, 409, 'only failed deliveries can be retried');
+  const retried = await request('POST', `/api/v1/settings/notification-deliveries/${failedId}/retry`, 'qa-admin');
+  assert.equal(retried.statusCode, 201, retried.body);
+  await service.kick();
+  const row = await prisma.notificationDelivery.findUniqueOrThrow({ where: { id: failedId } });
+  assert.deepEqual([row.status, row.attempts, row.failureReason], ['SENT', 1, null]);
+});
+
+test('Step 31: per-user Teams opt-in queues a copy without blocking the request, retries on failure and logs the reason', async (context) => {
+  await cleanTeams();
+  const service = app.get(NotificationDeliveryService);
+  let status: number | 'network' = 503;
+  const teams = mockTeams(() => status);
+  const requests: string[] = [];
+  context.after(async () => {
+    teams.restore();
+    await prisma.notification.deleteMany({ where: { roleRequestId: { in: requests } } });
+    await prisma.roleRequest.deleteMany({ where: { id: { in: requests } } });
+    await cleanTeams();
+  });
+  const prefs = '/api/v1/notifications/preferences';
+  const unavailable = await request('PATCH', `${prefs}/ROLE_REQUEST`, 'qa-readonly', { teams: true });
+  assert.equal(unavailable.statusCode, 409, 'cannot opt in while the ADMIN channel is off');
+  assert.equal((await request('PATCH', `${prefs}/ROLE_REQUEST`, 'qa-readonly', {})).statusCode, 400);
+  assert.deepEqual(json(await request('GET', '/api/v1/notifications/channels', 'qa-readonly')), { teams: { available: false } });
+
+  await request('PUT', '/api/v1/settings/notification-channels/TEAMS/USER_NOTIFICATIONS', 'qa-admin', { enabled: true, webhookUrl: TEAMS_URL });
+  const optIn = await request('PATCH', `${prefs}/ROLE_REQUEST`, 'qa-readonly', { teams: true });
+  assert.equal(optIn.statusCode, 200, optIn.body);
+  assert.deepEqual(json(optIn), { type: 'ROLE_REQUEST', muted: false, teams: true, teamsAvailable: true });
+  const listed = json(await request('GET', prefs, 'qa-readonly'));
+  assert.deepEqual(listed.map((item: any) => [item.type, item.teams]), [['ROLE_REQUEST', true], ['CRITICAL_ASSET_ATTESTATION', false], ['LIFECYCLE_DATE', false]]);
+  // Muting in-app and opting out of Teams are independent fields; a muted-only PATCH keeps the Teams choice.
+  assert.equal(json(await request('PATCH', `${prefs}/LIFECYCLE_DATE`, 'qa-readonly', { muted: true })).teams, false);
+
+  const optedIn = await prisma.roleRequest.create({ data: { userId: ids.readonly, roles: ['SYSTEMS_OPERATOR'] } });
+  const notOpted = await prisma.roleRequest.create({ data: { userId: ids.auditor, roles: ['SYSTEMS_OPERATOR'] } });
+  requests.push(optedIn.id, notOpted.id);
+  // The webhook would hang: the decision must still return, because sending happens off the request path.
+  status = 503;
+  const started = Date.now();
+  for (const id of requests) assert.equal((await request('PATCH', `/api/v1/settings/role-requests/${id}`, 'qa-admin', { decision: 'REJECT' })).statusCode, 200);
+  assert.ok(Date.now() - started < 5_000);
+  assert.equal(teams.calls.length, 0, 'nothing is sent inside the request');
+  const queued = await prisma.notificationDelivery.findMany({ where: { target: 'USER_NOTIFICATIONS' } });
+  assert.deepEqual(queued.map((row) => [row.recipientUserId, row.topic, row.status]), [[ids.readonly, 'ROLE_REQUEST', 'PENDING']]);
+
+  const output: string[] = [];
+  const writes = [process.stdout.write, process.stderr.write];
+  process.stdout.write = ((chunk: unknown, ...rest: unknown[]) => { output.push(String(chunk)); return (writes[0] as any).call(process.stdout, chunk, ...rest); }) as typeof process.stdout.write;
+  process.stderr.write = ((chunk: unknown, ...rest: unknown[]) => { output.push(String(chunk)); return (writes[1] as any).call(process.stderr, chunk, ...rest); }) as typeof process.stderr.write;
+  try {
+    await service.kick();
+    let row = await prisma.notificationDelivery.findUniqueOrThrow({ where: { id: queued[0].id } });
+    assert.deepEqual([row.status, row.attempts, row.failureReason], ['PENDING', 1, 'HTTP_503']);
+    assert.ok(row.nextAttemptAt.getTime() > Date.now(), 'retry is scheduled for later');
+    assert.equal(teams.calls[0].body.attachments[0].content.body[1].text, 'Para: qa-readonly');
+
+    status = 'network';
+    await prisma.notificationDelivery.update({ where: { id: row.id }, data: { nextAttemptAt: new Date() } });
+    await service.kick();
+    row = await prisma.notificationDelivery.findUniqueOrThrow({ where: { id: row.id } });
+    assert.deepEqual([row.status, row.attempts, row.failureReason], ['PENDING', 2, 'NETWORK_ERROR']);
+
+    status = 200;
+    await prisma.notificationDelivery.update({ where: { id: row.id }, data: { nextAttemptAt: new Date() } });
+    await service.kick();
+    row = await prisma.notificationDelivery.findUniqueOrThrow({ where: { id: row.id } });
+    assert.deepEqual([row.status, row.attempts, row.failureReason], ['SENT', 3, null]);
+    assert.equal(teams.calls.length, 3);
+  } finally {
+    process.stdout.write = writes[0] as typeof process.stdout.write;
+    process.stderr.write = writes[1] as typeof process.stderr.write;
+  }
+  assert.ok(output.join('').includes('HTTP_503'), 'the failure is logged');
+  assertNoSecret('process logs', output.join(''));
+  assertNoSecret('delivery log', (await request('GET', '/api/v1/settings/notification-deliveries', 'qa-admin')).body);
+
+  // A permanent failure stops immediately; a disabled channel fails queued rows with a clear reason.
+  await prisma.notificationDelivery.create({ data: { channel: 'TEAMS', target: 'USER_NOTIFICATIONS', topic: 'ROLE_REQUEST', recipientUserId: ids.readonly, title: 'x', message: 'y' } });
+  status = 404;
+  await service.kick();
+  assert.equal(await prisma.notificationDelivery.count({ where: { status: 'FAILED', failureReason: 'HTTP_404', attempts: 1 } }), 1);
+  await request('PUT', '/api/v1/settings/notification-channels/TEAMS/USER_NOTIFICATIONS', 'qa-admin', { enabled: false });
+  await prisma.notificationDelivery.create({ data: { channel: 'TEAMS', target: 'USER_NOTIFICATIONS', topic: 'ROLE_REQUEST', recipientUserId: ids.readonly, title: 'x', message: 'y' } });
+  await service.kick();
+  assert.equal(await prisma.notificationDelivery.count({ where: { status: 'FAILED', failureReason: 'CHANNEL_DISABLED' } }), 1);
+});
+
+test('Step 31: a CRITICAL operational alert reaches the Teams group channel within 1 minute, once per opening', async (context) => {
+  await cleanTeams();
+  const teams = mockTeams(() => 200);
+  const operations = app.get(OperationsService);
+  const keys = ['step31:critical', 'step31:warning', 'step31:high-maintenance'];
+  context.after(async () => {
+    teams.restore();
+    await prisma.operationalAlert.deleteMany({ where: { dedupKey: { in: keys } } });
+    await prisma.maintenanceWindow.deleteMany({ where: { name: 'Step 31 window' } });
+    await cleanTeams();
+  });
+  await request('PUT', '/api/v1/settings/notification-channels/TEAMS/GROUP_ALERTS', 'qa-admin', { enabled: true, webhookUrl: TEAMS_ALERTS_URL, minSeverity: 'HIGH' });
+  const waitForCalls = async (count: number, budgetMs: number) => {
+    const deadline = Date.now() + budgetMs;
+    while (teams.calls.length < count && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50));
+  };
+
+  const raisedAt = Date.now();
+  await operations.upsert({ dedupKey: 'step31:critical', source: 'SNMP', severity: 'CRITICAL', siteId: ids.siteA, entityType: 'Device', entityId: ids.deviceA, title: 'Core switch down', detail: 'No response to SNMP', actionHref: null } as never);
+  await waitForCalls(1, 60_000);
+  assert.equal(teams.calls.length, 1, 'CRITICAL alert was not delivered within 1 minute');
+  assert.ok(teams.calls[0].at - raisedAt < 60_000);
+  assert.equal(teams.calls[0].url, TEAMS_ALERTS_URL);
+  const card = teams.calls[0].body.attachments[0].content;
+  assert.equal(card.body[0].text, '[CRITICAL] Core switch down');
+  assert.equal(card.body[0].color, 'Attention');
+  assert.match(card.body.at(-1).text, /HTTP Site A · No response to SNMP/);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const sent = await prisma.notificationDelivery.findFirstOrThrow({ where: { topic: 'OPERATIONAL_ALERT' } });
+  assert.equal(sent.status, 'SENT');
+
+  // A repeat of the same open alert is not posted again.
+  await operations.upsert({ dedupKey: 'step31:critical', source: 'SNMP', severity: 'CRITICAL', siteId: ids.siteA, entityType: 'Device', entityId: ids.deviceA, title: 'Core switch down', detail: 'Still down', actionHref: null } as never);
+  // Below the threshold, and HIGH during a maintenance window, are not posted.
+  await operations.upsert({ dedupKey: 'step31:warning', source: 'SNMP', severity: 'WARNING', siteId: ids.siteA, title: 'Minor', detail: 'x', actionHref: null } as never);
+  await prisma.maintenanceWindow.create({ data: { name: 'Step 31 window', siteId: ids.siteA, startsAt: new Date(Date.now() - 60_000), endsAt: new Date(Date.now() + 3_600_000) } });
+  await operations.upsert({ dedupKey: 'step31:high-maintenance', source: 'SNMP', severity: 'HIGH', siteId: ids.siteA, title: 'Planned', detail: 'x', actionHref: null } as never);
+  await app.get(NotificationDeliveryService).kick();
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal(teams.calls.length, 1);
+  assert.equal(await prisma.notificationDelivery.count({ where: { topic: 'OPERATIONAL_ALERT' } }), 1);
+
+  // Resolved and reopened is a new opening and is posted again.
+  await prisma.operationalAlert.update({ where: { dedupKey: 'step31:critical' }, data: { status: 'RESOLVED', resolvedAt: new Date() } });
+  await operations.upsert({ dedupKey: 'step31:critical', source: 'SNMP', severity: 'CRITICAL', siteId: ids.siteA, entityType: 'Device', entityId: ids.deviceA, title: 'Core switch down', detail: 'Down again', actionHref: null } as never);
+  await waitForCalls(2, 60_000);
+  assert.equal(teams.calls.length, 2);
 });
