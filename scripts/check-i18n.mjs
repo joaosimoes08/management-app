@@ -35,6 +35,17 @@ const operationalFiles = [
   'apps/web/features/operations/alert-configuration-page.tsx',
   'apps/web/features/operations/alerts-overview.tsx',
   'apps/web/components/layout/global-search.tsx',
+  // Phase E IPAM/Descoberta/SNMP
+  'apps/web/features/ipam/components/next-free-ip-modal.tsx',
+  'apps/web/features/ipam/components/subnets-view.tsx',
+  'apps/web/features/ipam/utilization.ts',
+  'apps/web/features/topology/filters.ts',
+  'apps/web/features/topology/topology-filters-menu.tsx',
+  'apps/web/components/ui/bulk-review-dialog.tsx',
+  'apps/web/features/discovery/discovery-results.tsx',
+  'apps/web/features/snmp/snmp-fleet.tsx',
+  'apps/web/features/snmp/snmp-drifts.tsx',
+  'apps/web/features/snmp/snmp-bounds.ts',
 ];
 
 function sourceFile(relative, kind = ts.ScriptKind.TSX) {
