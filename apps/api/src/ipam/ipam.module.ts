@@ -6,6 +6,7 @@ import { AuditModule } from '../audit/audit.module';
 import { IpamAccessService } from './ipam-access.service';
 import { IpReservationService } from './ip-reservation.service';
 import { SubnetCapacityService } from './subnet-capacity.service';
+import { IpamWorkflowsService } from './ipam-workflows.service';
 
-@Module({ imports: [AuditModule], controllers: [IpamController], providers: [IpamService, IpamAdvancedService, IpamAccessService, IpReservationService, SubnetCapacityService], exports: [IpamAccessService] })
+@Module({ imports: [AuditModule], controllers: [IpamController], providers: [IpamService, IpamAdvancedService, IpamAccessService, IpReservationService, SubnetCapacityService, IpamWorkflowsService], exports: [IpamAccessService] })
 export class IpamModule {}

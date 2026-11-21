@@ -1,4 +1,4 @@
-import { IsBoolean, IsIn, IsInt, IsIP, IsObject, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, ArrayUnique, IsArray, IsBoolean, IsIn, IsInt, IsIP, IsObject, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class UpsertSnmpConfigDto {
@@ -68,4 +68,9 @@ export class AcceptSnmpEnrollmentDto {
   @IsOptional() @IsUUID() modelId?: string;
   @IsOptional() @IsUUID() frontAssetId?: string;
   @IsOptional() @IsUUID() backAssetId?: string;
+}
+
+export class BulkReviewSnmpDriftsDto {
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(200) @ArrayUnique() @IsUUID('all', { each: true }) ids!: string[];
+  @IsIn(['ACCEPTED', 'IGNORED']) status!: 'ACCEPTED' | 'IGNORED';
 }

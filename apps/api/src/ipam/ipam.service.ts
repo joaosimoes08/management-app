@@ -12,6 +12,7 @@ import { IpamAccessService } from './ipam-access.service';
 import { assertDiscoveryAllowed, DiscoveryPolicyError, normalizeDiscoveryPorts, parseNetwork } from '../discovery/discovery-policy';
 import { resolveDiscoveryProfile } from '../discovery/discovery-profiles';
 import { compareDiscoveryResults } from '../discovery/discovery-comparison';
+import { discoveryJobDurationMs, parseSubnetListOptions, subnetUtilization } from './ipam-workflow-helpers';
 
 const execFileAsync = promisify(execFile);
 const MAX_DISCOVERY_HOSTS = 4096;
@@ -81,7 +82,48 @@ export class IpamService implements OnModuleDestroy {
   async updateVlan(id: string, dto: UpdateVlanDto, user: AuthenticatedUser) { const current = await this.access.assertVlan(user, 'UPDATE', id); if (dto.siteId && dto.siteId !== current.siteId) await this.access.assertSite(user, 'UPDATE', dto.siteId); const vlan = await this.prisma.vlan.update({ where: { id }, data: { vlanId: dto.vlanId, name: dto.name, description: dto.description, siteId: dto.siteId || null } }).catch(() => { throw new NotFoundException('VLAN não encontrada'); }); await this.auditChange(user, 'VLAN_UPDATED', 'Vlan', id); return vlan; }
   async deleteVlan(id: string, user: AuthenticatedUser) { await this.access.assertVlan(user, 'DELETE', id); const vlan = await this.prisma.vlan.findUnique({ where: { id }, include: { _count: { select: { subnets: true, nativeInterfaces: true, accessInterfaces: true, interfaceVlans: true } } } }); if (!vlan) throw new NotFoundException('VLAN não encontrada'); const linked = vlan._count.subnets + vlan._count.nativeInterfaces + vlan._count.accessInterfaces + vlan._count.interfaceVlans; if (linked) throw new ConflictException(`Não é possível eliminar esta VLAN: existem ${linked} relações de subnet/interface associadas.`); await this.prisma.vlan.delete({ where: { id } }); await this.auditChange(user, 'VLAN_DELETED', 'Vlan', id, { vlanId: vlan.vlanId }); return { success: true }; }
 
-  async listSubnets(user: AuthenticatedUser, siteId?: string, vlanId?: string, search?: string, pageText?: string, pageSizeText?: string) { const page = Math.max(Number(pageText) || 1, 1); const pageSize = Math.min(Math.max(Number(pageSizeText) || 25, 1), 100); const accessWhere = await this.access.whereFor(user, 'READ', 'subnet'); const filters = { ...(siteId ? { siteId } : {}), ...(vlanId ? { vlanId } : {}), ...(search ? { OR: [{ cidr: { contains: search, mode: 'insensitive' as const } }, { purpose: { contains: search, mode: 'insensitive' as const } }, { environment: { contains: search, mode: 'insensitive' as const } }] } : {}) }; const where = { AND: [accessWhere, filters] }; const [items, total] = await Promise.all([this.prisma.subnet.findMany({ where, include: { site: true, vlan: true, _count: { select: { ips: true, discoveryJobs: true } } }, orderBy: { cidr: 'asc' }, skip: (page - 1) * pageSize, take: pageSize }), this.prisma.subnet.count({ where })]); return { items, page, pageSize, total, totalPages: Math.ceil(total / pageSize) }; }
+  async listSubnets(user: AuthenticatedUser, siteId?: string, vlanId?: string, search?: string, pageText?: string, pageSizeText?: string, listOptions: { band?: string; minUtilization?: string; sort?: string } = {}) {
+    const options = parseSubnetListOptions(listOptions);
+    const page = Math.max(Number(pageText) || 1, 1); const pageSize = Math.min(Math.max(Number(pageSizeText) || 25, 1), 100);
+    const accessWhere = await this.access.whereFor(user, 'READ', 'subnet');
+    const filters = { ...(siteId ? { siteId } : {}), ...(vlanId ? { vlanId } : {}), ...(search ? { OR: [{ cidr: { contains: search, mode: 'insensitive' as const } }, { purpose: { contains: search, mode: 'insensitive' as const } }, { environment: { contains: search, mode: 'insensitive' as const } }] } : {}) };
+    const where = { AND: [accessWhere, filters] };
+    const include = { site: true, vlan: true, _count: { select: { ips: true, discoveryJobs: true } } } as const;
+    const utilizationFor = async (subnets: Array<{ id: string; cidr: string; gateway: string | null }>) => {
+      const rows = subnets.length ? await this.prisma.ipAddress.findMany({ where: { subnetId: { in: subnets.map((item) => item.id) }, state: { not: 'FREE' } }, select: { subnetId: true, address: true, state: true } }) : [];
+      const bySubnet = new Map<string, Array<{ address: string; state: string }>>();
+      for (const row of rows) { const list = bySubnet.get(row.subnetId) ?? []; list.push(row); bySubnet.set(row.subnetId, list); }
+      return new Map(subnets.map((item) => [item.id, subnetUtilization(item.cidr, item.gateway, bySubnet.get(item.id) ?? [])]));
+    };
+    const needsAll = Boolean(options.band || options.minUtilization !== undefined || options.sort?.by === 'utilization');
+    if (!needsAll) {
+      const [items, total] = await Promise.all([this.prisma.subnet.findMany({ where, include, orderBy: { cidr: options.sort?.direction ?? 'asc' }, skip: (page - 1) * pageSize, take: pageSize }), this.prisma.subnet.count({ where })]);
+      const utilization = await utilizationFor(items);
+      return { items: items.map((item) => ({ ...item, utilization: utilization.get(item.id) })), page, pageSize, total, totalPages: Math.ceil(total / pageSize) };
+    }
+    const all = await this.prisma.subnet.findMany({ where, select: { id: true, cidr: true, gateway: true }, orderBy: { cidr: 'asc' } });
+    const utilization = await utilizationFor(all);
+    let matching = all.filter((item) => {
+      const value = utilization.get(item.id)!;
+      if (options.band && !options.band.includes(value.band)) return false;
+      if (options.minUtilization !== undefined && (value.utilizationPercent === null || value.utilizationPercent < options.minUtilization)) return false;
+      return true;
+    });
+    if (options.sort?.by === 'utilization') {
+      const sign = options.sort.direction === 'asc' ? 1 : -1;
+      // Untracked (IPv6) subnets always sort last; ties keep CIDR order.
+      matching = [...matching].sort((left, right) => {
+        const a = utilization.get(left.id)!.utilizationPercent; const b = utilization.get(right.id)!.utilizationPercent;
+        if (a === null || b === null) return a === b ? 0 : a === null ? 1 : -1;
+        return (a - b) * sign;
+      });
+    } else if (options.sort?.direction === 'desc') matching = [...matching].reverse();
+    const pageIds = matching.slice((page - 1) * pageSize, page * pageSize).map((item) => item.id);
+    const rows = await this.prisma.subnet.findMany({ where: { id: { in: pageIds } }, include });
+    const byId = new Map(rows.map((item) => [item.id, item]));
+    const items = pageIds.map((id) => byId.get(id)).filter((item): item is NonNullable<typeof item> => Boolean(item)).map((item) => ({ ...item, utilization: utilization.get(item.id) }));
+    return { items, page, pageSize, total: matching.length, totalPages: Math.ceil(matching.length / pageSize) };
+  }
   async createSubnet(dto: CreateSubnetDto, user: AuthenticatedUser) { const parsed = parseCidr(dto.cidr); const cidr = `${numberToIpv4(parsed.network)}/${parsed.bits}`; if (dto.vlanId && await this.prisma.subnet.findFirst({ where: { vlanId: dto.vlanId } })) throw new ConflictException('A VLAN já tem uma subnet associada'); try { const subnet = await this.prisma.subnet.create({ data: { cidr, version: 4, gateway: dto.gateway, purpose: dto.purpose, environment: dto.environment, siteId: dto.siteId || null, vlanId: dto.vlanId || null } }); await this.auditChange(user, 'SUBNET_CREATED', 'Subnet', subnet.id, { cidr }); return subnet; } catch { throw new ConflictException('Já existe essa subnet ou a VLAN já está associada'); } }
   async deleteSubnet(id: string, user: AuthenticatedUser) { await this.access.assertSubnet(user, 'DELETE', id); const subnet = await this.prisma.subnet.findUnique({ where: { id } }); if (!subnet) throw new NotFoundException('Subnet não encontrada'); await this.prisma.subnet.delete({ where: { id } }); await this.auditChange(user, 'SUBNET_DELETED', 'Subnet', id, { cidr: subnet.cidr }); return { success: true }; }
 
@@ -118,9 +160,16 @@ export class IpamService implements OnModuleDestroy {
   async deleteService(id: string, user: AuthenticatedUser) { const current = await this.prisma.service.findUnique({ where: { id } }); if (!current) throw new NotFoundException({ code: 'SERVICE_NOT_FOUND', message: 'Service não encontrado.' }); await this.access.assertHost(user, 'DELETE', current.hostId); await this.prisma.service.delete({ where: { id } }); await this.auditChange(user, 'SERVICE_DELETED', 'Service', id, { hostId: current.hostId, name: current.name }); return { success: true }; }
 
   async discoverySummary(user: AuthenticatedUser) { try { const subnetWhere = await this.access.whereFor(user, 'READ', 'subnet'); const [counts, pendingResults, worker] = await Promise.all([this.discoveryQueue.getJobCounts('waiting', 'active', 'completed', 'failed'), this.prisma.discoveryResult.count({ where: { status: 'PENDING', job: { subnet: subnetWhere } } }), this.discoveryQueue.getJobCounts('waiting', 'active').then(() => 'operational').catch(() => 'unavailable')]); return { worker, pendingResults, queue: counts }; } catch { return { worker: 'unavailable', pendingResults: 0, queue: {} }; } }
-  async listDiscoveryJobs(user: AuthenticatedUser, status?: string, subnetId?: string, pageText?: string, pageSizeText?: string) { const page = Math.max(Number(pageText) || 1, 1); const pageSize = Math.min(Math.max(Number(pageSizeText) || 25, 1), 100); const subnetWhere = await this.access.whereFor(user, 'READ', 'subnet'); const where = { ...(status ? { status: status as never } : {}), ...(subnetId ? { subnetId } : {}), subnet: subnetWhere }; const [items, total] = await Promise.all([this.prisma.discoveryJob.findMany({ where, include: { subnet: { include: { vlan: true, site: true } }, _count: { select: { results: true } } }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }), this.prisma.discoveryJob.count({ where })]); return { items, page, pageSize, total, totalPages: Math.ceil(total / pageSize) }; }
+  async listDiscoveryJobs(user: AuthenticatedUser, status?: string, subnetId?: string, pageText?: string, pageSizeText?: string) { const page = Math.max(Number(pageText) || 1, 1); const pageSize = Math.min(Math.max(Number(pageSizeText) || 25, 1), 100); const subnetWhere = await this.access.whereFor(user, 'READ', 'subnet'); const statuses = (status ?? '').split(',').map((value) => value.trim().toUpperCase()).filter(Boolean); const where = { ...(statuses.length === 1 ? { status: statuses[0] as never } : statuses.length > 1 ? { status: { in: statuses as never[] } } : {}), ...(subnetId ? { subnetId } : {}), subnet: subnetWhere }; const [items, total] = await Promise.all([this.prisma.discoveryJob.findMany({ where, include: { subnet: { include: { vlan: true, site: true } }, _count: { select: { results: true } } }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }), this.prisma.discoveryJob.count({ where })]); return { items: items.map((item) => ({ ...item, durationMs: discoveryJobDurationMs(item) })), page, pageSize, total, totalPages: Math.ceil(total / pageSize) }; }
   async getDiscoveryJob(user: AuthenticatedUser, id: string) { const job = await this.prisma.discoveryJob.findUnique({ where: { id }, include: { subnet: { include: { vlan: true, site: true } }, _count: { select: { results: true } } } }); if (!job) throw new NotFoundException('Execução de discovery não encontrada'); await this.access.assertSubnet(user, 'READ', job.subnetId); return job; }
-  async listDiscoveryResults(user: AuthenticatedUser, jobId: string) { await this.getDiscoveryJob(user, jobId); return this.prisma.discoveryResult.findMany({ where: { jobId }, orderBy: [{ status: 'asc' }, { address: 'asc' }] }); }
+  async listDiscoveryResults(user: AuthenticatedUser, jobId: string) {
+    const job = await this.getDiscoveryJob(user, jobId);
+    const results = await this.prisma.discoveryResult.findMany({ where: { jobId }, orderBy: [{ status: 'asc' }, { address: 'asc' }] });
+    // Each result carries the current IPAM record for its address (null when the address is not tracked yet).
+    const ips = results.length ? await this.prisma.ipAddress.findMany({ where: { subnetId: job.subnetId, address: { in: [...new Set(results.map((item) => item.address))] } }, select: { id: true, address: true, state: true, hostId: true, host: { select: { name: true } }, reservations: { where: { status: 'ACTIVE' }, select: { id: true, expiresAt: true }, take: 1 } } }) : [];
+    const byAddress = new Map(ips.map((item) => [item.address, item]));
+    return results.map((item) => { const ip = byAddress.get(item.address); return { ...item, ipam: ip ? { ipAddressId: ip.id, state: ip.state, hostId: ip.hostId, hostName: ip.host?.name ?? null, activeReservation: ip.reservations[0] ?? null } : null }; });
+  }
   async compareDiscoveryJobs(user: AuthenticatedUser, currentId: string, previousId: string) {
     if (!previousId) throw new BadRequestException('Indique a execução a comparar.');
     if (currentId === previousId) throw new BadRequestException('Selecione duas execuções diferentes.');

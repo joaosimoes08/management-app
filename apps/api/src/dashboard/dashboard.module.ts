@@ -5,6 +5,7 @@ import { DashboardController } from './dashboard.controller';
 import { DashboardService } from './dashboard.service';
 import { OperationsModule } from '../operations/operations.module';
 import { InventoryQualityModule } from '../inventory-quality/inventory-quality.module';
+import { ChangePlansModule } from '../change-plans/change-plans.module';
 
-@Module({ imports: [InfrastructureModule, IpamModule, OperationsModule, InventoryQualityModule], controllers: [DashboardController], providers: [DashboardService] })
+@Module({ imports: [InfrastructureModule, IpamModule, OperationsModule, InventoryQualityModule, ChangePlansModule], controllers: [DashboardController], providers: [DashboardService] })
 export class DashboardModule {}
