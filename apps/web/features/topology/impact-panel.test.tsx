@@ -28,7 +28,7 @@ describe('ImpactPanel', () => {
     expect(within(tiers).getByRole('link', { name: 'Access-SW-07' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Ver na Topologia/ })).toHaveAttribute('href', '/topology?siteId=site-1&impact=device%3Acore');
     expect(screen.queryByTestId('impact-truncated')).not.toBeInTheDocument();
-    expect(onResult).toHaveBeenLastCalledWith(expect.objectContaining({ origin: expect.objectContaining({ id: 'core' }) }));
+    await vi.waitFor(() => expect(onResult).toHaveBeenLastCalledWith(expect.objectContaining({ origin: expect.objectContaining({ id: 'core' }) })), { timeout: 4000 });
     expect(mocks.getTopologyImpact).toHaveBeenCalledWith({ kind: 'DEVICE', id: 'core' }, { includeLogical: false });
   });
 

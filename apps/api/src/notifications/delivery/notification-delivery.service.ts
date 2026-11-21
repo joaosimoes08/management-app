@@ -7,6 +7,7 @@ import { DeliveryChannelSender, DeliveryDestination, DeliveryError, SmtpSettings
 import { AlertForDelivery, DEFAULT_GROUP_MIN_SEVERITY, GROUP_SEVERITIES, groupRecipients, isConfigured, queueAlertDelivery, smtpConfigured, TEST_TOPIC } from './delivery-queue';
 import { EmailSender, isEmailAddress, normaliseRecipients, validateSmtpSettings } from './email-sender';
 import { TeamsSender, validateTeamsWebhookUrl } from './teams-sender';
+import { csvFilename } from '../../reports/report-content';
 
 export const DELIVERY_SENDERS = Symbol('DELIVERY_SENDERS');
 
@@ -56,6 +57,13 @@ export function pollIntervalMs(value = process.env.NOTIFICATION_DELIVERY_POLL_MS
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 1000 && parsed <= 30_000 ? parsed : DEFAULT_POLL_MS;
 }
+
+/** Step 32 scheduled reports: queued by ReportsModule, carried here with the generated body and CSV. */
+export const SCHEDULED_REPORT_TOPIC = 'SCHEDULED_REPORT';
+/** Web page that asks for confirmation before unsubscribing (a GET never changes anything). */
+export const reportUnsubscribeHref = (token: string) => `/relatorios/cancelar-subscricao?token=${encodeURIComponent(token)}`;
+
+type ReportOutputForSend = { text: string; html: string; csv: string; userId: string | null; run: { reportId: string; periodStart: Date; report: { name: string } } };
 
 export function publicLink(href: string | null, base = process.env.APP_PUBLIC_URL) {
   if (!href || !base || !href.startsWith('/') || href.startsWith('//')) return null;
@@ -186,9 +194,13 @@ export class NotificationDeliveryService implements OnModuleInit, OnModuleDestro
     });
     if (!claimed.count) return;
     const row = await this.prisma.notificationDelivery.findUniqueOrThrow({
-      where: { id }, include: { recipient: { select: { username: true, displayName: true } } },
+      where: { id }, include: {
+        recipient: { select: { username: true, displayName: true } },
+        reportOutput: { select: { text: true, html: true, csv: true, userId: true, run: { select: { reportId: true, periodStart: true, report: { select: { name: true } } } } } },
+      },
     });
     try {
+      const report = row.topic === SCHEDULED_REPORT_TOPIC && row.channel === 'EMAIL' ? await this.reportExtras(row.reportOutput) : {};
       const sender = this.senders.get(row.channel);
       if (!sender) throw new DeliveryError('CHANNEL_UNSUPPORTED', false);
       const cacheKey = `${row.channel}:${row.target}`;
@@ -198,7 +210,7 @@ export class NotificationDeliveryService implements OnModuleInit, OnModuleDestro
       }
       const channel = cache.get(cacheKey)!;
       if (channel instanceof DeliveryError) throw channel;
-      await sender.send(await this.destinationFor(channel, row), this.message(row));
+      await sender.send(await this.destinationFor(channel, row), { ...this.message(row), ...report });
       await this.prisma.notificationDelivery.update({ where: { id }, data: { status: 'SENT', sentAt: now(), failureReason: null } });
     } catch (error) {
       const failure = error instanceof DeliveryError ? error : new DeliveryError('UNEXPECTED_ERROR', true);
@@ -206,6 +218,21 @@ export class NotificationDeliveryService implements OnModuleInit, OnModuleDestro
       await this.prisma.notificationDelivery.update({ where: { id }, data: { ...outcome, failureReason: failure.code } });
       this.logger.warn(`Delivery ${id} attempt ${row.attempts} failed: ${failure.code}${outcome.status === 'PENDING' ? '; retry scheduled' : ''}`);
     }
+  }
+
+  /**
+   * A report e-mail carries its generated body and CSV. It is not sent once the report was deleted or the person
+   * unsubscribed after it was queued.
+   */
+  private async reportExtras(output: ReportOutputForSend | null) {
+    if (!output?.userId) throw new DeliveryError('REPORT_REMOVED', false);
+    const recipient = await this.prisma.scheduledReportRecipient.findUnique({ where: { reportId_userId: { reportId: output.run.reportId, userId: output.userId } }, select: { unsubscribeToken: true, unsubscribedAt: true } });
+    if (!recipient || recipient.unsubscribedAt) throw new DeliveryError('REPORT_UNSUBSCRIBED', false);
+    return {
+      body: { text: output.text, html: output.html },
+      attachments: [{ filename: csvFilename(output.run.report.name, output.run.periodStart.toISOString().slice(0, 10)), content: output.csv, contentType: 'text/csv; charset=utf-8' }],
+      unsubscribeUrl: publicLink(reportUnsubscribeHref(recipient.unsubscribeToken)),
+    };
   }
 
   private message(row: { channel: DeliveryChannelKind; title: string; message: string; href: string | null; target: DeliveryTarget; recipient: { username: string; displayName: string | null } | null }) {
