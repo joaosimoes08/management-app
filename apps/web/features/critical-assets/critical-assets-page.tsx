@@ -165,19 +165,22 @@ export function CriticalAssetsPage() {
   const runBulk = async () => {
     if (!bulkPlan) return;
     setBulkRunning(true);
-    const results: Record<string, BulkResult> = {};
     setBulkResults({});
-    for (const item of bulkPlan.items) {
-      try {
-        const saved = await postReview(item.attestationId, 'CONFIRMED');
-        applySaved({ ...saved, id: item.attestationId });
-        results[item.key] = { key: item.key, state: 'recorded' };
-      } catch (cause) {
-        results[item.key] = isAlreadyRecorded(cause)
-          ? { key: item.key, state: 'already', message: errorText(cause, 'Esta revisão já tinha sido registada.') }
-          : { key: item.key, state: 'failed', message: errorText(cause, 'Não foi possível registar a revisão.') };
+    try {
+      // One request, one transaction on the server; it answers with a result per item.
+      const response = await apiFetch<{ results: Array<{ id: string; ok: true; outcome: string } | { id: string; ok: false; code: string; message: string }> }>('/api/v1/critical-assets/confirm-bulk', { method: 'POST', body: JSON.stringify({ items: bulkPlan.items.map((item) => ({ id: item.attestationId, outcome: 'CONFIRMED' })) }) });
+      const byId = new Map(response.results.map((result) => [result.id, result]));
+      const results: Record<string, BulkResult> = {};
+      for (const item of bulkPlan.items) {
+        const result = byId.get(item.attestationId);
+        if (!result) results[item.key] = { key: item.key, state: 'failed', message: 'Sem resposta para esta revisão.' };
+        else if (result.ok) results[item.key] = { key: item.key, state: 'recorded' };
+        else results[item.key] = result.code === 'ALREADY_RECORDED' ? { key: item.key, state: 'already', message: result.message } : { key: item.key, state: 'failed', message: result.message };
       }
-      setBulkResults({ ...results });
+      setBulkResults(results);
+    } catch (cause) {
+      const message = errorText(cause, 'Não foi possível registar as revisões.');
+      setBulkResults(Object.fromEntries(bulkPlan.items.map((item) => [item.key, { key: item.key, state: 'failed' as const, message }])));
     }
     setBulkRunning(false);
     setSelected(new Set());
@@ -228,7 +231,7 @@ export function CriticalAssetsPage() {
     {
       id: 'actions', header: 'Ações', className: 'table-actions',
       cell: (row) => <>
-        {eligible(row) && <><button className="secondary-button" aria-label={`Confirmar revisão de ${row.name}`} onClick={() => quickConfirm(row)}>Confirmar</button><button className="secondary-button" aria-label={`Pedir correção de ${row.name}`} onClick={() => openReview(row, row.pending[0], 'CORRECTION_NEEDED')}>Pedir correção</button></>}
+        {eligible(row) && <><button className="secondary-button" aria-label={`Confirmar revisão de ${row.name}`} onClick={() => quickConfirm(row)}>Confirmar</button><button className="secondary-button" aria-label={`Pedir correção de ${row.name}`} onClick={() => openReview(row, row.pending[0], 'NEEDS_CORRECTION')}>Pedir correção</button></>}
         {isAdmin && !row.owner && <button className="secondary-button" aria-label={`Atribuir responsável a ${row.name}`} onClick={() => openOwner(row.type)}>Atribuir responsável</button>}
       </>,
     },
@@ -240,7 +243,7 @@ export function CriticalAssetsPage() {
   const countButtons: Array<{ label: string; value: number; key: keyof Filters; filter: string }> = [
     { label: 'Em atraso', value: counts.overdue, key: 'due', filter: 'overdue' },
     { label: 'Para esta semana', value: counts.dueThisWeek, key: 'due', filter: 'due_this_week' },
-    { label: 'Correção pedida', value: counts.needsCorrection, key: 'outcome', filter: 'CORRECTION_NEEDED' },
+    { label: 'Correção pedida', value: counts.needsCorrection, key: 'outcome', filter: 'NEEDS_CORRECTION' },
     { label: 'Sem responsável', value: counts.noOwner, key: 'owner', filter: NO_OWNER },
   ];
 
@@ -254,7 +257,7 @@ export function CriticalAssetsPage() {
     <PageToolbarPortal><div className="interface-toolbar-controls critical-assets-filters">
       <label>Tipo<select aria-label="Filtrar por tipo" value={filters.type} onChange={(event) => setFilter('type', event.target.value)}><option value="">Todos</option>{assetTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
       <label>Responsável<select aria-label="Filtrar por grupo responsável" value={filters.owner} onChange={(event) => setFilter('owner', event.target.value)}><option value="">Todos</option><option value={NO_OWNER}>Sem responsável</option>{owners.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
-      <label>Último resultado<select aria-label="Filtrar por último resultado" value={filters.outcome} onChange={(event) => setFilter('outcome', event.target.value)}><option value="">Todos</option><option value="CONFIRMED">Confirmado</option><option value="CORRECTION_NEEDED">Correção pedida</option><option value={NO_OUTCOME}>Sem revisão</option></select></label>
+      <label>Último resultado<select aria-label="Filtrar por último resultado" value={filters.outcome} onChange={(event) => setFilter('outcome', event.target.value)}><option value="">Todos</option><option value="CONFIRMED">Confirmado</option><option value="NEEDS_CORRECTION">Correção pedida</option><option value={NO_OUTCOME}>Sem revisão</option></select></label>
       <label>Prazo<select aria-label="Filtrar por prazo" value={filters.due} onChange={(event) => setFilter('due', event.target.value)}><option value="">Todos</option>{(Object.keys(dueLabels) as Array<keyof typeof dueLabels>).map((state) => <option key={state} value={state}>{dueLabels[state]}</option>)}</select></label>
       {filtering && <button className="secondary-button" onClick={clearFilters}><X size={14} /> Limpar filtros</button>}
     </div></PageToolbarPortal>
@@ -315,7 +318,7 @@ export function CriticalAssetsPage() {
           note: attestation.notes,
           actions: !attestation.outcome && canReview ? <div className="table-actions">
             <button className="secondary-button" onClick={() => openReview(detail, attestation, 'CONFIRMED')}>Confirmar</button>
-            <button className="secondary-button" onClick={() => openReview(detail, attestation, 'CORRECTION_NEEDED')}>Pedir correção</button>
+            <button className="secondary-button" onClick={() => openReview(detail, attestation, 'NEEDS_CORRECTION')}>Pedir correção</button>
           </div> : null,
         }))}
       />

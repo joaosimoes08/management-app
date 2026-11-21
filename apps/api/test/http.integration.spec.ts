@@ -207,6 +207,70 @@ test('enforces authentication and persona-level RBAC over HTTP', async () => {
   assert.equal((await request('POST', '/api/v1/ip-addresses', 'qa-auditor', { address: '10.250.1.21', subnetId: ids.subnetA })).statusCode, 403);
 });
 
+test('lists scoped Linux hosts and issues each agent credential once until revocation', async (context) => {
+  const host = await prisma.host.create({ data: { name: 'Step 26 host', deviceId: ids.deviceA } });
+  const hidden = await prisma.host.create({ data: { name: 'Step 26 other site', deviceId: ids.deviceB } });
+  context.after(async () => { await prisma.host.deleteMany({ where: { id: { in: [host.id, hidden.id] } } }); });
+  const inventory = '/api/v1/linux-agents/hosts';
+  const enrollments = '/api/v1/linux-agents/enrollments';
+  const all = json(await request('GET', inventory, 'qa-admin'));
+  assert.equal(all.items.some((item: { id: string }) => item.id === hidden.id), true);
+  const scoped = await request('GET', `${inventory}?siteId=${ids.siteA}`, 'qa-readonly');
+  assert.equal(scoped.statusCode, 200);
+  const items = json(scoped).items;
+  assert.equal(items.some((item: { id: string }) => item.id === hidden.id), false);
+  assert.equal(items.find((item: { id: string }) => item.id === host.id).agent, null);
+  assert.deepEqual(items.find((item: { id: string }) => item.id === ids.hostMulti).ipAddresses.map((ip: { address: string }) => ip.address), ['10.250.1.10']);
+  assert.equal((await request('GET', `${inventory}/${hidden.id}/services`, 'qa-readonly')).statusCode, 404);
+  const services = await request('GET', `${inventory}/${ids.hostManual}/services`, 'qa-readonly');
+  assert.equal(services.statusCode, 200);
+  assert.equal(json(services)[0].name, 'Manual HTTP');
+
+  assert.equal((await request('POST', enrollments, 'qa-readonly', { hostId: host.id })).statusCode, 403);
+  const responses = await Promise.all([
+    request('POST', enrollments, 'qa-admin', { hostId: host.id }),
+    request('POST', enrollments, 'qa-admin', { hostId: host.id }),
+  ]);
+  assert.deepEqual(responses.map((result) => result.statusCode), [201, 201]);
+  assert.equal(responses.every((result) => result.headers['cache-control'] === 'no-store'), true);
+  const bodies = responses.map(json);
+  assert.equal(bodies.filter((body) => typeof body.token === 'string').length, 1);
+  assert.equal(bodies.filter((body) => body.tokenAlreadyIssued === true).length, 1);
+  const { id: agentId, token } = bodies.find((body) => body.token);
+  const revoke = `/api/v1/linux-agents/${agentId}`;
+  assert.equal((await request('DELETE', revoke, 'qa-readonly')).statusCode, 403);
+
+  const heartbeat = (hostname: string) => app.inject({
+    method: 'POST',
+    url: '/api/v1/linux-agents/heartbeat',
+    headers: { authorization: `Bearer ${token}` },
+    payload: { hostname, os: 'Linux', osVersion: '6', agentVersion: '1.0.0' },
+  });
+  assert.equal((await heartbeat('step26-host')).statusCode, 200);
+  const current = () => request('GET', inventory, 'qa-admin').then(json).then((data) => data.items.find((item: { id: string }) => item.id === host.id));
+  const online = await current();
+  assert.equal(online.agent.state, 'ONLINE');
+  assert.equal('token' in online.agent || 'tokenHash' in online.agent, false);
+  assert.equal(typeof all.staleMinutes, 'number');
+  await prisma.linuxAgent.update({ where: { id: agentId }, data: { lastHeartbeatAt: new Date(Date.now() - (all.staleMinutes + 1) * 60_000) } });
+  assert.equal((await current()).agent.state, 'STALE');
+  assert.equal((await request('DELETE', revoke, 'qa-admin')).statusCode, 200);
+  assert.equal((await heartbeat('must-not-be-written')).statusCode, 401);
+  const revoked = await current();
+  assert.equal(revoked.agent.state, 'REVOKED');
+  assert.equal(revoked.hostname, 'step26-host');
+
+  const audit = await request('GET', `/api/v1/audit/events/page?entityId=${agentId}`, 'qa-auditor');
+  assert.equal(audit.statusCode, 200);
+  assert.deepEqual(json(audit).items.map((event: { action: string }) => event.action).sort(), ['LINUX_AGENT_ENROLLED', 'LINUX_AGENT_REVOKED']);
+  assert.equal(audit.body.includes(token), false);
+  const replacement = json(await request('POST', enrollments, 'qa-admin', { hostId: host.id }));
+  assert.equal(typeof replacement.token === 'string' && replacement.token !== token, true);
+  assert.equal((await heartbeat('old-token')).statusCode, 401);
+  await prisma.host.update({ where: { id: host.id }, data: { deviceId: null } });
+  assert.equal((await request('DELETE', revoke, 'qa-admin')).statusCode, 200);
+});
+
 test('requires a current planned-change impact preview before review submission', async () => {
   await prisma.deviceConnection.create({ data: { siteId: ids.siteA, type: 'PHYSICAL', source: 'SNMP', sourceDeviceId: ids.deviceA2, targetDeviceId: ids.deviceSibling, label: 'Unrelated observed link' } });
   const start = new Date(Date.now() + 60 * 60 * 1000);
@@ -880,7 +944,7 @@ test('critical asset attestation: 409 on a second review of the same cycle, revi
   for (const week of ['2026-11-02', '2026-10-26', '2026-10-19', '2026-10-12', '2026-10-05']) {
     await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA, weekStart: new Date(`${week}T00:00:00.000Z`), outcome: 'CONFIRMED', confirmedAt: new Date(`${week}T10:00:00.000Z`), confirmedBy: ids.scoped, notes: week === '2026-10-26' ? 'checked tag' : null } });
   }
-  const first = await request('POST', `/api/v1/critical-assets/${pending.id}/confirm`, 'qa-admin', { outcome: 'CORRECTION_NEEDED', notes: 'Wrong serial' });
+  const first = await request('POST', `/api/v1/critical-assets/${pending.id}/confirm`, 'qa-admin', { outcome: 'NEEDS_CORRECTION', notes: 'Wrong serial' });
   assert.equal(first.statusCode, 201);
   assert.equal(json(first).confirmedByName, 'QA Admin Person');
   assert.equal(json(first).confirmedBy, ids.admin);
@@ -889,10 +953,10 @@ test('critical asset attestation: 409 on a second review of the same cycle, revi
   const conflict = json(second);
   assert.equal(conflict.code, 'CRITICAL_ASSET_ATTESTATION_ALREADY_RECORDED');
   assert.match(conflict.message, /já foi registada por QA Admin Person/);
-  assert.equal(conflict.details.outcome, 'CORRECTION_NEEDED');
+  assert.equal(conflict.details.outcome, 'NEEDS_CORRECTION');
   assert.equal(conflict.details.weekStart, '2026-11-09');
   const stored = await prisma.criticalAssetAttestation.findUniqueOrThrow({ where: { id: pending.id } });
-  assert.equal(stored.outcome, 'CORRECTION_NEEDED');
+  assert.equal(stored.outcome, 'NEEDS_CORRECTION');
   assert.equal(stored.notes, 'Wrong serial');
   assert.equal(await prisma.auditLog.count({ where: { action: 'CRITICAL_ASSET_ATTESTATION_RECORDED', entityId: ids.deviceA } }), 1);
 
@@ -902,7 +966,7 @@ test('critical asset attestation: 409 on a second review of the same cycle, revi
   const switchA = body.assets.find((asset: { id: string }) => asset.id === ids.deviceA);
   assert.equal(switchA.attestations.length, 6);
   assert.equal(switchA.owner.id, ids.groupRead);
-  assert.equal(switchA.latestOutcome, 'CORRECTION_NEEDED');
+  assert.equal(switchA.latestOutcome, 'NEEDS_CORRECTION');
   assert.equal(switchA.dueState, 'up_to_date');
   assert.equal(switchA.attestations[0].confirmedByName, 'QA Admin Person');
   assert.equal(switchA.attestations[1].confirmedByName, 'qa-network-scoped');
@@ -919,7 +983,7 @@ test('critical asset attestation: two simultaneous reviews of one cycle give exa
     const row = await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA2, weekStart: new Date(Date.UTC(2026, 5, 1 + round * 7)) } });
     const responses = await Promise.all([
       request('POST', `/api/v1/critical-assets/${row.id}/confirm`, 'qa-admin', { outcome: 'CONFIRMED', notes: 'first' }),
-      request('POST', `/api/v1/critical-assets/${row.id}/confirm`, 'qa-admin', { outcome: 'CORRECTION_NEEDED', notes: 'second' }),
+      request('POST', `/api/v1/critical-assets/${row.id}/confirm`, 'qa-admin', { outcome: 'NEEDS_CORRECTION', notes: 'second' }),
     ]);
     assert.deepEqual(responses.map((response) => response.statusCode).sort(), [201, 409]);
     const winner = json(responses.find((response) => response.statusCode === 201)!);

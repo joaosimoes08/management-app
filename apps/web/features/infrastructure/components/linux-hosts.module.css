@@ -1,0 +1,180 @@
+.workspace {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.workspace h1 svg {
+  vertical-align: text-bottom;
+}
+
+.inventory {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.filters,
+.ips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+}
+
+.filters label,
+.state {
+  display: grid;
+  gap: 4px;
+}
+
+.filters label {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.filters select {
+  min-height: 36px;
+  max-width: 100%;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface, #fff);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.workspace .hostName {
+  color: var(--ink);
+  font-weight: 600;
+  text-align: left;
+}
+
+.workspace .action {
+  white-space: nowrap;
+}
+
+.state {
+  justify-items: start;
+}
+
+.state small {
+  color: var(--muted);
+}
+
+.ONLINE {
+  color: var(--green, #146438);
+}
+
+.STALE {
+  color: var(--amber, #8a5300);
+}
+
+.REVOKED {
+  color: var(--danger, #a21b30);
+}
+
+.dialog,
+.drawer {
+  color: var(--text);
+}
+
+.dialog {
+  margin: auto;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 24px);
+  overflow: auto;
+}
+
+.drawer {
+  inset: 0 0 0 auto;
+  margin: 0;
+  max-width: 100%;
+  max-height: 100%;
+  height: 100dvh;
+  overflow-wrap: anywhere;
+}
+
+.dialog::backdrop,
+.drawer::backdrop {
+  background: #17131a65;
+}
+
+.command {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.workspace .hint,
+.table > :global(.ip-table-wrap) {
+  margin-block: 0;
+}
+
+@media (max-width: 560px) {
+  :global(.app-shell .global-topbar):has(.tabNavigation) :global(.module-tabs-slot) {
+    flex: 1 0 100%;
+    overflow: visible;
+  }
+
+  :global(.app-shell .global-topbar):has(.tabNavigation) :global(.topbar-globals) {
+    flex: none;
+  }
+
+  :global(.app-shell .global-topbar):has(.tabNavigation) :global(.topbar-search-trigger) {
+    flex: 0 0 40px;
+  }
+}
+
+.table {
+  min-width: 0;
+}
+
+.entityLink {
+  color: var(--blue);
+  text-align: left;
+  text-decoration: none;
+}
+
+.entityLink:hover {
+  text-decoration: underline;
+}
+
+.tableControls {
+  display: none;
+}
+
+@media (max-width: 780px) {
+  .tableControls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  .tableControls span {
+    margin-right: auto;
+  }
+
+  .tableControls button {
+    flex: 0 0 36px;
+    min-height: 36px;
+  }
+
+  .table > :global(.ip-table-wrap) {
+    width: 100%;
+    margin-inline: 0;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+
+  .table > :global(.ip-table-wrap .ip-table) {
+    min-width: max-content;
+  }
+
+  .table > :global(.ip-table-wrap .ip-table) :is(th, td) {
+    white-space: nowrap;
+  }
+}
