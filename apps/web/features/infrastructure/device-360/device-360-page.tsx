@@ -1,10 +1,11 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ExternalLink, Pencil, Plus, Server } from 'lucide-react';
 import { AppShell } from '@/components/layout/app-shell';
-import { deviceEditHref } from '@/components/data-table/entity-link';
+import { deviceEditHref, entityHref } from '@/components/data-table/entity-link';
+import { rememberRecentItem } from '@/lib/recent-items';
 import { apiFetch } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth';
 import { getDevice, listDeviceIpAddresses, listInterfaces } from '../api';
@@ -66,13 +67,17 @@ function SectionBody<T>({ query, empty, children }: { query: { data?: T; isLoadi
 }
 
 export function Device360Page({ deviceId }: { deviceId: string }) {
-  const { hasRole } = useAuth();
+  const { hasRole, user } = useAuth();
   const can = (key: keyof typeof ROLES) => ROLES[key].some((role) => hasRole(role));
 
   const deviceQuery = useQuery({ queryKey: ['device-360', deviceId], queryFn: () => getDevice(deviceId), enabled: Boolean(deviceId) });
   const device = deviceQuery.data as (Device & FutureDeviceFields) | undefined;
   const siteId = device?.siteId ?? device?.site?.id ?? '';
   const ready = Boolean(device);
+  const deviceName = device?.name;
+  useEffect(() => {
+    if (deviceName) rememberRecentItem(user?.id, { id: `device:${deviceId}`, kind: 'Equipamento', label: deviceName, href: entityHref({ kind: 'device', id: deviceId, siteId }) });
+  }, [user?.id, deviceId, deviceName, siteId]);
 
   const interfaces = useQuery({ queryKey: ['device-360', deviceId, 'interfaces'], queryFn: () => listInterfaces(deviceId), enabled: ready && can('interfaces') });
   const ips = useQuery({ queryKey: ['device-360', deviceId, 'ips', siteId], queryFn: () => listDeviceIpAddresses(siteId, deviceId), enabled: ready && Boolean(siteId) });

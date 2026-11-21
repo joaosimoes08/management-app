@@ -159,6 +159,7 @@ describe('InventoryQualityPage', () => {
     expect(screen.getByRole('button', { name: 'Atribuir Finding 4' })).toBeEnabled();
     expect(screen.queryByRole('button', { name: 'Adiar Finding 5' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Abrir registo de Finding 5' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Abrir equipamento de Finding 5' })).toHaveAttribute('href', '/infraestrutura/equipamentos/d-5?siteId=site-1');
   });
 
   it('hides selection and bulk actions from read-only roles', async () => {
