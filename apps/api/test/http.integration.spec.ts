@@ -1251,3 +1251,60 @@ test('Phase C review fixes: activity hides plan-wide counts from scoped users, l
   assert.match(String(cors.headers['access-control-expose-headers']), /X-Export-Row-Count/);
   assert.match(String(cors.headers['access-control-expose-headers']), /X-Export-Truncated/);
 });
+
+test('Step 16 NetApp trend: each refresh appends history, trend per aggregate/volume, retention prune, Site isolation', async () => {
+  const integration = await prisma.netAppIntegration.create({ data: { siteId: ids.siteA, endpointUrl: 'https://ontap.http-qa.example', username: 'reader', ...encryptCredential({ password: 'ontap-pw' }, testKeyring) } });
+  const DAY = 86_400_000;
+  // Old samples: one past the 400-day retention (pruned on the next refresh) and two inside the window.
+  const old = await prisma.netAppCapacitySample.create({ data: { integrationId: integration.id, kind: 'AGGREGATE', objectKey: 'aggr-uuid-1', name: 'aggr1', sizeBytes: 1000n, usedBytes: 100n, observedAt: new Date(Date.now() - 401 * DAY) } });
+  await prisma.netAppCapacitySample.createMany({ data: [
+    { integrationId: integration.id, kind: 'AGGREGATE', objectKey: 'aggr-uuid-1', name: 'aggr1', sizeBytes: 1000n, usedBytes: 300n, observedAt: new Date(Date.now() - 2 * DAY) },
+    { integrationId: integration.id, kind: 'AGGREGATE', objectKey: 'aggr-uuid-1', name: 'aggr1', sizeBytes: 1000n, usedBytes: 350n, observedAt: new Date(Date.now() - 1 * DAY) },
+  ] });
+  let used = 400;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: URL | string) => {
+    const url = String(input);
+    const body = url.includes('/api/cluster?') ? { name: 'qa-cluster', uuid: 'c-1' }
+      : url.includes('/cluster/nodes') ? { records: [{ name: 'node1', health: true }] }
+      : url.includes('/storage/aggregates') ? { records: [{ name: 'aggr1', uuid: 'aggr-uuid-1', state: 'online', space: { block_storage: { size: 1000, used } } }] }
+      : { records: [{ name: 'vol1', uuid: 'vol-uuid-1', state: 'online', svm: { name: 'svm1' }, space: { size: 200, used: 20 } }] };
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as typeof fetch;
+  try {
+    const first = await request('POST', `/api/v1/netapp/sites/${ids.siteA}/refresh`, 'qa-admin');
+    assert.equal(first.statusCode, 201, first.body);
+    used = 450;
+    assert.equal((await request('POST', `/api/v1/netapp/sites/${ids.siteA}/refresh`, 'qa-admin')).statusCode, 201);
+  } finally { globalThis.fetch = originalFetch; }
+
+  // Current-snapshot behaviour is unchanged: GET still returns the latest snapshot.
+  const current = json(await request('GET', `/api/v1/netapp/sites/${ids.siteA}`, 'qa-readonly'));
+  assert.equal(current.snapshot.aggregates[0].usedBytes, 450);
+  // Two refreshes × (cluster + aggregate + volume), plus the two in-window seeds; the 401-day-old row is pruned.
+  assert.equal(await prisma.netAppCapacitySample.count({ where: { integrationId: integration.id } }), 8);
+  assert.equal(await prisma.netAppCapacitySample.findUnique({ where: { id: old.id } }), null);
+
+  const trendResponse = await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend?kind=AGGREGATE&key=aggr-uuid-1&days=30`, 'qa-readonly');
+  assert.equal(trendResponse.statusCode, 200, trendResponse.body);
+  const trend = json(trendResponse);
+  // One point per day: today's two refreshes collapse to the later one (450).
+  assert.deepEqual(trend.points.map((point: { usedBytes: number }) => point.usedBytes), [300, 350, 450]);
+  assert.equal(trend.name, 'aggr1');
+  assert.equal(trend.retentionDays, 400);
+  assert.ok(trend.summary.growthBytesPerDay > 0);
+  assert.ok(trend.summary.projectedFullAt);
+  const cluster = json(await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend`, 'qa-readonly'));
+  assert.equal(cluster.kind, 'CLUSTER');
+  assert.equal(cluster.points.at(-1).usedBytes, 450);
+  const volumes = json(await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend/objects?kind=VOLUME`, 'qa-readonly'));
+  assert.deepEqual(volumes.items.map((item: { key: string; svm: string; usedPercent: number }) => [item.key, item.svm, item.usedPercent]), [['vol-uuid-1', 'svm1', 10]]);
+  const aggregates = json(await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend/objects?kind=AGGREGATE&days=30`, 'qa-readonly'));
+  assert.equal(aggregates.items[0].changeBytes, 150);
+
+  assert.equal((await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend?kind=VOLUME`, 'qa-readonly')).statusCode, 400);
+  assert.equal((await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend?kind=DISK&key=x`, 'qa-readonly')).statusCode, 400);
+  assert.equal((await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend?days=401`, 'qa-readonly')).statusCode, 400);
+  assert.equal((await request('GET', `/api/v1/netapp/sites/${ids.siteB}/trend`, 'qa-admin')).statusCode, 404);
+  assert.equal((await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend`, 'qa-network-legacy')).statusCode, 404);
+});
