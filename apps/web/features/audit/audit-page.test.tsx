@@ -45,6 +45,19 @@ describe('AuditPage', () => {
     expect(screen.queryByRole('button', { name: 'Carregar mais' })).not.toBeInTheDocument();
   });
 
+  it('shows the default facet window only while no date range is set', async () => {
+    const from = new Date(Date.now() - 90 * 86_400_000).toISOString();
+    client.apiFetch.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/v1/audit/facets')) return url.includes('from=') ? { ...facets, from: '2026-11-01T00:00:00.000Z', to: null } : { ...facets, from, to: null };
+      return { items: [event('1')], nextCursor: null, hasMore: false, limit: 50 };
+    });
+    renderPage();
+    expect(await screen.findByText('Valores dos últimos 90 dias')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Desde'), { target: { value: '2026-11-01' } });
+    await waitFor(() => expect(urls().some((url) => url.startsWith('/api/v1/audit/facets?from='))).toBe(true));
+    expect(screen.queryByText(/Valores dos últimos/)).not.toBeInTheDocument();
+  });
+
   it('lands filtered from ?q= links and sends the dropdown filters to the server', async () => {
     window.history.replaceState(null, '', '/auditoria?q=dev-1&actor=u1');
     renderPage();
