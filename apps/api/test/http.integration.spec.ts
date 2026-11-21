@@ -635,3 +635,21 @@ test('keeps the RIPEstat lookup preview response unchanged and adds a diff only 
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test('marks a prefix overlapping an earlier prefix of the same paste as a conflict', async () => {
+  const preview = await request('POST', '/api/v1/ipam/ripe/preview', 'qa-admin', { prefixes: ['10.253.0.0/16\n10.253.1.0/24\n10.254.0.0/24'], siteId: ids.siteA });
+  assert.equal(preview.statusCode, 201, preview.body);
+  const result = json(preview);
+  assert.deepEqual(result.diff.map((item: { prefix: string; status: string; importable: boolean }) => [item.prefix, item.status, item.importable]), [
+    ['10.253.0.0/16', 'new', true],
+    ['10.253.1.0/24', 'conflict', false],
+    ['10.254.0.0/24', 'new', true],
+  ]);
+  assert.equal(result.diff[1].reason, 'OVERLAP');
+  assert.deepEqual(result.diff[1].overlaps, [{ source: 'paste', relation: 'within', sameScope: true, prefix: '10.253.0.0/16' }]);
+  assert.equal(result.summary.importable, 2);
+  const imported = await request('POST', '/api/v1/ipam/ripe/import', 'qa-admin', { importId: result.id, prefixes: result.diff.filter((item: { importable: boolean }) => item.importable).map((item: { prefix: string }) => item.prefix), siteId: ids.siteA });
+  assert.equal(imported.statusCode, 201, imported.body);
+  assert.equal(json(imported).status, 'IMPORTED');
+  assert.deepEqual(json(imported).skipped, []);
+});
