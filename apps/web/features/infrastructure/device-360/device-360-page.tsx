@@ -9,6 +9,7 @@ import { apiFetch } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth';
 import { getDevice, listDeviceIpAddresses, listInterfaces } from '../api';
 import type { Device } from '../types';
+import { assetFileUrl } from '../utils';
 
 /**
  * Step 29 — read-first Device 360 page.
@@ -87,16 +88,19 @@ export function Device360Page({ deviceId }: { deviceId: string }) {
 
   const rack = device.rack;
   const location = [device.site?.name, rack?.room?.building?.name, rack?.room?.name, rack?.name, device.rackUnitStart ? `U${device.rackUnitStart}${device.rackUnitSize && device.rackUnitSize > 1 ? `–${device.rackUnitStart + device.rackUnitSize - 1}` : ''}` : null].filter(Boolean).join(' · ');
-  const image = device.frontAsset?.url ?? device.model?.frontAsset?.url;
+  const imageAsset = device.frontAsset ?? device.model?.frontAsset;
+  const image = imageAsset ? assetFileUrl(imageAsset) : null;
+  const modelName = device.model ? `${device.model.manufacturer} ${device.model.model}`.trim() : '';
   const tier = device.criticalityTier;
   const rackHref = rack ? `/infraestrutura${q({ siteId, buildingId: rack.room?.building?.id, roomId: rack.room?.id, rackId: rack.id })}` : null;
   const outlets = (device.power as { outlets?: Array<{ pduName?: string; outletIndex?: number; pduId?: string }> } | null | undefined)?.outlets ?? [];
 
   return <AppShell section="Mapa físico"><main className="module-page device-360">
     <header className="workspace-head device-360-head">
-      {image && <img className="device-360-image" src={image} alt={`Frente de ${device.model?.name ?? device.name}`} />}
+      {/* eslint-disable-next-line @next/next/no-img-element -- API asset URL, same as the rack views */}
+      {image && <img className="device-360-image" src={image} alt={`Frente de ${modelName || device.name}`} />}
       <div>
-        <span className="section-kicker">EQUIPAMENTO · {device.type}{device.model?.name ? ` · ${device.model.name}` : ''}</span>
+        <span className="section-kicker">EQUIPAMENTO · {device.type}{modelName ? ` · ${modelName}` : ''}</span>
         <h1>{device.name}</h1>
         <p>{location || 'Sem localização'}</p>
         <p className="device-360-badges">
