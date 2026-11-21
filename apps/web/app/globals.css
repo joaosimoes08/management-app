@@ -2516,11 +2516,11 @@ body { color:var(--ink); background:#e9eef5; }
 .app-shell-content .page-primary-content .ipam-card { min-width:0; padding:0; border:0; border-radius:0; background:transparent; box-shadow:none; }
 .app-shell-content .page-primary-content .panel-heading { margin-bottom:10px; }
 .critical-assets-card .critical-assets-count { margin:0; color:#20334f; font-size:13px; font-weight:600; }
-/* Count tiles are the existing .summary-stats tiles rendered as filter toggles; colours reuse the toolbar's selected/focus tokens. */
-.critical-assets-counts button { padding:12px; color:inherit; border:1px solid transparent; border-radius:9px; background:#faf9f9; font:inherit; text-align:left; cursor:pointer; }
-.critical-assets-counts button:hover { background:#f0f4fa; }
-.critical-assets-counts button.active { border-color:#9ab1dc; background:#f3f7ff; }
-.critical-assets-counts button:focus-visible { outline:3px solid #4778da; outline-offset:2px; }
+/* Count tiles: the .summary-stats tile look on a <button> so it can toggle a filter; colours are the theme variables. */
+.critical-assets-counts button { padding:12px; color:inherit; border:1px solid transparent; border-radius:9px; background:var(--surface); font:inherit; text-align:left; cursor:pointer; }
+.critical-assets-counts button:hover,.critical-assets-counts button.active { background:var(--soft-blue); }
+.critical-assets-counts button.active { border-color:var(--blue); }
+.critical-assets-counts button:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
 .context-toolbar-contribution .critical-assets-filters { flex-wrap:wrap; }
 .critical-assets-card .table-actions .secondary-button,.critical-assets-panel .table-actions .secondary-button { padding:7px 9px; font-size:10px; }
 .change-detail-heading-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:8px; }

@@ -111,7 +111,10 @@ function attestationAlreadyRecordedMessage(payload: ApiErrorPayload, locale: Api
   const week = payload.details?.weekStart;
   if (!week) return undefined;
   const by = payload.details?.confirmedByName ? ` by ${payload.details.confirmedByName}` : '';
-  return `The review for the week of ${week} was already recorded${by}. Another one cannot be recorded for the same cycle.`;
+  // weekStart is a calendar date (YYYY-MM-DD); format it in UTC so it never shifts a day.
+  const date = new Date(week.length === 10 ? `${week}T00:00:00Z` : week);
+  const label = Number.isNaN(date.getTime()) ? week : new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' }).format(date);
+  return `The review for the week of ${label} was already recorded${by}. Another one cannot be recorded for the same cycle.`;
 }
 
 /** Text shown for an API error: specific details first, then the translated code, then the API message. */

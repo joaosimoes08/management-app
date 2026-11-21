@@ -73,7 +73,8 @@ export function buildRows(data: CriticalAssetsResult | undefined): AssetRow[] {
       ...asset,
       attestations: history,
       owner,
-      dueState: asset.dueState ?? (pending.length ? 'due_this_week' : owner && history.length ? 'up_to_date' : 'unscheduled'),
+      // Without an owner nobody is due: the API reports 'unscheduled' and keeps the pending counts.
+      dueState: asset.dueState ?? (!owner ? 'unscheduled' : pending.length ? 'due_this_week' : history.length ? 'up_to_date' : 'unscheduled'),
       dueDate: asset.dueDate ?? null,
       pendingCount: asset.pendingCount ?? pending.length,
       latestOutcome: asset.latestOutcome !== undefined ? asset.latestOutcome : latest?.outcome ?? null,
@@ -105,6 +106,10 @@ export function filterRows(rows: AssetRow[], search: string, filters: Filters): 
   });
 }
 
+/** Bulk confirm records only the current cycle (newest pending week); older weeks need an individual review. */
+export const currentCycle = (row: AssetRow): Attestation | undefined => row.pending.at(-1);
+export const hasOlderPending = (row: AssetRow) => row.pending.length > 1;
+
 export const hasActiveFilters = (search: string, filters: Filters) => Boolean(search.trim()) || Object.values(filters).some(Boolean);
 
 /** Replaces one attestation in every cached site payload after a successful review. */
@@ -122,7 +127,7 @@ export function withRecordedAttestation(current: CriticalAssetsResult | undefine
       pendingCount: pending.length,
       overdueCount: Math.min(asset.overdueCount ?? 0, pending.length),
       // The server recomputes the exact due date on the next fetch; locally a fully reviewed asset is up to date.
-      ...(asset.dueState && !pending.length ? { dueState: 'up_to_date' as DueState } : {}),
+      ...(asset.dueState && asset.dueState !== 'unscheduled' && !pending.length ? { dueState: 'up_to_date' as DueState } : {}),
     };
   };
   return { ...current, assets: current.assets.map(update), unassigned: current.unassigned.map(update) };

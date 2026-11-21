@@ -11,7 +11,7 @@ import { useSiteContext } from '@/lib/site-context';
 import { Empty } from '@/features/ipam/components/ipam-modal';
 import { BulkConfirmDialog, OwnerDialog, ReviewDialog, type BulkItem, type BulkResult } from './critical-assets-dialogs';
 import {
-  assetTypes, buildRows, countRows, dueLabels, dueTone, emptyFilters, filterRows, hasActiveFilters, NO_OUTCOME, NO_OWNER, outcomeLabel, outcomeTone, withRecordedAttestation,
+  assetTypes, buildRows, countRows, dueLabels, dueTone, emptyFilters, filterRows, hasActiveFilters, NO_OUTCOME, NO_OWNER, outcomeLabel, outcomeTone, withRecordedAttestation, currentCycle, hasOlderPending,
   type AssetRow, type Attestation, type CriticalAssetsResult, type Filters, type Group, type Outcome,
 } from './workbench';
 
@@ -39,7 +39,7 @@ export function CriticalAssetsPage() {
   const [detailId, setDetailId] = useState('');
   const [review, setReview] = useState<Review | null>(null);
   const [ownerType, setOwnerType] = useState<string | null>(null);
-  const [bulkPlan, setBulkPlan] = useState<{ selectedCount: number; items: BulkItem[] } | null>(null);
+  const [bulkPlan, setBulkPlan] = useState<{ selectedCount: number; olderCount: number; items: BulkItem[] } | null>(null);
   const [bulkRunning, setBulkRunning] = useState(false);
   const [bulkResults, setBulkResults] = useState<Record<string, BulkResult> | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
@@ -71,7 +71,8 @@ export function CriticalAssetsPage() {
   const eligible = (row: AssetRow) => canReview && row.pending.length > 0;
   const visibleEligible = visible.filter(eligible);
   const selectedRows = rows.filter((row) => selected.has(row.id) && eligible(row));
-  const bulkItems: BulkItem[] = selectedRows.flatMap((row) => row.pending.map((attestation) => ({ key: attestation.id, attestationId: attestation.id, assetName: row.name, weekStart: attestation.weekStart })));
+  const bulkItems: BulkItem[] = selectedRows.flatMap((row) => { const attestation = currentCycle(row); return attestation ? [{ key: attestation.id, attestationId: attestation.id, assetName: row.name, weekStart: attestation.weekStart }] : []; });
+  const bulkOlder = selectedRows.filter(hasOlderPending).length;
   const detail = rows.find((row) => row.id === detailId) ?? null;
   const filtering = hasActiveFilters(search, filters);
 
@@ -191,7 +192,7 @@ export function CriticalAssetsPage() {
 
   const actions = <>
     {isAdmin && <button className="secondary-button" onClick={() => openOwner(assetTypes[0])}><Users size={14} /> Responsáveis</button>}
-    {canReview && <button className="primary-button" disabled={!selectedRows.length} onClick={() => { remember(); setBulkResults(null); setBulkPlan({ selectedCount: selectedRows.length, items: bulkItems }); }}><ShieldCheck size={14} /> {`Confirmar selecionados (${selectedRows.length})`}</button>}
+    {canReview && <button className="primary-button" disabled={!selectedRows.length} onClick={() => { remember(); setBulkResults(null); setBulkPlan({ selectedCount: selectedRows.length, olderCount: bulkOlder, items: bulkItems }); }}><ShieldCheck size={14} /> {`Confirmar selecionados (${selectedRows.length})`}</button>}
   </>;
 
   return <AppShell section="Ativos críticos" search={{ value: search, onChange: setSearch, placeholder: 'Pesquisar nome, hostname, IP, série ou etiqueta…', ariaLabel: 'Pesquisar ativos críticos' }} actions={actions}>
@@ -223,7 +224,7 @@ export function CriticalAssetsPage() {
           <td>{row.type}</td>
           <td>{row.owner ? row.owner.name : <span className="state-badge excluded"><i />Sem responsável</span>}</td>
           <td>{row.latestOutcome ? <><span className={`state-badge ${outcomeTone(row.latestOutcome)}`}><i />{outcomeLabel(row.latestOutcome)}</span><small>{formatDate(row.latestConfirmedAt, true)}{row.latestReviewer ? ` · ${row.latestReviewer}` : ''}</small></> : <span className="muted-cell">Sem revisão</span>}</td>
-          <td><span className={`state-badge ${dueTone[row.dueState]}`}><i />{dueLabels[row.dueState]}</span>{row.dueDate && <small>{row.dueState === 'up_to_date' || row.dueState === 'unscheduled' ? 'Próximo prazo' : 'Prazo'}: {formatDate(row.dueDate, true)}</small>}{row.pendingCount > 1 && <small>{`${row.pendingCount} semanas pendentes`}</small>}</td>
+          <td><span className={`state-badge ${dueTone[row.dueState]}`}><i />{dueLabels[row.dueState]}</span>{row.dueDate && <small>{row.dueState === 'up_to_date' || row.dueState === 'unscheduled' ? 'Próximo prazo' : 'Prazo'}: {formatDate(row.dueDate, true)}</small>}{!row.owner && row.pendingCount > 0 ? <small>{`${row.pendingCount} pendentes, sem responsável`}</small> : row.pendingCount > 1 && <small>{`${row.pendingCount} semanas pendentes`}</small>}</td>
           <td className="table-actions">
             {eligible(row) && <><button className="secondary-button" aria-label={`Confirmar revisão de ${row.name}`} onClick={() => quickConfirm(row)}>Confirmar</button><button className="secondary-button" aria-label={`Pedir correção de ${row.name}`} onClick={() => openReview(row, row.pending[0], 'CORRECTION_NEEDED')}>Pedir correção</button></>}
             {isAdmin && !row.owner && <button className="secondary-button" aria-label={`Atribuir responsável a ${row.name}`} onClick={() => openOwner(row.type)}>Atribuir responsável</button>}
@@ -268,6 +269,6 @@ export function CriticalAssetsPage() {
 
     {review && <ReviewDialog key={review.attestation.id} asset={review.asset} attestation={review.attestation} initialOutcome={review.outcome} formatDate={formatDate} close={closeReview} submit={submitReview} />}
     {ownerType !== null && <OwnerDialog initialType={ownerType} mappings={data?.mappings ?? []} groups={groups} timezone={data?.timezone ?? 'Europe/Lisbon'} close={closeOwner} save={saveOwner} />}
-    {bulkPlan && <BulkConfirmDialog selectedCount={bulkPlan.selectedCount} items={bulkPlan.items} results={bulkResults} running={bulkRunning} formatDate={formatDate} close={closeBulk} run={() => void runBulk()} />}
+    {bulkPlan && <BulkConfirmDialog selectedCount={bulkPlan.selectedCount} olderCount={bulkPlan.olderCount} items={bulkPlan.items} results={bulkResults} running={bulkRunning} formatDate={formatDate} close={closeBulk} run={() => void runBulk()} />}
   </AppShell>;
 }

@@ -38,7 +38,8 @@ const pageData = (): CriticalAssetsResult => {
   const core = asset('device-1', 'Core switch', { dueState: 'overdue', pendingCount: 1, overdueCount: 1, dueDate: '2026-11-23T09:00:00.000Z', latestOutcome: 'CORRECTION_NEEDED', latestConfirmedAt: '2026-11-10T10:00:00.000Z', attestations: history });
   const edge = asset('device-2', 'Edge router', { type: 'ROUTER', owner: systems, assignedGroup: systems, dueState: 'due_this_week', pendingCount: 1, latestOutcome: 'CONFIRMED', latestConfirmedAt: '2026-11-10T10:00:00.000Z', attestations: [attestation('a-edge-2', '2026-11-16T00:00:00.000Z'), attestation('a-edge-1', '2026-11-09T00:00:00.000Z', { outcome: 'CONFIRMED', confirmedAt: '2026-11-10T10:00:00.000Z', confirmedByName: 'Carla' })] });
   const storage = asset('device-3', 'Backup array', { type: 'STORAGE', owner: systems, assignedGroup: systems, dueState: 'up_to_date', latestOutcome: 'CONFIRMED', latestConfirmedAt: '2026-11-17T10:00:00.000Z', attestations: [attestation('a-st-1', '2026-11-16T00:00:00.000Z', { outcome: 'CONFIRMED', confirmedAt: '2026-11-17T10:00:00.000Z', confirmedByName: 'Carla' })] });
-  const firewall = asset('device-4', 'Perimeter firewall', { type: 'FIREWALL', owner: null, assignedGroup: null, dueState: 'unscheduled', dueDate: null, dueWeekStart: null });
+  // No owner: the API always reports 'unscheduled' with no due date, but keeps the pending counts.
+  const firewall = asset('device-4', 'Perimeter firewall', { type: 'FIREWALL', owner: null, assignedGroup: null, dueState: 'unscheduled', dueDate: null, dueWeekStart: null, pendingCount: 2, overdueCount: 1 });
   return {
     timezone: 'Europe/Lisbon',
     mappings: [{ id: 'm-1', assetType: 'SWITCH', group: network }, { id: 'm-2', assetType: 'ROUTER', group: systems }, { id: 'm-3', assetType: 'STORAGE', group: systems }],
@@ -82,6 +83,7 @@ describe('critical assets workbench helpers', () => {
     const rows = buildRows(pageData());
     expect(rows.map((row) => row.name)).toEqual(['Core switch', 'Edge router', 'Perimeter firewall', 'Backup array']);
     expect(countRows(rows)).toEqual({ overdue: 1, dueThisWeek: 1, needsCorrection: 1, noOwner: 1 });
+    expect(rows.find((row) => row.name === 'Perimeter firewall')).toMatchObject({ dueState: 'unscheduled', dueDate: null, pendingCount: 2 });
     expect(filterRows(rows, '', { ...emptyFilters, owner: NO_OWNER }).map((row) => row.name)).toEqual(['Perimeter firewall']);
     expect(filterRows(rows, 'SN-device-2', emptyFilters).map((row) => row.name)).toEqual(['Edge router']);
   });
@@ -89,6 +91,8 @@ describe('critical assets workbench helpers', () => {
   it('derives due state and latest outcome when an older API omits them', () => {
     const legacy = { timezone: 'Europe/Lisbon', mappings: [{ id: 'm', assetType: 'SWITCH', group: network }], unassigned: [], assets: [{ id: 'd', name: 'Old', type: 'SWITCH', status: 'ACTIVE', attestations: [{ id: 'x', weekStart: '2026-11-16T00:00:00.000Z' }, { id: 'y', weekStart: '2026-11-09T00:00:00.000Z', outcome: 'CONFIRMED', confirmedAt: '2026-11-10T00:00:00.000Z' }] }] } as CriticalAssetsResult;
     expect(buildRows(legacy)[0]).toMatchObject({ owner: network, dueState: 'due_this_week', pendingCount: 1, latestOutcome: 'CONFIRMED' });
+    legacy.mappings = [];
+    expect(buildRows(legacy)[0]).toMatchObject({ owner: null, dueState: 'unscheduled', pendingCount: 1 });
   });
 });
 
@@ -104,6 +108,7 @@ describe('CriticalAssetsPage', () => {
     expect(within(firewall).getByText('Sem responsável')).toBeInTheDocument();
     expect(within(firewall).getByText('Sem agendamento')).toBeInTheDocument();
     expect(within(firewall).getByText('Sem revisão')).toBeInTheDocument();
+    expect(within(firewall).getByText('2 pendentes, sem responsável')).toBeInTheDocument();
     expect(document.querySelectorAll('.critical-assets-table tbody tr')).toHaveLength(4);
     expect(screen.getByRole('heading', { name: '4 ativos críticos' })).toBeInTheDocument();
     expect(document.querySelector('.asset-grid')).not.toBeInTheDocument();
@@ -127,6 +132,21 @@ describe('CriticalAssetsPage', () => {
     expect(visibleNames()).toEqual(['Core switch']);
     fireEvent.click(within(strip).getByRole('button', { name: /Correção pedida/ }));
     expect(visibleNames()).toHaveLength(4);
+  });
+
+  it('keeps unowned assets out of the overdue count and under "no owner" and "unscheduled"', async () => {
+    renderPage();
+    await rowFor('Core switch');
+    const strip = screen.getByRole('group', { name: 'Resumo e filtros rápidos' });
+    expect(within(strip).getByRole('button', { name: /Em atraso/ })).toHaveTextContent('1');
+    fireEvent.click(within(strip).getByRole('button', { name: /Em atraso/ }));
+    expect(visibleNames()).toEqual(['Core switch']);
+    fireEvent.click(within(strip).getByRole('button', { name: /Em atraso/ }));
+    fireEvent.change(screen.getByLabelText('Filtrar por prazo'), { target: { value: 'unscheduled' } });
+    expect(visibleNames()).toEqual(['Perimeter firewall']);
+    fireEvent.click(screen.getByRole('button', { name: /Limpar filtros/ }));
+    fireEvent.click(within(strip).getByRole('button', { name: /Sem responsável/ }));
+    expect(visibleNames()).toEqual(['Perimeter firewall']);
   });
 
   it('searches by hostname, IP, serial or tag and combines the toolbar filters', async () => {
@@ -205,12 +225,18 @@ describe('CriticalAssetsPage', () => {
     expect(screen.getByRole('button', { name: 'Abrir histórico de Edge router' })).toBeInTheDocument();
   });
 
-  it('bulk confirms selected assets: shows counts, asks first and reports each item', async () => {
+  it('bulk confirms only the current cycle of each selected asset, asks first and reports each item', async () => {
+    // Core switch also has an older overdue week: bulk must leave it for an individual review.
+    const core = data.assets[0];
+    core.attestations = [...core.attestations, attestation('a-core-old', '2026-10-12T00:00:00.000Z')];
+    core.pendingCount = 2;
+    const posted: string[] = [];
     let calls = 0;
     vi.mocked(apiFetch).mockImplementation(async (url: string) => {
       if (url.includes('/settings/access-groups')) return [network, systems] as never;
       if (url.endsWith('/confirm')) {
         calls += 1;
+        posted.push(url);
         if (url.includes('a-core-5')) throw alreadyRecorded();
         return savedReview('a-edge-2', 'CONFIRMED') as never;
       }
@@ -225,11 +251,13 @@ describe('CriticalAssetsPage', () => {
     expect(within(actions).getByRole('button', { name: /Confirmar selecionados \(2\)/ })).toBeEnabled();
     fireEvent.click(within(actions).getByRole('button', { name: /Confirmar selecionados \(2\)/ }));
     const dialog = screen.getByRole('dialog', { name: 'Confirmar selecionados' });
-    expect(within(dialog).getByText(/2 ativos selecionados · 2 revisões pendentes/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/2 ativos selecionados · 2 revisões da semana atual/)).toBeInTheDocument();
+    expect(within(dialog).getByRole('note')).toHaveTextContent('1 ativos têm semanas anteriores por rever. Revê-as individualmente no histórico.');
     expect(calls).toBe(0);
     fireEvent.click(within(dialog).getByRole('button', { name: 'Confirmar 2 revisões' }));
     expect(await within(dialog).findByText('1 de 2 registadas.')).toBeInTheDocument();
     expect(calls).toBe(2);
+    expect(posted).toEqual(['/api/v1/critical-assets/a-core-5/confirm', '/api/v1/critical-assets/a-edge-2/confirm']);
     const results = within(within(dialog).getByRole('region', { name: 'Revisões a confirmar' }));
     expect(results.getByText('Já registado').closest('tr')).toHaveTextContent('Core switch');
     expect(results.getByText('Registado').closest('tr')).toHaveTextContent('Edge router');

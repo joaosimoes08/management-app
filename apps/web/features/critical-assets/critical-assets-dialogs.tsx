@@ -47,8 +47,10 @@ const bulkResultLabel: Record<BulkResult['state'], string> = { recorded: 'Regist
 const bulkResultTone: Record<BulkResult['state'], string> = { recorded: 'occupied', already: 'reserved', failed: 'excluded' };
 
 /** Bulk confirm: shows the counts, asks first, then reports one line per review. */
-export function BulkConfirmDialog({ selectedCount, items, results, running, formatDate, close, run }: {
+export function BulkConfirmDialog({ selectedCount, olderCount, items, results, running, formatDate, close, run }: {
   selectedCount: number;
+  /** Selected assets that also have older pending weeks, which bulk never records. */
+  olderCount: number;
   items: BulkItem[];
   results: Record<string, BulkResult> | null;
   running: boolean;
@@ -59,7 +61,8 @@ export function BulkConfirmDialog({ selectedCount, items, results, running, form
   const done = results !== null && !running;
   const recorded = Object.values(results ?? {}).filter((result) => result.state === 'recorded').length;
   return <IpamModal title="Confirmar selecionados" close={running ? () => undefined : close}><div className="modal-form">
-    <p className="panel-description">{`${selectedCount} ativos selecionados · ${items.length} revisões pendentes. Cada revisão é registada como “Dados corretos”, sem notas.`}</p>
+    <p className="panel-description">{`${selectedCount} ativos selecionados · ${items.length} revisões da semana atual. Cada revisão é registada como “Dados corretos”, sem notas.`}</p>
+    {olderCount > 0 && <div className="ipam-alert warning" role="note">{`${olderCount} ativos têm semanas anteriores por rever. Revê-as individualmente no histórico.`}</div>}
     {done && <div className={`ipam-alert ${recorded === items.length ? 'success' : 'error'}`} role="status">{recorded === items.length ? <CheckCircle2 size={15} /> : <X size={15} />}{`${recorded} de ${items.length} registadas.`}</div>}
     <div className="ip-table-wrap" role="region" aria-label="Revisões a confirmar" tabIndex={0}><table className="ip-table critical-assets-bulk-table">
       <thead><tr><th>Equipamento</th><th>Semana</th><th>Estado</th></tr></thead>
