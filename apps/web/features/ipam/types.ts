@@ -32,6 +32,8 @@ export interface Subnet {
   vlan?: Vlan | null;
   site?: Site | null;
   _count?: { ips?: number; discoveryJobs?: number };
+  /** GET /subnets list items (API #85). */
+  utilization?: { usableCapacity: number; allocated: number; occupied: number; reserved: number; free: number; utilizationPercent: number | null; band: 'OK' | 'WARNING' | 'CRITICAL' | 'UNTRACKED' | string } | null;
 }
 
 export interface SubnetInput {

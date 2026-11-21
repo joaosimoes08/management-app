@@ -28,6 +28,13 @@ const operationalFiles = [
   'apps/web/components/data-table/use-table-url-state.ts',
   'apps/web/app/ajuda/page.tsx',
   'apps/web/app/ajuda/[topic]/page.tsx',
+  // Phase D front end
+  'apps/web/features/dashboard/drill-through.ts',
+  'apps/web/features/infrastructure/device-filters.ts',
+  'apps/web/features/ipam/subnet-filters.ts',
+  'apps/web/features/operations/alert-configuration-page.tsx',
+  'apps/web/features/operations/alerts-overview.tsx',
+  'apps/web/components/layout/global-search.tsx',
 ];
 
 function sourceFile(relative, kind = ts.ScriptKind.TSX) {
