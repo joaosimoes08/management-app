@@ -690,6 +690,10 @@ const enUS: LegacyDictionary = {
   'A consulta não devolveu prefixos.': 'The lookup returned no prefixes.',
   'O Site ou o VRF de destino mudou depois da pré-visualização. Pré-visualiza novamente para atualizar as diferenças antes de importar.': 'The target Site or VRF changed after the preview. Preview again to refresh the differences before importing.',
   'Entradas inválidas': 'Invalid entries',
+  // Portal role chips
+  'Operador de sistemas': 'Systems operator',
+  'Auditor': 'Auditor',
+  'Roles autorizadas · sem seleção, visível para todos': 'Authorised roles · none selected, visible to everyone',
   // Confirm dialog (replaces window.confirm)
   'Confirmar eliminação': 'Confirm deletion',
   'Remover grupo do Site': 'Remove group from Site',
