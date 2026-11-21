@@ -6,7 +6,7 @@ import { Archive, Check, ChevronDown, Edit3, Plus, Server, X } from 'lucide-reac
 import { EquipmentTypeIcon } from '../equipment-type-icon';
 import { AssetImage } from '../asset-image';
 import type { Device } from '../../types';
-import type { DeviceModel, Rack } from '../../types';
+import type { DeviceModel, Rack, TierCounts } from '../../types';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 
 export interface DeviceListProps {
@@ -23,6 +23,10 @@ export interface DeviceListProps {
   racks?: Rack[];
   onImport?: () => void;
   canImport?: boolean;
+  /** Criticality tier filter ('' = all) and per-tier counts for the header; both optional. */
+  tierFilter?: string;
+  onTierFilterChange?: (tier: string) => void;
+  tierCounts?: TierCounts;
   onBulkUpdate?: (ids: string[], changes: { status?: string; modelId?: string | null; rackId?: string | null }) => Promise<{ updated: number; updatedIds: string[]; failed: { id: string; message: string }[]; auditFailed: { id: string; message: string }[]; batchAuditFailed: boolean }>;
 }
 
@@ -32,7 +36,7 @@ export function getPopoverAlignment(anchor: Pick<DOMRect, 'left' | 'right'>, vie
 }
 
 /** Active device inventory of the site. */
-export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire, canRetire, canEdit, selectedId, models = [], racks = [], onImport, canImport = canEdit, onBulkUpdate }: DeviceListProps) {
+export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire, canRetire, canEdit, selectedId, models = [], racks = [], onImport, canImport = canEdit, onBulkUpdate, tierFilter = '', onTierFilterChange, tierCounts }: DeviceListProps) {
   const { confirm: askConfirm, confirmDialog } = useConfirm();
   const [selected, setSelected] = useState<string[]>([]);
   const [status, setStatus] = useState('');
@@ -159,6 +163,11 @@ export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire,
   }
   return <>{confirmDialog}<section className="ipam-card">
     <div className="panel-heading"><div><span className="section-kicker">INVENTÁRIO OPERACIONAL</span><h2>Equipamentos ativos</h2></div></div>
+    {onTierFilterChange && <div className="summary-stats settings-audit-stats tier-filter" role="group" aria-label="Filtrar por criticidade">
+      {([['', 'Todos', tierCounts ? tierCounts.T1 + tierCounts.T2 + tierCounts.T3 + tierCounts.none : undefined], ['T1', 'T1 · Vital', tierCounts?.T1], ['T2', 'T2 · Importante', tierCounts?.T2], ['T3', 'T3 · Padrão', tierCounts?.T3]] as const).map(([value, label, count]) => (
+        <button key={value || 'all'} type="button" aria-pressed={tierFilter === value} className={tierFilter === value ? 'active' : ''} onClick={() => onTierFilterChange(tierFilter === value ? '' : value)}><strong>{count ?? '—'}</strong><span>{label}</span></button>
+      ))}
+    </div>}
     {(canEdit || (canImport && onImport)) && <PageToolbarPortal><div className="device-list-toolbar">
       {canImport && onImport && <button className="secondary-button" type="button" onClick={onImport}>Importar CSV</button>}
       {canEdit && <div className="device-selection-dropdown" ref={selectionMenuRef} onKeyDown={handleSelectionMenuKeyDown}>

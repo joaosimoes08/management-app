@@ -196,7 +196,7 @@ export function CriticalAssetsPage() {
   const columns: DataTableColumn<AssetRow>[] = [
     {
       id: 'name', header: 'Equipamento', sortValue: (row) => row.name,
-      cell: (row) => <><button className="link-button" aria-label={`Abrir histórico de ${row.name}`} onClick={() => openDetail(row)}>{row.name}</button><small className="mono">{[row.hostname, row.managementIp].filter(Boolean).join(' · ') || '—'}</small></>,
+      cell: (row) => <><button className="link-button" aria-label={`Abrir histórico de ${row.name}`} onClick={() => openDetail(row)}>{row.name}</button>{row.criticalityTier && <span className="state-badge" title="Criticidade"><i />{row.criticalityTier}</span>}<small className="mono">{[row.hostname, row.managementIp].filter(Boolean).join(' · ') || '—'}</small></>,
       csv: [{ header: 'Equipamento', value: (row) => row.name }, { header: 'Hostname', value: (row) => row.hostname }, { header: 'IP de gestão', value: (row) => row.managementIp }, { header: 'Número de série', value: (row) => row.serialNumber }, { header: 'Etiqueta', value: (row) => row.assetTag }],
     },
     { id: 'type', header: 'Tipo', sortValue: (row) => row.type, cell: (row) => row.type, csv: [{ header: 'Tipo', value: (row) => row.type }] },
@@ -234,6 +234,9 @@ export function CriticalAssetsPage() {
     { label: 'Para esta semana', value: counts.dueThisWeek, key: 'due', filter: 'due_this_week' },
     { label: 'Correção pedida', value: counts.needsCorrection, key: 'outcome', filter: 'NEEDS_CORRECTION' },
     { label: 'Sem responsável', value: counts.noOwner, key: 'owner', filter: NO_OWNER },
+    { label: 'Tier 1 · Vital', value: rows.filter((row) => row.criticalityTier === 'T1').length, key: 'tier', filter: 'T1' },
+    { label: 'Tier 2 · Importante', value: rows.filter((row) => row.criticalityTier === 'T2').length, key: 'tier', filter: 'T2' },
+    { label: 'Tier 3 · Padrão', value: rows.filter((row) => row.criticalityTier === 'T3').length, key: 'tier', filter: 'T3' },
   ];
 
   const actions = <>
@@ -248,6 +251,7 @@ export function CriticalAssetsPage() {
       <label>Responsável<select aria-label="Filtrar por grupo responsável" value={filters.owner} onChange={(event) => setFilter('owner', event.target.value)}><option value="">Todos</option><option value={NO_OWNER}>Sem responsável</option>{owners.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
       <label>Último resultado<select aria-label="Filtrar por último resultado" value={filters.outcome} onChange={(event) => setFilter('outcome', event.target.value)}><option value="">Todos</option><option value="CONFIRMED">Confirmado</option><option value="NEEDS_CORRECTION">Correção pedida</option><option value={NO_OUTCOME}>Sem revisão</option></select></label>
       <label>Prazo<select aria-label="Filtrar por prazo" value={filters.due} onChange={(event) => setFilter('due', event.target.value)}><option value="">Todos</option>{(Object.keys(dueLabels) as Array<keyof typeof dueLabels>).map((state) => <option key={state} value={state}>{dueLabels[state]}</option>)}</select></label>
+      <label>Criticidade<select aria-label="Filtrar por criticidade" value={filters.tier} onChange={(event) => setFilter('tier', event.target.value)}><option value="">Todos</option><option value="T1">T1 · Vital</option><option value="T2">T2 · Importante</option><option value="T3">T3 · Padrão</option></select></label>
       {filtering && <button className="secondary-button" onClick={clearFilters}><X size={14} /> Limpar filtros</button>}
     </div></PageToolbarPortal>
     <main className="module-page aligned-workspace"><section className="ipam-card page-primary-card critical-assets-card">
