@@ -92,6 +92,49 @@ Errors: 409 `PDU_OUTLET_TAKEN` (explicit outlet used by another device or twice 
 
 Frees that device's outlets on that PDU only. Response `{ removed: number, mode, pdus: PduSummary[], totals }`. 404 if the PDU is not in that rack.
 
+## Power summary (Step 12): `GET /api/v1/racks/:id/power-summary`
+
+Read-only, no schema change. Same access as `GET /api/v1/racks/:id` (rack READ: 404 when the rack does not exist or the user cannot see its room).
+Query: `warningPercent` (default 80) and `criticalPercent` (default 90), each 1–200, warning < critical. Otherwise 400 `POWER_THRESHOLD_INVALID`.
+A value at or above a threshold takes that level. The levels here use these thresholds; the `levels` in `GET racks/:id` keep their fixed 80 %/100 % rules.
+
+```jsonc
+{
+  "rack": { "id", "name", "roomId", "roomName", "buildingName" },
+  "mode": "SUPPLIER_ONLY" | "SUPPLIER_AND_UPS",
+  "thresholds": { "warningPercent": 80, "criticalPercent": 90 },
+  "level": "ok" | "warning" | "critical",              // worst PDU level
+  "capacity": { "watts": 7360 | null,                    // sum of PDU budgets; null if any PDU has no budget
+                "bySource": { "SUPPLIER": 3680 | null, "UPS": 3680 | null },
+                "missingBudgetPduIds": [] },
+  "draw": { "estimatedWatts": 720, "bySource": { "SUPPLIER": 360, "UPS": 360 }, "worstFailoverWatts": 720 },
+  "utilisation": { "bySource": { "SUPPLIER": 9.8, "UPS": 9.8 }, "worstFailoverPercent": 19.6 },  // % of budget, 1 decimal, null without budget
+  "outlets": { "used": 6, "total": 64, "free": 58, "percent": 9.4, "level": "ok" },
+  "pdus": [{ "id", "name", "source", "budgetWatts", "estimatedWatts", "failoverWatts", "wattsPercent", "failoverPercent",
+             "outlets": { "used", "total", "free", "percent" },
+             "levels": { "watts", "failoverWatts", "outlets" }, "level" }],
+  "nearLimit": {
+    "pdus":    [{ "id", "name", "source", "level", "reasons": ["watts" | "failoverWatts" | "outlets"] }],   // PDUs not ok
+    "devices": [{ "id", "name", "estimatedWatts", "pduIds", "level" }]   // on a PDU at warning/critical for watts or failover; heaviest first
+  },
+  "devices": { "total", "connected",
+               "unconnected": [{ "id", "name" }],                    // needs power, no plug connected
+               "partiallyConnected": [{ "id", "name", "connectedPlugs", "plugCount" }],
+               "nonRedundant": [{ "id", "name" }] }                  // SUPPLIER_AND_UPS racks only: connected, but plugs do not reach both feeds
+}
+```
+
+## Site roll-up: `GET /api/v1/sites/:siteId/power-summary`
+
+Same query parameters and errors. Site READ is checked first (404 for an unknown Site). Then every rack in a room the user can read is summarised, at most 1000 (`truncated: true` above that).
+
+```jsonc
+{ "siteId", "thresholds", "truncated": false,
+  "totals": { "racks", "byLevel": { "ok", "warning", "critical" }, "capacityWatts", "racksWithoutFullCapacity",
+              "estimatedWatts", "outlets": { "used", "total" }, "pdusNearLimit", "unconnectedDevices", "nonRedundantDevices" },
+  "racks": [ /* rack summaries as above, worst level first, then highest PDU %, then name */ ] }
+```
+
 ## Automatic changes
 
 - Moving a device to another rack (`PATCH /devices/:id`, `PATCH /devices/:id/placement`, bulk update) or removing it from a rack deletes all its assignments in the same transaction; offer the power step again.

@@ -582,6 +582,43 @@ test('rack PDU power: defaults, allocation, 409s, cascades, audit, RBAC and watt
   assert.deepEqual(rack.power.totals.bySource, { SUPPLIER: 360, UPS: 360 });
   assert.equal(rack.power.totals.estimatedWatts, 720);
 
+  // Step 12: rack power summary (capacity vs estimated draw, near-limit PDUs/devices, thresholds 80/90 by default)
+  const summaryRes = await request('GET', `/api/v1/racks/${rackId}/power-summary`, admin);
+  assert.equal(summaryRes.statusCode, 200, summaryRes.body);
+  const summary = json(summaryRes);
+  assert.deepEqual([summary.rack.id, summary.rack.roomName, summary.mode, summary.level], [rackId, 'HTTP Room A', 'SUPPLIER_AND_UPS', 'ok']);
+  assert.deepEqual(summary.thresholds, { warningPercent: 80, criticalPercent: 90 });
+  assert.deepEqual(summary.capacity, { watts: 7360, bySource: { SUPPLIER: 3680, UPS: 3680 }, missingBudgetPduIds: [] });
+  assert.deepEqual(summary.draw, { estimatedWatts: 720, bySource: { SUPPLIER: 360, UPS: 360 }, worstFailoverWatts: 720 });
+  assert.deepEqual(summary.utilisation, { bySource: { SUPPLIER: 9.8, UPS: 9.8 }, worstFailoverPercent: 19.6 });
+  assert.deepEqual([summary.outlets.used, summary.outlets.total], [6, 64]);
+  assert.deepEqual([summary.devices.total, summary.devices.connected, summary.devices.unconnected, summary.devices.nonRedundant], [3, 3, [], []]);
+  assert.deepEqual(summary.nearLimit, { pdus: [], devices: [] });
+  // Tighter thresholds: failover 19.6 % >= 19 % is critical, watts 9.8 % and outlets 3/32 = 9.4 % are warnings, so every device is near the limit
+  const tight = json(await request('GET', `/api/v1/racks/${rackId}/power-summary?warningPercent=9&criticalPercent=19`, admin));
+  assert.equal(tight.level, 'critical');
+  assert.deepEqual(tight.nearLimit.pdus.map((p: any) => [p.source, p.level, p.reasons]), [['SUPPLIER', 'critical', ['watts', 'failoverWatts', 'outlets']], ['UPS', 'critical', ['watts', 'failoverWatts', 'outlets']]]);
+  assert.deepEqual(tight.nearLimit.devices.map((d: any) => [d.name, d.estimatedWatts]), [['PWR Server', 400], ['PWR Firewall', 200], ['PWR Switch', 120]]);
+  for (const query of ['warningPercent=90&criticalPercent=80', 'warningPercent=abc', 'criticalPercent=500']) {
+    const bad = await request('GET', `/api/v1/racks/${rackId}/power-summary?${query}`, admin);
+    assert.equal(bad.statusCode, 400, query);
+    assert.equal(json(bad).code, 'POWER_THRESHOLD_INVALID');
+  }
+  assert.equal((await request('GET', '/api/v1/racks/99999999-0000-4000-8000-000000000000/power-summary', admin)).statusCode, 404);
+  assert.equal((await request('GET', `/api/v1/racks/${ids.rackSibling}/power-summary`, 'qa-systems-scoped')).statusCode, 404);
+  assert.equal((await request('GET', `/api/v1/racks/${rackId}/power-summary`, 'qa-systems-scoped')).statusCode, 200);
+  // Site roll-up: worst first, only racks the user can read
+  const siteSummary = json(await request('GET', `/api/v1/sites/${ids.siteA}/power-summary?warningPercent=9&criticalPercent=19`, admin));
+  assert.equal(siteSummary.racks[0].rack.id, rackId);
+  assert.ok(siteSummary.racks.some((r: any) => r.rack.id === ids.rackSibling));
+  assert.equal(siteSummary.totals.racks, siteSummary.racks.length);
+  assert.equal(siteSummary.totals.byLevel.critical, 1);
+  assert.equal(siteSummary.truncated, false);
+  const scopedSite = json(await request('GET', `/api/v1/sites/${ids.siteA}/power-summary`, 'qa-systems-scoped'));
+  assert.ok(scopedSite.racks.some((r: any) => r.rack.id === rackId));
+  assert.ok(!scopedSite.racks.some((r: any) => r.rack.id === ids.rackSibling));
+  assert.equal((await request('GET', '/api/v1/sites/99999999-0000-4000-8000-000000000000/power-summary', admin)).statusCode, 404);
+
   // Double-booked outlet → 409, nothing changed
   conflict(await request('PUT', `/api/v1/devices/${dev.fw}/power`, admin, { plugs: [{ plugIndex: 1, pduId: supplierId, outletIndex: 1 }] }), 'PDU_OUTLET_TAKEN');
   assert.equal(await prisma.pduOutletAssignment.count({ where: { deviceId: dev.fw } }), 2);
