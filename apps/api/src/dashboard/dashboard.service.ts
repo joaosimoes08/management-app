@@ -1,3 +1,4 @@
+import { notificationHref } from '../notifications/notification-preferences';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy } from '@nestjs/common';
 import { PrismaClient } from '@simoes/database';
 import { Queue } from 'bullmq';
@@ -72,8 +73,8 @@ export class DashboardService implements OnModuleDestroy {
     private readonly infrastructureAccess: InfrastructureAccessService,
     private readonly operations: OperationsService,
     private readonly quality: InventoryQualityService,
-    private readonly requiredConfig: DeviceRequiredConfigService,
     private readonly changePlans: ChangePlansService,
+    private readonly requiredConfig: DeviceRequiredConfigService,
   ) {}
   async onModuleDestroy() { await this.discoveryQueue.disconnect(); }
 
@@ -196,7 +197,7 @@ export class DashboardService implements OnModuleDestroy {
   async topbarState(user?: AuthenticatedUser) {
     const canDiscover = Boolean(user?.roles.some((role) => role === 'ADMIN' || role === 'NETWORK_OPERATOR'));
     const subnetWhere = user && canDiscover ? await this.ipamAccess.whereFor(user, 'READ', 'subnet') : { id: { in: [] } };
-    const [processes, redis, settings, pendingRoleRequests, notifications, operationalAlerts, missingConfigAlerts] = await Promise.all([
+    const [processes, redis, settings, pendingRoleRequests, notifications, notificationUnreadCount, operationalAlerts, missingConfigAlerts] = await Promise.all([
       this.prisma.discoveryJob.findMany({
         where: { status: { in: ['PENDING', 'RUNNING'] }, subnet: subnetWhere },
         include: { subnet: { select: { cidr: true } } },
@@ -206,7 +207,8 @@ export class DashboardService implements OnModuleDestroy {
       this.discoveryQueue.getJobCounts('waiting', 'active', 'failed').then((counts) => ({ available: true, counts })).catch(() => ({ available: false, counts: {} })),
       this.prisma.systemSettings.findFirst({ select: { setupCompleted: true, setupCompletedAt: true } }),
       user?.roles.includes('ADMIN') ? this.prisma.roleRequest.count({ where: { status: { in: ['PENDING', 'PROCESSING'] } } }) : Promise.resolve(0),
-      user ? this.prisma.notification.findMany({ where: { userId: user.id, readAt: null }, orderBy: { createdAt: 'desc' }, take: 20 }) : Promise.resolve([]),
+      user ? this.prisma.notification.findMany({ where: { userId: user.id, readAt: null }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 8 }) : Promise.resolve([]),
+      user ? this.prisma.notification.count({ where: { userId: user.id, readAt: null } }) : Promise.resolve(0),
       user ? this.operations.list(user, { pageSize: '8' }) : Promise.resolve({ items: [] }),
       // Grouped "devices missing a required configuration" alerts, computed live (never stored, so never duplicated).
       user ? this.requiredConfig.topbarAlerts(user).catch((error: unknown) => { logger.warn(`Alertas de configuração em falta indisponíveis: ${error instanceof Error ? error.message : String(error)}`); return []; }) : Promise.resolve([]),
@@ -214,10 +216,15 @@ export class DashboardService implements OnModuleDestroy {
 
     const alerts: TopbarAlert[] = operationalAlerts.items.map((alert) => ({ id: alert.id, severity: alert.severity === 'HIGH' ? 'CRITICAL' : alert.severity, title: alert.title, detail: alert.detail, href: alert.actionHref ?? '/', occurredAt: alert.lastOccurredAt.toISOString() }));
     if (pendingRoleRequests > 0) alerts.push({ id: 'role-requests-pending', severity: 'INFO', title: `${pendingRoleRequests} pedido${pendingRoleRequests === 1 ? '' : 's'} de role${pendingRoleRequests === 1 ? '' : 's'} por rever`, detail: 'Existem pedidos de acesso à espera de decisão.', href: '/definicoes?tab=users', occurredAt: new Date().toISOString() });
-    alerts.push(...notifications.map((notification) => ({ id: `notification-${notification.id}`, severity: 'INFO' as const, title: notification.title, detail: notification.message, href: notification.type === 'CRITICAL_ASSET_ATTESTATION' ? '/attestacao-ativos' : '/perfil?tab=roles', occurredAt: notification.createdAt.toISOString() })));
+    const notificationAlerts: TopbarAlert[] = notifications.map((notification) => ({
+      id: `notification-${notification.id}`, severity: 'INFO', title: notification.title, detail: notification.message,
+      href: notificationHref(notification) ?? '/perfil?tab=notifications', occurredAt: notification.createdAt.toISOString(),
+    }));
 
     const severityOrder = { CRITICAL: 0, WARNING: 1, INFO: 2 };
-    alerts.sort((left, right) => severityOrder[left.severity] - severityOrder[right.severity] || right.occurredAt.localeCompare(left.occurredAt));
+    const compareAlerts = (left: TopbarAlert, right: TopbarAlert) =>
+      severityOrder[left.severity] - severityOrder[right.severity] || right.occurredAt.localeCompare(left.occurredAt);
+    alerts.sort(compareAlerts);
     return {
       environment: {
         state: redis.available ? 'OPERATIONAL' : 'DEGRADED',
@@ -229,7 +236,8 @@ export class DashboardService implements OnModuleDestroy {
         ],
       },
       // Missing-config alerts are appended after the cap so operational alerts never push them out (at most one per config).
-      alerts: [...alerts.slice(0, 8), ...missingConfigAlerts],
+      alerts: [...alerts.slice(0, 8), ...notificationAlerts].sort(compareAlerts).concat(missingConfigAlerts),
+      notificationUnreadCount,
       processes: processes.map((job) => ({ id: job.id, label: job.name, detail: job.subnet.cidr, state: job.status, href: `/descoberta?jobId=${job.id}` })),
       updatedAt: new Date().toISOString(),
     };

@@ -51,6 +51,17 @@ describe('InventoryQualityPage', () => {
     expect(window.location.search).toContain('status=RESOLVED');
   });
 
+  it('uses the singular for one finding', async () => {
+    mock.mockImplementation(async (path: string) => {
+      if (path.includes('/facets')) return facets;
+      if (path.includes('/assignees')) return people;
+      if (path.includes('/findings?')) return { items: [findings[0]], total: 1, page: 1, pageSize: 100 };
+      throw new Error(`unexpected ${path}`);
+    });
+    renderPage();
+    expect(await screen.findByRole('heading', { name: '1 finding' })).toBeInTheDocument();
+  });
+
   it('filters by assignee (me / unassigned / user) with counts and sends it to the API', async () => {
     renderPage();
     await screen.findByText('Finding 1');
@@ -84,6 +95,8 @@ describe('InventoryQualityPage', () => {
     expect(body).toEqual({ action: 'SNOOZE', ids: ['1', '2'], durationHours: 72 });
     expect(within(dialog).getByText('Aplicado')).toBeInTheDocument();
     expect(within(dialog).getByText('Sem permissão neste Site')).toBeInTheDocument();
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(dialog).not.toBeInTheDocument();
   });
 
   it('assigns to nobody, and acknowledges only after confirming', async () => {
@@ -96,7 +109,8 @@ describe('InventoryQualityPage', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Atribuir 1' }));
     await within(dialog).findByText('1 de 1 aplicados.', { exact: false });
     expect(JSON.parse(String(mock.mock.calls.find(([path]) => String(path).includes('/bulk'))?.[1]?.body))).toEqual({ action: 'ASSIGN', ids: ['3'], userId: null });
-    fireEvent.click(within(dialog).getAllByRole('button', { name: 'Fechar' }).at(-1)!);
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(dialog).not.toBeInTheDocument();
 
     bulkResponse = { action: 'ACKNOWLEDGE', succeeded: 1, failed: 0, results: [{ id: '1', ok: true }] };
     mock.mockClear();
@@ -145,6 +159,7 @@ describe('InventoryQualityPage', () => {
     expect(screen.getByRole('button', { name: 'Atribuir Finding 4' })).toBeEnabled();
     expect(screen.queryByRole('button', { name: 'Adiar Finding 5' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Abrir registo de Finding 5' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Abrir equipamento de Finding 5' })).toHaveAttribute('href', '/infraestrutura/equipamentos/d-5?siteId=site-1');
   });
 
   it('hides selection and bulk actions from read-only roles', async () => {

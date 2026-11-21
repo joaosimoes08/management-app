@@ -11,6 +11,7 @@ import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
 import { useSiteContext } from '@/lib/site-context';
 import { rememberRecentItem } from '@/lib/recent-items';
+import { entityHref } from '@/components/data-table/entity-link';
 import { apiFetch } from '@/lib/api/client';
 import { ApiRequestError } from '@/lib/api/errors';
 import type { Device, DeviceInterface, DeviceModel, IpAddress, Rack, RackFace, RackPlacementPlan, RoomWithBuilding } from './types';
@@ -69,13 +70,16 @@ import { AssetUploadModal } from './components/assets/asset-upload-modal';
 import { EntityEditor } from './components/editors/entity-editor';
 import { mapApiFieldErrors, missingConfigAllSitesFromSearch, missingConfigFromSearch, settingsTabFromSearch, useRequiredConfigRegistry, type DeviceEditorTab, type MappedFieldError } from './device-requirements';
 import { InfrastructurePermissions } from './components/infrastructure-permissions';
+import { SiteCapacityOutlook } from './components/sites/capacity-outlook';
+import { LinuxHosts } from './components/linux-hosts';
+import hostStyles from './components/linux-hosts.module.css';
 import { LifecycleDates } from './components/lifecycle-dates';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { clearDeviceUrlFilters, deviceFilterLabels, emptyDeviceUrlFilters, hasDeviceUrlFilters, readDeviceUrlFilters, type DeviceUrlFilters } from './device-filters';
 
 const EMPTY_IPS: IpAddress[] = [];
 
-const emptyDeviceForm: DeviceForm = { name: '', type: 'SWITCH', hostname: '', managementIp: '', managementIpAddressId: '', rackId: '', rackUnitStart: '', rackUnitSize: '1', modelId: '', status: 'UNKNOWN', isCritical: false, frontAssetId: '', backAssetId: '', snmpEnabled: false, snmpVersion: 'V3', snmpReadUsername: '', snmpReadCommunity: '', snmpReadAuthKey: '', snmpReadPrivKey: '', snmpTrapEnabled: false, snmpTrapUsername: '', snmpTrapCommunity: '', snmpTrapAuthKey: '', snmpTrapPrivKey: '', snmpAuthProtocol: 'SHA256', snmpPrivProtocol: 'AES128', snmpCompatibilitySha1: false, snmpPort: '161', snmpIntervalMinutes: '15', snmpTimeoutMs: '5000', snmpRetries: '2' };
+const emptyDeviceForm: DeviceForm = { name: '', type: 'SWITCH', hostname: '', managementIp: '', managementIpAddressId: '', rackId: '', rackUnitStart: '', rackUnitSize: '1', modelId: '', status: 'UNKNOWN', isCritical: false, criticalityTier: '', frontAssetId: '', backAssetId: '', snmpEnabled: false, snmpVersion: 'V3', snmpReadUsername: '', snmpReadCommunity: '', snmpReadAuthKey: '', snmpReadPrivKey: '', snmpTrapEnabled: false, snmpTrapUsername: '', snmpTrapCommunity: '', snmpTrapAuthKey: '', snmpTrapPrivKey: '', snmpAuthProtocol: 'SHA256', snmpPrivProtocol: 'AES128', snmpCompatibilitySha1: false, snmpPort: '161', snmpIntervalMinutes: '15', snmpTimeoutMs: '5000', snmpRetries: '2' };
 const emptyModelForm: ModelForm = { manufacturer: '', model: '', type: 'SWITCH', supportsNetworkPorts: true, networkPortCount: '', frontAssetId: '', backAssetId: '' };
 const modelFormFrom = (model: DeviceModel): ModelForm => ({ manufacturer: model.manufacturer, model: model.model, type: model.type ?? 'OTHER', supportsNetworkPorts: !!model.supportsNetworkPorts, networkPortCount: String(model.networkPortCount ?? ''), frontAssetId: model.frontAssetId ?? model.frontAsset?.id ?? '', backAssetId: model.backAssetId ?? model.backAsset?.id ?? '' });
 const emptyInterfaceForm: InterfaceFormState = { id: '', name: '', portKey: '', interfaceType: 'ETHERNET', description: '', adminUp: true, operUp: false, speedMbps: '', mode: 'ACCESS', accessVlanId: '', nativeVlanId: '', allowedVlanIds: [], macAddress: '' };
@@ -87,7 +91,8 @@ export function InfrastructureWorkspace() {
   const powerDefaults = usePowerDefaults();
   const { t } = useI18n();
   const { hasRole, user } = useAuth();
-  const { siteId } = useSiteContext();
+  const { siteId, activeSite, sites } = useSiteContext();
+  const canReadHosts = hasRole('ADMIN') || hasRole('NETWORK_OPERATOR') || hasRole('SYSTEMS_OPERATOR') || hasRole('AUDITOR') || hasRole('READ_ONLY');
   const roleCanEdit = hasRole('ADMIN') || hasRole('NETWORK_OPERATOR') || hasRole('SYSTEMS_OPERATOR');
 
   const [tab, setTab] = useState('racks');
@@ -96,7 +101,16 @@ export function InfrastructureWorkspace() {
   useEffect(() => {
     const filters = readDeviceUrlFilters(window.location.search);
     setDeviceFilters(filters);
-    if (new URLSearchParams(window.location.search).get('tab') === 'devices' || hasDeviceUrlFilters(filters)) setTab('devices');
+    const requestedTab = new URLSearchParams(window.location.search).get('tab');
+    if (requestedTab === 'hosts') setTab('hosts');
+    else if (requestedTab === 'devices' || hasDeviceUrlFilters(filters)) setTab('devices');
+    else if (requestedTab === 'sites') setTab('sites');
+    const restoreHostsTab = () => {
+      const next = new URLSearchParams(window.location.search).get('tab');
+      setTab((current) => next === 'hosts' ? 'hosts' : current === 'hosts' ? (next === 'devices' ? 'devices' : next === 'sites' ? 'sites' : 'racks') : current);
+    };
+    window.addEventListener('popstate', restoreHostsTab);
+    return () => window.removeEventListener('popstate', restoreHostsTab);
   }, []);
   const clearDeviceFilters = () => {
     setDeviceFilters(emptyDeviceUrlFilters);
@@ -119,11 +133,14 @@ export function InfrastructureWorkspace() {
   const [missingConfig, setMissingConfig] = useState('');
   /** `allSites=1` (or a missingConfig link without siteId): cross-site list, not narrowed to the active Site. */
   const [missingConfigAllSites, setMissingConfigAllSites] = useState(false);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('tab') === 'lifecycle') setTab('lifecycle');
+  }, []);
   const requiredConfigRegistry = useRequiredConfigRegistry();
-  const missingConfigLabel = requiredConfigRegistry?.configs.find((config) => config.key === missingConfig)?.label ?? missingConfig;
+  const missingConfigLabel = requiredConfigRegistry?.configs?.find((config) => config.key === missingConfig)?.label ?? missingConfig;
   useEffect(() => {
     const requested = missingConfigFromSearch(window.location.search);
-    if (!requested) return;
+    if (!requested || new URLSearchParams(window.location.search).get('tab') === 'hosts') return;
     setMissingConfig(requested);
     setMissingConfigAllSites(missingConfigAllSitesFromSearch(window.location.search));
     setTab('devices');
@@ -210,7 +227,7 @@ export function InfrastructureWorkspace() {
   const activeDeviceFilters = tab === 'devices' && hasDeviceUrlFilters(deviceFilters) ? deviceFilters : null;
   const { data: devicesData, error: devicesError } = useQuery({
     queryKey: ['infrastructure', 'devices', siteId, tab === 'devices' ? debouncedSearch : '', missingConfigAllSites ? '' : missingConfig, activeDeviceFilters],
-    queryFn: () => listDevices(siteId, tab === 'devices' ? debouncedSearch : '', 1, activeDeviceFilters ?? undefined, missingConfigAllSites ? '' : missingConfig),
+    queryFn: () => listDevices(siteId, tab === 'devices' ? debouncedSearch : '', 1, { ...(activeDeviceFilters ?? {}), missingConfig: missingConfigAllSites ? '' : missingConfig }),
     enabled: Boolean(siteId),
   });
   const deepLinkQuery = typeof window === 'undefined' ? null : new URLSearchParams(window.location.search);
@@ -260,6 +277,7 @@ export function InfrastructureWorkspace() {
   useEffect(() => {
     if (!siteId || !locationsData || !racksData) return;
     const query = new URLSearchParams(location.search);
+    if (query.get('tab') === 'hosts') return;
     const storedContext = readInfrastructureContext();
     const requestedDevice = (devicesData?.items ?? []).find((item) => item.id === query.get('deviceId'));
     if (requestedDevice) {
@@ -399,7 +417,7 @@ export function InfrastructureWorkspace() {
     }
   };
   const openDevice = useCallback((selected: Device) => {
-    rememberRecentItem(user?.id, { id: `device:${selected.id}`, kind: 'Equipamento', label: selected.name, href: `/infraestrutura?siteId=${encodeURIComponent(siteId)}&deviceId=${encodeURIComponent(selected.id)}` });
+    rememberRecentItem(user?.id, { id: `device:${selected.id}`, kind: 'Equipamento', label: selected.name, href: entityHref({ kind: 'device', id: selected.id, siteId }) });
     setDevice(selected);
     setTab(canUseInterfaces ? 'interfaces' : 'devices');
     setSelectedInterface(null);
@@ -422,6 +440,7 @@ export function InfrastructureWorkspace() {
       modelId: full.modelId ?? full.model?.id ?? '',
       status: full.status ?? 'UNKNOWN',
       isCritical: !!full.isCritical,
+      criticalityTier: full.criticalityTier ?? '',
       frontAssetId: full.frontAssetId ?? full.frontAsset?.id ?? '',
       backAssetId: full.backAssetId ?? full.backAsset?.id ?? '',
       savedAssetIds: { front: full.frontAssetId ?? full.frontAsset?.id ?? '', rear: full.backAssetId ?? full.backAsset?.id ?? '' },
@@ -648,6 +667,18 @@ export function InfrastructureWorkspace() {
     history.replaceState({}, '', `/infraestrutura?siteId=${siteId}`);
   };
   const selectTab = (key: string) => {
+    if (key === 'hosts' || tab === 'hosts') {
+      const url = new URL(window.location.href);
+      if (key === 'hosts') {
+        ['deviceId', 'focus', 'settingsTab', 'buildingId', 'roomId', 'rackId', 'interfaceId', 'missingConfig', 'allSites'].forEach((param) => url.searchParams.delete(param));
+        url.searchParams.set('tab', 'hosts');
+      } else {
+        if (key === 'devices') url.searchParams.set('tab', 'devices');
+        else url.searchParams.delete('tab');
+        ['hosts-site', 'hosts-state'].forEach((param) => url.searchParams.delete(param));
+      }
+      window.history.replaceState(null, '', url);
+    }
     const now = Date.now();
     const double = tab === key && clickRef.current.key === key && now - clickRef.current.at < 500;
     clickRef.current = { key, at: now };
@@ -657,6 +688,12 @@ export function InfrastructureWorkspace() {
       setTab(key);
       clickRef.current = { key: '', at: 0 };
     } else setTab(key);
+    if (key === 'sites' || tab === 'sites') {
+      const url = new URL(window.location.href);
+      if (key === 'sites') url.searchParams.set('tab', 'sites');
+      else url.searchParams.delete('tab');
+      history.replaceState(history.state, '', `${url.pathname}${url.search}`);
+    }
   };
   const newDevice = () => {
     setEditingId('');
@@ -779,7 +816,6 @@ export function InfrastructureWorkspace() {
     }
   };
 
-  if (!siteId) return <AppShell section="Infraestrutura"><main className="module-page infrastructure-workspace"><header className="workspace-head"><div><span className="section-kicker">MAPA FÍSICO</span><h1>Infraestrutura</h1><p>Seleciona um Site no seletor superior para começar.</p></div></header>{deepLinkedDeviceId ? <><DeepLinkDeviceLoader deviceId={deepLinkedDeviceId} loadDevice={getDevice} onOpen={openDeepLinkedDevice} onError={reportDeepLinkError} /><section className="ipam-card empty-context"><MapPinned size={28} /><strong>{device ? `${device.name} · ${device.type}` : error || 'A carregar equipamento…'}</strong><p>O equipamento está sem Site. Seleciona um Site no seletor superior para associá-lo e guardar alterações.</p></section><EntityEditor modal={modal} close={() => setModal('')} editingId={editingId} animateDeviceEntry={animateDeviceEdit} form={{ rack: rackForm, device: deviceForm, model: modelForm }} setForm={{ rack: setRackForm, device: setDeviceForm, model: setModelForm }} rooms={[]} racks={[]} models={[]} assets={[]} ips={EMPTY_IPS} save={save} formError={formError} deviceFieldErrors={deviceFieldErrors} deviceTab={deviceEditorTab} /></> : <section className="ipam-card empty-context"><MapPinned size={28} /><strong>Seleciona um Site no seletor superior</strong></section>}</main></AppShell>;
 
   const canDeleteRack = hasRole('ADMIN') || hasRole('SYSTEMS_OPERATOR');
   const modalForEditor = modal === 'room' || modal === 'building' ? '' : modal;
@@ -797,8 +833,9 @@ export function InfrastructureWorkspace() {
       return `/infraestrutura?${params.toString()}`;
     },
   } : undefined;
-  const visibleTabs: [string, string, LucideIcon][] = [['racks', 'Bastidores', MapPinned], ['devices', 'Equipamentos', Server], ['lifecycle', 'Ciclo de vida', CalendarDays], ...(effective?.tabs?.models ? [['models', 'Modelos', Boxes] as [string, string, LucideIcon]] : []), ...(effective?.tabs?.interfaces ? [['interfaces', 'Interfaces', Layers] as [string, string, LucideIcon]] : []), ...(effective?.tabs?.assets ? [['assets', 'Assets', HardDrive] as [string, string, LucideIcon]] : []), ...(effective?.tabs?.permissions ? [['permissions', 'Permissões', KeyRound] as [string, string, LucideIcon]] : [])];
-  const tabNavigation = <nav className="infra-menu" aria-label="Infraestrutura">{visibleTabs.map(([key, label, Icon]) => <button key={key} className={tab === key ? 'active' : ''} aria-current={tab === key ? 'page' : undefined} onClick={() => selectTab(key)}><Icon size={15} /><span>{label}</span></button>)}</nav>;
+  const visibleTabs: [string, string, LucideIcon][] = [['sites', 'Sites', MapPinned], ['racks', 'Bastidores', MapPinned], ['devices', 'Equipamentos', Server], ...(canReadHosts ? [['hosts', t('linuxHosts.title'), Server] as [string, string, LucideIcon]] : []), ['lifecycle', 'Ciclo de vida', CalendarDays], ...(effective?.tabs?.models ? [['models', 'Modelos', Boxes] as [string, string, LucideIcon]] : []), ...(effective?.tabs?.interfaces ? [['interfaces', 'Interfaces', Layers] as [string, string, LucideIcon]] : []), ...(effective?.tabs?.assets ? [['assets', 'Assets', HardDrive] as [string, string, LucideIcon]] : []), ...(effective?.tabs?.permissions ? [['permissions', 'Permissões', KeyRound] as [string, string, LucideIcon]] : [])];
+  const tabNavigation = <nav className={`infra-menu infrastructure-tabs ${hostStyles.tabNavigation}`} aria-label="Infraestrutura">{visibleTabs.map(([key, label, Icon]) => <button key={key} className={tab === key ? 'active' : ''} aria-current={tab === key ? 'page' : undefined} onClick={() => selectTab(key)}><Icon size={15} /><span>{label}</span></button>)}</nav>;
+  if (!siteId && !(tab === 'hosts' && canReadHosts)) return <AppShell section="Infraestrutura" moduleTabs={canReadHosts ? tabNavigation : undefined}><main className="module-page infrastructure-workspace"><header className="workspace-head"><div><span className="section-kicker">MAPA FÍSICO</span><h1>Infraestrutura</h1><p>Seleciona um Site no seletor superior para começar.</p></div></header>{deepLinkedDeviceId ? <><DeepLinkDeviceLoader deviceId={deepLinkedDeviceId} loadDevice={getDevice} onOpen={openDeepLinkedDevice} onError={reportDeepLinkError} /><section className="ipam-card empty-context"><MapPinned size={28} /><strong>{device ? `${device.name} · ${device.type}` : error || 'A carregar equipamento…'}</strong><p>O equipamento está sem Site. Seleciona um Site no seletor superior para associá-lo e guardar alterações.</p></section><EntityEditor modal={modal} close={() => setModal('')} editingId={editingId} animateDeviceEntry={animateDeviceEdit} form={{ rack: rackForm, device: deviceForm, model: modelForm }} setForm={{ rack: setRackForm, device: setDeviceForm, model: setModelForm }} rooms={[]} racks={[]} models={[]} assets={[]} ips={EMPTY_IPS} save={save} formError={formError} deviceFieldErrors={deviceFieldErrors} deviceTab={deviceEditorTab} /></> : <section className="ipam-card empty-context"><MapPinned size={28} /><strong>Seleciona um Site no seletor superior</strong></section>}</main></AppShell>;
   const locationControls = <section className="infra-context-bar" aria-label="Localização">
     <div className="location-control-group">
       <label><MapPinned size={15} /><span>Edifício</span><select aria-label="Edifício" value={buildingId} onChange={(event) => chooseBuilding(event.target.value)}><option value="">Seleciona um edifício</option>{buildings.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}{canCreateBuilding && <option value="__new__">Criar novo Edifício</option>}</select></label>
@@ -811,7 +848,10 @@ export function InfrastructureWorkspace() {
     {busy && <span className="infra-loading-status" role="status">A carregar…</span>}
   </section>;
 
+  if (tab === 'hosts' && canReadHosts) return <AppShell section="Mapa físico" toolbarKey={tab} moduleTabs={tabNavigation}>
+    <LinuxHosts sites={sites} canManage={hasRole('ADMIN')} canAudit={hasRole('ADMIN') || hasRole('AUDITOR')} />
+  </AppShell>;
   if (tab === 'permissions' && effective?.tabs?.permissions) return <AppShell section="Mapa físico" toolbarKey={tab} moduleTabs={tabNavigation}><main className="module-page infrastructure-workspace"><h1 className="topology-sr-only">Mapa físico</h1><InfrastructurePermissions siteId={siteId} buildings={buildings} /></main></AppShell>;
 
-  return <>{confirmDialog}<AppShell section="Mapa físico" toolbarKey={tab} moduleTabs={tabNavigation} search={tab === 'racks' ? undefined : { value: search, onChange: setSearch, placeholder: `Pesquisar em ${tabName.toLowerCase()}…`, scopeLabel: tabName }} rackSearch={rackSearchContext} toolbar={locationControls}><DeepLinkDeviceLoader deviceId={deepLinkedDeviceId} loadDevice={getDevice} onOpen={openDeepLinkedDevice} onError={reportDeepLinkError} /><main className="module-page infrastructure-workspace"><h1 className="topology-sr-only">Mapa físico</h1>{(error || errorMessage) && <div className="ipam-alert error"><X size={15} />{error || errorMessage}</div>}{tab === 'racks' && <RackWorkspace rooms={rooms} roomId={roomId} buildingId={buildingId} racks={roomRacks} allRoomRacks={allRoomRacks} selected={selectedRack} setRack={(rack: Rack) => { if (rack.room) setRoomId(rack.room.id); setRackId(rack.id); history.replaceState({}, '', `/infraestrutura?siteId=${siteId}&buildingId=${rack.room?.building?.id ?? buildingId}&roomId=${rack.room?.id ?? roomId}&rackId=${rack.id}`); }} onOut={() => setRackId('')} onDevice={openDevice} onEdit={(rack: RackEditDraft) => { const power = rackPowerDraft(rack.id ? rack : null, powerDefaults); setEditingId(rack.id ?? ''); setRackForm({ name: rack.name ?? '', units: String(rack.units ?? 42), roomId: rack.room?.id ?? rack.roomId ?? roomId, modelId: rack.modelId ?? rack.model?.id ?? '', frontAssetId: rack.frontAssetId ?? rack.frontAsset?.id ?? '', power, savedPower: power }); setModal('rack'); }} onDelete={canDeleteRack && scopeActions.includes('DELETE') ? deleteRack : undefined} deletingRackId={deletingRackId} canEdit={canEdit} onPreviewPlacement={previewPlacement} onPlaceDevice={placeDevice} onReorderRacks={reorderRacks} canReorderRacks={canReorderRacks} onEditDevice={editDevice} canEditPower={canEditPower} onDisconnectPdu={disconnectPdu} />} {tab === 'devices' && activeDeviceFilters && <p className="ipam-scope-note" role="status">Filtros aplicados: <strong>{deviceFilterLabels(activeDeviceFilters).join(' · ')}</strong> <button type="button" className="text-button" onClick={clearDeviceFilters}><X size={12} /> Limpar filtros</button></p>}{tab === 'devices' && missingConfig && <div className="device-filter-chips" role="group" aria-label="Filtros da lista"><span className="device-filter-chip">Configuração em falta: {missingConfigLabel}{missingConfigAllSites ? ' · todos os Sites' : ''}<button type="button" onClick={clearMissingConfig} aria-label="Remover filtro de configuração em falta"><X size={12} aria-hidden="true" /></button></span></div>}{tab === 'devices' && missingConfig && missingConfigAllSites && <CrossSiteMissingConfigList config={missingConfig} label={missingConfigLabel} />}{tab === 'devices' && !(missingConfig && missingConfigAllSites) && <DeviceList devices={devices} search={search} onSelect={openDevice} onEdit={editDevice} onNew={newDevice} onRetire={(item) => setRetirementDeviceId(item.id)} canRetire={roleCanEdit && scopeActions.includes('DELETE')} canEdit={canEdit} selectedId={device?.id} />} {tab === 'lifecycle' && <LifecycleDates siteId={siteId} devices={devices} canEdit={canUpdateDevice} />} {tab === 'models' && effective?.tabs?.models && <ModelList models={visibleModels} onEdit={(model) => { setEditingId(model.id); setModelForm(modelFormFrom(model)); setModal('model'); }} onLayout={openLayout} canEdit={roleCanEdit} />} {tab === 'assets' && effective?.tabs?.assets && <AssetList assets={visibleAssets} onDelete={deleteAsset} canEdit={roleCanEdit} canDelete={roleCanEdit} />} {tab === 'interfaces' && effective?.tabs?.interfaces && <InterfaceWorkspace devices={devices} selected={device} interfaces={visibleInterfaces} selectedInterface={selectedInterface} onDevice={openDevice} onInterface={editInterface} onGenerate={generateInterfaces} onEditDevice={() => device && editDevice(device)} />}<EntityEditor modal={modalForEditor} close={() => setModal('')} editingId={editingId} animateDeviceEntry={animateDeviceEdit} form={{ rack: rackForm, device: deviceForm, model: modelForm }} setForm={{ rack: setRackForm, device: setDeviceForm, model: setModelForm }} rooms={rooms} racks={racks} models={models} assets={assets} ips={EMPTY_IPS} save={save} formError={formError} deviceFieldErrors={deviceFieldErrors} deviceTab={deviceEditorTab} saveRack={() => saveRack()} rackPower={{ blocked: rackPowerBlocked, onDisconnectAllUps: canEditPower ? () => void disconnectAllUps() : undefined, disconnecting: disconnectingUps }} onDevicePower={canEditPower && editingId ? () => void offerPowerStep({ id: editingId, name: deviceForm.name, rackId: deviceForm.rackId, powerPlugCount: deviceForm.powerPlugCount ? Number(deviceForm.powerPlugCount) : null, model: models.find((item) => item.id === deviceForm.modelId) ?? null }, deviceForm.rackId, true) : undefined} />{powerStep && <DevicePowerStep key={`${powerStep.device.id}:${powerStep.rack.id}`} device={powerStep.device} plugs={powerStep.plugs} rack={powerStep.rack} moved={powerStep.moved} onSave={savePowerStep} onSkip={() => setPowerStep(null)} error={powerStepError} />}{modal === 'interface' && <InterfaceEditor modal={modal} close={() => setModal('')} form={{ interface: interfaceForm }} setForm={{ interface: setInterfaceForm }} vlans={vlans} save={save} formError={formError} />}<BuildingModal modal={modal === 'building' || modal === 'building-edit'} editing={modal === 'building-edit'} close={() => { setModal(''); setEditingLocationId(''); }} buildingForm={buildingForm} setBuildingForm={setBuildingForm} createBuilding={createBuilding} /><RoomModal modal={modal === 'room' || modal === 'room-edit'} editing={modal === 'room-edit'} close={() => { setModal(''); setEditingLocationId(''); }} roomForm={roomForm} setRoomForm={setRoomForm} buildings={buildings} createRoom={createRoom} /><AssetUploadModal modal={modal === 'asset-upload'} close={() => setModal('')} file={pendingUpload} name={assetName} setName={setAssetName} modelId={uploadModelId} setModelId={setUploadModelId} face={uploadFace} setFace={setUploadFace} models={models} choose={chooseUpload} submit={submitUpload} busy={uploading} /><PortLayoutEditor modal={modal === 'layout'} close={() => setModal('')} layoutModel={layoutModel} faces={layoutFaces} setFaces={setLayoutFaces} face={layoutFace} setFace={setLayoutFace} assets={assets} assetIds={layoutAssetIds} setAssetId={(face, id) => setLayoutAssetIds((current) => ({ ...current, [face]: id }))} detect={(face) => void detectLayout(face)} confirm={confirmLayout} saving={layoutSaving} error={layoutError} />{retirementDeviceId && <RetirementReviewModal deviceId={retirementDeviceId} close={() => setRetirementDeviceId('')} retired={() => { setRetirementDeviceId(''); queryClient.invalidateQueries({ queryKey: ['infrastructure', 'devices', siteId] }); }} />}  </main></AppShell></>;
+  return <>{confirmDialog}<AppShell section="Mapa físico" toolbarKey={tab} moduleTabs={tabNavigation} search={tab === 'racks' || tab === 'sites' ? undefined : { value: search, onChange: setSearch, placeholder: `Pesquisar em ${tabName.toLowerCase()}…`, scopeLabel: tabName }} rackSearch={rackSearchContext} toolbar={tab === 'sites' ? undefined : locationControls}><DeepLinkDeviceLoader deviceId={deepLinkedDeviceId} loadDevice={getDevice} onOpen={openDeepLinkedDevice} onError={reportDeepLinkError} /><main className="module-page infrastructure-workspace"><h1 className="topology-sr-only">Mapa físico</h1>{(error || errorMessage) && <div className="ipam-alert error"><X size={15} />{error || errorMessage}</div>}{tab === 'sites' && <SiteCapacityOutlook key={siteId} siteId={siteId} siteName={activeSite?.name ?? 'Site'} />}{tab === 'racks' && <RackWorkspace rooms={rooms} roomId={roomId} buildingId={buildingId} racks={roomRacks} allRoomRacks={allRoomRacks} selected={selectedRack} setRack={(rack: Rack) => { if (rack.room) setRoomId(rack.room.id); setRackId(rack.id); history.replaceState({}, '', `/infraestrutura?siteId=${siteId}&buildingId=${rack.room?.building?.id ?? buildingId}&roomId=${rack.room?.id ?? roomId}&rackId=${rack.id}`); }} onOut={() => setRackId('')} onDevice={openDevice} onEdit={(rack: RackEditDraft) => { const power = rackPowerDraft(rack.id ? rack : null, powerDefaults); setEditingId(rack.id ?? ''); setRackForm({ name: rack.name ?? '', units: String(rack.units ?? 42), roomId: rack.room?.id ?? rack.roomId ?? roomId, modelId: rack.modelId ?? rack.model?.id ?? '', frontAssetId: rack.frontAssetId ?? rack.frontAsset?.id ?? '', power, savedPower: power }); setModal('rack'); }} onDelete={canDeleteRack && scopeActions.includes('DELETE') ? deleteRack : undefined} deletingRackId={deletingRackId} canEdit={canEdit} onPreviewPlacement={previewPlacement} onPlaceDevice={placeDevice} onReorderRacks={reorderRacks} canReorderRacks={canReorderRacks} onEditDevice={editDevice} canEditPower={canEditPower} onDisconnectPdu={disconnectPdu} />} {tab === 'devices' && activeDeviceFilters && <p className="ipam-scope-note" role="status">Filtros aplicados: <strong>{deviceFilterLabels(activeDeviceFilters).join(' · ')}</strong> <button type="button" className="text-button" onClick={clearDeviceFilters}><X size={12} /> Limpar filtros</button></p>}{tab === 'devices' && missingConfig && <div className="device-filter-chips" role="group" aria-label="Filtros da lista"><span className="device-filter-chip">Configuração em falta: {missingConfigLabel}{missingConfigAllSites ? ' · todos os Sites' : ''}<button type="button" onClick={clearMissingConfig} aria-label="Remover filtro de configuração em falta"><X size={12} aria-hidden="true" /></button></span></div>}{tab === 'devices' && missingConfig && missingConfigAllSites && <CrossSiteMissingConfigList config={missingConfig} label={missingConfigLabel} />}{tab === 'devices' && !(missingConfig && missingConfigAllSites) && <DeviceList devices={devices} tierFilter={deviceFilters.tier} onTierFilterChange={(tier) => setDeviceFilters((current) => ({ ...current, tier }))} tierCounts={devicesData?.tierCounts} search={search} onSelect={openDevice} onEdit={editDevice} onNew={newDevice} onRetire={(item) => setRetirementDeviceId(item.id)} canRetire={roleCanEdit && scopeActions.includes('DELETE')} canEdit={canEdit} selectedId={device?.id} />} {tab === 'lifecycle' && <LifecycleDates siteId={siteId} devices={devices} canEdit={canUpdateDevice} />} {tab === 'models' && effective?.tabs?.models && <ModelList models={visibleModels} onEdit={(model) => { setEditingId(model.id); setModelForm(modelFormFrom(model)); setModal('model'); }} onLayout={openLayout} canEdit={roleCanEdit} />} {tab === 'assets' && effective?.tabs?.assets && <AssetList assets={visibleAssets} onDelete={deleteAsset} canEdit={roleCanEdit} canDelete={roleCanEdit} />} {tab === 'interfaces' && effective?.tabs?.interfaces && <InterfaceWorkspace devices={devices} selected={device} interfaces={visibleInterfaces} selectedInterface={selectedInterface} onDevice={openDevice} onInterface={editInterface} onGenerate={generateInterfaces} onEditDevice={() => device && editDevice(device)} />}<EntityEditor modal={modalForEditor} close={() => setModal('')} editingId={editingId} animateDeviceEntry={animateDeviceEdit} form={{ rack: rackForm, device: deviceForm, model: modelForm }} setForm={{ rack: setRackForm, device: setDeviceForm, model: setModelForm }} rooms={rooms} racks={racks} models={models} assets={assets} ips={EMPTY_IPS} save={save} formError={formError} deviceFieldErrors={deviceFieldErrors} deviceTab={deviceEditorTab} saveRack={() => saveRack()} rackPower={{ blocked: rackPowerBlocked, onDisconnectAllUps: canEditPower ? () => void disconnectAllUps() : undefined, disconnecting: disconnectingUps }} onDevicePower={canEditPower && editingId ? () => void offerPowerStep({ id: editingId, name: deviceForm.name, rackId: deviceForm.rackId, powerPlugCount: deviceForm.powerPlugCount ? Number(deviceForm.powerPlugCount) : null, model: models.find((item) => item.id === deviceForm.modelId) ?? null }, deviceForm.rackId, true) : undefined} />{powerStep && <DevicePowerStep key={`${powerStep.device.id}:${powerStep.rack.id}`} device={powerStep.device} plugs={powerStep.plugs} rack={powerStep.rack} moved={powerStep.moved} onSave={savePowerStep} onSkip={() => setPowerStep(null)} error={powerStepError} />}{modal === 'interface' && <InterfaceEditor modal={modal} close={() => setModal('')} form={{ interface: interfaceForm }} setForm={{ interface: setInterfaceForm }} vlans={vlans} save={save} formError={formError} />}<BuildingModal modal={modal === 'building' || modal === 'building-edit'} editing={modal === 'building-edit'} close={() => { setModal(''); setEditingLocationId(''); }} buildingForm={buildingForm} setBuildingForm={setBuildingForm} createBuilding={createBuilding} /><RoomModal modal={modal === 'room' || modal === 'room-edit'} editing={modal === 'room-edit'} close={() => { setModal(''); setEditingLocationId(''); }} roomForm={roomForm} setRoomForm={setRoomForm} buildings={buildings} createRoom={createRoom} /><AssetUploadModal modal={modal === 'asset-upload'} close={() => setModal('')} file={pendingUpload} name={assetName} setName={setAssetName} modelId={uploadModelId} setModelId={setUploadModelId} face={uploadFace} setFace={setUploadFace} models={models} choose={chooseUpload} submit={submitUpload} busy={uploading} /><PortLayoutEditor modal={modal === 'layout'} close={() => setModal('')} layoutModel={layoutModel} faces={layoutFaces} setFaces={setLayoutFaces} face={layoutFace} setFace={setLayoutFace} assets={assets} assetIds={layoutAssetIds} setAssetId={(face, id) => setLayoutAssetIds((current) => ({ ...current, [face]: id }))} detect={(face) => void detectLayout(face)} confirm={confirmLayout} saving={layoutSaving} error={layoutError} />{retirementDeviceId && <RetirementReviewModal deviceId={retirementDeviceId} close={() => setRetirementDeviceId('')} retired={() => { setRetirementDeviceId(''); queryClient.invalidateQueries({ queryKey: ['infrastructure', 'devices', siteId] }); }} />}  </main></AppShell></>;
 }

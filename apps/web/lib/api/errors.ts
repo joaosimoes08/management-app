@@ -11,9 +11,10 @@ export type ApiErrorPayload = {
   revision?: string;
   /**
    * Extra data some errors carry, e.g. CRITICAL_ASSET_ATTESTATION_ALREADY_RECORDED (the cycle that was
-   * already reviewed and by whom) or PDU_HAS_CONNECTIONS (the devices still plugged in) or IP_RANGE_EXHAUSTED (`available`).
+   * already reviewed and by whom), PDU_HAS_CONNECTIONS (the devices still plugged in) or
+   * IP_RANGE_EXHAUSTED (`available`: free addresses left in the requested range).
    */
-  details?: { attestationId?: string; weekStart?: string; outcome?: string | null; confirmedAt?: string | null; confirmedBy?: string | null; confirmedByName?: string | null; /** IP_RANGE_EXHAUSTED: free addresses left in the requested range. */ available?: number } & Record<string, unknown>;
+  details?: { attestationId?: string; weekStart?: string; outcome?: string | null; confirmedAt?: string | null; confirmedBy?: string | null; confirmedByName?: string | null; available?: number } & Record<string, unknown>;
 };
 
 export const localizedApiErrors: Record<string, Record<string, string>> = {

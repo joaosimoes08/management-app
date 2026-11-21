@@ -1,0 +1,408 @@
+[
+  {
+    "id": "a585cd7076d6",
+    "name": "SELECT AuditLog",
+    "status": 200,
+    "planningMs": 0.735,
+    "executionMs": 0.088,
+    "plan": {
+      "Node Type": "Limit",
+      "Actual Rows": 12,
+      "Actual Loops": 1,
+      "Actual Total Time": 0.063,
+      "Shared Hit Blocks": 14,
+      "Shared Read Blocks": 0,
+      "Temp Read Blocks": 0,
+      "Temp Written Blocks": 0,
+      "Plans": [
+        {
+          "Node Type": "Index Scan",
+          "Relation Name": "AuditLog",
+          "Index Name": "AuditLog_createdAt_idx",
+          "Actual Rows": 12,
+          "Actual Loops": 1,
+          "Actual Total Time": 0.061,
+          "Rows Removed by Filter": 12,
+          "Shared Hit Blocks": 14,
+          "Shared Read Blocks": 0,
+          "Temp Read Blocks": 0,
+          "Temp Written Blocks": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "033d43b78fb1",
+    "name": "SELECT AuditLog",
+    "status": 200,
+    "planningMs": 0.709,
+    "executionMs": 112.459,
+    "plan": {
+      "Node Type": "Limit",
+      "Actual Rows": 15,
+      "Actual Loops": 1,
+      "Actual Total Time": 112.346,
+      "Shared Hit Blocks": 502970,
+      "Shared Read Blocks": 13468,
+      "Temp Read Blocks": 0,
+      "Temp Written Blocks": 0,
+      "Plans": [
+        {
+          "Node Type": "Aggregate",
+          "Actual Rows": 15,
+          "Actual Loops": 1,
+          "Actual Total Time": 112.343,
+          "Shared Hit Blocks": 502970,
+          "Shared Read Blocks": 13468,
+          "Temp Read Blocks": 0,
+          "Temp Written Blocks": 0,
+          "Plans": [
+            {
+              "Node Type": "Gather Merge",
+              "Actual Rows": 28,
+              "Actual Loops": 1,
+              "Actual Total Time": 112.331,
+              "Shared Hit Blocks": 502970,
+              "Shared Read Blocks": 13468,
+              "Temp Read Blocks": 0,
+              "Temp Written Blocks": 0,
+              "Plans": [
+                {
+                  "Node Type": "Sort",
+                  "Actual Rows": 9.33,
+                  "Actual Loops": 3,
+                  "Actual Total Time": 104.82,
+                  "Shared Hit Blocks": 502970,
+                  "Shared Read Blocks": 13468,
+                  "Temp Read Blocks": 0,
+                  "Temp Written Blocks": 0,
+                  "Plans": [
+                    {
+                      "Node Type": "Aggregate",
+                      "Actual Rows": 9.33,
+                      "Actual Loops": 3,
+                      "Actual Total Time": 104.786,
+                      "Shared Hit Blocks": 502954,
+                      "Shared Read Blocks": 13468,
+                      "Temp Read Blocks": 0,
+                      "Temp Written Blocks": 0,
+                      "Plans": [
+                        {
+                          "Node Type": "Index Scan",
+                          "Relation Name": "AuditLog",
+                          "Index Name": "AuditLog_createdAt_idx",
+                          "Actual Rows": 209094,
+                          "Actual Loops": 3,
+                          "Actual Total Time": 82.898,
+                          "Rows Removed by Filter": 0,
+                          "Shared Hit Blocks": 502954,
+                          "Shared Read Blocks": 13468,
+                          "Temp Read Blocks": 0,
+                          "Temp Written Blocks": 0
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "37eea8c65633",
+    "name": "SELECT AuditLog",
+    "status": 200,
+    "planningMs": 0.762,
+    "executionMs": 82.441,
+    "plan": {
+      "Node Type": "Limit",
+      "Actual Rows": 2,
+      "Actual Loops": 1,
+      "Actual Total Time": 82.349,
+      "Shared Hit Blocks": 515632,
+      "Shared Read Blocks": 801,
+      "Temp Read Blocks": 0,
+      "Temp Written Blocks": 0,
+      "Plans": [
+        {
+          "Node Type": "Aggregate",
+          "Actual Rows": 2,
+          "Actual Loops": 1,
+          "Actual Total Time": 82.348,
+          "Shared Hit Blocks": 515632,
+          "Shared Read Blocks": 801,
+          "Temp Read Blocks": 0,
+          "Temp Written Blocks": 0,
+          "Plans": [
+            {
+              "Node Type": "Gather Merge",
+              "Actual Rows": 6,
+              "Actual Loops": 1,
+              "Actual Total Time": 82.343,
+              "Shared Hit Blocks": 515632,
+              "Shared Read Blocks": 801,
+              "Temp Read Blocks": 0,
+              "Temp Written Blocks": 0,
+              "Plans": [
+                {
+                  "Node Type": "Sort",
+                  "Actual Rows": 2,
+                  "Actual Loops": 3,
+                  "Actual Total Time": 74.887,
+                  "Shared Hit Blocks": 515632,
+                  "Shared Read Blocks": 801,
+                  "Temp Read Blocks": 0,
+                  "Temp Written Blocks": 0,
+                  "Plans": [
+                    {
+                      "Node Type": "Aggregate",
+                      "Actual Rows": 2,
+                      "Actual Loops": 3,
+                      "Actual Total Time": 74.86,
+                      "Shared Hit Blocks": 515618,
+                      "Shared Read Blocks": 801,
+                      "Temp Read Blocks": 0,
+                      "Temp Written Blocks": 0,
+                      "Plans": [
+                        {
+                          "Node Type": "Index Scan",
+                          "Relation Name": "AuditLog",
+                          "Index Name": "AuditLog_createdAt_idx",
+                          "Actual Rows": 209094,
+                          "Actual Loops": 3,
+                          "Actual Total Time": 56.238,
+                          "Rows Removed by Filter": 0,
+                          "Shared Hit Blocks": 515618,
+                          "Shared Read Blocks": 801,
+                          "Temp Read Blocks": 0,
+                          "Temp Written Blocks": 0
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "41a430f64772",
+    "name": "SELECT AuditLog",
+    "status": 200,
+    "planningMs": 0.678,
+    "executionMs": 58.228,
+    "plan": {
+      "Node Type": "Limit",
+      "Actual Rows": 29,
+      "Actual Loops": 1,
+      "Actual Total Time": 58.152,
+      "Shared Hit Blocks": 516437,
+      "Shared Read Blocks": 0,
+      "Temp Read Blocks": 0,
+      "Temp Written Blocks": 0,
+      "Plans": [
+        {
+          "Node Type": "Aggregate",
+          "Actual Rows": 29,
+          "Actual Loops": 1,
+          "Actual Total Time": 58.148,
+          "Shared Hit Blocks": 516437,
+          "Shared Read Blocks": 0,
+          "Temp Read Blocks": 0,
+          "Temp Written Blocks": 0,
+          "Plans": [
+            {
+              "Node Type": "Gather Merge",
+              "Actual Rows": 41,
+              "Actual Loops": 1,
+              "Actual Total Time": 58.137,
+              "Shared Hit Blocks": 516437,
+              "Shared Read Blocks": 0,
+              "Temp Read Blocks": 0,
+              "Temp Written Blocks": 0,
+              "Plans": [
+                {
+                  "Node Type": "Aggregate",
+                  "Actual Rows": 13.67,
+                  "Actual Loops": 3,
+                  "Actual Total Time": 50.934,
+                  "Shared Hit Blocks": 516437,
+                  "Shared Read Blocks": 0,
+                  "Temp Read Blocks": 0,
+                  "Temp Written Blocks": 0,
+                  "Plans": [
+                    {
+                      "Node Type": "Sort",
+                      "Actual Rows": 3904.33,
+                      "Actual Loops": 3,
+                      "Actual Total Time": 50.672,
+                      "Shared Hit Blocks": 516437,
+                      "Shared Read Blocks": 0,
+                      "Temp Read Blocks": 0,
+                      "Temp Written Blocks": 0,
+                      "Plans": [
+                        {
+                          "Node Type": "Index Scan",
+                          "Relation Name": "AuditLog",
+                          "Index Name": "AuditLog_createdAt_idx",
+                          "Actual Rows": 3904.33,
+                          "Actual Loops": 3,
+                          "Actual Total Time": 50.075,
+                          "Rows Removed by Filter": 205190,
+                          "Shared Hit Blocks": 516421,
+                          "Shared Read Blocks": 0,
+                          "Temp Read Blocks": 0,
+                          "Temp Written Blocks": 0
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "929171814eee",
+    "name": "SELECT Site",
+    "status": 200,
+    "planningMs": 0.367,
+    "executionMs": 0.08,
+    "plan": {
+      "Node Type": "Seq Scan",
+      "Relation Name": "Site",
+      "Actual Rows": 3,
+      "Actual Loops": 1,
+      "Actual Total Time": 0.071,
+      "Shared Hit Blocks": 0,
+      "Shared Read Blocks": 1,
+      "Temp Read Blocks": 0,
+      "Temp Written Blocks": 0
+    }
+  },
+  {
+    "id": "6ccf27ebe4d5",
+    "name": "SELECT User",
+    "status": 200,
+    "planningMs": 0.491,
+    "executionMs": 0.038,
+    "plan": {
+      "Node Type": "Limit",
+      "Actual Rows": 1,
+      "Actual Loops": 1,
+      "Actual Total Time": 0.007,
+      "Shared Hit Blocks": 2,
+      "Shared Read Blocks": 0,
+      "Temp Read Blocks": 0,
+      "Temp Written Blocks": 0,
+      "Plans": [
+        {
+          "Node Type": "Seq Scan",
+          "Relation Name": "User",
+          "Actual Rows": 1,
+          "Actual Loops": 1,
+          "Actual Total Time": 0.006,
+          "Rows Removed by Filter": 8,
+          "Shared Hit Blocks": 2,
+          "Shared Read Blocks": 0,
+          "Temp Read Blocks": 0,
+          "Temp Written Blocks": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "2faaea5ab7f1",
+    "name": "SELECT Room",
+    "status": 200,
+    "planningMs": 0.364,
+    "executionMs": 0.069,
+    "plan": {
+      "Node Type": "Seq Scan",
+      "Relation Name": "Room",
+      "Actual Rows": 3,
+      "Actual Loops": 1,
+      "Actual Total Time": 0.06,
+      "Shared Hit Blocks": 0,
+      "Shared Read Blocks": 1,
+      "Temp Read Blocks": 0,
+      "Temp Written Blocks": 0
+    }
+  },
+  {
+    "id": "0c508b29ff13",
+    "name": "SELECT IpAddress",
+    "status": 200,
+    "planningMs": 0.618,
+    "executionMs": 0.095,
+    "plan": {
+      "Node Type": "Aggregate",
+      "Actual Rows": 1,
+      "Actual Loops": 1,
+      "Actual Total Time": 0.07,
+      "Shared Hit Blocks": 0,
+      "Shared Read Blocks": 1,
+      "Temp Read Blocks": 0,
+      "Temp Written Blocks": 0,
+      "Plans": [
+        {
+          "Node Type": "Seq Scan",
+          "Relation Name": "IpAddress",
+          "Actual Rows": 2,
+          "Actual Loops": 1,
+          "Actual Total Time": 0.067,
+          "Rows Removed by Filter": 1,
+          "Shared Hit Blocks": 0,
+          "Shared Read Blocks": 1,
+          "Temp Read Blocks": 0,
+          "Temp Written Blocks": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "3a784b814342",
+    "name": "SELECT Building",
+    "status": 200,
+    "planningMs": 0.729,
+    "executionMs": 0.085,
+    "plan": {
+      "Node Type": "Seq Scan",
+      "Relation Name": "Building",
+      "Actual Rows": 2,
+      "Actual Loops": 1,
+      "Actual Total Time": 0.068,
+      "Rows Removed by Filter": 0,
+      "Shared Hit Blocks": 0,
+      "Shared Read Blocks": 1,
+      "Temp Read Blocks": 0,
+      "Temp Written Blocks": 0
+    }
+  },
+  {
+    "id": "e004ebd5b553",
+    "name": "SELECT",
+    "status": 200,
+    "planningMs": 0.029,
+    "executionMs": 0.021,
+    "plan": {
+      "Node Type": "Result",
+      "Actual Rows": 1,
+      "Actual Loops": 1,
+      "Actual Total Time": 0.002,
+      "Shared Hit Blocks": 0,
+      "Shared Read Blocks": 0,
+      "Temp Read Blocks": 0,
+      "Temp Written Blocks": 0
+    }
+  }
+]

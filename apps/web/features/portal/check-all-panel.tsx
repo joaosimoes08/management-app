@@ -32,11 +32,12 @@ const messageOf = (error: unknown) => (error instanceof Error && error.message ?
 export interface CheckAllPanelProps {
   /** Called after a run (complete, stopped or failed) so the catalogue reloads its availability. */
   onFinished: () => void;
+  onBatch: (items: CheckAllItem[]) => void;
   close: () => void;
 }
 
 /** "Verificar todas": runs check-all batch after batch until the API reports nothing left, with per-link results. */
-export function CheckAllPanel({ onFinished, close }: CheckAllPanelProps) {
+export function CheckAllPanel({ onFinished, onBatch, close }: CheckAllPanelProps) {
   const [all, setAll] = useState(false);
   const [running, setRunning] = useState(false);
   const [items, setItems] = useState<CheckAllItem[]>([]);
@@ -62,6 +63,7 @@ export function CheckAllPanel({ onFinished, close }: CheckAllPanelProps) {
         // A link checked again in a later batch keeps only its latest result.
         setItems((current) => [...current.filter((item) => !received.some((next) => next.id === item.id)), ...received]);
         if (typeof result.total === 'number') setTotal(result.total);
+        onBatch(received);
         cursor = nextCheckAllCursor({ ...result, items: received }, cursor);
       }
       setFinished(true);
@@ -90,7 +92,7 @@ export function CheckAllPanel({ onFinished, close }: CheckAllPanelProps) {
     { id: 'http', header: 'HTTP', cell: (item) => (item.httpStatus ?? '—'), sortValue: (item) => item.httpStatus ?? null },
     { id: 'time', header: 'Tempo', cell: (item) => (typeof item.responseMs === 'number' ? `${formatNumber(item.responseMs)} ms` : '—'), sortValue: (item) => item.responseMs ?? null },
     { id: 'checkedAt', header: 'Verificado em', cell: (item) => (item.checkedAt ? formatDateTime(item.checkedAt) : '—'), sortValue: (item) => item.checkedAt ?? null },
-    { id: 'message', header: 'Detalhe', cell: (item) => item.message ?? '—' },
+    { id: 'message', header: 'Detalhe', cell: (item) => item.message || (checkOutcome(item).code === 'BLOCKED' ? 'O endereço de destino pertence a uma rede restrita.' : '—') },
   ];
 
   const progress = total !== null ? `${items.length} de ${total} verificadas` : `${items.length} verificadas`;

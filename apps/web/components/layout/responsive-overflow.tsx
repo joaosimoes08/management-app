@@ -139,10 +139,23 @@ export function ResponsiveTabNavigation({ navigation }: { navigation: ReactEleme
   </div>;
 }
 
+/**
+ * Flattens nested fragments/divs into one list of actions. Children.toArray keys
+ * restart at `.0` inside every nested fragment, so each element is re-keyed with
+ * its full path (`.1/.0`) to keep keys unique across levels.
+ */
+export function flattenToolbarChildren(children: ReactNode, prefix = ''): ReactNode[] {
+  return Children.toArray(children).filter(Boolean).flatMap((node, index) => {
+    if (!isValidElement(node)) return [node];
+    const key = `${prefix}${node.key ?? `.${index}`}`;
+    if (node.type === Fragment || node.type === 'div') return flattenToolbarChildren((node.props as { children?: ReactNode }).children, `${key}/`);
+    return [cloneElement(node, { key })];
+  });
+}
+
 /** Moves secondary direct toolbar actions into a menu when they do not fit beside primary actions. */
 export function ResponsiveToolbarActions({ children }: { children: ReactNode }) {
-  const flatten = (nodes: ReactNode[]): ReactNode[] => nodes.flatMap((node) => isValidElement(node) && (node.type === Fragment || node.type === 'div') ? flatten(Children.toArray((node.props as { children?: ReactNode }).children)) : [node]);
-  const items = flatten(Children.toArray(children).filter(Boolean));
+  const items = flattenToolbarChildren(children);
   const containerRef = useRef<HTMLDivElement>(null);
   const { available, widths, measureRef } = useMeasuredWidths(containerRef, items.length);
   const primary = (item: ReactNode) => isValidElement(item) && String((item.props as { className?: string }).className ?? '').split(' ').some((className) => className === 'primary-button' || className === 'toolbar-action-primary');

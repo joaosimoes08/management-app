@@ -273,8 +273,10 @@ export function listMissingConfigDevices(config: string, page = 1, pageSize = 50
   return apiFetch<MissingConfigDeviceList>(`/api/v1/devices/missing-config?config=${encodeURIComponent(config)}&page=${page}&pageSize=${pageSize}`);
 }
 
-/** `filters` are the optional drill-through filters (status, critical, lifecycle, lifecycleKind); `missingConfig` (rearImage | power) limits the list to devices missing that required config. */
-export function listDevices(siteId: string, search: string, page = 1, filters?: Partial<DeviceUrlFilters>, missingConfig = ''): Promise<DeviceListResponse> {
+/** `filters`: the optional drill-through filters (status, critical, lifecycle, lifecycleKind) and
+ * `missingConfig` (rearImage | power), which limits the list to devices missing that required config. */
+export function listDevices(siteId: string, search: string, page = 1, filters?: Partial<DeviceUrlFilters> & { missingConfig?: string }): Promise<DeviceListResponse> {
+  const missingConfig = filters?.missingConfig ?? '';
   return apiFetch<DeviceListResponse>(`/api/v1/devices?siteId=${siteId}&search=${encodeURIComponent(search)}&page=${page}&pageSize=100${deviceFilterQuery(filters)}${missingConfig ? `&missingConfig=${encodeURIComponent(missingConfig)}` : ''}`);
 }
 
