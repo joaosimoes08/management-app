@@ -6,6 +6,7 @@ import { AccessPolicyService, IpamAction } from '../access/access-policy.service
 export type { IpamAction } from '../access/access-policy.service';
 type Context = { siteId?: string | null; vrfId?: string | null; vlanId?: string | null; subnetId?: string | null };
 type SiteGrant = { siteId: string; permission: string };
+export type NatRuleRefs = { siteId?: string | null; vrfId?: string | null; sourceSubnetId?: string | null; translatedSubnetId?: string | null; sourceIpId?: string | null; translatedIpId?: string | null; deviceId?: string | null };
 
 @Injectable()
 export class IpamAccessService {
@@ -79,6 +80,39 @@ export class IpamAccessService {
       }
     }
     return host;
+  }
+  /**
+   * NAT rules can be linked to a Site directly or indirectly through a VRF,
+   * subnets, IPs or a device. Every write must hold the permission on every
+   * Site the rule touches, regardless of which link carries it.
+   */
+  async natRuleSiteIds(refs: NatRuleRefs) {
+    const [vrf, sourceSubnet, translatedSubnet, sourceIp, translatedIp, device, site] = await Promise.all([
+      refs.vrfId ? this.prisma.vrf.findUnique({ where: { id: refs.vrfId }, select: { siteId: true } }) : undefined,
+      refs.sourceSubnetId ? this.prisma.subnet.findUnique({ where: { id: refs.sourceSubnetId }, select: { siteId: true } }) : undefined,
+      refs.translatedSubnetId ? this.prisma.subnet.findUnique({ where: { id: refs.translatedSubnetId }, select: { siteId: true } }) : undefined,
+      refs.sourceIpId ? this.prisma.ipAddress.findUnique({ where: { id: refs.sourceIpId }, select: { subnet: { select: { siteId: true } } } }) : undefined,
+      refs.translatedIpId ? this.prisma.ipAddress.findUnique({ where: { id: refs.translatedIpId }, select: { subnet: { select: { siteId: true } } } }) : undefined,
+      refs.deviceId ? this.prisma.device.findUnique({ where: { id: refs.deviceId }, select: { siteId: true } }) : undefined,
+      refs.siteId ? this.prisma.site.findUnique({ where: { id: refs.siteId }, select: { id: true } }) : undefined,
+    ]);
+    if ([vrf, sourceSubnet, translatedSubnet, sourceIp, translatedIp, device, site].some((item) => item === null)) throw new NotFoundException({ code: 'IPAM_NAT_REFERENCE_NOT_FOUND', message: 'Uma das entidades associadas à regra NAT não existe.' });
+    return [...new Set([site?.id, vrf?.siteId, sourceSubnet?.siteId, translatedSubnet?.siteId, sourceIp?.subnet?.siteId, translatedIp?.subnet?.siteId, device?.siteId].filter((id): id is string => Boolean(id)))];
+  }
+  async assertNatRule(user: AuthenticatedUser, action: IpamAction, refs: NatRuleRefs) {
+    const siteIds = await this.natRuleSiteIds(refs);
+    const grants = await this.grants(user);
+    if (!grants) return siteIds;
+    if (!siteIds.length) throw new ForbiddenException({ code: 'IPAM_NAT_SITE_REQUIRED', message: 'A regra NAT tem de estar associada a um Site (diretamente, por VRF, subnet, IP ou dispositivo).' });
+    const readable = this.policy.canUseIpam(user, 'READ') ? this.siteIds(grants, 'READ') : [];
+    const visible = siteIds.some((siteId) => readable.includes(siteId));
+    for (const siteId of siteIds) {
+      try { await this.assertContext(user, action, { siteId }); } catch (error) {
+        if (visible && error instanceof NotFoundException) throw new ForbiddenException({ code: 'IPAM_SCOPE_FORBIDDEN', message: 'Não tens permissão para esta operação em todos os Sites desta regra NAT.' });
+        throw error;
+      }
+    }
+    return siteIds;
   }
   async assertSubnetPlacement(user: AuthenticatedUser, action: IpamAction, placement: { siteId?: string | null; vlanId?: string | null; vrfId?: string | null; parentSubnetId?: string | null }) {
     const [site, vlan, vrf, parent] = await Promise.all([
