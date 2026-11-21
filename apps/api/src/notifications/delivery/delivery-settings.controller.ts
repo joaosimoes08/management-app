@@ -1,11 +1,34 @@
 import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Put, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { DeliveryTarget, NotificationDeliveryStatus, OperationalAlertSeverity } from '@simoes/database';
-import { IsBoolean, IsEnum, IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import { DeliveryChannelKind, DeliveryTarget, NotificationDeliveryStatus, OperationalAlertSeverity } from '@simoes/database';
+import { ArrayMaxSize, IsArray, IsBoolean, IsEnum, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 import type { AuthenticatedUser } from '../../auth/auth.service';
 import { Roles } from '../../auth/roles.decorator';
 import { GROUP_SEVERITIES } from './delivery-queue';
+import { MAX_GROUP_RECIPIENTS, SMTP_SECURITIES } from './email-sender';
 import { NotificationDeliveryService } from './notification-delivery.service';
+
+class SmtpSettingsDto {
+  @IsString() @MaxLength(253)
+  host!: string;
+
+  @IsInt() @Min(1) @Max(65535)
+  port!: number;
+
+  @IsIn(SMTP_SECURITIES)
+  security!: string;
+
+  @IsOptional() @IsString() @MaxLength(254)
+  username?: string | null;
+
+  /** Write-only. Omit (or send empty) to keep the stored password. */
+  @IsOptional() @IsString() @MaxLength(512)
+  password?: string;
+
+  @IsString() @MaxLength(254)
+  from!: string;
+}
 
 class UpdateDeliveryChannelDto {
   @IsBoolean()
@@ -17,6 +40,14 @@ class UpdateDeliveryChannelDto {
 
   @IsOptional() @IsIn(GROUP_SEVERITIES)
   minSeverity?: OperationalAlertSeverity;
+
+  /** EMAIL/USER_NOTIFICATIONS: the SMTP server used by every e-mail. */
+  @IsOptional() @ValidateNested() @Type(() => SmtpSettingsDto)
+  smtp?: SmtpSettingsDto;
+
+  /** EMAIL/GROUP_ALERTS: addresses that receive operational alerts. */
+  @IsOptional() @IsArray() @ArrayMaxSize(MAX_GROUP_RECIPIENTS) @IsString({ each: true }) @MaxLength(254, { each: true })
+  recipients?: string[];
 }
 
 class ListDeliveriesQuery {
@@ -25,6 +56,9 @@ class ListDeliveriesQuery {
 
   @IsOptional() @IsEnum(DeliveryTarget)
   target?: DeliveryTarget;
+
+  @IsOptional() @IsEnum(DeliveryChannelKind)
+  channel?: DeliveryChannelKind;
 
   @IsOptional() @IsUUID()
   cursor?: string;

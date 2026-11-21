@@ -1,7 +1,7 @@
 'use client';
 
 import { FormEvent, useCallback, useEffect, useState } from 'react';
-import { Bell, Check, RefreshCw, RotateCcw, Send, Trash2 } from 'lucide-react';
+import { Bell, Check, Mail, RefreshCw, RotateCcw, Send, Trash2 } from 'lucide-react';
 import { DataTable, type DataTableColumn } from '@/components/data-table';
 import { PageToolbarPortal } from '@/components/layout/app-shell';
 import { useConfirm } from '@/components/ui/confirm-dialog';
@@ -10,18 +10,32 @@ import { apiFetch } from '@/lib/api/client';
 import { formatDateTime } from '@/lib/format/date';
 
 export type DeliveryTarget = 'USER_NOTIFICATIONS' | 'GROUP_ALERTS';
-export type ChannelStatus = { kind: 'TEAMS'; target: DeliveryTarget; enabled: boolean; configured: boolean; minSeverity: 'CRITICAL' | 'HIGH' | null; updatedAt: string | null };
+export type ChannelKind = 'TEAMS' | 'EMAIL';
+export type SmtpSecurity = 'TLS' | 'STARTTLS' | 'NONE';
+export type SmtpView = { host: string; port: number; security: SmtpSecurity; username: string | null; from: string; passwordSet: boolean };
+export type ChannelStatus = {
+  kind: ChannelKind; target: DeliveryTarget; enabled: boolean; configured: boolean; minSeverity: 'CRITICAL' | 'HIGH' | null; updatedAt: string | null;
+  /** EMAIL/USER_NOTIFICATIONS only: the SMTP server, without the password. */
+  smtp?: SmtpView | null;
+  /** EMAIL/GROUP_ALERTS only. */
+  recipients?: string[]; serverConfigured?: boolean;
+};
 type ChannelsResponse = { channels: ChannelStatus[]; keyringAvailable: boolean; publicLinks: boolean; maxAttempts: number };
 type DeliveryStatus = 'PENDING' | 'SENDING' | 'SENT' | 'FAILED';
 export type DeliveryItem = {
-  id: string; target: DeliveryTarget; status: DeliveryStatus; topic: string; title: string; attempts: number;
+  id: string; channel?: ChannelKind; target: DeliveryTarget; status: DeliveryStatus; topic: string; title: string; attempts: number;
   failureReason: string | null; createdAt: string; sentAt: string | null; nextAttemptAt: string | null;
   recipient: { username: string; displayName: string | null } | null;
 };
 type DeliveryPage = { items: DeliveryItem[]; nextCursor: string | null; counts: Partial<Record<DeliveryStatus, number>> };
 type Draft = { enabled: boolean; webhookUrl: string; minSeverity: 'CRITICAL' | 'HIGH' };
+type SmtpDraft = { enabled: boolean; host: string; port: string; security: SmtpSecurity; username: string; password: string; from: string };
+type GroupEmailDraft = { enabled: boolean; minSeverity: 'CRITICAL' | 'HIGH'; recipients: string };
 
-const BASE = '/api/v1/settings/notification-channels/TEAMS';
+const ROOT = '/api/v1/settings/notification-channels';
+const BASE = `${ROOT}/TEAMS`;
+const EMAIL_BASE = `${ROOT}/EMAIL`;
+const DEFAULT_PORT: Record<SmtpSecurity, string> = { STARTTLS: '587', TLS: '465', NONE: '25' };
 const TARGETS: { target: DeliveryTarget; title: string; description: string }[] = [
   { target: 'USER_NOTIFICATIONS', title: 'Notificações pessoais', description: 'Cópia das notificações de cada utilizador que a ativar em Perfil → Notificações. A mensagem indica o destinatário e é visível para os membros do canal.' },
   { target: 'GROUP_ALERTS', title: 'Alertas operacionais', description: 'Alertas críticos e altos publicados num canal de grupo. CRITICAL é sempre enviado; os restantes respeitam janelas de manutenção e regras de alerta.' },
@@ -36,12 +50,20 @@ const TOPICS: Record<string, string> = {
   TEST: 'Mensagem de teste', OPERATIONAL_ALERT: 'Alerta operacional', ROLE_REQUEST: 'Pedido de acesso',
   CRITICAL_ASSET_ATTESTATION: 'Atestação de ativos críticos', LIFECYCLE_DATE: 'Data de ciclo de vida',
 };
-/** Failure codes are stable API values; the webhook address is never part of them. */
+/** Failure codes are stable API values; the webhook address, SMTP password and e-mail addresses are never part of them. */
 export function failureLabel(code: string | null): string {
   if (!code) return '—';
   const http = /^HTTP_(\d{3})$/.exec(code);
   if (http) return `O Teams respondeu HTTP ${http[1]}`;
+  const auth = /^SMTP_EAUTH(?:_(\d{3}))?$/.exec(code);
+  if (auth) return `O servidor SMTP recusou o utilizador ou a palavra-passe${auth[1] ? ` (${auth[1]})` : ''}`;
+  const smtp = /^SMTP_(\d{3})$/.exec(code);
+  if (smtp) return `O servidor SMTP respondeu ${smtp[1]}`;
   return ({
+    SMTP_ECONNECTION: 'Ligação ao servidor SMTP falhou', SMTP_ETIMEDOUT: 'Servidor SMTP sem resposta em 10 s', SMTP_ESOCKET: 'Erro de ligação ao servidor SMTP',
+    SMTP_EDNS: 'Servidor SMTP não encontrado (DNS)', SMTP_ETLS: 'Falha na negociação TLS com o servidor SMTP', SMTP_ENOAUTH: 'Servidor SMTP exige autenticação',
+    SMTP_EENVELOPE: 'Remetente ou destinatário recusado', SMTP_EPROTOCOL: 'Resposta SMTP inválida', SMTP_ECONFIG: 'Configuração SMTP inválida', SMTP_ERROR: 'Erro ao enviar email',
+    RECIPIENT_NO_EMAIL: 'Destinatário sem email definido',
     TIMEOUT: 'Sem resposta em 10 s', NETWORK_ERROR: 'Erro de rede', REDIRECT_BLOCKED: 'Redirecionamento recusado',
     CHANNEL_DISABLED: 'Canal desativado', CHANNEL_NOT_CONFIGURED: 'Canal sem webhook', KEYRING_UNAVAILABLE: 'Chave de cifra indisponível',
     SECRET_UNREADABLE: 'Webhook guardado ilegível', TEAMS_WEBHOOK_INVALID: 'Webhook inválido', DISPATCH_ERROR: 'Erro interno ao enviar',
@@ -49,13 +71,25 @@ export function failureLabel(code: string | null): string {
 }
 const messageOf = (error: unknown, fallback: string) => (error instanceof Error && error.message ? error.message : fallback);
 const draftOf = (channel?: ChannelStatus): Draft => ({ enabled: channel?.enabled ?? false, webhookUrl: '', minSeverity: channel?.minSeverity ?? 'HIGH' });
+const smtpDraftOf = (channel?: ChannelStatus): SmtpDraft => ({
+  enabled: channel?.enabled ?? false, host: channel?.smtp?.host ?? '', port: String(channel?.smtp?.port ?? DEFAULT_PORT.STARTTLS),
+  security: channel?.smtp?.security ?? 'STARTTLS', username: channel?.smtp?.username ?? '', password: '', from: channel?.smtp?.from ?? '',
+});
+const groupEmailDraftOf = (channel?: ChannelStatus): GroupEmailDraft => ({ enabled: channel?.enabled ?? false, minSeverity: channel?.minSeverity ?? 'HIGH', recipients: (channel?.recipients ?? []).join('\n') });
+const splitRecipients = (value: string) => value.split(/[\s,;]+/).map((item) => item.trim()).filter(Boolean);
+const smtpChanged = (draft: SmtpDraft, current?: SmtpView | null) => Boolean(draft.password) || (current
+  ? draft.host.trim() !== current.host || Number(draft.port) !== current.port || draft.security !== current.security || draft.username.trim() !== (current.username ?? '') || draft.from.trim() !== current.from
+  : Boolean(draft.host.trim() || draft.from.trim() || draft.username.trim()));
 
-/** Definições → Notificações: Microsoft Teams webhooks (write-only), test message and delivery log. */
+/** Definições → Notificações: Microsoft Teams webhooks and the SMTP server (secrets write-only), test messages and delivery log. */
 export function NotificationChannelsSettings() {
   const { success, error: toastError } = useToast();
   const { confirm, confirmDialog } = useConfirm();
   const [state, setState] = useState<ChannelsResponse | null>(null);
   const [drafts, setDrafts] = useState<Record<DeliveryTarget, Draft>>({ USER_NOTIFICATIONS: draftOf(), GROUP_ALERTS: draftOf() });
+  const [smtpDraft, setSmtpDraft] = useState<SmtpDraft>(smtpDraftOf());
+  const [groupEmail, setGroupEmail] = useState<GroupEmailDraft>(groupEmailDraftOf());
+  const [channelFilter, setChannelFilter] = useState<ChannelKind | ''>('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState('');
   const [feedback, setFeedback] = useState('');
@@ -68,25 +102,31 @@ export function NotificationChannelsSettings() {
     try {
       const next = await apiFetch<ChannelsResponse>('/api/v1/settings/notification-channels');
       setState(next);
-      const byTarget = (target: DeliveryTarget) => next.channels.find((item) => item.target === target);
-      setDrafts({ USER_NOTIFICATIONS: draftOf(byTarget('USER_NOTIFICATIONS')), GROUP_ALERTS: draftOf(byTarget('GROUP_ALERTS')) });
+      const find = (kind: ChannelKind, target: DeliveryTarget) => next.channels.find((item) => (item.kind ?? 'TEAMS') === kind && item.target === target);
+      setDrafts({ USER_NOTIFICATIONS: draftOf(find('TEAMS', 'USER_NOTIFICATIONS')), GROUP_ALERTS: draftOf(find('TEAMS', 'GROUP_ALERTS')) });
+      setSmtpDraft(smtpDraftOf(find('EMAIL', 'USER_NOTIFICATIONS')));
+      setGroupEmail(groupEmailDraftOf(find('EMAIL', 'GROUP_ALERTS')));
     } catch (reason) { setFeedback(messageOf(reason, 'Não foi possível carregar os canais de notificação.')); }
     finally { setLoading(false); }
   }, []);
   const loadLog = useCallback(async (cursor?: string) => {
     const query = new URLSearchParams();
     if (statusFilter) query.set('status', statusFilter);
+    if (channelFilter) query.set('channel', channelFilter);
     if (cursor) query.set('cursor', cursor);
     try {
       const page = await apiFetch<DeliveryPage>(`/api/v1/settings/notification-deliveries${query.size ? `?${query}` : ''}`);
       setLog((current) => cursor && current ? { ...page, items: [...current.items, ...page.items] } : page);
       setLogError('');
     } catch (reason) { setLogError(messageOf(reason, 'Não foi possível carregar o registo de entregas.')); }
-  }, [statusFilter]);
+  }, [statusFilter, channelFilter]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { void loadLog(); }, [loadLog]);
 
-  const channel = (target: DeliveryTarget) => state?.channels.find((item) => item.target === target);
+  const channelOf = (kind: ChannelKind, target: DeliveryTarget) => state?.channels.find((item) => (item.kind ?? 'TEAMS') === kind && item.target === target);
+  const channel = (target: DeliveryTarget) => channelOf('TEAMS', target);
+  const emailServer = channelOf('EMAIL', 'USER_NOTIFICATIONS');
+  const emailGroup = channelOf('EMAIL', 'GROUP_ALERTS');
   const setDraft = (target: DeliveryTarget, change: Partial<Draft>) => setDrafts((current) => ({ ...current, [target]: { ...current[target], ...change } }));
 
   const save = async (event: FormEvent) => {
@@ -99,40 +139,57 @@ export function NotificationChannelsSettings() {
         if (!changed) continue;
         await apiFetch(`${BASE}/${target}`, { method: 'PUT', body: JSON.stringify({ enabled: draft.enabled, ...(url ? { webhookUrl: url } : {}), ...(target === 'GROUP_ALERTS' ? { minSeverity: draft.minSeverity } : {}) }) });
       }
-      setFeedback('Configuração guardada. O endereço do webhook fica cifrado e não é devolvido pela aplicação.');
-      success('Notificações', 'Canais Microsoft Teams guardados');
+      // The SMTP server is saved before the group e-mail settings, which depend on it.
+      const serverChanged = smtpChanged(smtpDraft, emailServer?.smtp);
+      if (serverChanged || smtpDraft.enabled !== Boolean(emailServer?.enabled)) {
+        const smtp = serverChanged ? {
+          host: smtpDraft.host.trim(), port: Number(smtpDraft.port), security: smtpDraft.security, username: smtpDraft.username.trim() || null,
+          ...(smtpDraft.password ? { password: smtpDraft.password } : {}), from: smtpDraft.from.trim(),
+        } : undefined;
+        await apiFetch(`${EMAIL_BASE}/USER_NOTIFICATIONS`, { method: 'PUT', body: JSON.stringify({ enabled: smtpDraft.enabled, ...(smtp ? { smtp } : {}) }) });
+      }
+      const recipients = splitRecipients(groupEmail.recipients);
+      const recipientsChanged = recipients.join(',') !== (emailGroup?.recipients ?? []).join(',');
+      if (recipientsChanged || groupEmail.enabled !== Boolean(emailGroup?.enabled) || groupEmail.minSeverity !== (emailGroup?.minSeverity ?? 'HIGH')) {
+        await apiFetch(`${EMAIL_BASE}/GROUP_ALERTS`, { method: 'PUT', body: JSON.stringify({ enabled: groupEmail.enabled, minSeverity: groupEmail.minSeverity, ...(recipientsChanged && recipients.length ? { recipients } : {}) }) });
+      }
+      setFeedback('Configuração guardada. O endereço do webhook e a palavra-passe SMTP ficam cifrados e não são devolvidos pela aplicação.');
+      success('Notificações', 'Canais de notificação guardados');
       await load();
     } catch (reason) { const message = messageOf(reason, 'Não foi possível guardar.'); setFeedback(message); toastError('Notificações', message); }
     finally { setBusy(''); }
   };
-  const test = async (target: DeliveryTarget) => {
-    setBusy(`test:${target}`); setFeedback('');
+  const test = async (target: DeliveryTarget, kind: ChannelKind = 'TEAMS') => {
+    const label = kind === 'EMAIL' ? 'Email' : 'Microsoft Teams'; const what = kind === 'EMAIL' ? 'Email de teste' : 'Mensagem de teste';
+    setBusy(`test:${kind}:${target}`); setFeedback('');
     try {
-      const result = await apiFetch<{ status: DeliveryStatus; failureReason: string | null }>(`${BASE}/${target}/test`, { method: 'POST' });
-      if (result.status === 'SENT') success('Microsoft Teams', 'Mensagem de teste enviada');
-      else { const message = `Mensagem de teste falhou: ${failureLabel(result.failureReason)}`; setFeedback(message); toastError('Microsoft Teams', message); }
+      const result = await apiFetch<{ status: DeliveryStatus; failureReason: string | null }>(`${ROOT}/${kind}/${target}/test`, { method: 'POST' });
+      if (result.status === 'SENT') success(label, kind === 'EMAIL' ? 'Email de teste enviado' : 'Mensagem de teste enviada');
+      else { const message = `${what} falhou: ${failureLabel(result.failureReason)}`; setFeedback(message); toastError(label, message); }
       await loadLog();
-    } catch (reason) { const message = messageOf(reason, 'Não foi possível enviar a mensagem de teste.'); setFeedback(message); toastError('Microsoft Teams', message); }
+    } catch (reason) { const message = messageOf(reason, `Não foi possível enviar o ${what.toLowerCase()}.`); setFeedback(message); toastError(label, message); }
     finally { setBusy(''); }
   };
-  const clear = async (target: DeliveryTarget, title: string) => {
-    if (!(await confirm({ title: 'Remover webhook', message: `Remover o webhook de “${title}” e desativar o canal?`, confirmLabel: 'Remover', destructive: true }))) return;
-    setBusy(`clear:${target}`);
-    try { await apiFetch(`${BASE}/${target}`, { method: 'DELETE' }); success('Microsoft Teams', 'Webhook removido'); await load(); }
-    catch (reason) { toastError('Microsoft Teams', messageOf(reason, 'Não foi possível remover o webhook.')); }
+  const clear = async (target: DeliveryTarget, title: string, kind: ChannelKind = 'TEAMS') => {
+    const email = kind === 'EMAIL';
+    const message = email ? (target === 'USER_NOTIFICATIONS' ? 'Remover o servidor SMTP (incluindo a palavra-passe) e desativar o envio por email?' : 'Remover os destinatários e desativar os alertas por email?') : `Remover o webhook de “${title}” e desativar o canal?`;
+    if (!(await confirm({ title: email ? 'Remover configuração de email' : 'Remover webhook', message, confirmLabel: 'Remover', destructive: true }))) return;
+    setBusy(`clear:${kind}:${target}`);
+    try { await apiFetch(`${ROOT}/${kind}/${target}`, { method: 'DELETE' }); success(email ? 'Email' : 'Microsoft Teams', email ? 'Configuração de email removida' : 'Webhook removido'); await load(); }
+    catch (reason) { toastError(email ? 'Email' : 'Microsoft Teams', messageOf(reason, 'Não foi possível remover a configuração.')); }
     finally { setBusy(''); }
   };
   const retry = async (item: DeliveryItem) => {
     setBusy(`retry:${item.id}`);
-    try { await apiFetch(`/api/v1/settings/notification-deliveries/${item.id}/retry`, { method: 'POST' }); success('Microsoft Teams', 'Entrega reagendada'); await loadLog(); }
-    catch (reason) { toastError('Microsoft Teams', messageOf(reason, 'Não foi possível reagendar a entrega.')); }
+    try { await apiFetch(`/api/v1/settings/notification-deliveries/${item.id}/retry`, { method: 'POST' }); success('Notificações', 'Entrega reagendada'); await loadLog(); }
+    catch (reason) { toastError('Notificações', messageOf(reason, 'Não foi possível reagendar a entrega.')); }
     finally { setBusy(''); }
   };
 
   const columns: DataTableColumn<DeliveryItem>[] = [
     { id: 'createdAt', header: 'Criada', cell: (item) => formatDateTime(item.createdAt) },
     { id: 'topic', header: 'Tipo', cell: (item) => <><strong>{TOPICS[item.topic] ?? item.topic}</strong><br /><small>{item.title}</small></> },
-    { id: 'target', header: 'Canal', cell: (item) => item.target === 'GROUP_ALERTS' ? 'Alertas operacionais' : `Pessoal · ${item.recipient?.displayName?.trim() || item.recipient?.username || '—'}` },
+    { id: 'target', header: 'Canal', cell: (item) => <><strong>{item.channel === 'EMAIL' ? 'Email' : 'Teams'}</strong><br /><small>{item.target === 'GROUP_ALERTS' ? 'Alertas operacionais' : item.topic === 'TEST' ? 'Teste' : `Pessoal · ${item.recipient?.displayName?.trim() || item.recipient?.username || '—'}`}</small></> },
     { id: 'status', header: 'Estado', cell: (item) => <span className={`state-badge ${STATUS[item.status]?.badge ?? ''}`.trim()} data-status={item.status}><i />{STATUS[item.status]?.label ?? item.status}</span> },
     { id: 'attempts', header: 'Tentativas', cell: (item) => `${item.attempts}/${state?.maxAttempts ?? 5}` },
     { id: 'failure', header: 'Motivo', cell: (item) => item.failureReason ? <span title={item.failureReason}>{failureLabel(item.failureReason)}{item.status === 'PENDING' && item.nextAttemptAt ? ` · nova tentativa ${formatDateTime(item.nextAttemptAt)}` : ''}</span> : '—' },
@@ -140,11 +197,12 @@ export function NotificationChannelsSettings() {
   ];
 
   return <section className="ipam-card settings-panel">
-    <div className="panel-heading"><div><h2>Microsoft Teams</h2><p className="panel-description">Envia notificações e alertas para canais Teams através de webhooks de entrada (Workflows). O envio é feito em segundo plano, com novas tentativas automáticas, e nunca atrasa a aplicação.</p></div><Bell size={19} /></div>
-    {state && !state.keyringAvailable && <div className="ipam-alert error">A chave de cifra (SNMP_KEYRING_FILE) não está disponível; não é possível guardar nem usar webhooks.</div>}
+    <div className="panel-heading"><div><h2>Notificações externas</h2><p className="panel-description">Envia notificações e alertas para o Microsoft Teams e por email. Todos os canais começam desativados. O envio é feito em segundo plano, com novas tentativas automáticas, e nunca atrasa a aplicação.</p></div><Bell size={19} /></div>
+    {state && !state.keyringAvailable && <div className="ipam-alert error">A chave de cifra (SNMP_KEYRING_FILE) não está disponível; não é possível guardar nem usar webhooks ou palavras-passe SMTP.</div>}
     {state && !state.publicLinks && <div className="ipam-alert">APP_PUBLIC_URL não está definido: as mensagens são enviadas sem botão “Abrir na aplicação”.</div>}
     {feedback && <div className="ipam-alert">{feedback}</div>}
     <form className="settings-form" id="settings-notifications-form" onSubmit={(event) => void save(event)} aria-busy={loading}>
+      <h3 className="notification-channel-heading">Microsoft Teams</h3>
       {TARGETS.map(({ target, title, description }) => {
         const current = channel(target); const draft = drafts[target];
         return <fieldset key={target} className="notification-channel-fieldset" disabled={loading || !state?.keyringAvailable}>
@@ -155,20 +213,53 @@ export function NotificationChannelsSettings() {
           {target === 'GROUP_ALERTS' && <label>Severidade mínima<select value={draft.minSeverity} onChange={(event) => setDraft(target, { minSeverity: event.target.value as Draft['minSeverity'] })}><option value="HIGH">HIGH e CRITICAL</option><option value="CRITICAL">Só CRITICAL</option></select></label>}
           <label className="settings-check"><input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft(target, { enabled: event.target.checked })} /> Ativar este canal</label>
           <div className="modal-actions">
-            <button type="button" className="secondary-button" disabled={!current?.configured || Boolean(busy)} onClick={() => void test(target)}><Send size={14} />{busy === `test:${target}` ? 'A enviar…' : 'Enviar mensagem de teste'}</button>
+            <button type="button" className="secondary-button" disabled={!current?.configured || Boolean(busy)} onClick={() => void test(target)}><Send size={14} />{busy === `test:TEAMS:${target}` ? 'A enviar…' : 'Enviar mensagem de teste'}</button>
             <button type="button" className="secondary-button" disabled={!current?.configured || Boolean(busy)} onClick={() => void clear(target, title)}><Trash2 size={14} />Remover</button>
           </div>
         </fieldset>;
       })}
+      <h3 className="notification-channel-heading"><Mail size={15} aria-hidden="true" /> Email (SMTP)</h3>
+      <fieldset className="notification-channel-fieldset" disabled={loading || !state?.keyringAvailable}>
+        <legend>Servidor SMTP e emails pessoais</legend>
+        <p className="panel-description">Servidor usado por todos os emails. Com o envio ativo, cada utilizador pode escolher em Perfil → Notificações receber uma cópia de cada tipo no seu próprio email.</p>
+        <div className="integration-row"><span><strong>Estado</strong><small>{loading ? 'A carregar…' : !emailServer?.configured ? 'Sem servidor · desativado' : emailServer.enabled ? `Ativo${emailServer.updatedAt ? ` · atualizado ${formatDateTime(emailServer.updatedAt)}` : ''}` : 'Servidor guardado · desativado'}</small></span></div>
+        <div className="notification-channel-grid">
+          <label>Servidor<input autoComplete="off" spellCheck={false} maxLength={253} placeholder="smtp.empresa.pt" value={smtpDraft.host} onChange={(event) => setSmtpDraft({ ...smtpDraft, host: event.target.value })} /></label>
+          <label>Segurança<select value={smtpDraft.security} onChange={(event) => { const security = event.target.value as SmtpSecurity; setSmtpDraft({ ...smtpDraft, security, port: smtpDraft.port === DEFAULT_PORT[smtpDraft.security] ? DEFAULT_PORT[security] : smtpDraft.port }); }}><option value="STARTTLS">STARTTLS</option><option value="TLS">TLS</option><option value="NONE">Sem encriptação</option></select></label>
+          <label>Porta<input type="number" inputMode="numeric" min={1} max={65535} value={smtpDraft.port} onChange={(event) => setSmtpDraft({ ...smtpDraft, port: event.target.value })} /></label>
+          <label>Remetente<input type="email" autoComplete="off" maxLength={254} placeholder="alertas@empresa.pt" value={smtpDraft.from} onChange={(event) => setSmtpDraft({ ...smtpDraft, from: event.target.value })} /></label>
+          <label>Utilizador<input autoComplete="off" spellCheck={false} maxLength={254} placeholder="Opcional" value={smtpDraft.username} onChange={(event) => setSmtpDraft({ ...smtpDraft, username: event.target.value })} /></label>
+          <label>Palavra-passe<input type="password" autoComplete="new-password" maxLength={512} placeholder={emailServer?.smtp?.passwordSet ? 'Guardada — introduz uma nova para substituir' : 'Opcional'} value={smtpDraft.password} onChange={(event) => setSmtpDraft({ ...smtpDraft, password: event.target.value })} /></label>
+        </div>
+        <small className="panel-description">A palavra-passe é cifrada e nunca é mostrada depois de guardada. Com utilizador ou palavra-passe, a ligação tem de usar TLS ou STARTTLS; o certificado do servidor é sempre verificado.</small>
+        <label className="settings-check"><input type="checkbox" checked={smtpDraft.enabled} onChange={(event) => setSmtpDraft({ ...smtpDraft, enabled: event.target.checked })} /> Ativar emails pessoais</label>
+        <div className="modal-actions">
+          <button type="button" className="secondary-button" disabled={!emailServer?.configured || Boolean(busy)} onClick={() => void test('USER_NOTIFICATIONS', 'EMAIL')} title="Enviado para o email do teu utilizador"><Send size={14} />{busy === 'test:EMAIL:USER_NOTIFICATIONS' ? 'A enviar…' : 'Enviar email de teste'}</button>
+          <button type="button" className="secondary-button" disabled={!emailServer?.configured || Boolean(busy)} onClick={() => void clear('USER_NOTIFICATIONS', 'Servidor SMTP', 'EMAIL')}><Trash2 size={14} />Remover</button>
+        </div>
+      </fieldset>
+      <fieldset className="notification-channel-fieldset" disabled={loading || !state?.keyringAvailable}>
+        <legend>Alertas operacionais por email</legend>
+        <p className="panel-description">Alertas críticos e altos enviados para uma lista de endereços, através do servidor SMTP acima. CRITICAL é sempre enviado; os restantes respeitam janelas de manutenção e regras de alerta.</p>
+        <div className="integration-row"><span><strong>Estado</strong><small>{loading ? 'A carregar…' : !emailGroup?.serverConfigured ? 'Configura primeiro o servidor SMTP' : !emailGroup.configured ? 'Sem destinatários · desativado' : emailGroup.enabled ? `Ativo · ${emailGroup.recipients?.length ?? 0} destinatário(s)` : 'Destinatários guardados · desativado'}</small></span></div>
+        <label>Destinatários<textarea rows={3} spellCheck={false} placeholder={'noc@empresa.pt\nprevenção@empresa.pt'} value={groupEmail.recipients} onChange={(event) => setGroupEmail({ ...groupEmail, recipients: event.target.value })} /><small>Um endereço por linha (ou separados por vírgulas), até 20.</small></label>
+        <label>Severidade mínima<select value={groupEmail.minSeverity} onChange={(event) => setGroupEmail({ ...groupEmail, minSeverity: event.target.value as GroupEmailDraft['minSeverity'] })}><option value="HIGH">HIGH e CRITICAL</option><option value="CRITICAL">Só CRITICAL</option></select></label>
+        <label className="settings-check"><input type="checkbox" checked={groupEmail.enabled} onChange={(event) => setGroupEmail({ ...groupEmail, enabled: event.target.checked })} /> Ativar alertas por email</label>
+        <div className="modal-actions">
+          <button type="button" className="secondary-button" disabled={!emailGroup?.configured || Boolean(busy)} onClick={() => void test('GROUP_ALERTS', 'EMAIL')}><Send size={14} />{busy === 'test:EMAIL:GROUP_ALERTS' ? 'A enviar…' : 'Enviar email de teste'}</button>
+          <button type="button" className="secondary-button" disabled={!emailGroup?.configured || Boolean(busy)} onClick={() => void clear('GROUP_ALERTS', 'Alertas operacionais por email', 'EMAIL')}><Trash2 size={14} />Remover</button>
+        </div>
+      </fieldset>
     </form>
-    <div className="panel-heading notification-delivery-heading"><div><h3>Registo de entregas</h3><p className="panel-description">Últimos 90 dias. Até {state?.maxAttempts ?? 5} tentativas por mensagem; o motivo da falha nunca inclui o endereço do webhook.</p></div>
+    <div className="panel-heading notification-delivery-heading"><div><h3>Registo de entregas</h3><p className="panel-description">Últimos 90 dias. Até {state?.maxAttempts ?? 5} tentativas por mensagem; o motivo da falha nunca inclui o endereço do webhook nem a palavra-passe SMTP.</p></div>
       <div className="modal-actions notification-delivery-filters">
+        <label>Canal<select value={channelFilter} onChange={(event) => setChannelFilter(event.target.value as ChannelKind | '')}><option value="">Todos</option><option value="TEAMS">Teams</option><option value="EMAIL">Email</option></select></label>
         <label>Estado<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as DeliveryStatus | '')}><option value="">Todos{log ? ` (${Object.values(log.counts).reduce((sum, value) => sum + (value ?? 0), 0)})` : ''}</option>{(Object.keys(STATUS) as DeliveryStatus[]).map((status) => <option key={status} value={status}>{STATUS[status].label}{log ? ` (${log.counts[status] ?? 0})` : ''}</option>)}</select></label>
         <button type="button" className="secondary-button" onClick={() => void loadLog()}><RefreshCw size={14} />Atualizar</button>
       </div>
     </div>
     {logError && <div className="ipam-alert error">{logError}</div>}
-    {log && <DataTable rows={log.items} columns={columns} rowKey={(item) => item.id} label="Registo de entregas Microsoft Teams" empty={<p className="no-data">Sem entregas registadas.</p>} />}
+    {log && <DataTable rows={log.items} columns={columns} rowKey={(item) => item.id} label="Registo de entregas" empty={<p className="no-data">Sem entregas registadas.</p>} />}
     {log?.nextCursor && <div className="form-actions"><button type="button" className="secondary-button" onClick={() => void loadLog(log.nextCursor!)}>Carregar mais</button></div>}
     <PageToolbarPortal><button type="submit" form="settings-notifications-form" className="primary-button" disabled={loading || Boolean(busy) || !state?.keyringAvailable}><Check size={14} />{busy === 'save' ? 'A guardar…' : 'Guardar'}</button></PageToolbarPortal>
     {confirmDialog}

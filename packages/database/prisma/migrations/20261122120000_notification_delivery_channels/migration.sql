@@ -1,6 +1,6 @@
--- Step 31: Microsoft Teams delivery channel, per-user channel opt-in, delivery log. All channels start disabled.
+-- Step 31: Microsoft Teams and Email (SMTP) delivery channels, per-user channel opt-in, delivery log. All channels start disabled.
 -- CreateEnum
-CREATE TYPE "DeliveryChannelKind" AS ENUM ('TEAMS');
+CREATE TYPE "DeliveryChannelKind" AS ENUM ('TEAMS', 'EMAIL');
 
 -- CreateEnum
 CREATE TYPE "DeliveryTarget" AS ENUM ('USER_NOTIFICATIONS', 'GROUP_ALERTS');
@@ -15,6 +15,7 @@ CREATE TABLE "DeliveryChannelConfig" (
     "target" "DeliveryTarget" NOT NULL,
     "enabled" BOOLEAN NOT NULL DEFAULT false,
     "minSeverity" "OperationalAlertSeverity",
+    "settings" JSONB,
     "ciphertext" BYTEA,
     "iv" BYTEA,
     "authTag" BYTEA,

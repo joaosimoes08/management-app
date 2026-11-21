@@ -1,4 +1,4 @@
--- Run after rolling back the API. Removes the Teams channel settings (including the stored webhook secrets), opt-ins and the delivery log.
+-- Run after rolling back the API. Removes the Teams and Email channel settings (including the stored webhook URLs and SMTP password), opt-ins and the delivery log.
 DROP TABLE "NotificationDelivery";
 DROP TABLE "NotificationChannelPreference";
 DROP TABLE "DeliveryChannelConfig";

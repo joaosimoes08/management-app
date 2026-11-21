@@ -280,9 +280,10 @@ model NotificationMute {
   @@id([userId, type])
 }
 
-/// External delivery channel (Step 31). Only TEAMS exists today; EMAIL can be added as another kind later.
+/// External delivery channel (Step 31): Microsoft Teams incoming webhook or Email over SMTP.
 enum DeliveryChannelKind {
   TEAMS
+  EMAIL
 }
 
 /// Where a channel posts: per-user notifications, or the group channel for operational alerts.
@@ -298,7 +299,8 @@ enum NotificationDeliveryStatus {
   FAILED
 }
 
-/// ADMIN-managed destination. The webhook URL is a secret: it is kept only as a keyring envelope and never returned.
+/// ADMIN-managed destination. Secrets (Teams webhook URL, SMTP password) are kept only as a keyring envelope and never returned.
+/// EMAIL/USER_NOTIFICATIONS holds the SMTP server; EMAIL/GROUP_ALERTS holds the alert recipients and uses that server.
 model DeliveryChannelConfig {
   id          String                    @id @default(uuid()) @db.Uuid
   kind        DeliveryChannelKind
@@ -306,6 +308,8 @@ model DeliveryChannelConfig {
   enabled     Boolean                   @default(false)
   /// GROUP_ALERTS only: lowest operational alert severity posted to the group channel (CRITICAL or HIGH).
   minSeverity OperationalAlertSeverity?
+  /// Non-secret settings: SMTP host, port, security, username and from address, or the group alert recipients.
+  settings    Json?
   ciphertext  Bytes?
   iv          Bytes?
   authTag     Bytes?
@@ -348,7 +352,7 @@ model NotificationDelivery {
   attempts        Int                        @default(0)
   nextAttemptAt   DateTime                   @default(now())
   lastAttemptAt   DateTime?
-  /// Short code only (HTTP_404, TIMEOUT, NETWORK_ERROR, ...); never the webhook URL or response body.
+  /// Short code only (HTTP_404, TIMEOUT, SMTP_EAUTH, ...); never the webhook URL, SMTP response, password or address.
   failureReason   String?
   sentAt          DateTime?
   requestedById   String?                    @db.Uuid

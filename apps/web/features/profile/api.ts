@@ -43,9 +43,13 @@ export type NotificationItem = {
   href: string | null;
 };
 export type NotificationPage = { items: NotificationItem[]; nextCursor: string | null };
-/** `teams` (Step 31) is the per-topic Microsoft Teams copy; `teamsAvailable` is false until an ADMIN enables the channel. */
-export type NotificationPreference = { type: NotificationTopic; muted: boolean; teams?: boolean; teamsAvailable?: boolean };
-export type NotificationPreferenceChange = { muted?: boolean; teams?: boolean };
+/** `teams` (Step 31) is the per-topic Microsoft Teams copy; `teamsAvailable` is false until an ADMIN enables the channel. `email` is the same for the user's own e-mail address. */
+export type NotificationPreference = {
+  type: NotificationTopic; muted: boolean; teams?: boolean; teamsAvailable?: boolean;
+  /** Copy by e-mail to the user's own address; needs the ADMIN SMTP channel on and an e-mail on the account. */
+  email?: boolean; emailAvailable?: boolean; hasEmail?: boolean;
+};
+export type NotificationPreferenceChange = { muted?: boolean; teams?: boolean; email?: boolean };
 
 export function listNotifications(status: 'all' | 'unread', type: string, cursor: string | null) {
   const query = new URLSearchParams({ status });

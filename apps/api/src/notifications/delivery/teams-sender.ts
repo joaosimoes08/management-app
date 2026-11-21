@@ -1,4 +1,4 @@
-import { DeliveryChannelSender, DeliveryError, DeliveryMessage } from './channel';
+import { DeliveryChannelSender, DeliveryDestination, DeliveryError, DeliveryMessage } from './channel';
 
 const TIMEOUT_MS = 10_000;
 const MAX_URL_LENGTH = 2048;
@@ -44,10 +44,9 @@ export class TeamsSender implements DeliveryChannelSender {
   readonly kind = 'TEAMS' as const;
   constructor(private readonly fetchImpl: () => typeof fetch = () => globalThis.fetch) {}
 
-  validateDestination(value: string) { return validateTeamsWebhookUrl(value); }
-
-  async send(destination: string, message: DeliveryMessage) {
-    const url = validateTeamsWebhookUrl(destination);
+  async send(destination: DeliveryDestination, message: DeliveryMessage) {
+    if (destination.kind !== 'TEAMS') throw new DeliveryError('CHANNEL_MISMATCH', false);
+    const url = validateTeamsWebhookUrl(destination.webhookUrl);
     let response: Response;
     try {
       response = await this.fetchImpl()(url, {

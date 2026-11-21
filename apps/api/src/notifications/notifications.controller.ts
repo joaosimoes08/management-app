@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Prisma, PrismaClient } from '@simoes/database';
 import { IsBoolean, IsEnum, IsOptional, IsUUID } from 'class-validator';
 import type { AuthenticatedUser } from '../auth/auth.service';
-import { teamsAvailableForUsers } from './delivery/delivery-queue';
+import { channelsAvailableForUsers } from './delivery/delivery-queue';
 import { NotificationTopic, notificationHref } from './notification-preferences';
 
 enum NotificationStatus { UNREAD = 'unread', ALL = 'all' }
@@ -32,6 +32,10 @@ class UpdateNotificationPreferenceDto {
   /** Also post this topic to Microsoft Teams (Step 31). Needs the ADMIN Teams channel to be enabled. */
   @IsOptional() @IsBoolean()
   teams?: boolean;
+
+  /** Also e-mail this topic to the user's own address (Step 31). Needs the ADMIN e-mail channel to be enabled. */
+  @IsOptional() @IsBoolean()
+  email?: boolean;
 }
 
 const PAGE_SIZE = 25;
@@ -82,37 +86,54 @@ export class NotificationsController {
 
   @Get('preferences')
   async preferences(@Req() { user }: UserRequest) {
-    const [mutes, channels, teamsAvailable] = await Promise.all([
+    const [mutes, channels, available, me] = await Promise.all([
       this.prisma.notificationMute.findMany({ where: { userId: user.id }, select: { type: true } }),
-      this.prisma.notificationChannelPreference.findMany({ where: { userId: user.id, channel: 'TEAMS' }, select: { type: true } }),
-      teamsAvailableForUsers(this.prisma),
+      this.prisma.notificationChannelPreference.findMany({ where: { userId: user.id }, select: { type: true, channel: true } }),
+      channelsAvailableForUsers(this.prisma),
+      this.prisma.user.findUnique({ where: { id: user.id }, select: { email: true } }),
     ]);
     const muted = new Set(mutes.map(({ type }) => type));
-    const teams = new Set(channels.map(({ type }) => type));
-    return Object.values(NotificationTopic).map((type) => ({ type, muted: muted.has(type), teams: teams.has(type), teamsAvailable }));
+    const has = (channel: string, type: string) => channels.some((row) => row.channel === channel && row.type === type);
+    const hasEmail = Boolean(me?.email?.trim());
+    return Object.values(NotificationTopic).map((type) => ({
+      type, muted: muted.has(type), teams: has('TEAMS', type), teamsAvailable: available.teams,
+      email: has('EMAIL', type), emailAvailable: available.email, hasEmail,
+    }));
   }
 
   /** Which external channels an ADMIN has turned on, so Perfil can show or disable the per-topic toggles. */
   @Get('channels')
   async channels() {
-    return { teams: { available: await teamsAvailableForUsers(this.prisma) } };
+    const available = await channelsAvailableForUsers(this.prisma);
+    return { teams: { available: available.teams }, email: { available: available.email } };
   }
 
   @Patch('preferences/:type')
   async setPreference(@Req() { user }: UserRequest, @Param('type', new ParseEnumPipe(NotificationTopic)) type: NotificationTopic, @Body() dto: UpdateNotificationPreferenceDto) {
-    if (dto.muted === undefined && dto.teams === undefined) throw new BadRequestException({ code: 'NOTIFICATION_PREFERENCE_EMPTY', message: 'Indica muted e/ou teams.' });
-    if (dto.teams === true && !(await teamsAvailableForUsers(this.prisma))) {
+    if (dto.muted === undefined && dto.teams === undefined && dto.email === undefined) throw new BadRequestException({ code: 'NOTIFICATION_PREFERENCE_EMPTY', message: 'Indica muted, teams e/ou email.' });
+    const available = await channelsAvailableForUsers(this.prisma);
+    if (dto.teams === true && !available.teams) {
       throw new ConflictException({ code: 'NOTIFICATION_CHANNEL_UNAVAILABLE', message: 'O canal Microsoft Teams não está ativo. Pede a um ADMIN para o configurar em Definições.' });
+    }
+    if (dto.email === true) {
+      if (!available.email) throw new ConflictException({ code: 'NOTIFICATION_CHANNEL_UNAVAILABLE', message: 'O envio por email não está ativo. Pede a um ADMIN para o configurar em Definições.' });
+      const me = await this.prisma.user.findUnique({ where: { id: user.id }, select: { email: true } });
+      if (!me?.email?.trim()) throw new ConflictException({ code: 'NOTIFICATION_EMAIL_MISSING', message: 'O teu utilizador não tem email definido.' });
     }
     if (dto.muted === true) await this.prisma.notificationMute.createMany({ data: [{ userId: user.id, type }], skipDuplicates: true });
     else if (dto.muted === false) await this.prisma.notificationMute.deleteMany({ where: { userId: user.id, type } });
-    if (dto.teams === true) await this.prisma.notificationChannelPreference.createMany({ data: [{ userId: user.id, type, channel: 'TEAMS' }], skipDuplicates: true });
-    else if (dto.teams === false) await this.prisma.notificationChannelPreference.deleteMany({ where: { userId: user.id, type, channel: 'TEAMS' } });
-    const [muted, teams, teamsAvailable] = await Promise.all([
+    for (const [channel, value] of [['TEAMS', dto.teams], ['EMAIL', dto.email]] as const) {
+      if (value === true) await this.prisma.notificationChannelPreference.createMany({ data: [{ userId: user.id, type, channel }], skipDuplicates: true });
+      else if (value === false) await this.prisma.notificationChannelPreference.deleteMany({ where: { userId: user.id, type, channel } });
+    }
+    const [muted, channels, me] = await Promise.all([
       this.prisma.notificationMute.findUnique({ where: { userId_type: { userId: user.id, type } }, select: { type: true } }),
-      this.prisma.notificationChannelPreference.findUnique({ where: { userId_type_channel: { userId: user.id, type, channel: 'TEAMS' } }, select: { type: true } }),
-      teamsAvailableForUsers(this.prisma),
+      this.prisma.notificationChannelPreference.findMany({ where: { userId: user.id, type }, select: { channel: true } }),
+      this.prisma.user.findUnique({ where: { id: user.id }, select: { email: true } }),
     ]);
-    return { type, muted: Boolean(muted), teams: Boolean(teams), teamsAvailable };
+    return {
+      type, muted: Boolean(muted), teams: channels.some((row) => row.channel === 'TEAMS'), teamsAvailable: available.teams,
+      email: channels.some((row) => row.channel === 'EMAIL'), emailAvailable: available.email, hasEmail: Boolean(me?.email?.trim()),
+    };
   }
 }
