@@ -13,10 +13,13 @@ export const metadata: Metadata = {
   description: 'Centro de operações para infraestrutura e ciberdefesa.',
 };
 
+// QueryProvider and SiteProvider sit above AuthGate: the accessible-site list starts loading as soon
+// as Keycloak reports a session (in parallel with the identity check), and the query cache survives
+// gate state changes. SiteProvider only fetches when authenticated; AuthGate still decides what renders.
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="pt-PT">
-      <body><Script src="/runtime-config.js" strategy="beforeInteractive" /><AuthProvider><I18nProvider><ToastProvider><AuthGate><QueryProvider><SiteProvider>{children}</SiteProvider></QueryProvider></AuthGate></ToastProvider></I18nProvider></AuthProvider></body>
+      <body><Script src="/runtime-config.js" strategy="beforeInteractive" /><AuthProvider><I18nProvider><ToastProvider><QueryProvider><SiteProvider><AuthGate>{children}</AuthGate></SiteProvider></QueryProvider></ToastProvider></I18nProvider></AuthProvider></body>
     </html>
   );
 }

@@ -1,5 +1,6 @@
 import Keycloak from 'keycloak-js';
 import { getPublicRuntimeConfig } from '@/lib/runtime-config';
+import { skipThirdPartyCookieCheckOnSameHost } from './third-party-cookie-check';
 
 let keycloak: Keycloak | null = null;
 
@@ -16,6 +17,7 @@ export function initializeKeycloak(): Promise<boolean> {
       realm: publicConfig.keycloakRealm,
       clientId: publicConfig.keycloakClientId,
     });
+    skipThirdPartyCookieCheckOnSameHost(keycloak, publicConfig.keycloakUrl, window.location.href);
     keycloakInitPromise = keycloak.init({
       onLoad: 'check-sso',
       silentCheckSsoRedirectUri: `${window.location.origin}/silent-check-sso.html`,
