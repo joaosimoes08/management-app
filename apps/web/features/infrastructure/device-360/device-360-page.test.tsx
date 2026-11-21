@@ -119,6 +119,13 @@ describe('Device360Page', () => {
     expect(vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).startsWith('/api/v1/linux-agents'))).toBe(false);
   });
 
+  it('never lists hosts across all Sites when the device has no Site', async () => {
+    routeApi({}, { ...device, siteId: null });
+    renderPage();
+    expect(await within(await screen.findByRole('region', { name: 'Host e serviços' })).findByText('Sem host associado.')).toBeInTheDocument();
+    expect(vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).startsWith('/api/v1/linux-agents'))).toBe(false);
+  });
+
   it('shows a clear message instead of a blank page when the device cannot load', async () => {
     vi.mocked(apiFetch).mockRejectedValue(new Error('404'));
     renderPage();
