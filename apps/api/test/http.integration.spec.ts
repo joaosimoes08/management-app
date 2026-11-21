@@ -555,3 +555,23 @@ test('critical asset attestation: 409 on a second review of the same cycle, revi
   assert.equal(switchA2.dueState, 'unscheduled');
   assert.equal(typeof switchA2.dueDate, 'string');
 });
+
+test('critical asset attestation: two simultaneous reviews of one cycle give exactly one 201 and one 409', async () => {
+  await prisma.device.update({ where: { id: ids.deviceA2 }, data: { isCritical: true } });
+  await prisma.criticalAssetGroupMapping.upsert({ where: { siteId_assetType: { siteId: ids.siteA, assetType: 'SWITCH' } }, create: { siteId: ids.siteA, assetType: 'SWITCH', groupId: ids.groupRead }, update: {} });
+  for (let round = 0; round < 5; round += 1) {
+    const row = await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA2, weekStart: new Date(Date.UTC(2026, 5, 1 + round * 7)) } });
+    const responses = await Promise.all([
+      request('POST', `/api/v1/critical-assets/${row.id}/confirm`, 'qa-admin', { outcome: 'CONFIRMED', notes: 'first' }),
+      request('POST', `/api/v1/critical-assets/${row.id}/confirm`, 'qa-admin', { outcome: 'CORRECTION_NEEDED', notes: 'second' }),
+    ]);
+    assert.deepEqual(responses.map((response) => response.statusCode).sort(), [201, 409]);
+    const winner = json(responses.find((response) => response.statusCode === 201)!);
+    const loser = json(responses.find((response) => response.statusCode === 409)!);
+    assert.equal(loser.code, 'CRITICAL_ASSET_ATTESTATION_ALREADY_RECORDED');
+    const stored = await prisma.criticalAssetAttestation.findUniqueOrThrow({ where: { id: row.id } });
+    assert.equal(stored.outcome, winner.outcome);
+    assert.equal(stored.notes, winner.notes);
+    assert.equal(await prisma.auditLog.count({ where: { action: 'CRITICAL_ASSET_ATTESTATION_RECORDED', metadata: { path: ['attestationId'], equals: row.id } } }), 1);
+  }
+});

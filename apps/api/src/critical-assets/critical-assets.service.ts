@@ -8,9 +8,12 @@ function localParts(date: Date, timezone: string) {
   return Object.fromEntries(parts.map(({ type, value }) => [type, value]));
 }
 
+/** Hour (Site-local, Monday) at which a weekly attestation cycle opens. */
+export const ATTESTATION_OPENS_AT_HOUR = 9;
+
 export function weeklyWindow(date: Date, timezone: string) {
   const local = localParts(date, timezone);
-  const due = local.weekday === 'Mon' && Number(local.hour) >= 9;
+  const due = local.weekday === 'Mon' && Number(local.hour) >= ATTESTATION_OPENS_AT_HOUR;
   const localDate = new Date(`${local.year}-${local.month}-${local.day}T00:00:00.000Z`);
   localDate.setUTCDate(localDate.getUTCDate() - ((localDate.getUTCDay() + 6) % 7));
   return { due, weekStart: localDate };
@@ -18,7 +21,6 @@ export function weeklyWindow(date: Date, timezone: string) {
 
 
 const DAY_MS = 86_400_000;
-export const ATTESTATION_OPENS_AT_HOUR = 9;
 
 function timezoneOffsetMs(instant: Date, timezone: string) {
   const local = localParts(instant, timezone);
@@ -48,12 +50,15 @@ type AttestationForDue = { weekStart: Date; outcome: string | null };
  * - overdue: a cycle is still pending after its due time (dueDate = oldest overdue cycle's due time)
  * - due_this_week: the current cycle is pending and not yet due
  * - up_to_date: every generated cycle is recorded (dueDate = due time of the next cycle to be generated)
- * - unscheduled: no owner group, or no cycle generated yet (dueDate = next cycle's due time if owned, else null)
+ * - unscheduled: no owner group (always, even with pending rows: nobody can review them; counts are kept),
+ *   or no cycle generated yet (dueDate = next cycle's due time if owned, else null)
  */
 export function computeDueState(attestations: AttestationForDue[], owned: boolean, timezone: string, now = new Date()) {
   const pending = attestations.filter((row) => !row.outcome).map((row) => ({ row, ...cycleWindow(row.weekStart, timezone) })).sort((a, b) => a.row.weekStart.getTime() - b.row.weekStart.getTime());
   const overdue = pending.filter((item) => item.dueAt.getTime() <= now.getTime());
   const base = { pendingCount: pending.length, overdueCount: overdue.length };
+  // No owner group means nobody can review it: report it under "no owner", not as overdue or due.
+  if (!owned) return { ...base, dueState: 'unscheduled' as DueState, dueDate: null, dueWeekStart: null };
   if (overdue.length) return { ...base, dueState: 'overdue' as DueState, dueDate: overdue[0].dueAt.toISOString(), dueWeekStart: overdue[0].row.weekStart.toISOString().slice(0, 10) };
   if (pending.length) return { ...base, dueState: 'due_this_week' as DueState, dueDate: pending[0].dueAt.toISOString(), dueWeekStart: pending[0].row.weekStart.toISOString().slice(0, 10) };
   const current = weeklyWindow(now, timezone);
@@ -63,7 +68,7 @@ export function computeDueState(attestations: AttestationForDue[], owned: boolea
   const currentGenerated = latestWeek !== null && latestWeek >= current.weekStart.getTime();
   const nextWeekStart = !currentGenerated && now.getTime() < generationClosesAt.getTime() ? current.weekStart : new Date(current.weekStart.getTime() + 7 * DAY_MS);
   const next = cycleWindow(nextWeekStart, timezone);
-  if (!owned || latestWeek === null) return { ...base, dueState: 'unscheduled' as DueState, dueDate: owned ? next.dueAt.toISOString() : null, dueWeekStart: owned ? nextWeekStart.toISOString().slice(0, 10) : null };
+  if (latestWeek === null) return { ...base, dueState: 'unscheduled' as DueState, dueDate: next.dueAt.toISOString(), dueWeekStart: nextWeekStart.toISOString().slice(0, 10) };
   return { ...base, dueState: 'up_to_date' as DueState, dueDate: next.dueAt.toISOString(), dueWeekStart: nextWeekStart.toISOString().slice(0, 10) };
 }
 
