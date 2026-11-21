@@ -32,7 +32,7 @@ export type FindingFacets = {
 };
 export type BulkFindingAction = 'ACKNOWLEDGE' | 'ASSIGN' | 'SNOOZE';
 export type BulkFindingRequest = { action: BulkFindingAction; ids: string[]; userId?: string | null; durationHours?: number; reason?: string };
-export type BulkFindingResult = { id: string; ok: true; status?: FindingStatus } | { id: string; ok: false; code: 'NOT_FOUND' | 'FORBIDDEN' | 'INVALID' | 'ERROR'; message?: string };
+export type BulkFindingResult = { id: string; ok: true; status?: FindingStatus } | { id: string; ok: false; code: 'NOT_FOUND' | 'FORBIDDEN' | 'INVALID' | 'ERROR' | (string & {}); message?: string };
 export type BulkFindingResponse = { action: BulkFindingAction; succeeded: number; failed: number; snoozedUntil?: string; results: BulkFindingResult[] };
 
 const findingQuery = (query: FindingQuery, extra: Record<string, string> = {}) => {

@@ -41,6 +41,8 @@ export function InventoryQualityPage() {
 
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [dialog, setDialog] = useState<BulkFindingAction | null>(null);
+  // Set when a dialog was opened from a row: it then acts on that finding only, not the selection.
+  const [rowTarget, setRowTarget] = useState<InventoryFinding | null>(null);
   const [running, setRunning] = useState(false);
   const [outcome, setOutcome] = useState<BulkOutcome | null>(null);
   const [error, setError] = useState('');
@@ -66,7 +68,14 @@ export function InventoryQualityPage() {
     { id: 'status', header: 'Estado', sortValue: (row) => findingStatuses.indexOf(row.status), cell: (row) => <span>{statusLabels[row.status]}{row.status === 'SNOOZED' && row.snoozedUntil && <small>{`até ${shortDateTime(row.snoozedUntil)}`}</small>}</span> },
     { id: 'assignee', header: 'Responsável', sortValue: (row) => personName(row.assignedTo) || null, cell: (row) => (row.assignedTo ? personName(row.assignedTo) : <span className="muted-cell">Sem responsável</span>) },
     { id: 'detected', header: 'Última deteção', sortValue: (row) => row.lastDetectedAt, cell: (row) => <time dateTime={row.lastDetectedAt}>{shortDateTime(row.lastDetectedAt)}</time> },
-    { id: 'open', header: <span className="topology-sr-only">Registo</span>, cell: (row) => (row.actionHref ? <a className="icon-button" href={row.actionHref} aria-label={`Abrir registo de ${row.title}`}><ExternalLink size={14} /></a> : null) },
+    { id: 'actions', header: <span className="topology-sr-only">Ações</span>, cell: (row) => <span className="table-actions">
+      {canAct && isActionable(row) && <>
+        <button type="button" className="icon-button subtle" disabled={running || row.status === 'ACKNOWLEDGED'} onClick={() => void acknowledgeOne(row)} aria-label={`Reconhecer ${row.title}`} title="Reconhecer"><Check size={14} /></button>
+        <button type="button" className="icon-button subtle" disabled={running} onClick={() => openDialog('ASSIGN', row)} aria-label={`Atribuir ${row.title}`} title="Atribuir…"><UserPlus size={14} /></button>
+        <button type="button" className="icon-button subtle" disabled={running} onClick={() => openDialog('SNOOZE', row)} aria-label={`Adiar ${row.title}`} title="Adiar…"><Clock3 size={14} /></button>
+      </>}
+      {row.actionHref && <a className="icon-button subtle" href={row.actionHref} aria-label={`Abrir registo de ${row.title}`} title="Abrir registo"><ExternalLink size={14} /></a>}
+    </span> },
   ];
   const sorted = sortByColumns(rows, columns, table.sort);
   const groups = grouped ? groupByRule(sorted) : [];
@@ -82,8 +91,7 @@ export function InventoryQualityPage() {
   }, [rows]);
 
   const titles = useMemo(() => new Map(rows.map((row) => [row.id, row.title])), [rows]);
-  const run = async (action: BulkFindingAction, params: BulkParams = {}) => {
-    const ids = actionable;
+  const run = async (action: BulkFindingAction, params: BulkParams = {}, ids: string[] = actionable) => {
     setRunning(true); setError('');
     try {
       const response = await bulkInventoryFindings({ action, ids, ...params });
@@ -103,8 +111,21 @@ export function InventoryQualityPage() {
     setOutcome(null); setDialog('ACKNOWLEDGE');
     await run('ACKNOWLEDGE');
   };
-  const openDialog = (action: BulkFindingAction) => { setOutcome(null); setDialog(action); };
-  const closeDialog = () => { setDialog(null); setOutcome(null); };
+  /** One finding from its row: same endpoint and per-item result, no selection needed. */
+  const acknowledgeOne = async (row: InventoryFinding) => {
+    setRunning(true); setError(''); setOutcome(null);
+    try {
+      const result = bulkOutcome(await bulkInventoryFindings({ action: 'ACKNOWLEDGE', ids: [row.id] }), titles);
+      const failed = result.items.find((item) => !item.ok);
+      if (failed) setError(`${row.title}: ${failed.message}`);
+      await queryClient.invalidateQueries({ queryKey: ['inventory-quality'] });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Não foi possível reconhecer o finding.');
+    } finally { setRunning(false); }
+  };
+  const openDialog = (action: BulkFindingAction, row: InventoryFinding | null = null) => { setOutcome(null); setRowTarget(row); setDialog(action); };
+  const closeDialog = () => { setDialog(null); setOutcome(null); setRowTarget(null); };
+  const dialogIds = rowTarget ? [rowTarget.id] : actionable;
 
   const facetData = facets.data;
   const myCount = facetData?.byAssignee.find((item) => item.userId && item.userId === user?.id)?.total;
@@ -143,7 +164,7 @@ export function InventoryQualityPage() {
       {filtering && <button className="secondary-button" onClick={clearFilters}><X size={14} /> Limpar filtros</button>}
     </div></PageToolbarPortal>
     <main className="module-page aligned-workspace"><section className="ipam-card page-primary-card">
-      <div className="panel-heading"><div><h1>Fila do inventário</h1><p className="panel-description">Problemas detetados automaticamente. Seleciona findings visíveis para os reconhecer, atribuir ou adiar em conjunto.</p></div></div>
+      <div className="panel-heading"><div><h1>Fila do inventário</h1><p className="panel-description">Problemas detetados automaticamente. Age em cada finding na sua linha, ou seleciona findings visíveis para os reconhecer, atribuir ou adiar em conjunto.</p></div></div>
       {!siteId && <div className="no-data">Escolhe um Site para ver a fila.</div>}
       {loadError && <div className="ipam-alert error" role="alert"><X size={15} />{loadError}</div>}
       {error && <div className="ipam-alert error" role="alert"><X size={15} />{error}</div>}
@@ -163,6 +184,6 @@ export function InventoryQualityPage() {
       {pages.hasNextPage && <div className="form-actions"><button type="button" className="secondary-button" disabled={pages.isFetchingNextPage} onClick={() => void pages.fetchNextPage()}>{pages.isFetchingNextPage ? 'A carregar…' : 'Carregar mais findings'}</button></div>}
     </section></main>
 
-    {dialog && <QualityBulkDialog action={dialog} count={actionable.length} assignees={assignees.data ?? []} running={running} outcome={outcome} close={closeDialog} run={(params) => void run(dialog, params)} />}
+    {dialog && <QualityBulkDialog action={dialog} count={dialogIds.length} finding={rowTarget?.title} assignees={assignees.data ?? []} running={running} outcome={outcome} close={closeDialog} run={(params) => void run(dialog, params, dialogIds)} />}
   </AppShell></>;
 }

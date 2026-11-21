@@ -8,6 +8,7 @@ import type { BulkFindingAction, FindingPerson } from './api';
 import { DEFAULT_SNOOZE_HOURS, personName, snoozeOptions, type BulkOutcome } from './quality-workspace';
 
 const titles: Record<BulkFindingAction, string> = { ACKNOWLEDGE: 'Reconhecer selecionados', ASSIGN: 'Atribuir selecionados', SNOOZE: 'Adiar selecionados' };
+const singleTitles: Record<BulkFindingAction, string> = { ACKNOWLEDGE: 'Reconhecer finding', ASSIGN: 'Atribuir finding', SNOOZE: 'Adiar finding' };
 
 export type BulkParams = { userId?: string | null; durationHours?: number };
 
@@ -16,9 +17,11 @@ export type BulkParams = { userId?: string | null; durationHours?: number };
  * the per-item result. Acknowledge skips the form (the page confirms it with
  * useConfirm) and opens straight on the results.
  */
-export function QualityBulkDialog({ action, count, assignees, running, outcome, close, run }: {
+export function QualityBulkDialog({ action, count, finding, assignees, running, outcome, close, run }: {
   action: BulkFindingAction;
   count: number;
+  /** Title of the one finding when opened from its row; omitted for the selection. */
+  finding?: string;
   assignees: readonly FindingPerson[];
   running: boolean;
   outcome: BulkOutcome | null;
@@ -30,9 +33,9 @@ export function QualityBulkDialog({ action, count, assignees, running, outcome, 
   const done = outcome !== null && !running;
   const allOk = outcome !== null && outcome.failed === 0;
 
-  return <IpamModal title={titles[action]} close={running ? () => undefined : close}><form className="modal-form" onSubmit={(event) => { event.preventDefault(); run(action === 'ASSIGN' ? { userId: userId || null } : action === 'SNOOZE' ? { durationHours: hours } : {}); }}>
+  return <IpamModal title={finding ? singleTitles[action] : titles[action]} close={running ? () => undefined : close}><form className="modal-form" onSubmit={(event) => { event.preventDefault(); run(action === 'ASSIGN' ? { userId: userId || null } : action === 'SNOOZE' ? { durationHours: hours } : {}); }}>
     {!outcome && <>
-      <p className="panel-description">{`${count} findings selecionados. Cada finding é verificado à parte; uma falha não impede os restantes.`}</p>
+      <p className="panel-description">{finding ? `Finding: ${finding}` : `${count} findings selecionados. Cada finding é verificado à parte; uma falha não impede os restantes.`}</p>
       {action === 'ASSIGN' && <label>Responsável<select value={userId} onChange={(event) => setUserId(event.target.value)}><option value="">Sem responsável</option>{assignees.map((person) => <option key={person.id} value={person.id}>{personName(person)}</option>)}</select></label>}
       {action === 'SNOOZE' && <label>Adiar durante<select value={hours} onChange={(event) => setHours(Number(event.target.value))}>{snoozeOptions.map((option) => <option key={option.hours} value={option.hours}>{option.label}</option>)}</select></label>}
     </>}
@@ -43,6 +46,6 @@ export function QualityBulkDialog({ action, count, assignees, running, outcome, 
     </table></div>}
     <div className="modal-actions">{outcome
       ? <button type="button" className="primary-button" disabled={running} onClick={close}>Fechar</button>
-      : <><button type="button" className="secondary-button" disabled={running} onClick={close}>Cancelar</button><button type="submit" className="primary-button" disabled={running || !count}>{running ? 'A aplicar…' : action === 'ASSIGN' ? `Atribuir ${count}` : action === 'SNOOZE' ? `Adiar ${count}` : `Reconhecer ${count}`}</button></>}</div>
+      : <><button type="button" className="secondary-button" disabled={running} onClick={close}>Cancelar</button><button type="submit" className="primary-button" disabled={running || !count}>{running ? 'A aplicar…' : finding ? (action === 'ASSIGN' ? 'Atribuir' : action === 'SNOOZE' ? 'Adiar' : 'Reconhecer') : action === 'ASSIGN' ? `Atribuir ${count}` : action === 'SNOOZE' ? `Adiar ${count}` : `Reconhecer ${count}`}</button></>}</div>
   </form></IpamModal>;
 }

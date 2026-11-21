@@ -108,6 +108,45 @@ describe('InventoryQualityPage', () => {
     await waitFor(() => expect(calls('/bulk')).toHaveLength(1));
   });
 
+  it('acts on one finding from its row without selecting it, and reports an ERROR result', async () => {
+    bulkResponse = { action: 'ACKNOWLEDGE', succeeded: 0, failed: 1, results: [{ id: '2', ok: false, code: 'ERROR', message: 'boom' }] };
+    renderPage();
+    await screen.findByText('Finding 2');
+    fireEvent.click(screen.getByRole('button', { name: 'Reconhecer Finding 2' }));
+    await waitFor(() => expect(calls('/bulk')).toHaveLength(1));
+    expect(JSON.parse(String(mock.mock.calls.find(([path]) => String(path).includes('/bulk'))?.[1]?.body))).toEqual({ action: 'ACKNOWLEDGE', ids: ['2'] });
+    expect(await screen.findByRole('alert')).toHaveTextContent('Finding 2: Erro inesperado');
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+
+    // The row dialog acts on that row only, even with other findings selected.
+    bulkResponse = { action: 'SNOOZE', succeeded: 0, failed: 1, results: [{ id: '3', ok: false, code: 'SOMETHING_NEW', message: 'Novo motivo' }] };
+    mock.mockClear();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Selecionar Finding 1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Adiar Finding 3' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('Adiar finding')).toBeInTheDocument();
+    expect(within(dialog).getByText('Finding: Finding 3')).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Adiar' }));
+    await within(dialog).findByText('0 de 1 aplicados.', { exact: false });
+    expect(JSON.parse(String(mock.mock.calls.find(([path]) => String(path).includes('/bulk'))?.[1]?.body))).toEqual({ action: 'SNOOZE', ids: ['3'], durationHours: 24 });
+    expect(within(dialog).getByText('Novo motivo')).toBeInTheDocument();
+  });
+
+  it('disables row acknowledge on acknowledged findings and shows no row actions on resolved ones', async () => {
+    mock.mockImplementation(async (path: string) => {
+      if (path.includes('/facets')) return facets;
+      if (path.includes('/assignees')) return people;
+      if (path.includes('/findings?')) return { items: [item('4', 'DEVICE_MISSING_SITE', { status: 'ACKNOWLEDGED' }), item('5', 'DEVICE_MISSING_SITE', { status: 'RESOLVED' })], total: 2, page: 1, pageSize: 100 };
+      throw new Error(`unexpected ${path}`);
+    });
+    renderPage();
+    await screen.findByText('Finding 4');
+    expect(screen.getByRole('button', { name: 'Reconhecer Finding 4' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Atribuir Finding 4' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Adiar Finding 5' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Abrir registo de Finding 5' })).toBeInTheDocument();
+  });
+
   it('hides selection and bulk actions from read-only roles', async () => {
     roles.current = ['VIEWER'];
     renderPage();
