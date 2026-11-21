@@ -48,7 +48,7 @@ const STATUS: Record<DeliveryStatus, { label: string; badge: string }> = {
 };
 const TOPICS: Record<string, string> = {
   TEST: 'Mensagem de teste', OPERATIONAL_ALERT: 'Alerta operacional', ROLE_REQUEST: 'Pedido de acesso',
-  CRITICAL_ASSET_ATTESTATION: 'Atestação de ativos críticos', LIFECYCLE_DATE: 'Data de ciclo de vida',
+  CRITICAL_ASSET_ATTESTATION: 'Atestação de ativos críticos', LIFECYCLE_DATE: 'Data de ciclo de vida', SCHEDULED_REPORT: 'Relatório agendado',
 };
 /** Failure codes are stable API values; the webhook address, SMTP password and e-mail addresses are never part of them. */
 export function failureLabel(code: string | null): string {
@@ -64,7 +64,7 @@ export function failureLabel(code: string | null): string {
     SMTP_ECONNECTION: 'Ligação ao servidor SMTP falhou', SMTP_ETIMEDOUT: 'Servidor SMTP sem resposta em 10 s', SMTP_ESOCKET: 'Erro de ligação ao servidor SMTP',
     SMTP_EDNS: 'Servidor SMTP não encontrado (DNS)', SMTP_ETLS: 'Falha na negociação TLS com o servidor SMTP', SMTP_ENOAUTH: 'Servidor SMTP exige autenticação',
     SMTP_EENVELOPE: 'Remetente ou destinatário recusado', SMTP_EPROTOCOL: 'Resposta SMTP inválida', SMTP_ECONFIG: 'Configuração SMTP inválida', SMTP_ERROR: 'Erro ao enviar email',
-    RECIPIENT_NO_EMAIL: 'Destinatário sem email definido',
+    RECIPIENT_NO_EMAIL: 'Destinatário sem email definido', REPORT_UNSUBSCRIBED: 'O destinatário cancelou a subscrição do relatório', REPORT_REMOVED: 'Relatório removido antes do envio',
     TIMEOUT: 'Sem resposta em 10 s', NETWORK_ERROR: 'Erro de rede', REDIRECT_BLOCKED: 'Redirecionamento recusado',
     CHANNEL_DISABLED: 'Canal desativado', CHANNEL_NOT_CONFIGURED: 'Canal sem webhook', KEYRING_UNAVAILABLE: 'Chave de cifra indisponível',
     SECRET_UNREADABLE: 'Webhook guardado ilegível', TEAMS_WEBHOOK_INVALID: 'Webhook inválido', DISPATCH_ERROR: 'Erro interno ao enviar',

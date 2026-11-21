@@ -236,6 +236,8 @@ model User {
   createdAt                   DateTime                    @default(now())
   updatedAt                   DateTime                    @updatedAt
   applicationFavorites        UserApplicationFavorite[]
+  scheduledReportRecipients   ScheduledReportRecipient[]
+  scheduledReportOutputs      ScheduledReportOutput[]
 }
 
 model RoleRequest {
@@ -359,6 +361,9 @@ model NotificationDelivery {
   createdAt       DateTime                   @default(now())
   updatedAt       DateTime                   @updatedAt
   recipient       User?                      @relation("NotificationDeliveryRecipient", fields: [recipientUserId], references: [id], onDelete: SetNull)
+  /// Step 32: the generated report (HTML body and CSV attachment) this e-mail carries.
+  reportOutputId  String?                    @db.Uuid
+  reportOutput    ScheduledReportOutput?     @relation(fields: [reportOutputId], references: [id], onDelete: SetNull)
 
   @@index([status, nextAttemptAt])
   @@index([createdAt, id])
@@ -1837,4 +1842,93 @@ model PduOutletAssignment {
 
   @@unique([pduId, outletIndex])
   @@unique([deviceId, plugIndex])
+}
+
+enum ScheduledReportFrequency {
+  WEEKLY
+  MONTHLY
+}
+
+/// Step 32: an ADMIN-defined weekly or monthly digest. Generated per recipient with that person's own permissions.
+model ScheduledReport {
+  id          String                     @id @default(uuid()) @db.Uuid
+  name        String
+  enabled     Boolean                    @default(true)
+  frequency   ScheduledReportFrequency
+  /// WEEKLY: 1 (Monday) to 7 (Sunday).
+  dayOfWeek   Int?
+  /// MONTHLY: 1 to 28, so every month has the day.
+  dayOfMonth  Int?
+  /// Local hour (0-23) in `timezone`.
+  hour        Int
+  timezone    String
+  /// COMPLIANCE, LIFECYCLE, QUALITY, CAPACITY, CHANGES.
+  sections    String[]
+  /// Sites in the report; empty means every Site the recipient may read.
+  siteIds     String[]                   @db.Uuid
+  sendEmail   Boolean                    @default(true)
+  /// One summary post (no figures) to the Teams operational alerts channel.
+  sendTeams   Boolean                    @default(false)
+  nextRunAt   DateTime?
+  lastRunAt   DateTime?
+  createdById String?                    @db.Uuid
+  updatedById String?                    @db.Uuid
+  createdAt   DateTime                   @default(now())
+  updatedAt   DateTime                   @updatedAt
+  recipients  ScheduledReportRecipient[]
+  runs        ScheduledReportRun[]
+
+  @@index([enabled, nextRunAt])
+}
+
+/// A person who receives a report. `unsubscribedAt` is set from the e-mail link or the profile toggle.
+model ScheduledReportRecipient {
+  id               String          @id @default(uuid()) @db.Uuid
+  reportId         String          @db.Uuid
+  userId           String          @db.Uuid
+  /// Random value in the e-mail unsubscribe link; it can only unsubscribe this person from this report.
+  unsubscribeToken String          @unique
+  unsubscribedAt   DateTime?
+  createdAt        DateTime        @default(now())
+  report           ScheduledReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([reportId, userId])
+  @@index([userId])
+}
+
+/// One generation of a report for one period (scheduled or run on demand).
+model ScheduledReportRun {
+  id            String                  @id @default(uuid()) @db.Uuid
+  reportId      String                  @db.Uuid
+  /// SCHEDULE or MANUAL.
+  trigger       String
+  /// Local calendar dates (UTC midnight): start inclusive, end exclusive.
+  periodStart   DateTime
+  periodEnd     DateTime
+  requestedById String?                 @db.Uuid
+  createdAt     DateTime                @default(now())
+  report        ScheduledReport         @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  outputs       ScheduledReportOutput[]
+
+  @@index([reportId, createdAt])
+  @@index([createdAt])
+}
+
+/// What one recipient got from one run: only the Sites that person may read.
+model ScheduledReportOutput {
+  id         String                 @id @default(uuid()) @db.Uuid
+  runId      String                 @db.Uuid
+  userId     String?                @db.Uuid
+  subject    String
+  text       String
+  html       String
+  csv        String
+  siteCount  Int
+  createdAt  DateTime               @default(now())
+  run        ScheduledReportRun     @relation(fields: [runId], references: [id], onDelete: Cascade)
+  user       User?                  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  deliveries NotificationDelivery[]
+
+  @@index([runId])
 }
