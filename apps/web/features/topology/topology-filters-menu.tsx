@@ -28,7 +28,7 @@ export function TopologyFiltersMenu({ filters, onChange, types, locations, alert
 
 /** Toolbar dropdown explaining node icons and alert badge colours. */
 export function TopologyLegend({ types }: { types: TopologyFilterOption[] }) {
-  return <details className="topology-topbar-menu"><summary>Legenda</summary><div className="topology-topbar-form" role="group" aria-label="Legenda do mapa">
+  return <details className="topology-topbar-menu topology-legend-menu"><summary>Legenda</summary><div className="topology-topbar-form" role="group" aria-label="Legenda do mapa">
     <strong>Tipos de equipamento</strong>
     {types.length ? <div className="snmp-chart-legend">{types.map((option) => <span key={option.value}><EquipmentTypeIcon type={option.value} alt="" />{`${option.label} · ${option.count}`}</span>)}</div> : <small>Sem equipamentos no mapa.</small>}
     <strong>Alertas ativos</strong>

@@ -121,7 +121,7 @@ export function RoleRequestQueue({ onDecided, reloadToken }: RoleRequestQueuePro
     <div className="panel-heading">
       <div><h2 id="role-request-queue-title">Pedidos de roles</h2>{typeof pending === 'number' && <p className="panel-description">{pending === 1 ? '1 pedido por decidir' : `${pending} pedidos por decidir`}</p>}</div>
       <div className="table-actions">
-        <label>Estado <select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); setActionError(''); setSort({ column: 'createdAt', direction: event.target.value === ROLE_REQUEST_FILTERS[0].value ? 'asc' : 'desc' }); }}>{ROLE_REQUEST_FILTERS.map((filter) => <option key={filter.value} value={filter.value}>{filter.label}</option>)}</select></label>
+        <label className="role-request-status-filter">Estado <select className="context-toolbar-selector" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); setActionError(''); setSort({ column: 'createdAt', direction: event.target.value === ROLE_REQUEST_FILTERS[0].value ? 'asc' : 'desc' }); }}>{ROLE_REQUEST_FILTERS.map((filter) => <option key={filter.value} value={filter.value}>{filter.label}</option>)}</select></label>
         <button type="button" className="secondary-button" onClick={() => setRefresh((value) => value + 1)}><RefreshCw size={14} />Atualizar</button>
       </div>
     </div>

@@ -13,22 +13,13 @@ export function IpReservationModal({ ip, close, submit }: Props) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const durationRef = useRef<HTMLSelectElement>(null);
-  const pendingRef = useRef(false);
-  pendingRef.current = pending;
   const isCustom = duration === 'custom';
 
   useEffect(() => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     durationRef.current?.focus();
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !pendingRef.current) close();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      window.removeEventListener('keydown', onKeyDown);
-      previousFocus?.focus();
-    };
-  }, [close]);
+    return () => previousFocus?.focus();
+  }, []);
 
   const save = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -44,7 +35,7 @@ export function IpReservationModal({ ip, close, submit }: Props) {
     finally { setPending(false); }
   };
 
-  return <IpamModal title={`Reservar ${ip.address}`} close={close}>
+  return <IpamModal title={`Reservar ${ip.address}`} close={() => { if (!pending) close(); }}>
     <form className="modal-form" onSubmit={save}>
       <p className="reservation-hint">Reserva este IP para uma intervenção gerida pelo operador. A duração predefinida é 24 horas.</p>
       <label>Duração<select ref={durationRef} value={duration} onChange={(event) => setDuration(event.target.value)}>
