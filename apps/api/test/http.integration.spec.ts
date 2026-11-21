@@ -2391,3 +2391,80 @@ test('Step 34 topology impact: core switch, loops, depth bound, PDU feeds, path 
   assert.equal((await request('GET', `/api/v1/topology/impact?deviceId=${dev.get('core1')}`, 'qa-systems-scoped')).statusCode, 404, 'out-of-scope devices are not revealed');
   console.log(`[step34] core ${core.elapsed.toFixed(0)} ms (server ${core.body.elapsedMs} ms), wide ${wide.elapsed.toFixed(0)} ms (server ${wide.body.elapsedMs} ms), path ${path.elapsed.toFixed(0)} ms`);
 });
+
+test('Step 36 tags: site-scoped catalogue, RBAC, audit, device and subnet filters, Site mismatch and cascade on delete', async () => {
+  const create = async (siteId: string, name: string, color: string, persona = 'qa-admin') => request('POST', '/api/v1/tags', persona, { siteId, name, color });
+  const core = json(await create(ids.siteA, 'core', 'blue'));
+  const dmz = json(await create(ids.siteA, '  dmz  ', 'red'));
+  const lab = json(await create(ids.siteB, 'lab', 'green'));
+  assert.equal(dmz.name, 'dmz');
+  const duplicate = await create(ids.siteA, 'CORE', 'gray');
+  assert.equal(duplicate.statusCode, 409, duplicate.body);
+  assert.equal(json(duplicate).code, 'TAG_NAME_TAKEN');
+  assert.equal((await create(ids.siteB, 'core', 'gray')).statusCode, 201, 'the same name is free on another Site');
+  assert.equal((await create(ids.siteA, 'x', 'violet')).statusCode, 400);
+  assert.equal((await create(ids.siteA, 'ro', 'gray', 'qa-readonly')).statusCode, 403);
+  assert.equal((await create(ids.siteA, 'audit', 'gray', 'qa-auditor')).statusCode, 403);
+
+  const readable = await request('GET', `/api/v1/tags?siteId=${ids.siteA}`, 'qa-readonly');
+  assert.equal(readable.statusCode, 200, readable.body);
+  assert.deepEqual(json(readable).map((tag: { name: string }) => tag.name), ['core', 'dmz']);
+  assert.ok([403, 404].includes((await request('GET', `/api/v1/tags?siteId=${ids.siteB}`, 'qa-readonly')).statusCode), 'no access to Site B');
+
+  const put = (kind: 'devices' | 'subnets', id: string, tagIds: string[], persona = 'qa-admin') => request('PUT', `/api/v1/${kind}/${id}/tags`, persona, { tagIds });
+  const setA = await put('devices', ids.deviceA, [core.id]);
+  assert.equal(setA.statusCode, 200, setA.body);
+  assert.deepEqual(json(setA).tags.map((tag: { name: string }) => tag.name), ['core']);
+  assert.equal((await put('devices', ids.deviceA2, [dmz.id, core.id])).statusCode, 200);
+  const mismatch = await put('devices', ids.deviceA, [lab.id]);
+  assert.equal(mismatch.statusCode, 400);
+  assert.equal(json(mismatch).code, 'TAG_SITE_MISMATCH');
+  assert.equal((await put('devices', ids.deviceA, [core.id], 'qa-readonly')).statusCode, 403);
+  assert.equal((await put('devices', ids.deviceA, [core.id], 'qa-systems-scoped')).statusCode, 403, 'read-only scope cannot tag');
+
+  const deviceNames = async (tag: string, persona = 'qa-admin') => {
+    const response = await request('GET', `/api/v1/devices?siteId=${ids.siteA}&tag=${tag}`, persona);
+    assert.equal(response.statusCode, 200, response.body);
+    return json(response).items.map((item: { name: string; tags: Array<{ name: string }> }) => `${item.name}:${item.tags.map((t) => t.name).join('+')}`).sort();
+  };
+  assert.deepEqual(await deviceNames(core.id), ['HTTP Switch A2:core+dmz', 'HTTP Switch A:core']);
+  assert.deepEqual(await deviceNames(`${core.id},${dmz.id}`), ['HTTP Switch A2:core+dmz']);
+  assert.deepEqual(await deviceNames(core.id, 'qa-systems-scoped'), ['HTTP Switch A2:core+dmz', 'HTTP Switch A:core']);
+  const badFilter = await request('GET', `/api/v1/devices?siteId=${ids.siteA}&tag=nope`, 'qa-admin');
+  assert.equal(badFilter.statusCode, 400);
+  assert.equal(json(badFilter).code, 'TAG_FILTER_INVALID');
+  const single = json(await request('GET', `/api/v1/devices/${ids.deviceA}`, 'qa-admin'));
+  assert.deepEqual(single.tags.map((tag: { name: string }) => tag.name), ['core']);
+
+  const subnetSet = await put('subnets', ids.subnetA, [dmz.id], 'qa-network-scoped');
+  assert.equal(subnetSet.statusCode, 200, subnetSet.body);
+  assert.notEqual((await put('subnets', ids.subnetB, [lab.id], 'qa-network-scoped')).statusCode, 200, 'no write access to Site B');
+  const subnets = await request('GET', `/api/v1/subnets?siteId=${ids.siteA}&tag=${dmz.id}`, 'qa-network-scoped');
+  assert.equal(subnets.statusCode, 200, subnets.body);
+  assert.deepEqual(json(subnets).items.map((item: { cidr: string }) => item.cidr), ['10.250.1.0/24']);
+  assert.deepEqual(json(await request('GET', `/api/v1/subnets?siteId=${ids.siteA}&tag=${core.id}`, 'qa-admin')).items, []);
+  assert.deepEqual(json(await request('GET', `/api/v1/subnets/${ids.subnetA}`, 'qa-admin')).tags.map((tag: { name: string }) => tag.name), ['dmz']);
+
+  // NETWORK_OPERATOR assigns existing tags (above) but cannot change the Site catalog: deleting a tag would reach servers too.
+  assert.equal((await create(ids.siteA, 'net', 'gray', 'qa-network-scoped')).statusCode, 403, 'NETWORK_OPERATOR cannot create tags');
+  assert.equal((await request('PATCH', `/api/v1/tags/${core.id}`, 'qa-network-scoped', { name: 'hijack', color: 'red' })).statusCode, 403, 'NETWORK_OPERATOR cannot rename or recolour tags');
+  assert.equal((await request('DELETE', `/api/v1/tags/${dmz.id}`, 'qa-network-scoped')).statusCode, 403, 'NETWORK_OPERATOR cannot delete tags');
+  assert.deepEqual(json(await request('GET', `/api/v1/tags?siteId=${ids.siteA}`, 'qa-network-scoped')).map((tag: { name: string; color: string }) => `${tag.name}:${tag.color}`), ['core:blue', 'dmz:red'], 'catalog unchanged, still readable');
+
+  const renamed = await request('PATCH', `/api/v1/tags/${core.id}`, 'qa-admin', { name: 'backbone', color: 'purple' });
+  assert.equal(renamed.statusCode, 200, renamed.body);
+  assert.equal(json(renamed).deviceCount, 2);
+  assert.equal((await request('DELETE', `/api/v1/tags/${dmz.id}`, 'qa-admin')).statusCode, 200);
+  assert.deepEqual(json(await request('GET', `/api/v1/devices/${ids.deviceA2}`, 'qa-admin')).tags.map((tag: { name: string }) => tag.name), ['backbone']);
+  assert.deepEqual(json(await request('GET', `/api/v1/subnets/${ids.subnetA}`, 'qa-admin')).tags, []);
+
+  const actions = (await prisma.auditLog.findMany({ where: { action: { in: ['TAG_CREATED', 'TAG_UPDATED', 'TAG_DELETED', 'DEVICE_TAGS_UPDATED', 'SUBNET_TAGS_UPDATED'] } }, select: { action: true, metadata: true } }));
+  const count = (action: string) => actions.filter((entry) => entry.action === action).length;
+  assert.equal(count('TAG_CREATED'), 4);
+  assert.equal(count('TAG_UPDATED'), 1);
+  assert.equal(count('TAG_DELETED'), 1);
+  assert.equal(count('DEVICE_TAGS_UPDATED'), 2);
+  assert.equal(count('SUBNET_TAGS_UPDATED'), 1);
+  const deleted = actions.find((entry) => entry.action === 'TAG_DELETED')?.metadata as { removedFromDevices: number; removedFromSubnets: number };
+  assert.deepEqual([deleted.removedFromDevices, deleted.removedFromSubnets], [1, 1]);
+});

@@ -59,6 +59,8 @@ const operationalFiles = [
   'apps/web/features/topology/impact-panel.tsx',
   'apps/web/features/topology/impact-api.ts',
   'apps/web/features/change-plans/plan-impact.tsx',
+  // Step 36 tags on devices and subnets
+  'apps/web/features/tags/tag-components.tsx',
 ];
 
 function sourceFile(relative, kind = ts.ScriptKind.TSX) {
