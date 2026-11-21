@@ -28,10 +28,13 @@ export interface RackWorkspaceProps {
   onReorderRacks: (roomId: string, rackIds: string[]) => Promise<unknown>;
   onEditDevice: (device: Device) => void;
   canReorderRacks: boolean;
+  /** ADMIN / SYSTEMS_OPERATOR: may disconnect devices from a PDU. */
+  canEditPower?: boolean;
+  onDisconnectPdu?: (rackId: string, pduId: string, deviceId: string) => Promise<void>;
 }
 
 /** Rack gallery of the selected room, or the full detail view of the selected rack. */
-export function RackWorkspace({ rooms, roomId, buildingId, racks, allRoomRacks, selected, setRack, onOut, onDevice, onEdit, onDelete, deletingRackId, canEdit, onPreviewPlacement, onPlaceDevice, onReorderRacks, onEditDevice, canReorderRacks }: RackWorkspaceProps) {
+export function RackWorkspace({ rooms, roomId, buildingId, racks, allRoomRacks, selected, setRack, onOut, onDevice, onEdit, onDelete, deletingRackId, canEdit, onPreviewPlacement, onPlaceDevice, onReorderRacks, onEditDevice, canReorderRacks, canEditPower = false, onDisconnectPdu }: RackWorkspaceProps) {
   const racksPerPage = 5;
   const [firstVisibleRack, setFirstVisibleRack] = useState(0);
   const [reordering, setReordering] = useState(false);
@@ -136,7 +139,7 @@ export function RackWorkspace({ rooms, roomId, buildingId, racks, allRoomRacks, 
     const url = new URL(location.href);
     url.searchParams.delete('rackId');
     history.replaceState({}, '', `${url.pathname}${url.search}`);
-  }} onDevice={onDevice} onEdit={onEdit} onDelete={onDelete} deleting={deletingRackId === selected.id} canEdit={canEdit} onPreviewPlacement={onPreviewPlacement} onPlaceDevice={onPlaceDevice} onEditDevice={onEditDevice} />;
+  }} onDevice={onDevice} onEdit={onEdit} onDelete={onDelete} deleting={deletingRackId === selected.id} canEdit={canEdit} onPreviewPlacement={onPreviewPlacement} onPlaceDevice={onPlaceDevice} onEditDevice={onEditDevice} canEditPower={canEditPower} onDisconnectPdu={onDisconnectPdu} />;
   if (!activeBuildingId) return <section className="ipam-card empty-context"><MapPinned size={28} /><strong>Seleciona um edifício para ver as salas</strong></section>;
   if (!roomId) return <section className="ipam-card empty-context"><MapPinned size={28} /><strong>Seleciona uma sala para ver os bastidores</strong></section>;
 

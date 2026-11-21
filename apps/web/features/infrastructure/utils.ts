@@ -241,6 +241,11 @@ export function readRackView(viewportWidth: number): RackView {
   return viewportWidth >= RACK_BOTH_MIN_WIDTH ? 'both' : 'front';
 }
 
+/** Views the utility-bar picker offers: "Both" only for the rack itself on wide screens, never for a focused device. */
+export function rackViewChoices({ wide, focused }: { wide: boolean; focused: boolean }): RackView[] {
+  return wide && !focused ? ['front', 'rear', 'both'] : ['front', 'rear'];
+}
+
 export function writeRackView(view: RackView): void {
   try {
     sessionStorage.setItem(RACK_VIEW_STORAGE_KEY, view);

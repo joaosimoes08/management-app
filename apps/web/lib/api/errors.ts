@@ -9,6 +9,8 @@ export type ApiErrorPayload = {
   mapped?: number;
   /** PORT_LAYOUT_CONFLICT: the current revision. */
   revision?: string;
+  /** Extra data some conflicts carry (e.g. PDU_HAS_CONNECTIONS: the devices still plugged in). */
+  details?: unknown;
 };
 
 export const localizedApiErrors: Record<string, Record<string, string>> = {

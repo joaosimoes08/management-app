@@ -45,7 +45,72 @@ export interface Rack {
   model?: DeviceModel | null;
   frontAsset?: AssetFile | null;
   devices?: Device[];
+  /** Power distribution: one SUPPLIER PDU always, plus a UPS PDU when the rack has a UPS feed. */
+  pdus?: RackPdu[];
+  /** Derived by the API: a UPS PDU exists => SUPPLIER_AND_UPS ("Rede + UPS"). */
+  powerMode?: RackPowerMode;
+  power?: { mode: RackPowerMode; totals: RackPowerTotals } | null;
 }
+
+// ── Rack power (PDUs, outlets, estimated watts) ───────────────────────────
+
+/** Feed a PDU is on: the supplier mains ("Rede") or the UPS. */
+export type PowerFeedSource = 'SUPPLIER' | 'UPS';
+/** "Só rede elétrica" or "Rede + UPS". */
+export type RackPowerMode = 'SUPPLIER_ONLY' | 'SUPPLIER_AND_UPS';
+/** Where the API says a watt (or plug) value came from. */
+export type ApiPowerValueSource = 'manual' | 'modelo' | 'padrão';
+export type ApiLoadLevel = 'ok' | 'warning' | 'critical';
+
+export interface RackPowerTotals { estimatedWatts: number; bySource: Partial<Record<PowerFeedSource, number>>; unconnectedDeviceIds?: string[] }
+
+/** The API's power summary for one device in a rack (GET racks / sites/:id/racks). */
+export interface DevicePowerSummary {
+  deviceId: string;
+  plugCount: number;
+  plugCountSource: ApiPowerValueSource;
+  estimatedWatts: number;
+  wattsSource: ApiPowerValueSource;
+  connectedPlugs: number;
+  redundant: boolean;
+  assignments: { plugIndex: number; pduId: string; source: PowerFeedSource; outletIndex: number }[];
+}
+
+/** One occupied outlet: the device plug plugged into it. */
+export interface PduOutlet { outletIndex: number; plugIndex: number }
+
+/** A device plugged into a PDU, with its outlets on that PDU. */
+export interface PduConnection {
+  deviceId: string;
+  deviceName: string;
+  /** Outlets this device uses on this PDU. Older payloads may send bare outlet numbers. */
+  outlets: (PduOutlet | number)[];
+  deviceType?: string;
+  /** The device's estimated load carried by this PDU in normal operation. */
+  estimatedWattsShare?: number | null;
+  /** The device's whole estimated load (all plugs): what this PDU carries if the other feed fails. */
+  deviceEstimatedWatts?: number | null;
+  wattsSource?: ApiPowerValueSource;
+}
+
+export interface RackPdu {
+  id: string;
+  rackId: string;
+  source: PowerFeedSource;
+  name?: string | null;
+  outletCount: number;
+  budgetWatts?: number | null;
+  usedOutlets?: number;
+  freeOutlets?: number;
+  estimatedWatts?: number;
+  /** Load on this PDU if the other feed fails (dual-fed devices move their whole load here). */
+  failoverWatts?: number | null;
+  levels?: { outlets: ApiLoadLevel; watts: ApiLoadLevel; failoverWatts: ApiLoadLevel };
+  connections?: PduConnection[];
+}
+
+/** Where a device's estimated watts come from: set on the device, the model's typical value, or the type default. */
+export type WattsSource = 'manual' | 'model' | 'default';
 
 export interface Room {
   id: string;
@@ -136,6 +201,10 @@ export interface DeviceModel {
   backAssetId?: string | null;
   backAsset?: AssetFile | null;
   iconAsset?: AssetFile | null;
+  /** Power plugs (PSUs) of this model; null means unknown (the UI then assumes 2). */
+  powerPlugCount?: number | null;
+  typicalWatts?: number | null;
+  maxWatts?: number | null;
   /** v2 from the API; v1 and numeric seeds are still read for older payloads. */
   portLayout?: PortLayoutV2 | PortLayout | number | null;
 }
@@ -158,9 +227,17 @@ export interface Device {
   rackId?: string | null;
   rackUnitStart?: number | null;
   rackUnitSize?: number | null;
+  /** Per-device override of the model's plug count; null falls back to the model, then to 2. */
+  powerPlugCount?: number | null;
+  /** Per-device estimated load in W; null falls back to the model's typical watts, then to the type default. */
+  estimatedWatts?: number | null;
+  /** Effective plug count, watts and outlets, computed by the API (present on devices loaded with their rack). */
+  power?: DevicePowerSummary | null;
   siteId?: string | null;
   frontAssetId?: string | null;
   backAssetId?: string | null;
+  /** Required configs this device lacks (GET /devices, GET /devices/:id). */
+  requiredConfig?: { missing: string[]; missingTabs: string[]; complete: boolean } | null;
   model?: DeviceModel | null;
   frontAsset?: AssetFile | null;
   backAsset?: AssetFile | null;
@@ -271,22 +348,21 @@ export interface InfrastructurePermission {
 
 // ── Request payloads ───────────────────────────────────────────────────────
 
-export interface DeviceInput {
-  name: string;
-  type: EquipmentType | string;
-  hostname?: string | null;
-  managementIp?: string | null;
-  managementIpAddressId?: string | null;
-  rackId?: string | null;
-  rackUnitStart?: number | null;
-  rackUnitSize?: number;
-  modelId?: string | null;
-  status?: AssetStatus | string;
-  frontAssetId?: string | null;
-  backAssetId?: string | null;
-  siteId?: string | null;
-  notes?: string | null;
-}
+/** Per-PDU settings. Omitted = keep (or default on creation); null clears name / budget. */
+export interface PduSettingsInput { name?: string | null; outletCount?: number; budgetWatts?: number | null }
+
+/** PUT /racks/:id/pdus. SUPPLIER_ONLY removes the UPS PDU (409 PDU_HAS_CONNECTIONS while devices are plugged in). */
+export interface RackPowerInput { mode: RackPowerMode; supplier?: PduSettingsInput; ups?: PduSettingsInput }
+
+/** One plug in PUT /devices/:id/power. pduId null = "Não ligado"; outletIndex null = lowest free outlet. */
+export interface PlugAssignmentInput { plugIndex: number; pduId: string | null; outletIndex?: number | null }
+
+/** PUT /devices/:id/power: replaces every outlet of the device. plugs omitted = default split; [] = unplug all. */
+export interface DevicePowerInput { powerPlugCount?: number | null; estimatedWatts?: number | null; plugs?: PlugAssignmentInput[] }
+
+/** details.devices of a 409 PDU_HAS_CONNECTIONS / PDU_OUTLETS_IN_USE: the devices that block the change. */
+export interface PowerConflictDevice { deviceId: string; deviceName: string; outlets: number[] }
+export interface PowerConflictDetails { pduId: string; source: PowerFeedSource; outletCount?: number; devices: PowerConflictDevice[] }
 
 export interface InterfaceInput {
   name: string;
@@ -319,4 +395,6 @@ export interface RackEditDraft {
   model?: { id?: string } | null;
   frontAssetId?: string | null;
   frontAsset?: { id?: string } | null;
+  pdus?: RackPdu[];
+  powerMode?: RackPowerMode;
 }
