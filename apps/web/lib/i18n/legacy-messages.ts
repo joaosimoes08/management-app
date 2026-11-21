@@ -761,6 +761,7 @@ const enUS: LegacyDictionary = {
 };
 
 const substitutions: Array<[RegExp, string]> = [
+  [/^Valores dos últimos (\d+) dias$/g, 'Values from the last $1 days'],
   [/^Importar (\d+) prefixo\(s\) como subnets deste Site\?$/g, 'Import $1 prefix(es) as subnets of this Site?'],
   [/^Importar (\d+) equipamentos para este Site\?$/g, 'Import $1 devices into this Site?'],
   [/^Atualizar (\d+) equipamentos com os seguintes campos\?$/g, 'Update $1 devices with the following fields?'],

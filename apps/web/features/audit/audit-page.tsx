@@ -6,7 +6,7 @@ import { Download, Eye, RefreshCw, X } from 'lucide-react';
 import { AppShell, ToolbarMore } from '@/components/layout/app-shell';
 import { DataTable, EntityLink, csvFileName, useTableUrlState, type DataTableColumn } from '@/components/data-table';
 import { formatDateTime } from '@/lib/format/date';
-import { exportAuditCsv, getAuditFacets, getAuditPage, type AuditPageEvent } from './api';
+import { exportAuditCsv, facetWindowDays, getAuditFacets, getAuditPage, type AuditPageEvent } from './api';
 import { actorName, auditEntityRef, auditQueryFrom, auditTableConfig, dayBoundary, formatAuditValue, hasAuditFilters, metadataEntries } from './workspace';
 
 const dateTime = (value: string) => formatDateTime(value, { dateStyle: 'short', timeStyle: 'medium' });
@@ -82,6 +82,7 @@ export default function AuditPage() {
   ];
 
   const count = events.length;
+  const facetDays = !filters.from && !filters.to ? facetWindowDays(facets.data) : null;
   const countLabel = pages.hasNextPage ? `${count} eventos carregados` : `${count} eventos`;
 
   return <AppShell section="Auditoria" search={{ value: search, onChange: setSearch, placeholder: 'Pesquisar ação, registo, IP ou utilizador…', ariaLabel: 'Pesquisar eventos de auditoria', scopeLabel: 'Auditoria' }} actions={<><ToolbarMore label="Filtros"><div className="audit-filters">
@@ -91,7 +92,7 @@ export default function AuditPage() {
     <label>Desde<input type="date" value={filters.from} max={filters.to || undefined} onChange={(event) => setFilter('from', event.target.value)} /></label>
     <label>Até<input type="date" value={filters.to} min={filters.from || undefined} onChange={(event) => setFilter('to', event.target.value)} /></label>
     <label>Pedidos HTTP<select aria-label="Pedidos HTTP" value={filters.http} onChange={(event) => setFilter('http', event.target.value)}><option value="">Ocultar</option><option value="1">Mostrar</option></select></label>
-  </div></ToolbarMore>
+  </div>{facetDays !== null && <p className="form-help">{`Valores dos últimos ${facetDays} dias`}</p>}</ToolbarMore>
     {filtering && <button className="topbar-action secondary-button" onClick={clearFilters}><X size={14} /> Limpar filtros</button>}
     <button className="topbar-action secondary-button" onClick={() => void download()} disabled={exporting || !count}><Download size={14} /> {exporting ? 'A exportar…' : 'Exportar CSV'}</button>
     <button className="topbar-action secondary-button" onClick={() => { void pages.refetch(); void facets.refetch(); }} disabled={pages.isFetching}><RefreshCw size={14} /> Atualizar</button>

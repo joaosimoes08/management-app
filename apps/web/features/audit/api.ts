@@ -25,7 +25,14 @@ export interface AuditPageEvent extends AuditEvent {
 
 export type AuditPage = { items: AuditPageEvent[]; nextCursor: string | null; hasMore: boolean; limit: number };
 export type AuditFacetValue = { value: string; count: number };
-export type AuditFacets = { actions: AuditFacetValue[]; entityTypes: AuditFacetValue[]; actors: Array<AuditActor & { count: number }>; truncated: boolean };
+export type AuditFacets = { actions: AuditFacetValue[]; entityTypes: AuditFacetValue[]; actors: Array<AuditActor & { count: number }>; truncated: boolean; from?: string | null; to?: string | null };
+
+/** Days covered by facets the server returned without a date filter (it defaults to the last 90). */
+export function facetWindowDays(facets: Pick<AuditFacets, 'from' | 'to'> | undefined, now = Date.now()): number | null {
+  if (!facets?.from || facets.to) return null;
+  const start = Date.parse(facets.from);
+  return Number.isFinite(start) ? Math.max(1, Math.round((now - start) / 86_400_000)) : null;
+}
 
 /** Server-side filters shared by `/page` and `/export`. Empty values are left out. */
 export type AuditQuery = { q?: string; action?: string; entityType?: string; entityId?: string; actorId?: string; from?: string; to?: string; excludeHttp?: boolean };
