@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, Server, ShieldCheck, Users, X } from 'lucide-react';
 import { AppShell, PageToolbarPortal } from '@/components/layout/app-shell';
 import { CsvExportButton, DataTable, EntityLink, HistoryBlock, csvColumnsOf, sortByColumns, useTableUrlState, type DataTableColumn, type TableStateConfig } from '@/components/data-table';
@@ -11,10 +11,10 @@ import { useAuth } from '@/lib/auth';
 import { useSiteContext } from '@/lib/site-context';
 import { Empty } from '@/features/ipam/components/ipam-modal';
 import { translateLegacyText } from '@/lib/i18n/legacy-messages';
-import { BulkConfirmDialog, CorrectionCloseDialog, OwnerDialog, ReviewDialog, type BulkItem, type BulkResult } from './critical-assets-dialogs';
+import { BulkConfirmDialog, CorrectionCloseDialog, CorrectionRequestDialog, OwnerDialog, ReviewDialog, type BulkItem, type BulkResult } from './critical-assets-dialogs';
 import {
-  assetTypes, buildRows, countRows, dueLabels, dueOrder, dueTone, emptyFilters, filterRows, hasActiveFilters, NO_OUTCOME, NO_OWNER, outcomeLabel, outcomeTone, withRecordedAttestation, currentCycle, hasOlderPending,
-  type AssetRow, type Attestation, type ComplianceCell, type CriticalAssetsResult, type Correction, type Filters, type Group, type Outcome, complianceCells,
+  assetTypes, buildRows, countRows, dueLabels, dueOrder, dueTone, emptyFilters, filterRows, hasActiveFilters, MAX_SERVER_PAGE, NO_OUTCOME, NO_OWNER, outcomeLabel, outcomeTone, PAGE_SIZE, toRow, withRecordedAttestation, currentCycle, hasOlderPending,
+  type AssetPage, type AssetRow, type Attestation, type ComplianceCell, type CriticalAssetsResult, type Correction, type Filters, type Group, type Outcome, complianceCells,
 } from './workbench';
 
 type View = 'assets' | 'corrections' | 'compliance';
@@ -24,10 +24,25 @@ const reviewerRoles = ['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'STORAGE
 const errorText = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
 const isAlreadyRecorded = (cause: unknown) => cause instanceof ApiRequestError && (cause.code === 'CRITICAL_ASSET_ATTESTATION_ALREADY_RECORDED' || cause.status === 409);
 
-type Review = { asset: AssetRow; attestation: Attestation; outcome: Outcome };
+type Review = { asset: AssetRow; attestation: Attestation };
 type Notice = { tone: 'success' | 'error'; text: string } | null;
 
 const noGroups: Group[] = [];
+/** The server's "no owner" / "no review" filter value (see NO_FILTER_VALUE in the API). */
+const SERVER_NONE = 'NONE';
+/** Bulk confirm is capped per request on the server (BULK_CONFIRM_LIMIT); bigger selections go in chunks. */
+const BULK_CHUNK = 100;
+
+/** Query string for the paged endpoint: the same filters the table shows, applied on the server. */
+export function assetsPageUrl(siteId: string, filters: Filters, search: string, page: number, pageSize: number) {
+  const params = new URLSearchParams({ siteId, page: String(page), pageSize: String(pageSize) });
+  if (search.trim()) params.set('q', search.trim());
+  for (const key of ['type', 'owner', 'outcome', 'due', 'tier'] as const) {
+    const value = filters[key];
+    if (value) params.set(key, value === NO_OWNER || value === NO_OUTCOME ? SERVER_NONE : value);
+  }
+  return `/api/v1/critical-assets/assets?${params.toString()}`;
+}
 /** Search, filters and sort live in the URL (`?q=&type=&owner=&outcome=&due=&sort=`); no sort keeps the overdue-first order. */
 const tableConfig: TableStateConfig<Filters> = { filters: emptyFilters, sortable: ['name', 'type', 'owner', 'outcome', 'due'] };
 
@@ -41,12 +56,16 @@ export function CriticalAssetsPage() {
   useEffect(() => setHydrated(true), []);
 
   const table = useTableUrlState(tableConfig);
-  const { search, filters, setSearch, setFilter } = table;
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const { search, filters, setSearch, setFilter, clearFilters: clearUrlFilters } = table;
+  // Selected rows across pages, keyed by asset id: a row keeps its pending reviews until the selection is cleared.
+  const [selection, setSelection] = useState<Map<string, AssetRow>>(new Map());
+  const [page, setPage] = useState(1);
+  const [selectingAll, setSelectingAll] = useState(false);
   const [detailId, setDetailId] = useState('');
   const [linkedWeek, setLinkedWeek] = useState('');
   const openedLink = useRef(false);
   const [review, setReview] = useState<Review | null>(null);
+  const [request, setRequest] = useState<Review | null>(null);
   const [ownerType, setOwnerType] = useState<string | null>(null);
   const [bulkPlan, setBulkPlan] = useState<{ selectedCount: number; olderCount: number; items: BulkItem[] } | null>(null);
   const [bulkRunning, setBulkRunning] = useState(false);
@@ -62,9 +81,12 @@ export function CriticalAssetsPage() {
   const { data: queryGroups } = useQuery({ queryKey: ['critical-asset-groups', siteId], queryFn: () => apiFetch<Group[]>(`/api/v1/settings/access-groups?siteId=${encodeURIComponent(siteId)}`), enabled: Boolean(siteId) && isAdmin });
   const { data: correctionData, isLoading: correctionsLoading, error: correctionsError } = useQuery({ queryKey: ['critical-asset-corrections', siteId], queryFn: () => apiFetch<{ items: Correction[] }>(`/api/v1/critical-assets/corrections?siteId=${encodeURIComponent(siteId)}`), enabled: Boolean(siteId) && hydrated && view === 'corrections' });
   const data = hydrated ? queryData : undefined;
+  // The table pages through the server: filters, search and paging are applied there, one page at a time.
+  const pageKey = ['critical-assets', 'page', siteId, filters, search, page];
+  const { data: pageData, error: pageError, isLoading: pageLoading } = useQuery({ queryKey: pageKey, queryFn: () => apiFetch<AssetPage>(assetsPageUrl(siteId, filters, search, page, PAGE_SIZE)), enabled: Boolean(siteId) && hydrated && view === 'assets', placeholderData: keepPreviousData });
   // The server render has no query data, so it is always "loading" until hydration finishes.
-  const loading = hydrated ? isLoading : true;
-  const error = hydrated ? queryError : null;
+  const loading = hydrated ? (view === 'assets' ? pageLoading : isLoading) : true;
+  const error = hydrated ? queryError ?? (view === 'assets' ? pageError : null) : null;
   const groups = (hydrated && queryGroups) || noGroups;
   const locale = hydrated && window.localStorage.getItem('cociber.locale') === 'en-US' ? 'en-US' : 'pt-PT';
   const formatDate = useCallback((value?: string | null, withTime = false) => {
@@ -84,15 +106,18 @@ export function CriticalAssetsPage() {
     setLinkedWeek(query.get('week') ?? '');
   }, [rows]);
   const counts = useMemo(() => countRows(rows), [rows]);
-  const visible = useMemo(() => filterRows(rows, search, filters), [rows, search, filters]);
+  const pageRows = useMemo(() => (pageData?.items ?? []).map((asset) => toRow(asset, data?.mappings ?? [])), [pageData, data?.mappings]);
+  const total = pageData?.total ?? 0;
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const owners = useMemo(() => {
     const byId = new Map<string, Group>();
     for (const group of [...(data?.mappings.map((mapping) => mapping.group) ?? []), ...groups]) byId.set(group.id, group);
     return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [data?.mappings, groups]);
   const eligible = (row: AssetRow) => canReview && row.pending.length > 0;
-  // Only rows on screen: a selection hidden by search or filters is never part of a bulk action.
-  const selectedRows = visible.filter((row) => selected.has(row.id) && eligible(row));
+  // Only reviewable rows count; the selection is cleared whenever search or filters change, so a bulk action never mixes filters.
+  const selectedRows = [...selection.values()].filter(eligible);
+  const selectedIds = useMemo(() => new Set(selection.keys()), [selection]);
   const bulkItems: BulkItem[] = selectedRows.flatMap((row) => { const attestation = currentCycle(row); return attestation ? [{ key: attestation.id, attestationId: attestation.id, assetName: row.name, weekStart: attestation.weekStart }] : []; });
   const bulkOlder = selectedRows.filter(hasOlderPending).length;
   const detail = rows.find((row) => row.id === detailId) ?? null;
@@ -103,15 +128,6 @@ export function CriticalAssetsPage() {
   const correctionRows = (correctionData?.items ?? []).filter((item) => (correctionTab === 'open' ? item.status === 'OPEN' : item.status !== 'OPEN'));
   const openCorrectionCount = (correctionData?.items ?? []).filter((item) => item.status === 'OPEN').length;
   const filtering = hasActiveFilters(search, filters);
-
-  // Drop selections that are hidden by search/filters or no longer reviewable (e.g. recorded elsewhere),
-  // so the bulk button count always matches what is on screen.
-  useEffect(() => {
-    setSelected((current) => {
-      const next = new Set([...current].filter((id) => visible.some((row) => row.id === id && row.pending.length > 0)));
-      return next.size === current.size ? current : next;
-    });
-  }, [visible]);
 
   // After a Site switch the owner filter may name a group of the previous Site: clear it (no history entry)
   // once this Site's assets, and for admins its groups, have loaded, so an empty list while loading never clears it.
@@ -126,8 +142,22 @@ export function CriticalAssetsPage() {
   const restoreFocus = () => { const target = returnFocus.current; returnFocus.current = null; window.setTimeout(() => target?.isConnected && target.focus(), 0); };
   const openDetail = (row: AssetRow) => { remember(); setLinkedWeek(''); setDetailId(row.id); };
   const closeDetail = () => { setDetailId(''); restoreFocus(); };
-  const openReview = (asset: AssetRow, attestation: Attestation, outcome: Outcome) => { if (!detailId) remember(); setReview({ asset, attestation, outcome }); };
+  const openReview = (asset: AssetRow, attestation: Attestation) => { if (!detailId) remember(); setReview({ asset, attestation }); };
   const closeReview = () => { setReview(null); if (!detailId) restoreFocus(); };
+  const openRequest = (asset: AssetRow, attestation: Attestation) => { if (!detailId) remember(); setRequest({ asset, attestation }); };
+  const closeRequest = () => { setRequest(null); if (!detailId) restoreFocus(); };
+  /** A new search or filter starts a new result set: the page goes back to 1 and the selection is cleared. */
+  const changeSearch = (value: string) => { setPage(1); setSelection(new Map()); setSearch(value); };
+  const changeFilter = (key: keyof Filters, value: string) => { setPage(1); setSelection(new Map()); setFilter(key, value); };
+  const clearFilters = () => { setPage(1); setSelection(new Map()); clearUrlFilters(); };
+  const setRowsSelected = (next: Set<string>) => setSelection((current) => {
+    const map = new Map<string, AssetRow>();
+    for (const id of next) {
+      const row = current.get(id) ?? pageRows.find((item) => item.id === id);
+      if (row) map.set(id, row);
+    }
+    return map;
+  });
   const openOwner = (type: string) => { if (!detailId) remember(); setOwnerType(type); };
   const closeOwner = () => { setOwnerType(null); if (!detailId) restoreFocus(); };
   const closeBulk = () => { if (bulkRunning) return; setBulkPlan(null); setBulkResults(null); restoreFocus(); };
@@ -135,6 +165,7 @@ export function CriticalAssetsPage() {
   const closeTopmost = useRef<() => void>(() => undefined);
   closeTopmost.current = () => {
     if (review) closeReview();
+    else if (request) closeRequest();
     else if (ownerType !== null) closeOwner();
     else if (bulkPlan) closeBulk();
     else if (detailId) closeDetail();
@@ -148,7 +179,8 @@ export function CriticalAssetsPage() {
   useEffect(() => { if (detailId) panelClose.current?.focus(); }, [detailId]);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['critical-assets'] });
-  const applySaved = (saved: Attestation) => queryClient.setQueriesData<CriticalAssetsResult>({ queryKey: ['critical-assets'] }, (current) => withRecordedAttestation(current, saved));
+  // The full list is patched at once; the paged table refetches with the rest of the 'critical-assets' queries.
+  const applySaved = (saved: Attestation) => queryClient.setQueryData<CriticalAssetsResult>(queryKey, (current) => withRecordedAttestation(current, saved));
   const postReview = (attestationId: string, outcome: Outcome, notes?: string) => apiFetch<Attestation>(`/api/v1/critical-assets/${attestationId}/confirm`, { method: 'POST', body: JSON.stringify({ outcome, notes: notes || undefined }) });
 
   /** Single review. Returns an error text for the dialog, or null on success. */
@@ -168,35 +200,66 @@ export function CriticalAssetsPage() {
     }
   };
   const quickConfirm = (asset: AssetRow) => { const attestation = asset.pending[0]; if (attestation) void record(asset, attestation, 'CONFIRMED'); };
-  const submitReview = async (outcome: Outcome, notes: string) => {
+  const submitReview = async (notes: string) => {
     if (!review) return null;
-    const failure = await record(review.asset, review.attestation, outcome, notes);
+    const failure = await record(review.asset, review.attestation, 'CONFIRMED', notes);
     if (!failure) closeReview();
     return failure;
+  };
+  const submitRequest = async (description: string) => {
+    if (!request) return null;
+    const failure = await record(request.asset, request.attestation, 'NEEDS_CORRECTION', description);
+    if (!failure) closeRequest();
+    return failure;
+  };
+
+  /** Adds every reviewable asset that matches the current filters, across all pages, to the selection. */
+  const selectAllMatching = async () => {
+    setSelectingAll(true);
+    setNotice(null);
+    try {
+      const collected: AssetRow[] = [];
+      const pages = Math.ceil(total / MAX_SERVER_PAGE);
+      for (let number = 1; number <= pages; number += 1) {
+        const response = await apiFetch<AssetPage>(assetsPageUrl(siteId, filters, search, number, MAX_SERVER_PAGE));
+        collected.push(...response.items.map((asset) => toRow(asset, data?.mappings ?? [])));
+      }
+      setSelection((current) => {
+        const next = new Map(current);
+        for (const row of collected) if (eligible(row)) next.set(row.id, row);
+        return next;
+      });
+    } catch (cause) {
+      setNotice({ tone: 'error', text: errorText(cause, 'Não foi possível selecionar os ativos correspondentes.') });
+    }
+    setSelectingAll(false);
   };
 
   const runBulk = async () => {
     if (!bulkPlan) return;
     setBulkRunning(true);
-    setBulkResults({});
-    try {
-      // One request, one transaction on the server; it answers with a result per item.
-      const response = await apiFetch<{ results: Array<{ id: string; ok: true; outcome: string } | { id: string; ok: false; code: string; message: string }> }>('/api/v1/critical-assets/confirm-bulk', { method: 'POST', body: JSON.stringify({ items: bulkPlan.items.map((item) => ({ id: item.attestationId, outcome: 'CONFIRMED' })) }) });
-      const byId = new Map(response.results.map((result) => [result.id, result]));
-      const results: Record<string, BulkResult> = {};
-      for (const item of bulkPlan.items) {
-        const result = byId.get(item.attestationId);
-        if (!result) results[item.key] = { key: item.key, state: 'failed', message: 'Sem resposta para esta revisão.' };
-        else if (result.ok) results[item.key] = { key: item.key, state: 'recorded' };
-        else results[item.key] = result.code === 'ALREADY_RECORDED' ? { key: item.key, state: 'already', message: result.message } : { key: item.key, state: 'failed', message: result.message };
+    const results: Record<string, BulkResult> = {};
+    setBulkResults(results);
+    for (let start = 0; start < bulkPlan.items.length; start += BULK_CHUNK) {
+      const chunk = bulkPlan.items.slice(start, start + BULK_CHUNK);
+      try {
+        // One request per chunk, one transaction on the server; it answers with a result per item.
+        const response = await apiFetch<{ results: Array<{ id: string; ok: true; outcome: string } | { id: string; ok: false; code: string; message: string }> }>('/api/v1/critical-assets/confirm-bulk', { method: 'POST', body: JSON.stringify({ items: chunk.map((item) => ({ id: item.attestationId, outcome: 'CONFIRMED' })) }) });
+        const byId = new Map(response.results.map((result) => [result.id, result]));
+        for (const item of chunk) {
+          const result = byId.get(item.attestationId);
+          if (!result) results[item.key] = { key: item.key, state: 'failed', message: 'Sem resposta para esta revisão.' };
+          else if (result.ok) results[item.key] = { key: item.key, state: 'recorded' };
+          else results[item.key] = result.code === 'ALREADY_RECORDED' ? { key: item.key, state: 'already', message: result.message } : { key: item.key, state: 'failed', message: result.message };
+        }
+      } catch (cause) {
+        const message = errorText(cause, 'Não foi possível registar as revisões.');
+        for (const item of chunk) results[item.key] = { key: item.key, state: 'failed', message };
       }
-      setBulkResults(results);
-    } catch (cause) {
-      const message = errorText(cause, 'Não foi possível registar as revisões.');
-      setBulkResults(Object.fromEntries(bulkPlan.items.map((item) => [item.key, { key: item.key, state: 'failed' as const, message }])));
+      setBulkResults({ ...results });
     }
     setBulkRunning(false);
-    setSelected(new Set());
+    setSelection(new Map());
     void refresh();
   };
 
@@ -225,8 +288,7 @@ export function CriticalAssetsPage() {
     }
   };
 
-  const toggleCountFilter = (key: keyof Filters, value: string) => setFilter(key, filters[key] === value ? '' : value);
-  const clearFilters = table.clearFilters;
+  const toggleCountFilter = (key: keyof Filters, value: string) => changeFilter(key, filters[key] === value ? '' : value);
 
   const tr = (text: string) => translateLegacyText(locale, text);
   const columns: DataTableColumn<AssetRow>[] = [
@@ -256,12 +318,14 @@ export function CriticalAssetsPage() {
     {
       id: 'actions', header: 'Ações', className: 'table-actions',
       cell: (row) => <>
-        {eligible(row) && <><button className="secondary-button" aria-label={`Confirmar revisão de ${row.name}`} onClick={() => quickConfirm(row)}>Confirmar</button><button className="secondary-button" aria-label={`Pedir correção de ${row.name}`} onClick={() => openReview(row, row.pending[0], 'NEEDS_CORRECTION')}>Pedir correção</button></>}
+        {eligible(row) && <><button className="secondary-button" aria-label={`Confirmar revisão de ${row.name}`} onClick={() => quickConfirm(row)}>Confirmar</button><button className="secondary-button" aria-label={`Pedir correção de ${row.name}`} onClick={() => openRequest(row, row.pending[0])}>Pedir correção</button></>}
         {isAdmin && !row.owner && <button className="secondary-button" aria-label={`Atribuir responsável a ${row.name}`} onClick={() => openOwner(row.type)}>Atribuir responsável</button>}
       </>,
     },
   ];
-  const sorted = sortByColumns(visible, columns, table.sort);
+  // The table shows one server page, sorted within that page; the CSV export covers every matching row of the full list.
+  const sorted = sortByColumns(pageRows, columns, table.sort);
+  const exported = sortByColumns(filterRows(rows, search, filters), columns, table.sort);
   // The page's text translator never sees the CSV file: headers and status labels are translated here.
   const csvColumns = csvColumnsOf(columns).map((column) => ({ ...column, header: tr(column.header) }));
 
@@ -306,18 +370,18 @@ export function CriticalAssetsPage() {
   ];
 
   const actions = <>
-    <CsvExportButton rows={sorted} columns={csvColumns} fileName="ativos-criticos" />
+    <CsvExportButton rows={exported} columns={csvColumns} fileName="ativos-criticos" />
     {isAdmin && <button className="secondary-button" onClick={() => openOwner(assetTypes[0])}><Users size={14} /> Responsáveis</button>}
     {canReview && <button className="primary-button" disabled={!selectedRows.length} onClick={() => { remember(); setBulkResults(null); setBulkPlan({ selectedCount: selectedRows.length, olderCount: bulkOlder, items: bulkItems }); }}><ShieldCheck size={14} /> {`Confirmar selecionados (${selectedRows.length})`}</button>}
   </>;
 
-  return <AppShell section="Ativos críticos" search={{ value: search, onChange: setSearch, placeholder: 'Pesquisar nome, hostname, IP, série ou etiqueta…', ariaLabel: 'Pesquisar ativos críticos' }} actions={actions}>
+  return <AppShell section="Ativos críticos" search={{ value: search, onChange: changeSearch, placeholder: 'Pesquisar nome, hostname, IP, série ou etiqueta…', ariaLabel: 'Pesquisar ativos críticos' }} actions={actions}>
     <PageToolbarPortal><div className="interface-toolbar-controls critical-assets-filters">
-      <label>Tipo<select aria-label="Filtrar por tipo" value={filters.type} onChange={(event) => setFilter('type', event.target.value)}><option value="">Todos</option>{assetTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
-      <label>Responsável<select aria-label="Filtrar por grupo responsável" value={filters.owner} onChange={(event) => setFilter('owner', event.target.value)}><option value="">Todos</option><option value={NO_OWNER}>Sem responsável</option>{owners.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
-      <label>Último resultado<select aria-label="Filtrar por último resultado" value={filters.outcome} onChange={(event) => setFilter('outcome', event.target.value)}><option value="">Todos</option><option value="CONFIRMED">Confirmado</option><option value="NEEDS_CORRECTION">Correção pedida</option><option value={NO_OUTCOME}>Sem revisão</option></select></label>
-      <label>Prazo<select aria-label="Filtrar por prazo" value={filters.due} onChange={(event) => setFilter('due', event.target.value)}><option value="">Todos</option>{(Object.keys(dueLabels) as Array<keyof typeof dueLabels>).map((state) => <option key={state} value={state}>{dueLabels[state]}</option>)}</select></label>
-      <label>Criticidade<select aria-label="Filtrar por criticidade" value={filters.tier} onChange={(event) => setFilter('tier', event.target.value)}><option value="">Todos</option><option value="T1">T1 · Vital</option><option value="T2">T2 · Importante</option><option value="T3">T3 · Padrão</option></select></label>
+      <label>Tipo<select aria-label="Filtrar por tipo" value={filters.type} onChange={(event) => changeFilter('type', event.target.value)}><option value="">Todos</option>{assetTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
+      <label>Responsável<select aria-label="Filtrar por grupo responsável" value={filters.owner} onChange={(event) => changeFilter('owner', event.target.value)}><option value="">Todos</option><option value={NO_OWNER}>Sem responsável</option>{owners.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
+      <label>Último resultado<select aria-label="Filtrar por último resultado" value={filters.outcome} onChange={(event) => changeFilter('outcome', event.target.value)}><option value="">Todos</option><option value="CONFIRMED">Confirmado</option><option value="NEEDS_CORRECTION">Correção pedida</option><option value={NO_OUTCOME}>Sem revisão</option></select></label>
+      <label>Prazo<select aria-label="Filtrar por prazo" value={filters.due} onChange={(event) => changeFilter('due', event.target.value)}><option value="">Todos</option>{(Object.keys(dueLabels) as Array<keyof typeof dueLabels>).map((state) => <option key={state} value={state}>{dueLabels[state]}</option>)}</select></label>
+      <label>Criticidade<select aria-label="Filtrar por criticidade" value={filters.tier} onChange={(event) => changeFilter('tier', event.target.value)}><option value="">Todos</option><option value="T1">T1 · Vital</option><option value="T2">T2 · Importante</option><option value="T3">T3 · Padrão</option></select></label>
       {filtering && <button className="secondary-button" onClick={clearFilters}><X size={14} /> Limpar filtros</button>}
     </div></PageToolbarPortal>
     <main className="module-page aligned-workspace"><section className="ipam-card page-primary-card critical-assets-card">
@@ -335,7 +399,8 @@ export function CriticalAssetsPage() {
         {countButtons.map((item) => <button key={item.label} type="button" aria-pressed={filters[item.key] === item.filter} className={filters[item.key] === item.filter ? 'active' : ''} onClick={() => toggleCountFilter(item.key, item.filter)}><strong>{item.value}</strong><span>{item.label}</span></button>)}
       </div>
 
-      <h2 className="critical-assets-count" aria-live="polite">{filtering ? `${visible.length} de ${rows.length} ativos` : `${rows.length} ativos críticos`}</h2>
+      <h2 className="critical-assets-count" aria-live="polite">{filtering ? `${total} de ${rows.length} ativos` : `${rows.length} ativos críticos`}</h2>
+      {canReview && total > pageRows.length && <div className="table-actions"><button className="secondary-button" disabled={selectingAll} onClick={() => void selectAllMatching()}>{selectingAll ? 'A selecionar…' : `Selecionar os ${total} ativos que correspondem`}</button></div>}
       <DataTable
         rows={sorted}
         columns={columns}
@@ -346,9 +411,14 @@ export function CriticalAssetsPage() {
         onSortChange={table.setSort}
         defaultSort={table.defaultSort}
         loading={loading}
-        selection={canReview ? { selected, onChange: setSelected, isSelectable: eligible, rowLabel: (row, selectable) => (selectable ? `Selecionar ativo ${row.name}` : `${row.name} sem revisão pendente`), allLabel: 'Selecionar todos os ativos com revisão pendente' } : undefined}
+        selection={canReview ? { selected: selectedIds, onChange: setRowsSelected, isSelectable: eligible, rowLabel: (row, selectable) => (selectable ? `Selecionar ativo ${row.name}` : `${row.name} sem revisão pendente`), allLabel: 'Selecionar todos os ativos com revisão pendente' } : undefined}
         empty={error ? null : <Empty title={filtering ? 'Sem ativos correspondentes' : 'Ainda não existem ativos críticos'} text={filtering ? 'Muda a pesquisa ou limpa os filtros.' : 'Marca equipamentos como críticos no inventário para os rever aqui.'} />}
       />
+      {total > PAGE_SIZE && <nav className="table-actions" aria-label="Paginação de ativos">
+        <button className="secondary-button" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Anterior</button>
+        <span>{`Página ${page} de ${pageCount}`}</span>
+        <button className="secondary-button" disabled={page >= pageCount} onClick={() => setPage((current) => Math.min(pageCount, current + 1))}>Seguinte</button>
+      </nav>}
       </>}
       {view === 'corrections' && <>
         <div className="critical-assets-views" role="group" aria-label="Estado das correções">
@@ -400,14 +470,15 @@ export function CriticalAssetsPage() {
           actor: attestation.outcome ? attestation.confirmedByName ?? 'Revisor desconhecido' : null,
           note: attestation.notes,
           actions: !attestation.outcome && canReview ? <div className="table-actions">
-            <button className="secondary-button" onClick={() => openReview(detail, attestation, 'CONFIRMED')}>Confirmar</button>
-            <button className="secondary-button" onClick={() => openReview(detail, attestation, 'NEEDS_CORRECTION')}>Pedir correção</button>
+            <button className="secondary-button" onClick={() => openReview(detail, attestation)}>Confirmar</button>
+            <button className="secondary-button" onClick={() => openRequest(detail, attestation)}>Pedir correção</button>
           </div> : null,
         }))}
       />
     </aside>}
 
-    {review && <ReviewDialog key={review.attestation.id} asset={review.asset} attestation={review.attestation} initialOutcome={review.outcome} formatDate={formatDate} close={closeReview} submit={submitReview} />}
+    {review && <ReviewDialog key={review.attestation.id} asset={review.asset} attestation={review.attestation} formatDate={formatDate} close={closeReview} submit={submitReview} />}
+    {request && <CorrectionRequestDialog key={`request-${request.attestation.id}`} asset={request.asset} attestation={request.attestation} formatDate={formatDate} close={closeRequest} submit={submitRequest} />}
     {correctionDialog && <CorrectionCloseDialog assetName={correctionDialog.correction.device?.name ?? 'ativo'} description={correctionDialog.correction.description} outcome={correctionDialog.outcome} close={() => setCorrectionDialog(null)} submit={(value) => closeCorrection(correctionDialog.correction, correctionDialog.outcome, value)} />}
     {ownerType !== null && <OwnerDialog initialType={ownerType} mappings={data?.mappings ?? []} groups={groups} timezone={data?.timezone ?? 'Europe/Lisbon'} close={closeOwner} save={saveOwner} />}
     {bulkPlan && <BulkConfirmDialog selectedCount={bulkPlan.selectedCount} olderCount={bulkPlan.olderCount} items={bulkPlan.items} results={bulkResults} running={bulkRunning} formatDate={formatDate} close={closeBulk} run={() => void runBulk()} />}

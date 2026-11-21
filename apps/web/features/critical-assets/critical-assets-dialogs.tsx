@@ -3,41 +3,62 @@
 import { useState, type FormEvent } from 'react';
 import { CheckCircle2, X } from 'lucide-react';
 import { IpamModal } from '@/features/ipam/components/ipam-modal';
-import { assetTypes, type AssetRow, type Attestation, type Group, type Mapping, type Outcome } from './workbench';
+import { assetTypes, type AssetRow, type Attestation, type Group, type Mapping } from './workbench';
 
 export type DateFormatter = (value?: string | null, withTime?: boolean) => string;
 
-/** Review one pending cycle: outcome + notes. Replaces the old window.prompt. */
-export function ReviewDialog({ asset, attestation, initialOutcome, formatDate, close, submit }: {
+/** Confirm one pending cycle: the data is correct; notes are optional. A correction request has its own dialog. */
+export function ReviewDialog({ asset, attestation, formatDate, close, submit }: {
   asset: AssetRow;
   attestation: Attestation;
-  initialOutcome: Outcome;
   formatDate: DateFormatter;
   close: () => void;
-  submit: (outcome: Outcome, notes: string) => Promise<string | null>;
+  submit: (notes: string) => Promise<string | null>;
 }) {
-  const [outcome, setOutcome] = useState<Outcome>(initialOutcome);
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    if (outcome === 'NEEDS_CORRECTION' && !notes.trim()) { setError('Indica os dados a corrigir.'); return; }
     setSaving(true);
     setError('');
-    const failure = await submit(outcome, notes.trim());
+    const failure = await submit(notes.trim());
     setSaving(false);
     if (failure) setError(failure);
   };
-  return <IpamModal title={`Rever ${asset.name}`} close={close}><form className="modal-form" onSubmit={(event) => void onSubmit(event)}>
+  return <IpamModal title={`Confirmar revisão de ${asset.name}`} close={close}><form className="modal-form" onSubmit={(event) => void onSubmit(event)}>
     <p className="panel-description">{`Semana de ${formatDate(attestation.weekStart)}. Confirma nome, tipo, hostname, IP de gestão, número de série, etiqueta e estado. Nada é alterado automaticamente no inventário.`}</p>
     {error && <div className="ipam-alert error" role="alert"><X size={15} />{error}</div>}
-    <div className="settings-methods" role="radiogroup" aria-label="Resultado da revisão">
-      <label><input type="radio" name="critical-asset-outcome" value="CONFIRMED" checked={outcome === 'CONFIRMED'} onChange={() => setOutcome('CONFIRMED')} />Dados corretos</label>
-      <label><input type="radio" name="critical-asset-outcome" value="NEEDS_CORRECTION" checked={outcome === 'NEEDS_CORRECTION'} onChange={() => setOutcome('NEEDS_CORRECTION')} />Pedir correção</label>
-    </div>
-    <label>{outcome === 'NEEDS_CORRECTION' ? 'Dados a corrigir (obrigatório)' : 'Notas (opcional)'}<textarea autoFocus rows={4} maxLength={1000} required={outcome === 'NEEDS_CORRECTION'} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
-    <div className="modal-actions"><button type="button" className="secondary-button" onClick={close}>Cancelar</button><button className="primary-button" disabled={saving}>{saving ? 'A guardar…' : outcome === 'NEEDS_CORRECTION' ? 'Registar pedido de correção' : 'Registar confirmação'}</button></div>
+    <label>Notas (opcional)<textarea autoFocus rows={4} maxLength={1000} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
+    <div className="modal-actions"><button type="button" className="secondary-button" onClick={close}>Cancelar</button><button className="primary-button" disabled={saving}>{saving ? 'A guardar…' : 'Registar confirmação'}</button></div>
+  </form></IpamModal>;
+}
+
+/** Request a correction for one pending cycle: the description of what to fix is required. */
+export function CorrectionRequestDialog({ asset, attestation, formatDate, close, submit }: {
+  asset: AssetRow;
+  attestation: Attestation;
+  formatDate: DateFormatter;
+  close: () => void;
+  submit: (description: string) => Promise<string | null>;
+}) {
+  const [description, setDescription] = useState('');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const onSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!description.trim()) { setError('Indica os dados a corrigir.'); return; }
+    setSaving(true);
+    setError('');
+    const failure = await submit(description.trim());
+    setSaving(false);
+    if (failure) setError(failure);
+  };
+  return <IpamModal title={`Pedir correção de ${asset.name}`} close={close}><form className="modal-form" onSubmit={(event) => void onSubmit(event)}>
+    <p className="panel-description">{`Semana de ${formatDate(attestation.weekStart)}. Descreve o que está errado no inventário. Nada é alterado automaticamente.`}</p>
+    {error && <div className="ipam-alert error" role="alert"><X size={15} />{error}</div>}
+    <label>Dados a corrigir (obrigatório)<textarea autoFocus rows={4} maxLength={1000} required value={description} onChange={(event) => setDescription(event.target.value)} /></label>
+    <div className="modal-actions"><button type="button" className="secondary-button" onClick={close}>Cancelar</button><button className="primary-button" disabled={saving}>{saving ? 'A guardar…' : 'Registar pedido de correção'}</button></div>
   </form></IpamModal>;
 }
 

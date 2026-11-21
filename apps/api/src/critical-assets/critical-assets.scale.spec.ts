@@ -23,6 +23,18 @@ test('pageAssets filters server-side by type, owner, outcome, due state and free
   assert.deepEqual(pageAssets(rows, { q: '10.0.0.1' }).items.map((r) => r.id), ['a', 'b']);
 });
 
+test('pageAssets filters by criticality tier and orders overdue first, then by name', () => {
+  const rows = [
+    asset({ id: 'z', name: 'Zeta', dueState: 'up_to_date', criticalityTier: 'T1' }),
+    asset({ id: 'm', name: 'Mid', dueState: 'overdue', criticalityTier: 'T2' }),
+    asset({ id: 'a', name: 'Alpha', dueState: 'up_to_date', criticalityTier: 'T1' }),
+  ];
+  assert.deepEqual(pageAssets(rows, {}).items.map((r) => r.id), ['m', 'a', 'z']);
+  assert.deepEqual(pageAssets(rows, { tier: 'T1' }).items.map((r) => r.id), ['a', 'z']);
+  assert.equal(pageAssets(rows, { tier: 'T1' }).total, 2);
+  assert.deepEqual(pageAssets(rows, { tier: 'T3' }).items.map((r) => r.id), []);
+});
+
 test('pageAssets reports the full total and slices pages, clamping the page size', () => {
   const rows = Array.from({ length: 5 }, (_, index) => asset({ id: String(index) }));
   const second = pageAssets(rows, { page: 2, pageSize: 2 });
@@ -170,4 +182,23 @@ test('a rejected correction keeps its reason and stays in history', async () => 
   assert.equal(rejected.closeNote, 'Verified on the device: serial is correct');
   assert.equal(rejected.changeReference, null);
   assert.equal(db.corrections.length, 1);
+});
+
+test('cadence is site-scoped: a user without READ access on the Site gets 403 and no cadence is read', async () => {
+  let siteReads = 0;
+  const prisma: any = {
+    site: {
+      findUniqueOrThrow: async () => { siteReads += 1; return { criticalCadenceT1Weeks: 1, criticalCadenceT2Weeks: 2, criticalCadenceT3Weeks: 4 }; },
+    },
+  };
+  const access: any = {
+    assertSite: async (user: { id: string }, _action: string, siteId: string) => {
+      if (user.id !== 'site-member' || siteId !== 'site-a') throw new ForbiddenException('no site access');
+    },
+  };
+  const service = new CriticalAssetsService(prisma, access);
+  await assert.rejects(service.cadence('site-b', { id: 'site-member', roles: ['NETWORK_OPERATOR'] } as any), ForbiddenException);
+  await assert.rejects(service.cadence('site-a', { id: 'outsider', roles: ['NETWORK_OPERATOR'] } as any), ForbiddenException);
+  assert.equal(siteReads, 0);
+  assert.deepEqual(await service.cadence('site-a', { id: 'site-member', roles: ['NETWORK_OPERATOR'] } as any), { T1: 1, T2: 2, T3: 4 });
 });

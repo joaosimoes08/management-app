@@ -18,10 +18,12 @@ vi.mock('@/lib/api/client', () => ({ apiFetch: vi.fn() }));
 
 const network = { id: 'g-1', name: 'Network Team' };
 const systems = { id: 'g-2', name: 'Systems Team' };
-const att = (id: string, weekStart: string, extra: Record<string, unknown> = {}) => ({ id, weekStart, outcome: null, notes: null, confirmedAt: null, confirmedBy: null, confirmedByName: null, ...extra });
+// Weekly (T1) cycle due next Monday 09:00 Europe/Lisbon, which is UTC+0 in November.
+const weeklyDue = (weekStart: string) => new Date(Date.parse(`${weekStart.slice(0, 10)}T09:00:00.000Z`) + 7 * 86_400_000).toISOString();
+const att = (id: string, weekStart: string, extra: Record<string, unknown> = {}) => ({ id, weekStart, dueAt: weeklyDue(weekStart), outcome: null, notes: null, confirmedAt: null, confirmedBy: null, confirmedByName: null, ...extra });
 const asset = (id: string, name: string, type: string, owner: typeof network | null, attestations: ReturnType<typeof att>[]) => ({ id, name, type, hostname: null, managementIp: null, serialNumber: null, assetTag: null, status: 'ACTIVE', owner, assignedGroup: owner, attestations });
 
-// Hand-computed fixture. Deadline for a cycle = weekStart + 7 days.
+// Hand-computed fixture. Deadline for a weekly cycle = the following Monday 09:00 Europe/Lisbon.
 const fixture = {
   timezone: 'Europe/Lisbon',
   mappings: [{ id: 'm1', assetType: 'SWITCH', group: network }, { id: 'm2', assetType: 'ROUTER', group: systems }, { id: 'm3', assetType: 'STORAGE', group: systems }],
@@ -58,6 +60,7 @@ beforeEach(() => {
     if (url.includes('/critical-assets/corrections')) return corrections as never;
     if (url.includes('/topology/connections')) return { items: [{ id: 'x1', label: 'uplink', sourceDevice: { id: 'd1', name: 'Core switch' }, targetDevice: { id: 'd2', name: 'Edge router' } }] } as never;
     if (url.includes('/resolve')) return { id: 'k1', status: 'RESOLVED' } as never;
+    if (url.includes('/critical-assets/assets')) return { timezone: fixture.timezone, total: fixture.assets.length, page: 1, pageSize: 50, items: fixture.assets } as never;
     return fixture as never;
   });
 });
@@ -71,7 +74,8 @@ describe('complianceCells', () => {
     const cell = (group: string, week: string) => result.cells.find((item) => item.group === group && item.weekStart === week);
     expect(cell('Network Team', '2026-11-16')).toMatchObject({ expected: 1, onTime: 0, percent: 0 });
     expect(cell('Network Team', '2026-11-09')).toMatchObject({ expected: 1, onTime: 1, percent: 100 });
-    // Systems: 16 Nov has the late Backup array review (1 of 2 on time); 9 Nov is on time.
+    // Systems, 16 Nov: 0 of 2 on time. Edge router is still pending; Backup array was confirmed 24 Nov, after the 23 Nov 09:00 deadline.
+    // Systems, 9 Nov: 1 of 1 on time.
     expect(cell('Systems Team', '2026-11-16')).toMatchObject({ expected: 2, onTime: 0, percent: 0 });
     expect(cell('Systems Team', '2026-11-09')).toMatchObject({ expected: 1, onTime: 1, percent: 100 });
     expect(cell('Systems Team', '2026-11-02')).toMatchObject({ expected: 0, percent: null });
@@ -102,5 +106,25 @@ describe('critical assets 28c views', () => {
     const deps = within(await screen.findByRole('region', { name: 'Dependências' }));
     expect(await deps.findByText('Liga a')).toBeTruthy();
     expect(deps.getByText('Edge router')).toBeTruthy();
+  });
+});
+
+describe('complianceCells deadlines', () => {
+  const row = (owner: string, attestations: unknown[]) => ({ id: owner, name: owner, type: 'SWITCH', hostname: null, managementIp: null, serialNumber: null, assetTag: null, status: 'ACTIVE', owner: { id: owner, name: owner }, assignedGroup: { id: owner, name: owner }, attestations });
+  const confirmed = (id: string, weekStart: string, dueAt: string, confirmedAt: string) => ({ id, weekStart, dueAt, outcome: 'CONFIRMED', notes: null, confirmedAt, confirmedBy: null, confirmedByName: null });
+
+  it('uses the due time the API gives for each cycle, so a 2-week (T2) review is on time after one week', () => {
+    // Opened Mon 2 Nov, T2 cadence: due Mon 16 Nov 09:00 Lisbon. Confirmed Thu 12 Nov, past one week but before its deadline.
+    const rows = [row('Network Team', [confirmed('t2', '2026-11-02T00:00:00.000Z', '2026-11-16T09:00:00.000Z', '2026-11-12T10:00:00.000Z')])];
+    const result = complianceCells(rows as never);
+    expect(result.cells.find((item) => item.weekStart === '2026-11-02')).toMatchObject({ expected: 1, onTime: 1, percent: 100 });
+  });
+
+  it('counts a review as on time up to 09:00 Lisbon on the due day and late from 09:00', () => {
+    const due = '2026-11-23T09:00:00.000Z';
+    const onTime = [row('Network Team', [confirmed('a', '2026-11-16T00:00:00.000Z', due, '2026-11-23T08:59:00.000Z')])];
+    const late = [row('Network Team', [confirmed('b', '2026-11-16T00:00:00.000Z', due, '2026-11-23T09:01:00.000Z')])];
+    expect(complianceCells(onTime as never).cells[0]).toMatchObject({ onTime: 1, percent: 100 });
+    expect(complianceCells(late as never).cells[0]).toMatchObject({ onTime: 0, percent: 0 });
   });
 });

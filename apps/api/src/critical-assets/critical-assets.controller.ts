@@ -34,7 +34,7 @@ export class CriticalAssetsController {
   @Patch('cadence') @Roles('ADMIN') saveCadence(@Query('siteId') siteId: string, @Body() dto: unknown, @Req() req: { user: AuthenticatedUser }) { return this.service.saveCadence(siteId, dto, req.user); }
   @Get('summary') @Roles(...VIEWERS) summary(@Query('siteId') siteId: string, @Req() req: { user: AuthenticatedUser }) { return this.service.summary(siteId, req.user); }
   @Get('assets') @Roles(...VIEWERS) page(@Query('siteId') siteId: string, @Query() query: Record<string, string | undefined>, @Req() req: { user: AuthenticatedUser }) {
-    const assetQuery: AssetQuery = { type: query.type, owner: query.owner, outcome: query.outcome, due: query.due, q: query.q, page: query.page ? Number(query.page) : undefined, pageSize: query.pageSize ? Number(query.pageSize) : undefined };
+    const assetQuery: AssetQuery = { type: query.type, owner: query.owner, outcome: query.outcome, due: query.due, tier: query.tier, q: query.q, page: query.page ? Number(query.page) : undefined, pageSize: query.pageSize ? Number(query.pageSize) : undefined };
     return this.service.page(siteId, assetQuery, req.user);
   }
   @Post('mapping') @Roles('ADMIN', 'SYSTEMS_OPERATOR') setMapping(@Body() dto: MappingDto, @Query('siteId') siteId: string, @Req() req: { user: AuthenticatedUser }) { return this.service.setMapping(siteId, dto.assetType, dto.groupId, dto.timezone, req.user); }
