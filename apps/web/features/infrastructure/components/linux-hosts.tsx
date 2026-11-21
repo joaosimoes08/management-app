@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Server, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Server, X } from 'lucide-react';
 import { DataTable, EntityLink, HistoryBlock, useTableUrlState, type DataTableColumn } from '@/components/data-table';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { apiFetch } from '@/lib/api/client';
@@ -81,9 +81,34 @@ function Dialog({ title, drawer, busy, onClose, children }: {
   </dialog>;
 }
 
+function HostTable({ children }: { children: ReactNode }) {
+  const { t } = useI18n();
+  const ref = useRef<HTMLDivElement>(null);
+  const scroll = (end: boolean) => {
+    const table = ref.current?.querySelector<HTMLElement>('.ip-table-wrap');
+    if (table) table.scrollTo({ left: end ? table.scrollWidth : 0 });
+  };
+
+  return <div className={styles.table} ref={ref}>
+    <div className={styles.tableControls}>
+      <span>{t('linuxHosts.scrollColumns')}</span>
+      <button type="button" className="icon-button" onClick={() => scroll(false)} aria-label={t('linuxHosts.firstColumns')}><ArrowLeft size={16} aria-hidden="true" /></button>
+      <button type="button" className="icon-button" onClick={() => scroll(true)} aria-label={t('linuxHosts.lastColumns')}><ArrowRight size={16} aria-hidden="true" /></button>
+    </div>
+    {children}
+  </div>;
+}
+
+function IpLinks({ host }: { host: Host }) {
+  return <div className={styles.ips}>
+    {host.ipAddresses.map((ip) => <EntityLink key={ip.id} kind="ip" id={ip.id} label={ip.address} subnetId={ip.subnet.id} siteId={ip.subnet.siteId} className={`text-button ${styles.entityLink}`} />)}
+    {!host.ipAddresses.length && '—'}
+  </div>;
+}
+
 function DeviceLink({ host }: { host: Host }) {
   const device = host.device;
-  return device ? <EntityLink kind="device" id={device.id} label={device.name} siteId={device.siteId} /> : '—';
+  return device ? <EntityLink kind="device" id={device.id} label={device.name} siteId={device.siteId} className={`text-button ${styles.entityLink}`} /> : '—';
 }
 
 function HostDetails({ host, onClose, audit }: { host: Host; onClose: () => void; audit: boolean }) {
@@ -112,14 +137,14 @@ function HostDetails({ host, onClose, audit }: { host: Host; onClose: () => void
       <div><span>{t('linuxHosts.device')}</span><strong><DeviceLink host={host} /></strong></div>
       <div><span>{t('linuxHosts.heartbeat')}</span><strong>{formatDate(agent?.lastHeartbeatAt)}</strong></div>
       <div className="wide"><span>{t('linuxHosts.ips')}</span>
-        <div className={styles.ips}>{host.ipAddresses.map((ip) => <EntityLink key={ip.id} kind="ip" id={ip.id} label={ip.address} subnetId={ip.subnet.id} siteId={ip.subnet.siteId} />)}{!host.ipAddresses.length && '—'}</div>
+        <IpLinks host={host} />
       </div>
     </div>
     <section className="host-section">
       <h3>{t('linuxHosts.services')}</h3>
       {services.isError
         ? <p className="ipam-alert error" role="alert">{t('linuxHosts.servicesError')}</p>
-        : <DataTable columns={columns} rows={services.data ?? []} rowKey={(row) => row.id} label={t('linuxHosts.services')} loading={services.isPending} empty={<p className="no-data">{t('linuxHosts.noServices')}</p>} />}
+        : <HostTable><DataTable columns={columns} rows={services.data ?? []} rowKey={(row) => row.id} label={t('linuxHosts.services')} loading={services.isPending} empty={<p className="no-data">{t('linuxHosts.noServices')}</p>} /></HostTable>}
     </section>
     <HistoryBlock heading={t('linuxHosts.history')} formatDate={formatDate} events={agent ? [
       ...(agent.revokedAt ? [{ id: 'revoked', title: t('linuxHosts.revoked'), at: agent.revokedAt }] : []),
@@ -249,7 +274,7 @@ export function LinuxHosts({ sites, canManage, canAudit }: { sites: ActiveSite[]
     { id: 'hostname', header: t('linuxHosts.hostname'), cell: (host) => host.hostname || '—' },
     { id: 'os', header: t('linuxHosts.os'), cell: (host) => host.operatingSystem || '—' },
     { id: 'device', header: t('linuxHosts.device'), cell: (host) => <DeviceLink host={host} /> },
-    { id: 'ips', header: t('linuxHosts.ips'), cell: (host) => host.ipAddresses.map((ip) => ip.address).join(', ') || '—' },
+    { id: 'ips', header: t('linuxHosts.ips'), cell: (host) => <IpLinks host={host} /> },
     { id: 'heartbeat', header: t('linuxHosts.heartbeat'), cell: (host) => formatDate(host.agent?.lastHeartbeatAt) },
     { id: 'version', header: t('linuxHosts.agentVersion'), cell: (host) => host.agent?.agentVersion || '—' },
   ];
@@ -281,7 +306,7 @@ export function LinuxHosts({ sites, canManage, canAudit }: { sites: ActiveSite[]
       {hosts.data && <p className={`panel-description ${styles.hint}`}>{t('linuxHosts.threshold', undefined, { minutes: hosts.data.staleMinutes })}</p>}
       {(hosts.isError || revokeError) && <p className="ipam-alert error" role="alert">{t(hosts.isError ? 'linuxHosts.loadError' : 'linuxHosts.revokeError')}</p>}
       {hosts.isPending && <p role="status">{t('common.loading')}</p>}
-      <DataTable columns={columns} rows={state ? items.filter((host) => stateOf(host) === state) : items} rowKey={(host) => host.id} label={t('linuxHosts.title')} loading={hosts.isPending} empty={hosts.isError ? null : <p className="no-data">{t('linuxHosts.empty')}</p>} />
+      <HostTable><DataTable columns={columns} rows={state ? items.filter((host) => stateOf(host) === state) : items} rowKey={(host) => host.id} label={t('linuxHosts.title')} loading={hosts.isPending} empty={hosts.isError ? null : <p className="no-data">{t('linuxHosts.empty')}</p>} /></HostTable>
     </section>
     {detail && <HostDetails host={detail} onClose={() => setSelected(null)} audit={canAudit} />}
     {canManage && enrollHost !== null && <EnrollDialog hosts={items.filter((host) => host.device)} initialId={enrollHost} close={() => setEnrollHost(null)} refresh={refresh} />}

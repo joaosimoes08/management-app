@@ -10,6 +10,9 @@ import { setFormatLocale } from '@/lib/format/date';
 export type AppLocale = 'pt-PT' | 'en-US';
 const messages: Record<AppLocale, Record<string, string>> = {
   'pt-PT': {
+    'linuxHosts.scrollColumns': 'Desliza para ver mais colunas.',
+    'linuxHosts.firstColumns': 'Mostrar primeiras colunas',
+    'linuxHosts.lastColumns': 'Mostrar últimas colunas',
     'linuxHosts.title': 'Servidores',
     'linuxHosts.description': 'Consulta os hosts, os serviços e o estado dos agentes Linux.',
     'linuxHosts.site': 'Site',
@@ -84,6 +87,9 @@ const messages: Record<AppLocale, Record<string, string>> = {
     'setup.language': 'Linguagem da aplicação', 'setup.welcome': 'Vamos preparar o teu espaço de trabalho.', 'setup.organization': 'Organização', 'setup.firstSite': 'Primeiro site', 'setup.finish': 'Concluir', 'setup.welcomeStep': 'Boas-vindas', 'setup.asideDescription': 'Antes de gerir infraestrutura, precisamos de saber a que organização e localizações pertence este inventário.', 'setup.firstRun': 'PRIMEIRA EXECUÇÃO', 'setup.welcomeTitle': 'Bem-vindo ao COCiber Management.', 'setup.welcomeDescription': 'Este assistente cria a configuração mínima da aplicação sem inventar equipamentos, redes ou dados. Poderás completar o inventário mais tarde.', 'setup.start': 'Começar', 'setup.step1': 'PASSO 1 DE 3', 'setup.orgQuestion': 'Como se chama a organização?', 'setup.orgDescription': 'Este nome será usado no cabeçalho e no contexto operacional da aplicação.', 'setup.orgName': 'Nome da organização', 'setup.orgNameExample': 'Ex.: Centro de Operações de Cibersegurança', 'setup.shortCode': 'Código curto', 'setup.shortCodeExample': 'Ex.: COCIBER', 'setup.timezone': 'Fuso horário', 'setup.back': 'Voltar', 'setup.continue': 'Continuar', 'setup.saving': 'A guardar...', 'setup.step2': 'PASSO 2 DE 3', 'setup.siteTitle': 'Regista o primeiro site.', 'setup.siteDescription': 'Um site representa uma localização operacional. O edifício, sala e bastidor são opcionais e podem ser preenchidos agora ou mais tarde.', 'setup.siteName': 'Nome do site', 'setup.siteNameExample': 'Ex.: Sede Lisboa', 'setup.siteCode': 'Código do site', 'setup.siteCodeExample': 'Ex.: LIS-01', 'setup.address': 'Morada', 'setup.addressExample': 'Rua, número', 'setup.city': 'Cidade', 'setup.region': 'Região', 'setup.country': 'País', 'setup.optionalHierarchy': 'Hierarquia física opcional', 'setup.building': 'Edifício', 'setup.buildingExample': 'Ex.: Edifício principal', 'setup.room': 'Sala', 'setup.roomExample': 'Ex.: Sala técnica', 'setup.rack': 'Primeiro bastidor', 'setup.rackExample': 'Ex.: RACK-01', 'setup.creating': 'A criar...', 'setup.createSite': 'Criar site', 'setup.step3': 'PASSO 3 DE 3', 'setup.ready': 'A base está pronta.', 'setup.readyDescription': '{organization} tem agora o site {site} ({code}). A partir daqui podes começar a registar VLANs, subnets, equipamentos e links.', 'setup.finishing': 'A concluir...', 'setup.enter': 'Entrar na aplicação', 'setup.preparing': 'A preparar a configuração inicial...', 'setup.adminTitle': 'É necessária intervenção de um administrador.', 'setup.adminDescription': 'A primeira configuração desta instalação só pode ser concluída por um utilizador com a role ADMIN.',
   },
   'en-US': {
+    'linuxHosts.scrollColumns': 'Scroll to see more columns.',
+    'linuxHosts.firstColumns': 'Show first columns',
+    'linuxHosts.lastColumns': 'Show last columns',
     'linuxHosts.title': 'Servers',
     'linuxHosts.description': 'View hosts, services and Linux agent status.',
     'linuxHosts.site': 'Site',

@@ -107,7 +107,7 @@
 }
 
 .workspace .hint,
-.workspace .inventory > :global(.ip-table-wrap) {
+.table > :global(.ip-table-wrap) {
   margin-block: 0;
 }
 
@@ -123,5 +123,58 @@
 
   :global(.app-shell .global-topbar):has(.tabNavigation) :global(.topbar-search-trigger) {
     flex: 0 0 40px;
+  }
+}
+
+.table {
+  min-width: 0;
+}
+
+.entityLink {
+  color: var(--blue);
+  text-align: left;
+  text-decoration: none;
+}
+
+.entityLink:hover {
+  text-decoration: underline;
+}
+
+.tableControls {
+  display: none;
+}
+
+@media (max-width: 780px) {
+  .tableControls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  .tableControls span {
+    margin-right: auto;
+  }
+
+  .tableControls button {
+    flex: 0 0 36px;
+    min-height: 36px;
+  }
+
+  .table > :global(.ip-table-wrap) {
+    width: 100%;
+    margin-inline: 0;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+
+  .table > :global(.ip-table-wrap .ip-table) {
+    min-width: max-content;
+  }
+
+  .table > :global(.ip-table-wrap .ip-table) :is(th, td) {
+    white-space: nowrap;
   }
 }
