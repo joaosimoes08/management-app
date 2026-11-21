@@ -20,6 +20,24 @@ describe('IPAM labels never show raw enums', () => {
     expect(sourceLabel('SOMETHING_NEW')).toBe('Outra origem');
   });
 
+  it('translates every SourceType value from the schema, with no raw enum left', () => {
+    const expected: Record<string, string> = {
+      MANUAL: 'Manual',
+      SNMP: 'SNMP',
+      AGENT: 'Agente',
+      ICMP: 'ICMP',
+      TCP: 'TCP',
+      DNS: 'DNS',
+      DHCP: 'DHCP',
+      IMPORT: 'Importação',
+    };
+    for (const [value, label] of Object.entries(expected)) {
+      expect(sourceLabel(value)).toBe(label);
+    }
+    expect(sourceLabel(null)).toBe('—');
+    expect(sourceLabel('DISCOVERY')).toBe('Outra origem');
+  });
+
   it('uses a decimal comma for pt-PT utilisation percentages', () => {
     setFormatLocale('pt-PT');
     expect(formatIpamPercent(0.39)).toBe('0,39%');

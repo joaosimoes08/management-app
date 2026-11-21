@@ -39,10 +39,15 @@ export function observedStatusLabel(status?: string | null): string {
   return status ? observedStatusLabels.get(status) ?? 'Desconhecido' : '—';
 }
 
+/** One entry per SourceType value in packages/database/prisma/schema.prisma. */
 const sourceLabels = new Map([
   ['MANUAL', 'Manual'],
-  ['DISCOVERY', 'Descoberta'],
   ['SNMP', 'SNMP'],
+  ['AGENT', 'Agente'],
+  ['ICMP', 'ICMP'],
+  ['TCP', 'TCP'],
+  ['DNS', 'DNS'],
+  ['DHCP', 'DHCP'],
   ['IMPORT', 'Importação'],
 ]);
 
