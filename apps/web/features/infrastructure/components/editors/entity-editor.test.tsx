@@ -5,8 +5,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { deviceImageFields, type DeviceForm, type ModelForm, type RackForm } from '../../forms';
 import type { AssetFile } from '../../types';
 import { EntityEditor } from './entity-editor';
+import { REQUIRED_CONFIGS_QUERY_KEY } from '../../device-requirements';
 
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: () => true }) }));
+vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string, fallback?: string) => fallback ?? key }) }));
 afterEach(cleanup);
 
 const assets = [
@@ -25,7 +27,8 @@ function Harness({ save, editingId = 'dev-1', initial = opened }: { save: (path:
   const [device, setDevice] = useState(initial);
   const [rack, setRack] = useState<RackForm>({ name: '', units: '42', roomId: '', modelId: '', frontAssetId: '' });
   const [model, setModel] = useState<ModelForm>({ manufacturer: '', model: '', type: 'SWITCH', supportsNetworkPorts: true, networkPortCount: '', frontAssetId: '', backAssetId: '' });
-  return <EntityEditor modal="device" close={() => {}} editingId={editingId} form={{ rack, device, model }} setForm={{ rack: setRack, device: setDevice, model: setModel }} rooms={[]} racks={[]} models={[]} assets={assets} ips={[]} save={save} />;
+  const [client] = useState(() => { const value = new QueryClient(); value.setQueryData(REQUIRED_CONFIGS_QUERY_KEY, { tabs: [], configs: [] }); return value; });
+  return <QueryClientProvider client={client}><EntityEditor modal="device" close={() => {}} editingId={editingId} form={{ rack, device, model }} setForm={{ rack: setRack, device: setDevice, model: setModel }} rooms={[]} racks={[]} models={[]} assets={assets} ips={[]} save={save} /></QueryClientProvider>;
 }
 
 const submit = () => fireEvent.click(screen.getByRole('button', { name: /Guardar/ }));

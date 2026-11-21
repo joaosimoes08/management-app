@@ -1,4 +1,8 @@
-import { ArrayMinSize, ArrayMaxSize, IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsObject, IsOptional, IsString, IsUUID, Matches, Max, Min, MinLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import { ArrayMinSize, ArrayMaxSize, IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsObject, IsOptional, IsString, IsUUID, Matches, Max, Min, MinLength, ValidateNested } from 'class-validator';
+import { DevicePowerDto, PduSettingsDto } from './power/dto';
+import { MAX_POWER_PLUG_COUNT, MAX_WATTS, MIN_POWER_PLUG_COUNT } from './power/power-defaults';
+import { RACK_POWER_MODES, type RackPowerMode } from './power/rack-power';
 
 const deviceTypes = ['SWITCH', 'ROUTER', 'FIREWALL', 'SERVER', 'STORAGE', 'OTHER'];
 const statuses = ['ACTIVE', 'INACTIVE', 'MAINTENANCE', 'RETIRED', 'UNKNOWN'];
@@ -14,6 +18,10 @@ export class CreateDeviceModelDto {
   @IsOptional() @IsString() frontAssetId?: string;
   @IsOptional() @IsString() backAssetId?: string;
   @IsOptional() portLayout?: unknown;
+  /** Power: plug count (0–8) and estimated draw. null clears the value (falls back to defaults). */
+  @IsOptional() @IsInt() @Min(MIN_POWER_PLUG_COUNT) @Max(MAX_POWER_PLUG_COUNT) powerPlugCount?: number | null;
+  @IsOptional() @IsInt() @Min(0) @Max(MAX_WATTS) typicalWatts?: number | null;
+  @IsOptional() @IsInt() @Min(0) @Max(MAX_WATTS) maxWatts?: number | null;
 }
 export class UpdateDeviceModelDto extends CreateDeviceModelDto {}
 
@@ -36,6 +44,15 @@ export class CreateDeviceDto {
   @IsOptional() @IsString() managementIpAddressId?: string;
   @IsOptional() @IsString() notes?: string;
   @IsOptional() @IsBoolean() isCritical?: boolean;
+  /** Power overrides. null = fall back to the model, then to the type default. Outlets are set via PUT devices/:id/power. */
+  @IsOptional() @IsInt() @Min(MIN_POWER_PLUG_COUNT) @Max(MAX_POWER_PLUG_COUNT) powerPlugCount?: number | null;
+  @IsOptional() @IsInt() @Min(0) @Max(MAX_WATTS) estimatedWatts?: number | null;
+  /**
+   * Outlet assignments saved in the same transaction as the device (same body as PUT devices/:id/power; `{}` =
+   * default distribution). Required on create for a racked device with at least 1 plug; on update, required when the
+   * device moves to another rack and had outlets configured. See docs/device-required-config.md.
+   */
+  @IsOptional() @IsObject() @ValidateNested() @Type(() => DevicePowerDto) power?: DevicePowerDto;
 }
 export class UpdateDeviceDto extends CreateDeviceDto {}
 
@@ -122,11 +139,17 @@ export class CreateRackModelDto {
   @IsOptional() @IsBoolean() active?: boolean;
 }
 export class UpdateRackModelDto extends CreateRackModelDto {}
-export class CreateRackDto {
+export class UpdateRackDto {
   @IsString() @MinLength(1) name!: string;
   @IsString() roomId!: string;
 }
-export class UpdateRackDto extends CreateRackDto {}
+/** Rack creation also sets up its PDUs. Power changes after creation go through PUT racks/:id/pdus. */
+export class CreateRackDto extends UpdateRackDto {
+  /** Default SUPPLIER_ONLY ("Só rede elétrica"). SUPPLIER_AND_UPS ("Rede + UPS") also creates a UPS PDU. */
+  @IsOptional() @IsIn(RACK_POWER_MODES as unknown as string[]) powerMode?: RackPowerMode;
+  @IsOptional() @ValidateNested() @Type(() => PduSettingsDto) supplierPdu?: PduSettingsDto;
+  @IsOptional() @ValidateNested() @Type(() => PduSettingsDto) upsPdu?: PduSettingsDto;
+}
 export class ReorderRacksDto {
   @IsArray() @ArrayMinSize(1) @IsString({ each: true }) rackIds!: string[];
 }

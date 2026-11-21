@@ -18,7 +18,7 @@ const BLOCKED_V4: Array<[string, number]> = [
   ['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16],
   ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.168.0.0', 16], ['198.18.0.0', 15], ['224.0.0.0', 4], ['240.0.0.0', 4],
 ];
-const BLOCKED_V6: Array<[string, number]> = [['::', 128], ['::1', 128], ['fc00::', 7], ['fe80::', 10], ['ff00::', 8]];
+const BLOCKED_V6: Array<[string, number]> = [['::', 128], ['::1', 128], ['fc00::', 7], ['fe80::', 10], ['ff00::', 8], ['64:ff9b:1::', 48]];
 
 function buildBlockList(entries: Array<[string, number, 'ipv4' | 'ipv6']>) {
   const list = new BlockList();
@@ -44,11 +44,41 @@ function allowedList(raw = process.env.APPLICATION_LINK_CHECK_ALLOWED_CIDRS ?? '
   return list;
 }
 
-/** True when the probe must not connect to this address. IPv4-mapped IPv6 (::ffff:10.0.0.1) is checked as IPv4. */
+/** Expands an IPv6 literal to its 8 hextets, or null. */
+function ipv6Hextets(address: string): number[] | null {
+  if (isIP(address) !== 6) return null;
+  let text = address.toLowerCase();
+  const v4 = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(text);
+  if (v4) text = text.slice(0, v4.index) + (((+v4[1] << 8) | +v4[2]).toString(16)) + ':' + (((+v4[3] << 8) | +v4[4]).toString(16));
+  const [head, tail] = text.includes('::') ? text.split('::') : [text, null];
+  const left = head ? head.split(':') : [];
+  const right = tail ? tail.split(':') : [];
+  const parts = tail === null ? left : [...left, ...Array(8 - left.length - right.length).fill('0'), ...right];
+  return parts.length === 8 ? parts.map((part) => parseInt(part, 16)) : null;
+}
+
+/**
+ * IPv4 embedded in an IPv6 address that a gateway would translate to that IPv4: IPv4-mapped (::ffff:a.b.c.d),
+ * NAT64 well-known prefix (64:ff9b::/96, RFC 6052) and 6to4 (2002:AABB:CCDD::/16, RFC 3056). These are checked
+ * against the IPv4 rules so e.g. 64:ff9b::7f00:1 or 2002:7f00:1:: cannot reach loopback.
+ */
+function embeddedIpv4(address: string): string | null {
+  const h = ipv6Hextets(address);
+  if (!h) return null;
+  const v4 = (high: number, low: number) => `${high >> 8}.${high & 255}.${low >> 8}.${low & 255}`;
+  if (h.slice(0, 5).every((x) => x === 0) && h[5] === 0xffff) return v4(h[6], h[7]);
+  if (h[0] === 0x64 && h[1] === 0xff9b && h.slice(2, 6).every((x) => x === 0)) return v4(h[6], h[7]);
+  if (h[0] === 0x2002) return v4(h[1], h[2]);
+  return null;
+}
+
+/**
+ * True when the probe must not connect to this address. IPv6 forms that embed an IPv4 (mapped, NAT64
+ * 64:ff9b::/96, 6to4 2002::/16) are checked as that IPv4; the local-use NAT64 prefix 64:ff9b:1::/48 is blocked.
+ */
 export function isBlockedAddress(address: string, allowed = allowedList()): boolean {
   const bare = address.replace(/^\[|\]$/g, '').split('%')[0];
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(bare);
-  const value = mapped ? mapped[1] : bare;
+  const value = embeddedIpv4(bare) ?? bare;
   const type = isIP(value);
   if (!type) return true;
   const family = type === 4 ? 'ipv4' : 'ipv6';

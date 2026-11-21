@@ -4,6 +4,7 @@ import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { OrganizationDto } from './dto/organization.dto';
 import { InitialSiteDto } from './dto/site.dto';
+import { initialPdus } from '../infrastructure/power/rack-power';
 
 @Injectable()
 export class SetupService {
@@ -36,7 +37,7 @@ export class SetupService {
       const building = await tx.building.create({ data: { name: dto.buildingName.trim(), siteId: created.id } });
       if (!dto.roomName) return created;
       const room = await tx.room.create({ data: { name: dto.roomName.trim(), buildingId: building.id } });
-      if (dto.rackName) await tx.rack.create({ data: { name: dto.rackName.trim(), roomId: room.id } });
+      if (dto.rackName) await tx.rack.create({ data: { name: dto.rackName.trim(), roomId: room.id, pdus: { create: initialPdus() } } });
       return created;
     });
     await this.audit.record({ userId: user.id, action: 'INITIAL_SETUP_SITE_CREATED', entityType: 'Site', entityId: site.id, metadata: { name: site.name, code: site.code } });

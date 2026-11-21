@@ -4,7 +4,6 @@ import type {
   AssetFile,
   BuildingWithRooms,
   Device,
-  DeviceInput,
   DeviceInterface,
   DeviceListResponse,
   DeviceModel,
@@ -15,14 +14,19 @@ import type {
   IpAddress,
   PortLayout,
   PortLayoutV2,
+  DevicePowerInput,
   RackFace,
   Rack,
+  RackPdu,
+  RackPowerInput,
+  RackPowerTotals,
   RackPlacementPlan,
   Room,
   SiteListResponse,
   VlanListResponse,
 } from './types';
 import { normalizePortLayout, type PortLayoutFaces } from './utils';
+import type { PowerDefaults } from './power';
 
 // ── Access ─────────────────────────────────────────────────────────────────
 
@@ -78,7 +82,8 @@ export function updateRoom(id: string, body: { name: string }): Promise<Room> {
 
 // ── Racks ──────────────────────────────────────────────────────────────────
 
-export function createRack(body: { name: string; roomId: string }): Promise<Rack> {
+/** New rack; its PDUs are created with it (default "Só rede elétrica": one supplier PDU with the API's default outlets and budget). */
+export function createRack(body: { name: string; roomId: string; powerMode?: RackPowerInput['mode']; supplierPdu?: RackPowerInput['supplier']; upsPdu?: RackPowerInput['ups'] }): Promise<Rack> {
   return apiFetch<Rack>('/api/v1/racks', { method: 'POST', body: JSON.stringify(body) });
 }
 
@@ -95,6 +100,35 @@ export function updateRack(id: string, body: { name?: string; roomId?: string })
 
 export function deleteRack(id: string): Promise<unknown> {
   return apiFetch(`/api/v1/racks/${id}`, { method: 'DELETE' });
+}
+
+export function getRack(id: string): Promise<Rack> {
+  return apiFetch<Rack>(`/api/v1/racks/${encodeURIComponent(id)}`);
+}
+
+// ── Rack power ─────────────────────────────────────────────────────────────
+
+/** Power read model returned by the power write endpoints. */
+export interface RackPowerResponse { mode: Rack['powerMode']; pdus: RackPdu[]; totals: RackPowerTotals }
+
+/** Sets the rack's power mode and PDU settings. 409 PDU_HAS_CONNECTIONS / PDU_OUTLETS_IN_USE lists the blocking devices. */
+export function setRackPower(rackId: string, input: RackPowerInput): Promise<RackPowerResponse> {
+  return apiFetch<RackPowerResponse>(`/api/v1/racks/${encodeURIComponent(rackId)}/pdus`, { method: 'PUT', body: JSON.stringify(input) });
+}
+
+/** Replaces every plug → PDU/outlet assignment of a device in one go. Plugs left out are "Não ligado". */
+export function setDevicePower(deviceId: string, input: DevicePowerInput): Promise<RackPowerResponse & { unplugged?: unknown[]; warnings?: string[] }> {
+  return apiFetch(`/api/v1/devices/${encodeURIComponent(deviceId)}/power`, { method: 'PUT', body: JSON.stringify(input) });
+}
+
+/** PDU / power defaults, defined once in the API (`power-defaults.ts`). */
+export function getPowerDefaults(): Promise<PowerDefaults> {
+  return apiFetch<PowerDefaults>('/api/v1/power/defaults');
+}
+
+/** "Desligar": frees every outlet the device uses on this PDU. */
+export function disconnectPduDevice(rackId: string, pduId: string, deviceId: string): Promise<RackPowerResponse & { removed: number }> {
+  return apiFetch<RackPowerResponse & { removed: number }>(`/api/v1/racks/${encodeURIComponent(rackId)}/pdus/${encodeURIComponent(pduId)}/devices/${encodeURIComponent(deviceId)}`, { method: 'DELETE' });
 }
 
 // ── Device models (catalog) ────────────────────────────────────────────────
@@ -188,9 +222,24 @@ export function deleteAsset(id: string): Promise<unknown> {
 
 // ── Devices ────────────────────────────────────────────────────────────────
 
-/** `filters` are the optional drill-through filters (status, critical, lifecycle, lifecycleKind). */
-export function listDevices(siteId: string, search: string, page = 1, filters?: Partial<DeviceUrlFilters>): Promise<DeviceListResponse> {
-  return apiFetch<DeviceListResponse>(`/api/v1/devices?siteId=${siteId}&search=${encodeURIComponent(search)}&page=${page}&pageSize=100${deviceFilterQuery(filters)}`);
+/** A row of GET /devices/missing-config: one device missing a required config, in any Site the user can manage. */
+export interface MissingConfigDevice {
+  id: string; name: string; type: string; status: string;
+  siteId: string | null; siteName: string | null; rackName: string | null; rackUnitStart: number | null;
+  model: { manufacturer?: string; model?: string } | string | null;
+  /** Device deep link: its Site plus the editor on the missing tab. */
+  href: string;
+}
+export interface MissingConfigDeviceList { items: MissingConfigDevice[]; total: number; totalPages: number; page?: number; pageSize?: number; siteCount?: number }
+
+/** Cross-site list behind a bell alert (no siteId): `total` is the bell's count. */
+export function listMissingConfigDevices(config: string, page = 1, pageSize = 50): Promise<MissingConfigDeviceList> {
+  return apiFetch<MissingConfigDeviceList>(`/api/v1/devices/missing-config?config=${encodeURIComponent(config)}&page=${page}&pageSize=${pageSize}`);
+}
+
+/** `filters` are the optional drill-through filters (status, critical, lifecycle, lifecycleKind); `missingConfig` (rearImage | power) limits the list to devices missing that required config. */
+export function listDevices(siteId: string, search: string, page = 1, filters?: Partial<DeviceUrlFilters>, missingConfig = ''): Promise<DeviceListResponse> {
+  return apiFetch<DeviceListResponse>(`/api/v1/devices?siteId=${siteId}&search=${encodeURIComponent(search)}&page=${page}&pageSize=100${deviceFilterQuery(filters)}${missingConfig ? `&missingConfig=${encodeURIComponent(missingConfig)}` : ''}`);
 }
 
 export async function listAllDevices(siteId: string, search: string): Promise<DeviceListResponse> {
@@ -208,16 +257,8 @@ export type DeviceRetirementReview = { device: { id: string; name: string }; int
 export const getDeviceRetirementReview = (id: string) => apiFetch<DeviceRetirementReview>(`/api/v1/devices/${id}/retirement-review`);
 export const retireDevice = (id: string) => apiFetch(`/api/v1/devices/${id}/retire`, { method: 'POST', body: JSON.stringify({ operatorConfirmed: true }) });
 
-export function createDevice(body: DeviceInput): Promise<Device> {
-  return apiFetch<Device>('/api/v1/devices', { method: 'POST', body: JSON.stringify(body) });
-}
-
 export function createSnmpOnboardedDevice(body: Record<string, unknown>): Promise<Device> {
   return apiFetch<Device>('/api/v1/snmp/onboarding/devices', { method: 'POST', body: JSON.stringify(body) });
-}
-
-export function updateDevice(id: string, body: Partial<DeviceInput>): Promise<Device> {
-  return apiFetch<Device>(`/api/v1/devices/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
 export function previewDeviceImport(siteId: string, rows: Record<string, unknown>[]) {
