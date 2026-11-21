@@ -35,13 +35,15 @@ export async function deliverLifecycleReminders(prisma: PrismaClient, now = new 
       const message = `${item.device.name} · ${item.dueDate.toISOString().slice(0, 10)}`;
       for (const recipientUserId of [...new Set(recipients)]) {
         const created = await prisma.$transaction(async (tx) => {
+          // Muted recipients get no delivery row, so the reminder is not recorded as delivered and
+          // will fire on a later run if they unmute before the due date's reminder window ends.
+          const type = NotificationTopic.LIFECYCLE_DATE;
+          if (!(await unmutedRecipients(tx, [recipientUserId], type)).length) return false;
           const result = await tx.lifecycleReminderDelivery.createMany({
             data: [{ lifecycleDateId: item.id, recipientUserId, reminderDays: offset, dueDate: item.dueDate }],
             skipDuplicates: true,
           });
           if (!result.count) return false;
-          const type = NotificationTopic.LIFECYCLE_DATE;
-          if (!(await unmutedRecipients(tx, [recipientUserId], type)).length) return false;
           const source = new URLSearchParams({
             tab: 'lifecycle', lifecycleId: item.id, due: item.dueDate.toISOString().slice(0, 10),
           });

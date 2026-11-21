@@ -1,5 +1,6 @@
 'use client';
 
+import { useEscapeClose } from '@/components/ui/use-escape-close';
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CalendarDays, ChevronLeft, ChevronRight, List, Plus, RefreshCw, Trash2, X } from 'lucide-react';
@@ -40,6 +41,7 @@ export function LifecycleDates({ siteId, devices, canEdit }: { siteId: string; d
   const [month, setMonth] = useState(() => startOfMonth(new Date()));
   const [mode, setMode] = useState<'calendar' | 'list'>('calendar');
   const [draft, setDraft] = useState<Draft | null>(null);
+  useEscapeClose(() => setDraft(null), Boolean(draft));
   const [error, setError] = useState('');
   const [linkedDateId, setLinkedDateId] = useState('');
   useEffect(() => {

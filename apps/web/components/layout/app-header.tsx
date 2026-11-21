@@ -1,5 +1,6 @@
 'use client';
 
+import { useEscapeClose } from '@/components/ui/use-escape-close';
 import { isValidElement, useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactElement, type ReactNode } from 'react';
 import { Activity, AlertTriangle, Bell, CheckCircle2, ChevronRight, Menu, Search, X } from 'lucide-react';
 import { apiFetch } from '@/lib/api/client';
@@ -45,6 +46,7 @@ export function AppHeader({ section, moduleTabs, onOpenSidebar, onOpenGlobalSear
   const alertsRef = useRef<HTMLDivElement>(null);
   const closeAlerts = useCallback(() => setAlertsOpen(false), []);
   useOutsideClose(alertsRef, closeAlerts, alertsOpen);
+  useEscapeClose(closeAlerts, alertsOpen);
 
   const requestVersion = useRef(0);
   const loadTopbarState = useCallback(async () => {

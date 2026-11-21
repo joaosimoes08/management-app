@@ -30,3 +30,25 @@ test('reminder delivery creates one in-app notification and deduplicates worker 
   assert.deepEqual(await deliverLifecycleReminders(prisma as never, now), { examined: 1, delivered: 0 });
   assert.equal(notifications, 1);
 });
+
+test('a muted reminder is not recorded as delivered and fires after the recipient unmutes', async () => {
+  let muted = true;
+  const deliveryRows: unknown[] = [];
+  let notifications = 0;
+  const prisma = {
+    lifecycleDate: { findMany: async () => [{ id: 'date-2', kind: 'WARRANTY', dueDate: new Date('2026-12-01T00:00:00.000Z'), reminderDays: [0], responsibleUserId: 'user-2', responsibleGroup: null, device: { id: 'device-2', name: 'Switch 2', siteId: null } }] },
+    $transaction: async (callback: (tx: any) => Promise<boolean>) => callback({
+      lifecycleReminderDelivery: { createMany: async ({ data }: any) => { deliveryRows.push(...data); return { count: 1 }; } },
+      notificationMute: { findMany: async () => (muted ? [{ userId: 'user-2' }] : []) },
+      notification: { create: async () => { notifications++; return {}; } },
+    }),
+  };
+  const now = new Date('2026-12-01T12:00:00.000Z');
+  assert.deepEqual(await deliverLifecycleReminders(prisma as never, now), { examined: 1, delivered: 0 });
+  assert.equal(deliveryRows.length, 0, 'a muted recipient must not get a delivery row');
+  assert.equal(notifications, 0);
+  muted = false;
+  assert.deepEqual(await deliverLifecycleReminders(prisma as never, now), { examined: 1, delivered: 1 });
+  assert.equal(deliveryRows.length, 1);
+  assert.equal(notifications, 1);
+});

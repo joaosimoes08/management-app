@@ -67,3 +67,15 @@ test('database finalization failure leaves a granted request processing', async 
   await assert.rejects(() => value.decide('r1', 'APPROVE', reviewer as any));
   assert.equal(row.status, 'PROCESSING');
 });
+
+test('a requester who muted ROLE_REQUEST still receives the approve and reject outcome', async () => {
+  for (const decision of ['APPROVE', 'REJECT'] as const) {
+    const row: any = { id: 'r1', userId: 'u1', roles: ['AUDITOR'], status: 'PENDING', createdAt: new Date(), user: { externalId: 'kc-1' } };
+    const notifications: any[] = [];
+    const prisma: any = { roleRequest: { updateMany: async ({ data }: any) => { if (row.status !== 'PENDING' && row.status !== 'PROCESSING') return { count: 0 }; Object.assign(row, data); return { count: 1 }; }, findUnique: async () => row }, $transaction: async (fn: any) => fn({ roleRequest: { updateMany: async ({ data }: any) => { Object.assign(row, data); return { count: 1 }; }, findUniqueOrThrow: async () => row }, notificationMute: { findMany: async () => [{ userId: 'u1' }] }, notification: { create: async ({ data }: any) => notifications.push(data) } }) };
+    const value = service(prisma, { grantRoles: async () => ({}) });
+    await value.decide('r1', decision, reviewer as any);
+    assert.equal(notifications.length, 1, `${decision} outcome must reach the muted requester`);
+    assert.equal(notifications[0].userId, 'u1');
+  }
+});

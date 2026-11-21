@@ -1,4 +1,3 @@
-import { NotificationTopic, unmutedRecipients } from '../notifications/notification-preferences';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@simoes/database';
 import { AuditService } from '../audit/audit.service';
@@ -85,9 +84,8 @@ export class RoleRequestService {
     return this.prisma.$transaction(async (tx) => {
       const result = await tx.roleRequest.updateMany({ where: { id, status: 'PROCESSING' }, data: { status, reviewerId, decidedAt: new Date() } });
       if (!result.count) throw new ConflictException({ code: 'ROLE_REQUEST_NOT_PENDING', message: 'O pedido já foi processado.' });
-      if ((await unmutedRecipients(tx, [userId], NotificationTopic.ROLE_REQUEST)).length) {
-        await tx.notification.create({ data: { userId, roleRequestId: id, type: `ROLE_REQUEST_${status}`, title, message } });
-      }
+      // The requester's own outcome always reaches them; the ROLE_REQUEST mute only silences incoming notices for approvers.
+      await tx.notification.create({ data: { userId, roleRequestId: id, type: `ROLE_REQUEST_${status}`, title, message } });
       return tx.roleRequest.findUniqueOrThrow({ where: { id } });
     });
   }
