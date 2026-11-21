@@ -4,6 +4,12 @@ import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { CreateApplicationLinkDto } from './dto/create-application-link.dto';
 import { UpdateApplicationLinkDto } from './dto/update-application-link.dto';
+import { LINK_PROBE_TIMEOUT_MS, LinkProbeOutcome, probeLink } from './link-probe';
+
+/** check-all bounds: at most CHECK_ALL_BATCH links per call, CHECK_ALL_WORKERS at a time, no new probe after CHECK_ALL_BUDGET_MS. */
+export const CHECK_ALL_BATCH = 100;
+export const CHECK_ALL_WORKERS = 10;
+export const CHECK_ALL_BUDGET_MS = 25_000;
 
 @Injectable()
 export class ApplicationLinksService {
@@ -91,16 +97,8 @@ export class ApplicationLinksService {
     await this.audit.record({ userId: user.id, action: 'APPLICATION_LINK_DELETED', entityType: 'ApplicationLink', entityId: id, metadata: { name: link.name } });
   }
 
-  private async probe(url: string) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-    const started = Date.now();
-    try {
-      const response = await fetch(url, { method: 'HEAD', redirect: 'manual', signal: controller.signal });
-      return { available: response.status >= 200 && response.status < 400, httpStatus: response.status, responseMs: Date.now() - started };
-    } catch { return { available: false, httpStatus: null, responseMs: null }; }
-    finally { clearTimeout(timeout); }
-  }
+  /** Overridable in tests. */
+  protected probe(url: string): Promise<LinkProbeOutcome> { return probeLink(url); }
 
   async check(id: string, user: AuthenticatedUser) {
     const link = await this.prisma.applicationLink.findUnique({ where: { id } });
@@ -112,26 +110,47 @@ export class ApplicationLinksService {
   }
 
   /**
-   * POST application-links/check-all — checks active links with "check availability" on (or every
-   * active link with all=true), 5 at a time, up to 200 links. Same HEAD probe and 5 s timeout as a single check.
+   * POST application-links/check-all — checks active links with "check availability" on (or every active link
+   * with all=true). Up to 100 links per call, from `offset` in a stable order, 10 at a time with a 3 s budget each;
+   * no probe starts after 25 s, so a call stays under ~30 s. `nextOffset` is set while links remain.
+   * Links that resolve (or redirect) to loopback, private, link-local or CGNAT addresses get `code: 'BLOCKED'`
+   * unless APPLICATION_LINK_CHECK_ALLOWED_CIDRS allows them.
    */
-  async checkAll(user: AuthenticatedUser, all = false) {
-    const links = await this.prisma.applicationLink.findMany({ where: { isActive: true, ...(all ? {} : { checkAvailability: true }) }, select: { id: true, name: true, url: true }, orderBy: [{ category: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }], take: 200 });
-    const results: Array<{ id: string; name: string; available: boolean; httpStatus: number | null; responseMs: number | null; checkedAt: Date }> = new Array(links.length);
+  async checkAll(user: AuthenticatedUser, all = false, offsetText?: string, budgetMs = CHECK_ALL_BUDGET_MS) {
+    const offset = offsetText === undefined || offsetText === '' ? 0 : Number(offsetText);
+    if (!Number.isInteger(offset) || offset < 0) throw new BadRequestException({ code: 'CHECK_ALL_OFFSET_INVALID', message: 'offset tem de ser um inteiro ≥ 0.' });
+    const where = { isActive: true, ...(all ? {} : { checkAvailability: true }) };
+    const [total, links] = await Promise.all([
+      this.prisma.applicationLink.count({ where }),
+      this.prisma.applicationLink.findMany({ where, select: { id: true, name: true, url: true }, orderBy: [{ category: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }], skip: offset, take: CHECK_ALL_BATCH }),
+    ]);
+    type Item = { id: string; name: string; available: boolean; httpStatus: number | null; responseMs: number | null; checkedAt: Date; code?: LinkProbeOutcome['code'] };
+    const results: Item[] = [];
+    const deadline = Date.now() + budgetMs;
     let next = 0;
     const worker = async () => {
-      while (next < links.length) {
+      while (next < links.length && Date.now() < deadline) {
         const index = next++;
         const link = links[index];
         const outcome = await this.probe(link.url);
         const checkedAt = new Date();
         await this.prisma.applicationLink.update({ where: { id: link.id }, data: { lastCheckedAt: checkedAt, isAvailable: outcome.available } });
-        await this.audit.record({ userId: user.id, action: 'APPLICATION_LINK_CHECKED', entityType: 'ApplicationLink', entityId: link.id, metadata: { available: outcome.available, bulk: true } });
+        await this.audit.record({ userId: user.id, action: 'APPLICATION_LINK_CHECKED', entityType: 'ApplicationLink', entityId: link.id, metadata: { available: outcome.available, bulk: true, ...(outcome.code ? { code: outcome.code } : {}) } });
         results[index] = { id: link.id, name: link.name, ...outcome, checkedAt };
       }
     };
-    await Promise.all(Array.from({ length: Math.min(5, links.length) }, worker));
-    const available = results.filter((item) => item.available).length;
-    return { checked: results.length, available, unavailable: results.length - available, scope: all ? 'ALL_ACTIVE' : 'CHECK_AVAILABILITY', items: results };
+    await Promise.all(Array.from({ length: Math.min(CHECK_ALL_WORKERS, links.length) }, worker));
+    // Probes started in order, so the checked items are a contiguous prefix of this batch.
+    const items = results.slice(0, next).filter(Boolean);
+    const consumed = offset + items.length;
+    const available = items.filter((item) => item.available).length;
+    const blocked = items.filter((item) => item.code === 'BLOCKED').length;
+    return {
+      checked: items.length, available, unavailable: items.length - available, blocked,
+      scope: all ? 'ALL_ACTIVE' : 'CHECK_AVAILABILITY', offset, total,
+      nextOffset: consumed < total ? consumed : null,
+      perLinkTimeoutMs: LINK_PROBE_TIMEOUT_MS,
+      items,
+    };
   }
 }

@@ -54,7 +54,12 @@ A lista técnica está em `apps/api/src/auth/roles.ts`. Para adicionar uma role:
 - Secrets não devem ser commitados.
 - Credenciais de produção não devem reutilizar valores de desenvolvimento.
 
-As verificações de disponibilidade do portal fazem pedidos HTTP a URLs configuradas por administradores. Antes de produção, devem ser complementadas com allowlists de destinos, limites de rede e proteção explícita contra SSRF.
+As verificações de disponibilidade do portal fazem pedidos `HEAD` a URLs configuradas por administradores, com proteção contra SSRF:
+
+- O endereço é verificado depois da resolução DNS, no próprio momento da ligação (sem janela para *DNS rebinding*). São bloqueados loopback (`127.0.0.0/8`, `::1`), redes privadas RFC1918, link-local (`169.254.0.0/16`, `fe80::/10`, incluindo o endpoint de metadados da cloud), CGNAT (`100.64.0.0/10`), `fc00::/7`, `0.0.0.0/8`, multicast e reservados. Endereços IPv4 mapeados em IPv6 são verificados como IPv4.
+- Os redirecionamentos nunca são seguidos; se o destino de um redirecionamento resolver para um endereço bloqueado, a ligação fica `BLOCKED`.
+- Cada verificação tem 3 s de limite. `POST /application-links/check-all` verifica no máximo 100 ligações por pedido, 10 em paralelo, e não inicia verificações depois de 25 s; `nextOffset` indica onde continuar (`?offset=`).
+- Para portais internos, o operador pode autorizar redes específicas com `APPLICATION_LINK_CHECK_ALLOWED_CIDRS` (lista separada por vírgulas, ex.: `10.20.0.0/16,192.168.5.10/32`). Por omissão a lista está vazia e todos os intervalos acima ficam bloqueados.
 
 ## Segurança SNMP
 

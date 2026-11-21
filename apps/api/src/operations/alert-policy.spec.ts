@@ -36,3 +36,17 @@ test('per-rule counts split governed alerts into shown, below threshold and in m
   assert.deepEqual(ruleAlertCounts(global, rules, windows, alerts), { matching: 5, governed: 3, shown: 1, belowThreshold: 1, inMaintenance: 1 });
   assert.deepEqual(ruleAlertCounts(disabled, rules, windows, alerts), { matching: 1, governed: 0, shown: 0, belowThreshold: 0, inMaintenance: 0 });
 });
+
+test('per-rule counts from grouped (source, Site, severity) rows equal the per-alert counts', () => {
+  const rules = [global, siteRule, disabled];
+  const alerts = [
+    ...Array.from({ length: 4 }, () => ({ source: 'SNMP', siteId: 'site-a', severity: 'WARNING' })),
+    ...Array.from({ length: 2 }, () => ({ source: 'SNMP', siteId: 'site-c', severity: 'HIGH' })),
+    { source: 'SNMP', siteId: 'site-b', severity: 'WARNING' },
+    { source: 'SNMP', siteId: null, severity: 'CRITICAL' },
+  ];
+  const groups = new Map<string, { source: string; siteId: string | null; severity: string; count: number }>();
+  for (const alert of alerts) { const key = JSON.stringify(alert); const group = groups.get(key) ?? { ...alert, count: 0 }; group.count += 1; groups.set(key, group); }
+  const windows = [{ siteId: 'site-c' }];
+  for (const rule of rules) assert.deepEqual(ruleAlertCounts(rule, rules, windows, [...groups.values()]), ruleAlertCounts(rule, rules, windows, alerts), rule.id);
+});

@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaClient } from '@simoes/database';
+import { PrismaClient, SnmpDriftStatus } from '@simoes/database';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { InfrastructureAccessService } from '../infrastructure/infrastructure-access.service';
 import { errorBody } from '../common/bulk-result';
@@ -83,7 +83,7 @@ export class SnmpFleetService {
     if (!statuses.length || statuses.some((value) => !DRIFT_STATUSES.includes(value))) throw new BadRequestException({ code: 'SNMP_DRIFT_STATUS_INVALID', message: 'status deve ser PENDING, ACCEPTED ou IGNORED.' });
     const page = Math.max(Number(query.page) || 1, 1); const pageSize = Math.min(Math.max(Number(query.pageSize) || 25, 1), 100);
     const visible = await this.visibleDeviceWhere(user, query.siteId);
-    const where = { status: { in: statuses as never[] }, ...(query.deviceId ? { deviceId: query.deviceId } : {}), device: visible };
+    const where = { status: { in: statuses as SnmpDriftStatus[] }, ...(query.deviceId ? { deviceId: query.deviceId } : {}), device: visible };
     const [items, total] = await Promise.all([
       this.prisma.snmpDrift.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize, include: { device: { select: { id: true, name: true, type: true, siteId: true } }, interface: { select: { id: true, name: true } } } }),
       this.prisma.snmpDrift.count({ where }),
