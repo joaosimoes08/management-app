@@ -52,6 +52,11 @@ export function RackPduStrip({ view, side, width, height, canDisconnect, onDisco
     if (returnFocus) stripRef.current?.focus();
   }, []);
   useEffect(() => () => window.clearTimeout(closeTimer.current), []);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('pduId') !== view.pdu.id) return;
+    stripRef.current?.scrollIntoView?.({ block: 'nearest' });
+    setOpen('pinned');
+  }, [view.pdu.id]);
 
   const hoverIn = () => { cancelClose(); setOpen((current) => current ?? 'hover'); };
   const hoverOut = () => {

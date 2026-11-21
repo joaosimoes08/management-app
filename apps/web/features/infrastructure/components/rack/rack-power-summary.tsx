@@ -88,6 +88,12 @@ export interface RackPowerSummaryStripProps {
 
 /** Power summary under the rack heading: totals, utilisation per feed, outlets and what is near the limit. */
 export function RackPowerSummaryStrip({ summary, error, onEditThresholds }: RackPowerSummaryStripProps) {
+  const rackId = summary?.rack?.id;
+  useEffect(() => {
+    if (rackId && window.location.hash === '#rack-power-summary') {
+      document.getElementById('rack-power-summary')?.scrollIntoView?.({ block: 'nearest' });
+    }
+  }, [rackId]);
   if (error) return <div className="ipam-alert error" role="alert" data-testid="rack-power-strip">{error}<button type="button" className="icon-button subtle" onClick={onEditThresholds} aria-label="Limiares de energia" title="Limiares de energia"><SlidersHorizontal size={14} aria-hidden="true" /></button></div>;
   if (!summary) return null;
   const level = powerLevelFromApi(summary.level);
@@ -100,7 +106,7 @@ export function RackPowerSummaryStrip({ summary, error, onEditThresholds }: Rack
   const nearDevices = (summary.nearLimit?.devices ?? []).filter((device) => powerLevelFromApi(device.level) !== 'ok');
   const unconnected = summary.devices?.unconnected?.length ?? 0;
   const missingBudget = summary.capacity?.missingBudgetPduIds?.length ?? 0;
-  return <div data-testid="rack-power-strip" data-level={level}>
+  return <div id="rack-power-summary" data-testid="rack-power-strip" data-level={level}>
     <div className="table-actions">
       <span className={`state-badge ${badge.className}`} data-testid="rack-power-level"><i />{badge.label}</span>
       <span className="muted-cell">{`Limiares: aviso ${percent(summary.thresholds.warningPercent)} · crítico ${percent(summary.thresholds.criticalPercent)}`}</span>
