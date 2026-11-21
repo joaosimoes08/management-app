@@ -31,3 +31,11 @@ export function formatDate(value: DateInput, { locale = activeLocale, ...options
 export function formatNumber(value: number, { locale = activeLocale, ...options }: NumberFormatOptions = {}): string {
   return new Intl.NumberFormat(locale, options).format(value);
 }
+
+/** Values backed by a native date field and an explicit 24-hour time field. */
+export const time24Pattern = '([01][0-9]|2[0-3]):[0-5][0-9]';
+const localDateTimePattern = new RegExp(`^[0-9]{4,}-[0-9]{2}-[0-9]{2}T${time24Pattern}$`);
+
+export function isLocalDateTime(value: string): boolean {
+  return localDateTimePattern.test(value) && Number.isFinite(Date.parse(value));
+}

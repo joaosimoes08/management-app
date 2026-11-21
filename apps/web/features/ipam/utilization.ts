@@ -1,3 +1,4 @@
+import { formatNumber } from '@/lib/format/date';
 import type { Subnet, SubnetUtilization } from './types';
 
 /** Thresholds the API uses for `utilization.band` (shown in tooltips; the band itself comes from the API). */
@@ -14,6 +15,10 @@ export const utilizationBandOptions = [
 const bandLabels: Record<string, string> = { WARNING: 'Atenção', CRITICAL: 'Crítica' };
 const bandTone: Record<string, string> = { OK: 'occupied', WARNING: 'reserved', CRITICAL: 'excluded' };
 
+export function formatIpamPercent(value: number): string {
+  return `${formatNumber(value, { maximumFractionDigits: 2 })}%`;
+}
+
 export type UtilizationBadge = { tone: string; label: string; title: string };
 
 /** Badge for a subnet utilisation. Unknown bands render as a neutral badge with the raw band. */
@@ -23,7 +28,7 @@ export function utilizationBadge(utilization: SubnetUtilization | null | undefin
   if (band === 'UNTRACKED' || utilizationPercent === null || utilizationPercent === undefined) {
     return { tone: '', label: band === 'UNTRACKED' ? 'Não contabilizada' : String(band || '—'), title: 'A capacidade de prefixos IPv6 não é enumerada.' };
   }
-  const percent = `${Math.round(utilizationPercent * 10) / 10}%`;
+  const percent = formatIpamPercent(utilizationPercent);
   const bandLabel = band === 'OK' ? '' : bandLabels[band] ?? String(band);
   const suffix = bandLabel ? ` · ${bandLabel}` : '';
   const counts = [

@@ -22,7 +22,7 @@ export function ReviewDialog({ asset, attestation, initialOutcome, formatDate, c
   const [saving, setSaving] = useState(false);
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    if (outcome === 'CORRECTION_NEEDED' && !notes.trim()) { setError('Indica os dados a corrigir.'); return; }
+    if (outcome === 'NEEDS_CORRECTION' && !notes.trim()) { setError('Indica os dados a corrigir.'); return; }
     setSaving(true);
     setError('');
     const failure = await submit(outcome, notes.trim());
@@ -34,10 +34,10 @@ export function ReviewDialog({ asset, attestation, initialOutcome, formatDate, c
     {error && <div className="ipam-alert error" role="alert"><X size={15} />{error}</div>}
     <div className="settings-methods" role="radiogroup" aria-label="Resultado da revisão">
       <label><input type="radio" name="critical-asset-outcome" value="CONFIRMED" checked={outcome === 'CONFIRMED'} onChange={() => setOutcome('CONFIRMED')} />Dados corretos</label>
-      <label><input type="radio" name="critical-asset-outcome" value="CORRECTION_NEEDED" checked={outcome === 'CORRECTION_NEEDED'} onChange={() => setOutcome('CORRECTION_NEEDED')} />Pedir correção</label>
+      <label><input type="radio" name="critical-asset-outcome" value="NEEDS_CORRECTION" checked={outcome === 'NEEDS_CORRECTION'} onChange={() => setOutcome('NEEDS_CORRECTION')} />Pedir correção</label>
     </div>
-    <label>{outcome === 'CORRECTION_NEEDED' ? 'Dados a corrigir (obrigatório)' : 'Notas (opcional)'}<textarea autoFocus rows={4} maxLength={1000} required={outcome === 'CORRECTION_NEEDED'} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
-    <div className="modal-actions"><button type="button" className="secondary-button" onClick={close}>Cancelar</button><button className="primary-button" disabled={saving}>{saving ? 'A guardar…' : outcome === 'CORRECTION_NEEDED' ? 'Registar pedido de correção' : 'Registar confirmação'}</button></div>
+    <label>{outcome === 'NEEDS_CORRECTION' ? 'Dados a corrigir (obrigatório)' : 'Notas (opcional)'}<textarea autoFocus rows={4} maxLength={1000} required={outcome === 'NEEDS_CORRECTION'} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
+    <div className="modal-actions"><button type="button" className="secondary-button" onClick={close}>Cancelar</button><button className="primary-button" disabled={saving}>{saving ? 'A guardar…' : outcome === 'NEEDS_CORRECTION' ? 'Registar pedido de correção' : 'Registar confirmação'}</button></div>
   </form></IpamModal>;
 }
 

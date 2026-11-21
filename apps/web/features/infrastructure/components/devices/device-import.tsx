@@ -1,5 +1,6 @@
 'use client';
 
+import { useEscapeClose } from '@/components/ui/use-escape-close';
 import { useMemo, useState } from 'react';
 import { apiFetch } from '@/lib/api/client';
 import type { DeviceModel } from '../../types';
@@ -54,6 +55,8 @@ export function DeviceImport({ siteId, models, close, onComplete }: { siteId: st
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const mappedRows = useMemo(() => mapDeviceImportRows(values, mapping, models), [values, mapping, models]);
+  useEscapeClose(close);
+
   async function readFile(file?: File) {
     if (!file) return;
     try {

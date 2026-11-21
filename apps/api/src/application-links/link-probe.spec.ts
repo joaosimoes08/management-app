@@ -57,15 +57,24 @@ function fakeLinksService(count: number, probe: (url: string) => Promise<{ avail
   const links = Array.from({ length: count }, (_, index) => ({ id: `l${index}`, name: `Link ${index}`, url: `http://link-${index}.example/` }));
   const prisma = {
     applicationLink: {
+      findUnique: async ({ where }: { where: { id: string } }) => links.find((link) => link.id === where.id),
       count: async () => links.length,
       findMany: async ({ skip, take }: { skip: number; take: number }) => links.slice(skip, skip + take),
-      update: async () => ({}),
+      update: async ({ data }: { data: object }) => data,
     },
   };
   const service = new ApplicationLinksService(prisma as never, { record: async () => undefined } as never);
   (service as unknown as { probe: typeof probe }).probe = probe;
   return service;
 }
+
+test('check returns the blocked reason alongside persisted availability', async () => {
+  const service = fakeLinksService(1, async () => ({ available: false, httpStatus: null, responseMs: null, code: 'BLOCKED' }));
+  const checked = await service.check('l0', { id: 'admin', roles: ['ADMIN'] } as never);
+  assert.equal(checked.code, 'BLOCKED');
+  assert.equal(checked.isAvailable, false);
+  assert.ok(checked.lastCheckedAt instanceof Date);
+});
 
 test('checkAll caps each call at 100 links with 10 concurrent probes and returns nextOffset for the rest', async () => {
   let running = 0; let peak = 0;

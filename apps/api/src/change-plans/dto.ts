@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { ArrayMinSize, IsArray, IsDateString, IsEnum, IsIn, IsInt, IsObject, IsOptional, IsString, IsUUID, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsDateString, IsEnum, IsIn, IsInt, IsObject, IsOptional, IsString, IsUUID, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import { ChangeEntityType } from '@simoes/database';
 
 export class ChangePlanItemDto {
@@ -31,4 +31,26 @@ export class UpdateChangePlanDto {
 export class ReviewChangePlanDto {
   @IsIn(['APPROVED', 'REJECTED']) status!: 'APPROVED' | 'REJECTED';
   @IsOptional() @IsString() @MaxLength(1000) reviewNote?: string;
+}
+
+export class StartChangePlanDto {
+  @IsOptional() @IsInt() @Min(1) expectedRevision?: number;
+  @IsOptional() @IsString() @MaxLength(1000) note?: string;
+}
+
+export class CloseChangePlanDto {
+  @IsIn(['COMPLETED', 'FAILED', 'ROLLED_BACK']) status!: 'COMPLETED' | 'FAILED' | 'ROLLED_BACK';
+  @IsOptional() @IsString() @MaxLength(2000) closingNote?: string;
+}
+
+export class AddChecklistItemsDto {
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(50) @IsString({ each: true }) @MinLength(2, { each: true }) @MaxLength(240, { each: true }) labels!: string[];
+}
+
+export class TickChecklistItemDto {
+  @IsBoolean() done!: boolean;
+}
+
+export class LinkSnmpWriteDto {
+  @IsUUID() snmpWriteRequestId!: string;
 }

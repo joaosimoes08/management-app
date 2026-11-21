@@ -1,5 +1,5 @@
 export type Group = { id: string; name: string };
-export type Outcome = 'CONFIRMED' | 'CORRECTION_NEEDED';
+export type Outcome = 'CONFIRMED' | 'NEEDS_CORRECTION' | 'NOT_FOUND';
 export type DueState = 'overdue' | 'due_this_week' | 'up_to_date' | 'unscheduled';
 export type Attestation = {
   id: string;
@@ -55,8 +55,8 @@ export const assetTypes = ['SWITCH', 'ROUTER', 'FIREWALL', 'SERVER', 'STORAGE', 
 export const dueLabels: Record<DueState, string> = { overdue: 'Em atraso', due_this_week: 'Para esta semana', up_to_date: 'Em dia', unscheduled: 'Sem agendamento' };
 /** Existing state-badge tones: red, amber, green, neutral. */
 export const dueTone: Record<DueState, string> = { overdue: 'excluded', due_this_week: 'reserved', up_to_date: 'occupied', unscheduled: '' };
-export const outcomeLabel = (outcome?: string | null) => (outcome === 'CONFIRMED' ? 'Confirmado' : outcome === 'CORRECTION_NEEDED' ? 'Correção pedida' : 'Pendente');
-export const outcomeTone = (outcome?: string | null) => (outcome === 'CONFIRMED' ? 'occupied' : outcome === 'CORRECTION_NEEDED' ? 'excluded' : 'pending');
+export const outcomeLabel = (outcome?: string | null) => (outcome === 'CONFIRMED' ? 'Confirmado' : outcome === 'NEEDS_CORRECTION' ? 'Correção pedida' : outcome === 'NOT_FOUND' ? 'Não encontrado' : 'Pendente');
+export const outcomeTone = (outcome?: string | null) => (outcome === 'CONFIRMED' ? 'occupied' : outcome === 'NEEDS_CORRECTION' || outcome === 'NOT_FOUND' ? 'excluded' : 'pending');
 export const dueOrder: Record<DueState, number> = { overdue: 0, due_this_week: 1, unscheduled: 2, up_to_date: 3 };
 
 /** Admins get every asset in `assets` and the unowned ones again in `unassigned`: merge once by id. */
@@ -89,7 +89,7 @@ export function countRows(rows: AssetRow[]) {
   return {
     overdue: rows.filter((row) => row.dueState === 'overdue').length,
     dueThisWeek: rows.filter((row) => row.dueState === 'due_this_week').length,
-    needsCorrection: rows.filter((row) => row.latestOutcome === 'CORRECTION_NEEDED').length,
+    needsCorrection: rows.filter((row) => row.latestOutcome === 'NEEDS_CORRECTION').length,
     noOwner: rows.filter((row) => !row.owner).length,
   };
 }

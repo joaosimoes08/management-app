@@ -1,5 +1,6 @@
 'use client';
 
+import { useEscapeClose } from '@/components/ui/use-escape-close';
 import { useEffect, useRef, useState } from 'react';
 import { ChevronRight, ClipboardCheck, GitPullRequestArrow, History, Loader2, Search, Wrench } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -100,6 +101,7 @@ export function GlobalSearchPalette({ open, onClose, rackSearch, localSearch }: 
   };
   const handleClose = () => { if (scope === 'local' && rackSearch) rackSearch.onChange(''); onClose(); };
 
+  useEscapeClose(handleClose, open);
   if (!open) return null;
 
   return <div className="command-backdrop" role="presentation" onMouseDown={handleClose}>
@@ -114,7 +116,6 @@ export function GlobalSearchPalette({ open, onClose, rackSearch, localSearch }: 
           if (event.key === 'ArrowDown') { event.preventDefault(); setActiveIndex((index) => Math.min(index + 1, results.length - 1)); }
           if (event.key === 'ArrowUp') { event.preventDefault(); setActiveIndex((index) => Math.max(index - 1, 0)); }
           if (event.key === 'Enter') { event.preventDefault(); activate(results[activeIndex]); }
-          if (event.key === 'Escape') handleClose();
         }} />
         <kbd>ESC</kbd>
       </div>
