@@ -70,9 +70,12 @@ function Section({ id, title, fullHref, fullLabel, children }: { id: string; tit
 
 const EmptyLine = ({ children }: { children: ReactNode }) => <p className="panel-description device-360-empty">{children}</p>;
 
-function SectionBody<T>({ query, empty, children }: { query: { data?: T; isLoading: boolean; error: unknown }; empty: (data: T) => string | null; children: (data: T) => ReactNode }) {
+function SectionBody<T>({ query, empty, children }: { query: { data?: T; isLoading: boolean; isFetching?: boolean; error: unknown; refetch?: () => unknown }; empty: (data: T) => string | null; children: (data: T) => ReactNode }) {
   if (query.isLoading) return <EmptyLine>A carregar…</EmptyLine>;
-  if (query.error) return <EmptyLine>Não foi possível carregar esta secção.</EmptyLine>;
+  if (query.error) return <div className="device-360-error" role="alert">
+    <EmptyLine>Não foi possível carregar esta secção.</EmptyLine>
+    {query.refetch && <button type="button" className="text-button" disabled={query.isFetching} onClick={() => { void query.refetch?.(); }}>{query.isFetching ? 'A tentar…' : 'Tentar novamente'}</button>}
+  </div>;
   if (query.data === undefined) return <EmptyLine>Sem dados.</EmptyLine>;
   const message = empty(query.data);
   return message ? <EmptyLine>{message}</EmptyLine> : <>{children(query.data)}</>;
@@ -100,7 +103,7 @@ export function Device360Page({ deviceId }: { deviceId: string }) {
   const ips = useQuery({ queryKey: ['device-360', deviceId, 'ips', siteId], queryFn: () => listDeviceIpAddresses(siteId, deviceId), enabled: ready && Boolean(siteId) });
   const connections = useQuery({ queryKey: ['device-360', deviceId, 'connections'], queryFn: async () => itemsOf<Connection>(await apiFetch(`/api/v1/topology/connections${q({ siteId, search: device?.name, pageSize: '200' })}`)).filter((c) => c.sourceDeviceId === deviceId || c.targetDeviceId === deviceId), enabled: ready });
   const snmp = useQuery({ queryKey: ['device-360', deviceId, 'snmp'], queryFn: () => apiFetch<SnmpOverview>(`/api/v1/snmp/devices/${encodeURIComponent(deviceId)}`), enabled: ready && can('snmp') });
-  const lifecycle = useQuery({ queryKey: ['device-360', deviceId, 'lifecycle', siteId], queryFn: async () => itemsOf<LifecycleDate>(await apiFetch(`/api/v1/lifecycle-dates${q({ siteId, from: '2000-01-01', to: '2100-01-01' })}`)).filter((d) => d.deviceId === deviceId), enabled: ready && Boolean(siteId) });
+  const lifecycle = useQuery({ queryKey: ['device-360', deviceId, 'lifecycle', siteId], queryFn: async () => itemsOf<LifecycleDate>(await apiFetch(`/api/v1/lifecycle-dates${q({ siteId, deviceId })}`)).filter((d) => d.deviceId === deviceId), enabled: ready && Boolean(siteId) });
   const attestation = useQuery({ queryKey: ['device-360', deviceId, 'attestation', siteId], queryFn: async () => { const r = await apiFetch<{ assets?: CriticalAsset[]; unassigned?: CriticalAsset[] }>(`/api/v1/critical-assets${q({ siteId })}`); return [...(r.assets ?? []), ...(r.unassigned ?? [])].find((a) => a.id === deviceId) ?? null; }, enabled: ready && Boolean(siteId) && Boolean(device?.isCritical) && can('attestation') });
   const changes = useQuery({ queryKey: ['device-360', deviceId, 'changes', siteId], queryFn: async () => itemsOf<ChangePlan>(await apiFetch(`/api/v1/change-plans${q({ siteId })}`)).filter((p) => !CLOSED_CHANGE.has(p.status) && (p.items ?? []).some((i) => i.entityType === 'DEVICE' && i.entityId === deviceId)), enabled: ready && Boolean(siteId) && can('changes') });
   const hosts = useQuery({ queryKey: ['device-360', deviceId, 'hosts', siteId], enabled: ready && Boolean(siteId) && can('hosts'), queryFn: async (): Promise<HostWithServices[]> => {

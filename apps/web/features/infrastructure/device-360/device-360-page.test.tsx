@@ -56,6 +56,31 @@ describe('Device360Page', () => {
     expect(screen.queryByTestId('tier-badge')).not.toBeInTheDocument();
   });
 
+  it('asks the API for this device\'s lifecycle dates by deviceId, without an over-wide date range', async () => {
+    routeApi({ '/api/v1/lifecycle-dates': { items: [{ id: 'l1', deviceId: 'd1', kind: 'WARRANTY', dueDate: '2045-06-30' }] } });
+    renderPage();
+    expect(await within(await screen.findByRole('region', { name: 'Ciclo de vida' })).findByText(/WARRANTY/)).toBeInTheDocument();
+    const urls = vi.mocked(apiFetch).mock.calls.map(([url]) => String(url)).filter((url) => url.startsWith('/api/v1/lifecycle-dates'));
+    expect(urls).toEqual(['/api/v1/lifecycle-dates?siteId=s1&deviceId=d1']);
+  });
+
+  it('offers a retry when a section fails to load, and recovers', async () => {
+    let fail = true;
+    routeApi();
+    const base = vi.mocked(apiFetch).getMockImplementation()!;
+    vi.mocked(apiFetch).mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.startsWith('/api/v1/lifecycle-dates')) { if (fail) throw new Error('400'); return { items: [{ id: 'l1', deviceId: 'd1', kind: 'SUPPORT', dueDate: '2030-01-01' }] }; }
+      return base(url, init);
+    });
+    renderPage();
+    const card = await screen.findByRole('region', { name: 'Ciclo de vida' });
+    expect(await within(card).findByText('Não foi possível carregar esta secção.')).toBeInTheDocument();
+    fail = false;
+    fireEvent.click(within(card).getByRole('button', { name: 'Tentar novamente' }));
+    expect(await within(card).findByText(/SUPPORT/)).toBeInTheDocument();
+    expect(within(card).queryByText('Não foi possível carregar esta secção.')).not.toBeInTheDocument();
+  });
+
   it('links every section to its full page filtered to this device', async () => {
     routeApi();
     renderPage();

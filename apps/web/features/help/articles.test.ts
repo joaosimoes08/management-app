@@ -19,4 +19,16 @@ describe('help articles', () => {
     expect(helpArticleForPath(null)).toBeNull();
     expect(helpArticle('tabelas')?.title).toBe('Tabelas, filtros e vistas guardadas');
   });
+
+  it('describe current audit and critical-asset behaviour (#113, #97)', () => {
+    const audit = helpArticle('auditoria')!.body.join(' ');
+    expect(audit).toMatch(/GET e HEAD/);
+    expect(audit).toMatch(/exportações/);
+    expect(audit).toMatch(/transferências de ficheiros/);
+    const critical = helpArticle('ativos-criticos')!;
+    const text = [critical.description, ...critical.body].join(' ');
+    expect(text).not.toMatch(/semanal/i);
+    expect(text).toMatch(/T1 a cada semana, T2 a cada 2 semanas e T3 a cada 4 semanas/);
+    expect(text).toMatch(/Definições → Sites/);
+  });
 });
