@@ -7,6 +7,8 @@ export type AuditPageFilters = { limit?: number; cursor?: string; q?: string; ac
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const AUDIT_EXPORT_LIMIT = 10_000;
 const FACET_LIMIT = 500;
+/** Facets without from/to cover this many days, so the dropdown counts never scan the whole table. */
+export const AUDIT_FACET_DEFAULT_DAYS = 90;
 
 @Injectable()
 export class AuditService implements OnModuleDestroy {
@@ -82,7 +84,8 @@ export class AuditService implements OnModuleDestroy {
   }
   /** Distinct values for the filter dropdowns. HTTP request actions (one per URL) are folded into entityType HTTP_REQUEST. */
   async facets(filters: { from?: string; to?: string } = {}) {
-    const window = this.pageWhere({ from: filters.from, to: filters.to });
+    const from = filters.from ?? (filters.to ? undefined : new Date(Date.now() - AUDIT_FACET_DEFAULT_DAYS * 86_400_000).toISOString());
+    const window = this.pageWhere({ from, to: filters.to });
     const [actions, entityTypes, actors] = await Promise.all([
       this.prisma.auditLog.groupBy({ by: ['action'], where: { AND: [window, { OR: [{ entityType: null }, { entityType: { not: 'HTTP_REQUEST' } }] }] }, _count: { _all: true }, orderBy: { action: 'asc' }, take: FACET_LIMIT }),
       this.prisma.auditLog.groupBy({ by: ['entityType'], where: { AND: [window, { entityType: { not: null } }] }, _count: { _all: true }, orderBy: { entityType: 'asc' }, take: FACET_LIMIT }),
@@ -94,6 +97,7 @@ export class AuditService implements OnModuleDestroy {
       actions: actions.map((item) => ({ value: item.action, count: item._count._all })),
       entityTypes: entityTypes.map((item) => ({ value: item.entityType!, count: item._count._all })),
       actors: actors.flatMap((item) => { const found = userById.get(item.userId!); return found ? [{ id: found.id, username: found.username, displayName: found.displayName, count: item._count._all }] : []; }).sort((a, b) => a.username.localeCompare(b.username)),
+      from: from ?? null, to: filters.to ?? null,
       truncated: actions.length >= FACET_LIMIT || entityTypes.length >= FACET_LIMIT || actors.length >= FACET_LIMIT,
     };
   }

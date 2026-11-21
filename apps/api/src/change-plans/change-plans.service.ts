@@ -14,6 +14,7 @@ const VIEWERS = ['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'AUDITOR', 'RE
 const ACTIVE_CONFLICT_STATUSES = [ChangePlanStatus.SUBMITTED, ChangePlanStatus.APPROVED];
 const CALENDAR_MAX_DAYS = 120;
 const CALENDAR_LIMIT = 500;
+const LIST_LIMIT = 500;
 const DAY = 24 * 60 * 60 * 1000;
 export type ChangePlanListFilters = { status?: string; from?: string; to?: string; q?: string };
 type GraphNode = { key: string; entityType: ChangeEntityType; entityId: string; label: string; href: string; siteId: string; updatedAt?: Date; observedAt?: Date; source?: string };
@@ -79,6 +80,81 @@ export class ChangePlansService {
     }
   }
 
+  /**
+   * READ visibility for many targets of one Site at once. Same rules as assertTarget(READ), but the
+   * records are loaded with one query per entity type and each access scope (room + device type,
+   * Site + device type, IPAM Site) is checked once instead of once per target.
+   * Returns the `${entityType}:${entityId}` keys the user may read.
+   */
+  private async readableTargetKeys(user: AuthenticatedUser, siteId: string, targets: { entityType: ChangeEntityType; entityId: string }[]): Promise<Set<string>> {
+    const readable = new Set<string>();
+    if (!targets.length) return readable;
+    const idsOf = (type: ChangeEntityType) => [...new Set(targets.filter((item) => item.entityType === type).map((item) => item.entityId))];
+    const memo = new Map<string, Promise<boolean>>();
+    const once = (key: string, check: () => Promise<unknown>) => {
+      if (!memo.has(key)) memo.set(key, check().then(() => true, (error) => { if (this.isVisibilityFailure(error)) return false; throw error; }));
+      return memo.get(key)!;
+    };
+    type DeviceScope = { siteId: string | null; type: string | null; rack: { roomId: string } | null };
+    const deviceScope = (device: DeviceScope, deviceSite: string | null) => {
+      if (device.rack) return once(`room:${device.rack.roomId}:${device.type ?? ''}`, () => this.infrastructure.assertRoom(user, 'READ', device.rack!.roomId, 'DEVICE', device.type));
+      if (deviceSite) return once(`site:${deviceSite}:${device.type ?? ''}`, () => this.infrastructure.assertSite(user, 'READ', deviceSite, 'DEVICE', device.type));
+      return Promise.resolve(user.roles.includes('ADMIN'));
+    };
+    const ipamSite = (site: string | null | undefined) => once(`ipam:${site ?? ''}`, () => this.ipam.assertContext(user, 'READ', { siteId: site ?? null }));
+    type HostScope = { device: { siteId: string | null } | null; ipAddresses: { subnet: { siteId: string | null } }[] };
+    const hostSite = (host: HostScope) => host.device?.siteId ?? host.ipAddresses.find((ip) => ip.subnet.siteId)?.subnet.siteId ?? null;
+    // assertHost(READ) needs every subnet the host is on to be readable; a host without IPs falls back to the Site-less context.
+    const hostReadable = async (host: HostScope) => host.ipAddresses.length ? (await Promise.all(host.ipAddresses.map((ip) => ipamSite(ip.subnet.siteId)))).every(Boolean) : ipamSite(null);
+    const deviceSelect = { siteId: true, type: true, rack: { select: { roomId: true } } } as const;
+    const hostSelect = { device: { select: { siteId: true } }, ipAddresses: { select: { subnet: { select: { siteId: true } } } } } as const;
+    const pick = <T>(ids: string[], load: () => Promise<T[]>) => ids.length ? load() : Promise.resolve([] as T[]);
+    const [devices, interfaces, vlans, subnets, ips, hosts, services] = await Promise.all([
+      pick(idsOf(ChangeEntityType.DEVICE), () => this.prisma.device.findMany({ where: { id: { in: idsOf(ChangeEntityType.DEVICE) } }, select: { id: true, ...deviceSelect } })),
+      pick(idsOf(ChangeEntityType.INTERFACE), () => this.prisma.deviceInterface.findMany({ where: { id: { in: idsOf(ChangeEntityType.INTERFACE) } }, select: { id: true, device: { select: deviceSelect } } })),
+      pick(idsOf(ChangeEntityType.VLAN), () => this.prisma.vlan.findMany({ where: { id: { in: idsOf(ChangeEntityType.VLAN) } }, select: { id: true, siteId: true } })),
+      pick(idsOf(ChangeEntityType.SUBNET), () => this.prisma.subnet.findMany({ where: { id: { in: idsOf(ChangeEntityType.SUBNET) } }, select: { id: true, siteId: true } })),
+      pick(idsOf(ChangeEntityType.IP_ADDRESS), () => this.prisma.ipAddress.findMany({ where: { id: { in: idsOf(ChangeEntityType.IP_ADDRESS) } }, select: { id: true, subnet: { select: { siteId: true } } } })),
+      pick(idsOf(ChangeEntityType.HOST), () => this.prisma.host.findMany({ where: { id: { in: idsOf(ChangeEntityType.HOST) } }, select: { id: true, ...hostSelect } })),
+      pick(idsOf(ChangeEntityType.SERVICE), () => this.prisma.service.findMany({ where: { id: { in: idsOf(ChangeEntityType.SERVICE) } }, select: { id: true, host: { select: hostSelect } } })),
+    ]);
+    const checks: Promise<void>[] = [];
+    const add = (type: ChangeEntityType, id: string, actualSite: string | null | undefined, check: () => Promise<boolean>) => {
+      if (actualSite !== siteId) return; // same rule as assertTarget: the target must belong to the plan's Site
+      checks.push(check().then((ok) => { if (ok) readable.add(`${type}:${id}`); }));
+    };
+    for (const d of devices) add(ChangeEntityType.DEVICE, d.id, d.siteId, () => deviceScope(d as DeviceScope, d.siteId));
+    for (const i of interfaces) add(ChangeEntityType.INTERFACE, i.id, i.device.siteId, () => deviceScope(i.device as DeviceScope, i.device.siteId));
+    for (const v of vlans) add(ChangeEntityType.VLAN, v.id, v.siteId, () => ipamSite(v.siteId));
+    for (const s of subnets) add(ChangeEntityType.SUBNET, s.id, s.siteId, () => ipamSite(s.siteId));
+    for (const ip of ips) add(ChangeEntityType.IP_ADDRESS, ip.id, ip.subnet.siteId, () => ipamSite(ip.subnet.siteId));
+    for (const h of hosts) add(ChangeEntityType.HOST, h.id, hostSite(h as HostScope), () => hostReadable(h as HostScope));
+    for (const s of services) add(ChangeEntityType.SERVICE, s.id, hostSite(s.host as HostScope), () => hostReadable(s.host as HostScope));
+    await Promise.all(checks);
+    return readable;
+  }
+
+  /** The parts of a plan a user may see: visible items, visible known impacts, and whether anything was hidden. */
+  private visiblePlanParts(plan: { items: { entityType: ChangeEntityType; entityId: string }[]; previewSnapshot?: unknown }, readable: Set<string>) {
+    const key = (item: { entityType: string; entityId: string }) => `${item.entityType}:${item.entityId}`;
+    const safeItems = plan.items.filter((item) => readable.has(key(item)));
+    const snapshot = plan.previewSnapshot && typeof plan.previewSnapshot === 'object' ? plan.previewSnapshot as any : null;
+    const allImpacts: any[] = snapshot?.knownImpacts ?? [];
+    const knownImpacts = allImpacts.filter((node) => readable.has(key(node)));
+    return { snapshot, safeItems, knownImpacts, hidden: safeItems.length !== plan.items.length || knownImpacts.length !== allImpacts.length };
+  }
+  private planTargets(plan: { items: { entityType: ChangeEntityType; entityId: string }[]; previewSnapshot?: unknown }) {
+    const snapshot = plan.previewSnapshot && typeof plan.previewSnapshot === 'object' ? plan.previewSnapshot as any : null;
+    return [...plan.items, ...((snapshot?.knownImpacts ?? []) as { entityType: ChangeEntityType; entityId: string }[])];
+  }
+  private shapePlan<P extends { items: { entityType: ChangeEntityType; entityId: string }[]; previewSnapshot?: unknown }>(plan: P, readable: Set<string>) {
+    const { snapshot, safeItems, knownImpacts, hidden } = this.visiblePlanParts(plan, readable);
+    if (!snapshot) return { ...plan, items: safeItems };
+    const visibleKeys = new Set([...safeItems, ...knownImpacts].map((item: any) => `${item.entityType}:${item.entityId}`));
+    const safeSnapshot = { ...snapshot, knownImpacts, dependencyEdges: (snapshot.dependencyEdges ?? []).filter((edge: any) => visibleKeys.has(edge.from) && visibleKeys.has(edge.to)), coverage: hidden ? { ...snapshot.coverage, status: 'PARTIAL', reason: 'Alguns alvos ou dependências estão fora do teu âmbito de acesso.' } : snapshot.coverage };
+    return { ...plan, items: safeItems, previewSnapshot: safeSnapshot };
+  }
+
   private async validateItems(user: AuthenticatedUser, siteId: string, items: ChangePlanItemDto[]) {
     const unique = new Set<string>();
     for (const item of items) {
@@ -114,11 +190,8 @@ export class ChangePlansService {
       hosts.map((x) => ({ entityType: ChangeEntityType.HOST, entityId: x.id, label: x.name })),
       services.map((x) => ({ entityType: ChangeEntityType.SERVICE, entityId: x.id, label: x.name, detail: `${x.host.name}${x.port ? ` · ${x.port}` : ''}` })),
     ];
-    const visible: typeof groups = [];
-    for (const group of groups) {
-      const allowed = await Promise.all(group.map(async (item) => { try { await this.assertTarget(user, item.entityType, item.entityId, siteId, 'READ'); return item; } catch (error) { if (this.isVisibilityFailure(error)) return null; throw error; } }));
-      visible.push(allowed.filter((item): item is NonNullable<typeof item> => item !== null));
-    }
+    const readable = await this.readableTargetKeys(user, siteId, groups.flat());
+    const visible = groups.map((group) => group.filter((item) => readable.has(`${item.entityType}:${item.entityId}`)));
     return { groups: visible, truncated: groups.some((group) => group.length > IMPACT_LIMIT) };
   }
 
@@ -168,8 +241,9 @@ export class ChangePlansService {
     const statuses = this.parseStatuses(filters.status); const { start, end } = this.parseRange(filters.from, filters.to);
     const q = filters.q?.trim().slice(0, 120) || undefined;
     const where: Prisma.ChangePlanWhereInput = { siteId, ...(statuses ? { status: { in: statuses } } : {}), ...this.windowWhere(start, end), ...(q ? { OR: [{ title: { contains: q, mode: 'insensitive' } }, { reason: { contains: q, mode: 'insensitive' } }, { items: { some: { operationSummary: { contains: q, mode: 'insensitive' } } } }] } : {}) };
-    const plans = await this.prisma.changePlan.findMany({ where, include: { items: true, creator: { select: { id: true, username: true, displayName: true } }, reviewer: { select: { id: true, username: true, displayName: true } } }, orderBy: [{ plannedStartAt: 'desc' }, { createdAt: 'desc' }] });
-    return Promise.all(plans.map((plan) => this.get(user, plan.id)));
+    const plans = await this.prisma.changePlan.findMany({ where, include: { items: true, creator: { select: { id: true, username: true, displayName: true } }, reviewer: { select: { id: true, username: true, displayName: true } } }, orderBy: [{ plannedStartAt: 'desc' }, { createdAt: 'desc' }], take: LIST_LIMIT });
+    const readable = await this.readableTargetKeys(user, siteId, plans.flatMap((plan) => this.planTargets(plan)));
+    return plans.map((plan) => this.shapePlan(plan, readable));
   }
 
   /** Plan counts per status for the status tabs, plus what is running now and what is coming up. */
@@ -198,17 +272,9 @@ export class ChangePlansService {
       this.prisma.maintenanceWindow.findMany({ where: { OR: [{ siteId }, { siteId: null }], startsAt: { lt: end }, endsAt: { gt: start } }, orderBy: [{ startsAt: 'asc' }, { id: 'asc' }], take: CALENDAR_LIMIT + 1, select: { id: true, name: true, reason: true, siteId: true, startsAt: true, endsAt: true } }),
     ]);
     // Shared targets are counted only over targets this user may read, so hidden records are never hinted at.
-    const readable = new Map<string, boolean>();
-    const canRead = async (entityType: ChangeEntityType, entityId: string) => {
-      const key = `${entityType}:${entityId}`;
-      if (!readable.has(key)) { try { await this.assertTarget(user, entityType, entityId, siteId, 'READ'); readable.set(key, true); } catch (error) { if (!this.isVisibilityFailure(error)) throw error; readable.set(key, false); } }
-      return readable.get(key)!;
-    };
-    const planWindows = await Promise.all(plans.slice(0, CALENDAR_LIMIT).map(async (plan) => {
-      const keys = new Set<string>();
-      for (const item of plan.items) if (await canRead(item.entityType, item.entityId)) keys.add(`${item.entityType}:${item.entityId}`);
-      return { plan, keys };
-    }));
+    const shown = plans.slice(0, CALENDAR_LIMIT);
+    const readable = await this.readableTargetKeys(user, siteId, shown.flatMap((plan) => plan.items));
+    const planWindows = shown.map((plan) => ({ plan, keys: new Set(plan.items.map((item) => `${item.entityType}:${item.entityId}`).filter((key) => readable.has(key))) }));
     const overlaps = computeOverlaps([
       ...planWindows.map(({ plan, keys }) => ({ kind: 'CHANGE_PLAN' as const, id: plan.id, startsAt: plan.plannedStartAt, endsAt: plan.plannedEndAt, active: (ACTIVE_CONFLICT_STATUSES as ChangePlanStatus[]).includes(plan.status), targetKeys: keys })),
       ...windows.slice(0, CALENDAR_LIMIT).map((item) => ({ kind: 'MAINTENANCE_WINDOW' as const, id: item.id, startsAt: item.startsAt, endsAt: item.endsAt, active: true })),
@@ -224,16 +290,20 @@ export class ChangePlansService {
   /** Who did what to a plan, oldest first, from the audit log. Only events recorded for this plan are returned. */
   async activity(user: AuthenticatedUser, id: string) {
     this.requireRole(user, VIEWERS);
-    const plan = await this.prisma.changePlan.findUnique({ where: { id }, select: { id: true, siteId: true } });
+    const plan = await this.prisma.changePlan.findUnique({ where: { id }, select: { id: true, siteId: true, previewSnapshot: true, items: { select: { entityType: true, entityId: true } } } });
     if (!plan) throw new NotFoundException({ code: 'CHANGE_PLAN_NOT_FOUND', message: 'Alteração não encontrada.' });
     await this.assertSite(user, plan.siteId, 'READ');
+    // Impact/item counts and coverage in the audit metadata describe the whole plan. They are only
+    // shown when the user can see every target and known impact; otherwise they would hint at hidden records.
+    const { hidden } = this.visiblePlanParts(plan, await this.readableTargetKeys(user, plan.siteId, this.planTargets(plan)));
     const events = await this.prisma.auditLog.findMany({ where: { entityType: 'ChangePlan', entityId: id }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: 500, include: { user: { select: { id: true, username: true, displayName: true } } } });
     return {
       changePlanId: id,
       items: events.map((event) => {
         const metadata = (event.metadata && typeof event.metadata === 'object' && !Array.isArray(event.metadata) ? event.metadata : {}) as Record<string, unknown>;
-        return { id: event.id, action: event.action, at: event.createdAt, actor: event.user, revision: typeof metadata.revision === 'number' ? metadata.revision : null, note: typeof metadata.note === 'string' && metadata.note ? metadata.note : null, knownImpactCount: typeof metadata.knownImpactCount === 'number' ? metadata.knownImpactCount : null, coverage: typeof metadata.coverage === 'string' ? metadata.coverage : null, itemCount: typeof metadata.itemCount === 'number' ? metadata.itemCount : null };
+        return { id: event.id, action: event.action, at: event.createdAt, actor: event.user, revision: typeof metadata.revision === 'number' ? metadata.revision : null, note: typeof metadata.note === 'string' && metadata.note ? metadata.note : null, knownImpactCount: !hidden && typeof metadata.knownImpactCount === 'number' ? metadata.knownImpactCount : null, coverage: !hidden && typeof metadata.coverage === 'string' ? metadata.coverage : null, itemCount: !hidden && typeof metadata.itemCount === 'number' ? metadata.itemCount : null };
       }),
+      countsHidden: hidden,
       truncated: events.length >= 500,
     };
   }
@@ -243,18 +313,7 @@ export class ChangePlansService {
     const plan = await this.prisma.changePlan.findUnique({ where: { id }, include: { items: true, creator: { select: { id: true, username: true, displayName: true } }, reviewer: { select: { id: true, username: true, displayName: true } } } });
     if (!plan) throw new NotFoundException({ code: 'CHANGE_PLAN_NOT_FOUND', message: 'Alteração não encontrada.' });
     await this.assertSite(user, plan.siteId, 'READ');
-    const visibleItems = await Promise.all(plan.items.map(async (item) => { try { await this.assertTarget(user, item.entityType, item.entityId, plan.siteId, 'READ'); return item; } catch (error) { if (this.isVisibilityFailure(error)) return null; throw error; } }));
-    const safeItems = visibleItems.filter((item) => item !== null);
-    if (plan.previewSnapshot && typeof plan.previewSnapshot === 'object') {
-      const snapshot = plan.previewSnapshot as any;
-      const allowed = await Promise.all((snapshot.knownImpacts ?? []).map(async (node: any) => { try { await this.assertTarget(user, node.entityType, node.entityId, plan.siteId, 'READ'); return node; } catch (error) { if (this.isVisibilityFailure(error)) return null; throw error; } }));
-      const knownImpacts = allowed.filter(Boolean);
-      const hidden = safeItems.length !== plan.items.length || knownImpacts.length !== (snapshot.knownImpacts ?? []).length;
-      const visibleKeys = new Set([...safeItems.map((item) => `${item.entityType}:${item.entityId}`), ...knownImpacts.map((node: any) => `${node.entityType}:${node.entityId}`)]);
-      const safeSnapshot = { ...snapshot, knownImpacts, dependencyEdges: (snapshot.dependencyEdges ?? []).filter((edge: any) => visibleKeys.has(edge.from) && visibleKeys.has(edge.to)), coverage: hidden ? { ...snapshot.coverage, status: 'PARTIAL', reason: 'Alguns alvos ou dependências estão fora do teu âmbito de acesso.' } : snapshot.coverage };
-      return { ...plan, items: safeItems, previewSnapshot: safeSnapshot };
-    }
-    return { ...plan, items: safeItems };
+    return this.shapePlan(plan, await this.readableTargetKeys(user, plan.siteId, this.planTargets(plan)));
   }
 
   private async graph(siteId: string, roots: { entityType: ChangeEntityType; entityId: string }[]) {

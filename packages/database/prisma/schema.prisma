@@ -280,6 +280,7 @@ model AuditLog {
 
   @@index([entityType, entityId])
   @@index([createdAt])
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
 }
 
 model Site {

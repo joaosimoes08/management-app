@@ -1202,3 +1202,52 @@ test('Phase E portal: favourites, check-all link health and the pending role-req
   assert.equal((await request('GET', '/api/v1/settings/role-requests?status=LOST', 'qa-admin')).statusCode, 400);
   assert.equal((await request('GET', '/api/v1/settings/role-requests', 'qa-network-scoped')).statusCode, 403);
 });
+
+test('Phase C review fixes: activity hides plan-wide counts from scoped users, list/get batch visibility, facet bounds, CORS export headers', async () => {
+  const day = (offset: number) => new Date(Date.UTC(2031, 1, 1 + offset, 8));
+  const created = await request('POST', '/api/v1/change-plans', 'qa-admin', { siteId: ids.siteA, title: 'Phase C hidden-target activity', reason: 'Review fix', plannedStartAt: day(1).toISOString(), plannedEndAt: day(2).toISOString(), items: [{ entityType: 'DEVICE', entityId: ids.deviceA, operationSummary: 'Visible' }, { entityType: 'DEVICE', entityId: ids.deviceSibling, operationSummary: 'Hidden' }] });
+  assert.equal(created.statusCode, 201, created.body);
+  const id = json(created).id;
+
+  // A scoped user who cannot see the sibling-room device gets no plan-wide counts (they would reveal the hidden target).
+  const scoped = await request('GET', `/api/v1/change-plans/${id}/activity`, 'qa-readonly');
+  assert.equal(scoped.statusCode, 200, scoped.body);
+  const scopedBody = json(scoped);
+  assert.equal(scopedBody.countsHidden, true);
+  assert.equal(scopedBody.items[0].action, 'CHANGE_PLAN_CREATED');
+  assert.equal(scopedBody.items[0].itemCount, null);
+  assert.equal(scopedBody.items[0].knownImpactCount, null);
+  assert.equal(scopedBody.items[0].coverage, null);
+  // Someone who sees every target still gets them.
+  const full = json(await request('GET', `/api/v1/change-plans/${id}/activity`, 'qa-admin'));
+  assert.equal(full.countsHidden, false);
+  assert.equal(full.items[0].itemCount, 2);
+
+  // get and list use the batched visibility check: the hidden target is dropped, the visible one kept.
+  const got = json(await request('GET', `/api/v1/change-plans/${id}`, 'qa-readonly'));
+  assert.deepEqual(got.items.map((item: { entityId: string }) => item.entityId), [ids.deviceA]);
+  const listed = json(await request('GET', `/api/v1/change-plans?siteId=${ids.siteA}&q=hidden-target activity`, 'qa-readonly'));
+  assert.equal(listed.length, 1);
+  assert.deepEqual(listed[0].items.map((item: { entityId: string }) => item.entityId), [ids.deviceA]);
+  assert.equal(JSON.stringify(listed).includes(ids.deviceSibling), false);
+  const adminList = json(await request('GET', `/api/v1/change-plans?siteId=${ids.siteA}&q=hidden-target activity`, 'qa-admin'));
+  assert.equal(adminList[0].items.length, 2);
+
+  // Audit facets without from/to are bounded to the default window and say so.
+  const old = await prisma.auditLog.create({ data: { action: 'PHASE_C_OLD_FACET_ONLY', createdAt: new Date(Date.now() - 200 * 86_400_000) } });
+  const facets = json(await request('GET', '/api/v1/audit/facets', 'qa-admin'));
+  assert.ok(facets.from);
+  assert.equal(facets.actions.some((item: { value: string }) => item.value === 'PHASE_C_OLD_FACET_ONLY'), false);
+  const wide = json(await request('GET', `/api/v1/audit/facets?from=${new Date(Date.now() - 365 * 86_400_000).toISOString()}`, 'qa-admin'));
+  assert.equal(wide.actions.some((item: { value: string }) => item.value === 'PHASE_C_OLD_FACET_ONLY'), true);
+  await prisma.auditLog.delete({ where: { id: old.id } });
+
+  // Quality facets report whether the scan was capped.
+  assert.equal(json(await request('GET', `/api/v1/inventory-quality/facets?siteId=${ids.siteA}`, 'qa-admin')).truncated, false);
+
+  // The browser may read the export headers cross-origin.
+  const cors = await app.inject({ method: 'GET', url: '/api/v1/audit/events/export?limit=1', headers: { 'x-test-user': 'qa-admin', origin: 'http://localhost:3000' } });
+  assert.equal(cors.statusCode, 200, cors.body);
+  assert.match(String(cors.headers['access-control-expose-headers']), /X-Export-Row-Count/);
+  assert.match(String(cors.headers['access-control-expose-headers']), /X-Export-Truncated/);
+});
