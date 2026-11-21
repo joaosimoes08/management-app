@@ -7,6 +7,7 @@ import { EquipmentTypeIcon } from '../equipment-type-icon';
 import { AssetImage } from '../asset-image';
 import type { Device } from '../../types';
 import type { DeviceModel, Rack } from '../../types';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 
 export interface DeviceListProps {
   devices: Device[];
@@ -32,6 +33,7 @@ export function getPopoverAlignment(anchor: Pick<DOMRect, 'left' | 'right'>, vie
 
 /** Active device inventory of the site. */
 export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire, canRetire, canEdit, selectedId, models = [], racks = [], onImport, canImport = canEdit, onBulkUpdate }: DeviceListProps) {
+  const { confirm: askConfirm, confirmDialog } = useConfirm();
   const [selected, setSelected] = useState<string[]>([]);
   const [status, setStatus] = useState('');
   const [modelId, setModelId] = useState('');
@@ -136,7 +138,7 @@ export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire,
     if (rackId) changes.rackId = rackId === '__unplaced__' ? null : rackId;
     if (!Object.keys(changes).length) { setError('Seleciona pelo menos um campo para alterar.'); return; }
     const summary = Object.entries(changes).map(([key, value]) => `${key}: ${value ?? 'sem valor'}`).join('\n');
-    if (!window.confirm(`Atualizar ${selected.length} equipamentos com os seguintes campos?\n\n${summary}`)) return;
+    if (!(await askConfirm({ title: 'Atualizar equipamentos', message: `Atualizar ${selected.length} equipamentos com os seguintes campos?\n\n${summary}`, confirmLabel: 'Atualizar' }))) return;
     setError(''); setUpdating(true);
     try {
       const outcome = await onBulkUpdate?.(selected, changes);
@@ -155,7 +157,7 @@ export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire,
       setError(cause instanceof Error ? cause.message : 'Não foi possível atualizar os equipamentos selecionados.');
     } finally { setUpdating(false); }
   }
-  return <section className="ipam-card">
+  return <>{confirmDialog}<section className="ipam-card">
     <div className="panel-heading"><div><span className="section-kicker">INVENTÁRIO OPERACIONAL</span><h2>Equipamentos ativos</h2></div></div>
     {(canEdit || (canImport && onImport)) && <PageToolbarPortal><div className="device-list-toolbar">
       {canImport && onImport && <button className="secondary-button" type="button" onClick={onImport}>Importar CSV</button>}
@@ -189,5 +191,5 @@ export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire,
       {(canEdit || canRetire) && <span className="row-actions">{canEdit && <button type="button" className="icon-button subtle" aria-label={`Editar ${device.name}`} onClick={(event) => { event.stopPropagation(); onEdit(device, event.detail > 0); }}><Edit3 size={14} /></button>}{canRetire && <button type="button" className="icon-button subtle" aria-label={`Rever retirada de ${device.name}`} onClick={(event) => { event.stopPropagation(); onRetire(device); }}><Archive size={14} /></button>}</span>}
     </div>)}
     {!devices.length && <div className="empty-context"><Server size={26} /><strong>{search ? 'Sem equipamentos correspondentes' : 'Não existem equipamentos ativos neste Site'}</strong></div>}
-  </section>;
+  </section></>;
 }

@@ -79,3 +79,36 @@ test('returns forbidden when mutating a visible Host spanning an inaccessible su
   const access = new IpamAccessService(prisma as never, new AccessPolicyService());
   await assert.rejects(() => access.assertHost(user as never, 'UPDATE', 'host-multi'), ForbiddenException);
 });
+
+function natService(assignments: { siteId: string; permissions: string[] }[]) {
+  const prisma = {
+    accessGroupMember: { findMany: async () => [{ group: { siteAssignments: assignments.map((item) => ({ siteId: item.siteId, permissions: item.permissions.map((permission) => ({ permission })) })) } }] },
+    site: { findUnique: async ({ where }: any) => (where.id === 'missing' ? null : { id: where.id }) },
+    vrf: { findUnique: async ({ where }: any) => ({ id: where.id, siteId: where.id === 'vrf-b' ? 'site-b' : 'site-a' }) },
+    subnet: { findUnique: async ({ where }: any) => ({ id: where.id, siteId: where.id === 'subnet-b' ? 'site-b' : 'site-a' }) },
+    ipAddress: { findUnique: async ({ where }: any) => ({ subnet: { siteId: where.id === 'ip-b' ? 'site-b' : 'site-a' } }) },
+    device: { findUnique: async ({ where }: any) => ({ siteId: where.id === 'device-b' ? 'site-b' : 'site-a' }) },
+  };
+  return new IpamAccessService(prisma as never, new AccessPolicyService());
+}
+
+test('NAT writes resolve the Site from the rule Site, VRF, subnets, IPs or device', async () => {
+  const access = natService([{ siteId: 'site-a', permissions: ['READ', 'UPDATE'] }, { siteId: 'site-b', permissions: ['READ'] }]);
+  assert.deepEqual(await access.natRuleSiteIds({ vrfId: 'vrf-b' }), ['site-b']);
+  assert.deepEqual(await access.natRuleSiteIds({ siteId: 'site-a', translatedIpId: 'ip-b', deviceId: 'device-a' }), ['site-a', 'site-b']);
+  await access.assertNatRule(user as never, 'UPDATE', { vrfId: 'vrf-a' });
+  // VRF-only and Site-only rules used to skip the write check entirely.
+  await assert.rejects(() => access.assertNatRule(user as never, 'UPDATE', { vrfId: 'vrf-b' }), ForbiddenException);
+  await assert.rejects(() => access.assertNatRule(user as never, 'DELETE', { siteId: 'site-a' }), ForbiddenException);
+  await assert.rejects(() => access.assertNatRule(user as never, 'UPDATE', { sourceSubnetId: 'subnet-a', translatedSubnetId: 'subnet-b' }), ForbiddenException);
+  await assert.rejects(() => access.assertNatRule(user as never, 'UPDATE', { deviceId: 'device-b' }), ForbiddenException);
+});
+
+test('NAT writes on a Site the user cannot see are 404, unscoped rules are refused for non-admins, admins pass', async () => {
+  const access = natService([{ siteId: 'site-a', permissions: ['READ', 'CREATE'] }]);
+  await assert.rejects(() => access.assertNatRule(user as never, 'CREATE', { vrfId: 'vrf-b' }), NotFoundException);
+  await assert.rejects(() => access.assertNatRule(user as never, 'CREATE', { siteId: 'site-a', vrfId: 'vrf-b' }), ForbiddenException);
+  await assert.rejects(() => access.assertNatRule(user as never, 'CREATE', {}), (error: any) => error instanceof ForbiddenException && (error.getResponse() as { code?: string }).code === 'IPAM_NAT_SITE_REQUIRED');
+  await assert.rejects(() => access.assertNatRule(user as never, 'CREATE', { siteId: 'missing' }), NotFoundException);
+  await access.assertNatRule({ ...user, roles: ['ADMIN'] } as never, 'DELETE', {});
+});

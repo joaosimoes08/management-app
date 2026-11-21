@@ -124,14 +124,17 @@ describe('Infrastructure device toolbar', () => {
 
   it('applies bulk changes through the existing callback and clears selection from the popover', async () => {
     const onBulkUpdate = vi.fn(async (ids: string[]) => ({ updated: ids.length, updatedIds: ids, failed: [], auditFailed: [], batchAuditFailed: false }));
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     render(<DeviceList devices={devices} search="" onSelect={vi.fn()} onEdit={vi.fn()} onNew={vi.fn()} onRetire={vi.fn()} canRetire={false} canEdit onBulkUpdate={onBulkUpdate} />);
     fireEvent.click(screen.getByRole('button', { name: 'Selecionar equipamentos visíveis' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Selecionar todos os visíveis' }));
     fireEvent.change(screen.getByLabelText('Estado'), { target: { value: 'INACTIVE' } });
     fireEvent.click(screen.getByRole('button', { name: 'Aplicar alterações' }));
+    const confirmDialog = await screen.findByRole('alertdialog', { name: 'Atualizar equipamentos' });
+    expect(confirmDialog).toHaveTextContent('Atualizar 2 equipamentos com os seguintes campos?');
+    expect(confirmDialog).toHaveTextContent('status: INACTIVE');
+    expect(onBulkUpdate).not.toHaveBeenCalled();
+    fireEvent.click(within(confirmDialog).getByRole('button', { name: 'Atualizar' }));
     await waitFor(() => expect(onBulkUpdate).toHaveBeenCalledWith(['one', 'two'], { status: 'INACTIVE' }));
-    expect(confirm).toHaveBeenCalled();
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Alterar 2 equipamentos selecionados' })).not.toBeInTheDocument());
     expect(screen.getByText('2 guardado(s).')).toBeInTheDocument();
 
