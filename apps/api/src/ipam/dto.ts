@@ -1,4 +1,4 @@
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsIP, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateIf } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, ArrayUnique, IsArray, IsBoolean, IsIn, IsInt, IsIP, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateIf } from 'class-validator';
 import { PartialType } from '@nestjs/swagger';
 
 export class CreateSiteDto {
@@ -180,4 +180,16 @@ export class UpdateServiceDto {
   @IsOptional() @IsIn(['UNKNOWN', 'OPEN', 'CLOSED', 'DEGRADED', 'DISABLED']) status?: string;
   @IsOptional() @IsString() @MaxLength(80) version?: string;
   @IsOptional() @IsString() @MaxLength(1000) notes?: string;
+}
+
+export class ReserveNextIpsDto {
+  @IsOptional() @IsInt() @Min(1) @Max(32) count = 1;
+  @IsOptional() @IsString() @MaxLength(45) from?: string;
+  @IsOptional() @IsString() @MaxLength(45) to?: string;
+  @IsOptional() @IsInt() @Min(1) @Max(720) durationHours = 24;
+  @IsString() @MinLength(1) @MaxLength(500) reason!: string;
+}
+export class BulkReviewDiscoveryResultsDto {
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(200) @ArrayUnique() @IsUUID('all', { each: true }) ids!: string[];
+  @IsIn(['APPROVED', 'IGNORED']) status!: string;
 }

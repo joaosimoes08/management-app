@@ -3,13 +3,17 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { SnmpCredentialPurpose } from '@simoes/database';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { Roles } from '../auth/roles.decorator';
-import { AcceptSnmpEnrollmentDto, AcknowledgeSnmpWriteImpactDto, CreateSnmpCredentialDto, CreateSnmpTrapEnrollmentDto, CreateSnmpWritePreviewDto, ReviewSnmpDriftDto, SnmpOnboardingDeviceDto, UpsertSnmpConfigDto } from './dto';
+import { AcceptSnmpEnrollmentDto, AcknowledgeSnmpWriteImpactDto, CreateSnmpCredentialDto, CreateSnmpTrapEnrollmentDto, CreateSnmpWritePreviewDto, ReviewSnmpDriftDto, BulkReviewSnmpDriftsDto, SnmpOnboardingDeviceDto, UpsertSnmpConfigDto } from './dto';
 import { SnmpService } from './snmp.service';
 import { TopologyReconciliationService } from './topology-reconciliation.service';
+import { SnmpFleetService } from './snmp-fleet.service';
 
 @ApiTags('snmp') @ApiBearerAuth() @Controller({ path: 'snmp', version: '1' })
 export class SnmpController {
-  constructor(private readonly service: SnmpService, private readonly reconciliation: TopologyReconciliationService) {}
+  constructor(private readonly service: SnmpService, private readonly reconciliation: TopologyReconciliationService, private readonly fleet: SnmpFleetService) {}
+  @Get('fleet/summary') @Roles('ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY') fleetSummary(@Req() req: { user: AuthenticatedUser }, @Query('siteId') siteId?: string) { return this.fleet.fleetSummary(req.user, siteId); }
+  @Get('drifts') @Roles('ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY') drifts(@Req() req: { user: AuthenticatedUser }, @Query('status') status?: string, @Query('siteId') siteId?: string, @Query('deviceId') deviceId?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) { return this.fleet.listDrifts(req.user, { status, siteId, deviceId, page, pageSize }); }
+  @Post('drifts/bulk-review') @Roles('ADMIN', 'NETWORK_OPERATOR') bulkReviewDrifts(@Body() dto: BulkReviewSnmpDriftsDto, @Req() req: { user: AuthenticatedUser }) { return this.fleet.bulkReview(req.user, dto); }
   @Get('devices/:deviceId/topology-proposals') @Roles('ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY') proposals(@Param('deviceId') deviceId: string, @Req() req: { user: AuthenticatedUser }) { return this.reconciliation.list(deviceId, req.user); }
   @Get('devices/:deviceId/lldp-observations') @Roles('ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY') lldpObservations(@Param('deviceId') deviceId: string, @Req() req: { user: AuthenticatedUser }) { return this.reconciliation.observations(deviceId, req.user); }
   @Post('topology-proposals/:id/apply') @Roles('ADMIN', 'NETWORK_OPERATOR') applyProposal(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.reconciliation.apply(id, req.user); }

@@ -219,6 +219,23 @@ export class ChangePlansService {
     return { ...(end ? { plannedStartAt: { lt: end } } : {}), ...(start ? { plannedEndAt: { gt: start } } : {}) };
   }
 
+  /** Global search (Cmd+K): plans whose title or reason match, limited to Sites the caller may read for changes. */
+  async searchPlans(user: AuthenticatedUser, rawQuery: string, limit: number) {
+    if (!VIEWERS.some((role) => (user.roles as string[]).includes(role))) return [];
+    const q = rawQuery.trim().slice(0, 120);
+    if (q.length < 2) return [];
+    const contains = { contains: q, mode: 'insensitive' as const };
+    const candidates = await this.prisma.changePlan.findMany({ where: { OR: [{ title: contains }, { reason: contains }] }, select: { id: true, siteId: true, title: true, status: true, plannedStartAt: true, site: { select: { name: true } } }, orderBy: [{ plannedStartAt: 'desc' }], take: 200 });
+    const allowed = new Map<string, boolean>();
+    const visible = [];
+    for (const plan of candidates) {
+      if (!allowed.has(plan.siteId)) allowed.set(plan.siteId, user.roles.includes('ADMIN') || await this.assertSite(user, plan.siteId, 'READ').then(() => true, () => false));
+      if (allowed.get(plan.siteId)) visible.push(plan);
+      if (visible.length >= limit) break;
+    }
+    return visible;
+  }
+
   async list(user: AuthenticatedUser, siteId: string, filters: ChangePlanListFilters = {}) {
     this.requireRole(user, VIEWERS); await this.assertSite(user, siteId, 'READ');
     const statuses = this.parseStatuses(filters.status); const { start, end } = this.parseRange(filters.from, filters.to);

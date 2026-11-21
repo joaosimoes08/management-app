@@ -20,6 +20,22 @@ export class RoleRequestService {
     return { eligibleRoles: [...SELF_REQUEST_ROLES], currentRoles: user.roles, pendingRequest: pendingRequest ? this.present(pendingRequest) : null, history: history.map((item) => this.present(item)) };
   }
 
+  /** ADMIN list for Definições. Default status filter: PENDING,PROCESSING (oldest first, so the queue reads in order). */
+  async list(query: { status?: string; page?: string; pageSize?: string }) {
+    const allowed = ['PENDING', 'PROCESSING', 'APPROVED', 'REJECTED'];
+    const statuses = (query.status || 'PENDING,PROCESSING').split(',').map((value) => value.trim().toUpperCase()).filter(Boolean);
+    if (!statuses.length || statuses.some((value) => !allowed.includes(value))) throw new BadRequestException({ code: 'ROLE_REQUEST_STATUS_INVALID', message: 'status deve ser PENDING, PROCESSING, APPROVED ou REJECTED.' });
+    const page = Math.max(Number(query.page) || 1, 1); const pageSize = Math.min(Math.max(Number(query.pageSize) || 25, 1), 100);
+    const where = { status: { in: statuses as never[] } };
+    const openOnly = statuses.every((value) => value === 'PENDING' || value === 'PROCESSING');
+    const [items, total, pending] = await Promise.all([
+      this.prisma.roleRequest.findMany({ where, orderBy: { createdAt: openOnly ? 'asc' : 'desc' }, skip: (page - 1) * pageSize, take: pageSize, include: { user: { select: { id: true, username: true, displayName: true, email: true } }, reviewer: { select: { id: true, username: true, displayName: true } } } }),
+      this.prisma.roleRequest.count({ where }),
+      this.prisma.roleRequest.count({ where: { status: { in: ['PENDING', 'PROCESSING'] } } }),
+    ]);
+    return { items: items.map((item) => ({ ...this.present(item), user: item.user, reviewer: item.reviewer })), page, pageSize, total, totalPages: Math.ceil(total / pageSize), pendingTotal: pending };
+  }
+
   private present(item: { id: string; roles: unknown; status: string; createdAt: Date; processingAt?: Date | null; decidedAt?: Date | null }) {
     return { id: item.id, requestedRoles: Array.isArray(item.roles) ? item.roles : [], status: item.status, createdAt: item.createdAt, processingAt: item.processingAt ?? null, decidedAt: item.decidedAt ?? null };
   }
