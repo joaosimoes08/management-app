@@ -299,7 +299,8 @@ export class NotificationDeliveryService implements OnModuleInit, OnModuleDestro
       // The stored password belongs to one server and account: it is never carried over to another host, port,
       // security mode or username. Such a change needs the password again; removing the username clears it.
       const previous = (existing?.settings ?? null) as Partial<SmtpSettings> | null;
-      const connectionChanged = !previous || previous.host !== smtp.host || previous.port !== smtp.port || previous.security !== smtp.security || (previous.username ?? null) !== smtp.username;
+      // Host names are case-insensitive: a case-only change is the same server, and older rows may hold mixed case.
+      const connectionChanged = !previous || (previous.host ?? '').toLowerCase() !== smtp.host.toLowerCase() ||previous.port !== smtp.port || previous.security !== smtp.security || (previous.username ?? null) !== smtp.username;
       if (!newPassword && smtp.username && existing?.keyId && connectionChanged) {
         throw new BadRequestException({ code: 'SMTP_PASSWORD_REENTRY_REQUIRED', message: 'Alteraste o servidor, a porta, a segurança ou o utilizador: introduz de novo a palavra-passe SMTP.' });
       }

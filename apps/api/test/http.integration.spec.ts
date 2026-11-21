@@ -982,6 +982,35 @@ test('required device configs: registry, create validation, legacy updates, grou
   assert.deepEqual(json(await request('GET', '/api/v1/dashboard/topbar-state', 'qa-readonly')).alerts.filter((a: any) => String(a.id).startsWith('device-missing-config-')), []);
 });
 
+test('critical asset review notes: over 2000 characters is a 400 for single and bulk confirm, and a bulk batch with one such note writes nothing', async () => {
+  const tooLong = 'x'.repeat(2001);
+  const week = new Date('2026-11-16T00:00:00.000Z');
+  const single = await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA, weekStart: week } });
+  const valid = await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA2, weekStart: week } });
+  const oversized = await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA, weekStart: new Date('2026-11-23T00:00:00.000Z') } });
+  const outcomes = async () => (await prisma.criticalAssetAttestation.findMany({ where: { id: { in: [single.id, valid.id, oversized.id] } }, orderBy: { id: 'asc' } })).map((row) => row.outcome);
+  try {
+    const one = await request('POST', `/api/v1/critical-assets/${single.id}/confirm`, 'qa-admin', { outcome: 'NEEDS_CORRECTION', notes: tooLong });
+    assert.equal(one.statusCode, 400, one.body);
+    const batch = await request('POST', '/api/v1/critical-assets/confirm-bulk', 'qa-admin', { items: [
+      { id: valid.id, outcome: 'CONFIRMED' },
+      { id: oversized.id, outcome: 'NEEDS_CORRECTION', notes: tooLong },
+    ] });
+    assert.equal(batch.statusCode, 400, batch.body);
+    assert.deepEqual(await outcomes(), [null, null, null], 'a rejected request writes nothing, not even the valid item');
+    assert.equal(await prisma.criticalAssetCorrection.count({ where: { attestationId: { in: [single.id, oversized.id] } } }), 0);
+
+    const exact = await request('POST', '/api/v1/critical-assets/confirm-bulk', 'qa-admin', { items: [{ id: valid.id, outcome: 'NEEDS_CORRECTION', notes: 'y'.repeat(2000) }] });
+    assert.equal(exact.statusCode, 201, exact.body);
+    assert.equal((await prisma.criticalAssetAttestation.findUniqueOrThrow({ where: { id: valid.id } })).outcome, 'NEEDS_CORRECTION', 'exactly 2000 characters is allowed');
+  } finally {
+    // Remove only the rows this test created, so the later per-device counts in this file are unchanged.
+    const created = { attestationId: { in: [single.id, valid.id, oversized.id] } };
+    await prisma.criticalAssetCorrection.deleteMany({ where: created });
+    await prisma.criticalAssetAttestation.deleteMany({ where: { id: { in: [single.id, valid.id, oversized.id] } } });
+  }
+});
+
 test('critical asset attestation: 409 on a second review of the same cycle, reviewer names and due state over HTTP', async () => {
   await prisma.user.update({ where: { id: ids.admin }, data: { displayName: 'QA Admin Person' } });
   await prisma.device.updateMany({ where: { id: { in: [ids.deviceA, ids.deviceA2] } }, data: { isCritical: true } });
@@ -2104,6 +2133,12 @@ test('Step 31 email: ADMIN SMTP settings start off, keep the password encrypted 
   assert.deepEqual([anonymous.smtp.username, anonymous.smtp.passwordSet], [null, false]);
   assert.equal((await prisma.deliveryChannelConfig.findUniqueOrThrow({ where: { kind_target: { kind: 'EMAIL', target: 'USER_NOTIFICATIONS' } } })).ciphertext, null);
   assert.equal(json(await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true, smtp: SMTP_BODY })).smtp.passwordSet, true);
+  // A row saved before hosts were normalised may hold mixed case: the same server in lowercase is not a connection change.
+  const beforeCase = await prisma.deliveryChannelConfig.findUniqueOrThrow({ where: { kind_target: { kind: 'EMAIL', target: 'USER_NOTIFICATIONS' } } });
+  await prisma.deliveryChannelConfig.update({ where: { kind_target: { kind: 'EMAIL', target: 'USER_NOTIFICATIONS' } }, data: { settings: { ...(beforeCase.settings as object), host: 'SMTP.Example.pt' } } });
+  const caseOnly = await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true, smtp: withoutPassword });
+  assert.equal(caseOnly.statusCode, 200, caseOnly.body);
+  assert.deepEqual([json(caseOnly).smtp.host, json(caseOnly).smtp.passwordSet], ['smtp.example.pt', true], 'a case-only host change keeps the stored password');
 
   assert.equal(json(await request('PUT', `${root}/EMAIL/GROUP_ALERTS`, 'qa-admin', { enabled: true, recipients: ['bad'] })).code, 'EMAIL_RECIPIENTS_INVALID');
   const group = await request('PUT', `${root}/EMAIL/GROUP_ALERTS`, 'qa-admin', { enabled: true, minSeverity: 'CRITICAL', recipients: [' NOC@example.pt ', 'oncall@example.pt'] });
