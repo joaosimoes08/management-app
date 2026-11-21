@@ -1,10 +1,15 @@
 import { apiFetch } from '@/lib/api/client';
+import type { BulkReviewResponse } from '@/components/ui/bulk-review-dialog';
 
 export interface DiscoveryJob {
   id: string;
   name: string;
   status: string;
   createdAt: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  /** completedAt − startedAt in ms; null while running or never started. */
+  durationMs?: number | null;
   scannedCount?: number;
   reachableCount?: number;
   unreachableCount?: number;
@@ -28,6 +33,16 @@ export interface DiscoveryResult {
   status: string;
   deviceId?: string | null;
   device?: { id: string; name: string; type: string } | null;
+  /** Current IPAM record for the address; null when the address is not tracked yet. */
+  ipam?: DiscoveryResultIpam | null;
+}
+
+export interface DiscoveryResultIpam {
+  ipAddressId: string;
+  state: string;
+  hostId?: string | null;
+  hostName?: string | null;
+  activeReservation?: { id: string; expiresAt: string } | null;
 }
 
 export interface DiscoveryComparisonItem {
@@ -156,6 +171,11 @@ export function compareDiscoveryJobs(currentId: string, previousId: string): Pro
 
 export function reviewDiscoveryResult(resultId: string, status: 'APPROVED' | 'IGNORED'): Promise<unknown> {
   return apiFetch(`/api/v1/discovery/results/${resultId}/review`, { method: 'POST', body: JSON.stringify({ status }) });
+}
+
+/** Approves or ignores up to 200 results; each item succeeds or fails on its own. */
+export function bulkReviewDiscoveryResults(ids: string[], status: 'APPROVED' | 'IGNORED'): Promise<BulkReviewResponse> {
+  return apiFetch<BulkReviewResponse>('/api/v1/discovery/results/bulk-review', { method: 'POST', body: JSON.stringify({ ids, status }) });
 }
 
 export interface DiscoveryAcceptInput { name: string; type: string; hostname?: string; modelId?: string; frontAssetId?: string }

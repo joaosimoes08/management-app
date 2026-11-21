@@ -32,8 +32,42 @@ export interface Subnet {
   vlan?: Vlan | null;
   site?: Site | null;
   _count?: { ips?: number; discoveryJobs?: number };
-  /** GET /subnets list items (API #85). */
-  utilization?: { usableCapacity: number; allocated: number; occupied: number; reserved: number; free: number; utilizationPercent: number | null; band: 'OK' | 'WARNING' | 'CRITICAL' | 'UNTRACKED' | string } | null;
+  /** Phase E: capacity snapshot from GET /subnets. Optional so older payloads still render. */
+  utilization?: SubnetUtilization | null;
+}
+
+/** OK < 80% ≤ WARNING < 90% ≤ CRITICAL; IPv6 is UNTRACKED (no percentage). Unknown bands render generically. */
+export type SubnetUtilizationBand = 'OK' | 'WARNING' | 'CRITICAL' | 'UNTRACKED';
+
+export interface SubnetUtilization {
+  usableCapacity?: number | null;
+  allocated?: number;
+  occupied?: number;
+  reserved?: number;
+  free?: number | null;
+  utilizationPercent: number | null;
+  band: SubnetUtilizationBand | (string & {});
+}
+
+export interface NextFreeIpsQuery { count?: number; from?: string; to?: string }
+
+export interface NextFreeIpsResult {
+  subnetId: string;
+  cidr: string;
+  supported: boolean;
+  requested: number;
+  items: Array<{ address: string; ipAddressId: string | null; tracked: boolean }>;
+  exhausted: boolean;
+  message?: string;
+}
+
+export interface ReserveNextIpsInput { count?: number; from?: string; to?: string; durationHours: number; reason: string }
+
+export interface ReserveNextIpsResult {
+  subnetId: string;
+  count: number;
+  expiresAt: string;
+  reservations: Array<{ id: string; status: string; expiresAt: string; reason: string; ipAddress: { id: string; address: string }; createdIpAddress?: boolean }>;
 }
 
 export interface SubnetInput {
