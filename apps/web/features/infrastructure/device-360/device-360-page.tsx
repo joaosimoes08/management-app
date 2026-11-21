@@ -1,13 +1,14 @@
 'use client';
 
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ExternalLink, Pencil, Plus, Server } from 'lucide-react';
+import { Activity, ExternalLink, Pencil, Plus, Route, Server } from 'lucide-react';
 import { AppShell } from '@/components/layout/app-shell';
 import { deviceEditHref, entityHref } from '@/components/data-table/entity-link';
 import { rememberRecentItem } from '@/lib/recent-items';
 import { apiFetch } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth';
+import { ImpactPanel } from '@/features/topology/impact-panel';
 import { getDevice, listDeviceIpAddresses, listInterfaces } from '../api';
 import type { Device } from '../types';
 import { assetFileUrl } from '../utils';
@@ -70,6 +71,7 @@ export function Device360Page({ deviceId }: { deviceId: string }) {
   const { hasRole, user } = useAuth();
   const can = (key: keyof typeof ROLES) => ROLES[key].some((role) => hasRole(role));
 
+  const [impactOpen, setImpactOpen] = useState(false);
   const deviceQuery = useQuery({ queryKey: ['device-360', deviceId], queryFn: () => getDevice(deviceId), enabled: Boolean(deviceId) });
   const device = deviceQuery.data as (Device & FutureDeviceFields) | undefined;
   const siteId = device?.siteId ?? device?.site?.id ?? '';
@@ -116,9 +118,16 @@ export function Device360Page({ deviceId }: { deviceId: string }) {
       <div className="device-360-actions">
         {can('edit') && <a className="primary-button" href={deviceEditHref({ id: device.id, siteId })}><Pencil size={14} aria-hidden="true" /> Editar</a>}
         {rackHref && <a className="secondary-button" href={rackHref}>Abrir no rack</a>}
+        <button type="button" className="secondary-button" aria-expanded={impactOpen} aria-controls="d360-impacto-section" onClick={() => setImpactOpen((open) => !open)}><Activity size={14} aria-hidden="true" /> Impacto</button>
+        {siteId && <a className="secondary-button" href={`/topology${q({ siteId, pathFrom: device.id })}`}><Route size={14} aria-hidden="true" /> Caminho até…</a>}
         {can('changeCreate') && <a className="secondary-button" href={`/alteracoes${q({ siteId, new: '1', deviceId: device.id })}`}><Plus size={14} aria-hidden="true" /> Criar alteração</a>}
       </div>
     </header>
+
+    {impactOpen && <section id="d360-impacto-section" className="ipam-card device-360-section device-360-impact" aria-labelledby="d360-impacto" data-section="impacto">
+      <header className="device-360-section-head"><h2 id="d360-impacto">Impacto se este equipamento for abaixo</h2><button type="button" className="text-button" onClick={() => setImpactOpen(false)}>Fechar</button></header>
+      <ImpactPanel target={{ kind: 'DEVICE', id: device.id }} siteId={siteId} headingId="d360-impacto" />
+    </section>}
 
     <div className="device-360-grid">
       <Section id="resumo" title="Resumo">
