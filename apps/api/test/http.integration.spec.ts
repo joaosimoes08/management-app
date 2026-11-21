@@ -515,3 +515,104 @@ test('enforces scoped operations, dashboard, topology and quality workflows', as
   assert.equal((await request('PATCH', `/api/v1/inventory-quality/findings/${findingId}/acknowledge`, 'qa-auditor')).statusCode, 403);
   assert.equal((await request('PATCH', `/api/v1/inventory-quality/findings/${findingId}/assign`, 'qa-network-scoped', { userId: ids.scoped })).statusCode, 200);
 });
+
+test('rack PDU power: defaults, allocation, 409s, cascades, audit, RBAC and wattage over HTTP', async () => {
+  await resetDatabase();
+  const admin = 'qa-admin';
+  const conflict = (response: { statusCode: number; body: string }, code: string) => { assert.equal(response.statusCode, 409, response.body); assert.equal(json(response).code, code); return json(response); };
+
+  // Defaults endpoint
+  const defaults = await request('GET', '/api/v1/power/defaults', admin);
+  assert.equal(defaults.statusCode, 200);
+  assert.deepEqual([json(defaults).pduOutletCount, json(defaults).pduBudgetWatts, json(defaults).powerPlugCount, json(defaults).wattsByDeviceType.SERVER], [32, 3680, 2, 350]);
+
+  // New rack: Só rede by default (one 32-outlet SUPPLIER PDU), Rede + UPS adds a UPS PDU
+  const plain = await request('POST', '/api/v1/racks', admin, { name: 'Power Plain', roomId: ids.roomA });
+  assert.equal(plain.statusCode, 201, plain.body);
+  const plainRack = json(await request('GET', `/api/v1/racks/${json(plain).id}`, admin));
+  assert.equal(plainRack.powerMode, 'SUPPLIER_ONLY');
+  assert.deepEqual(plainRack.pdus.map((p: any) => [p.source, p.outletCount, p.budgetWatts]), [['SUPPLIER', 32, 3680]]);
+  const dual = await request('POST', '/api/v1/racks', admin, { name: 'Power Dual', roomId: ids.roomA, powerMode: 'SUPPLIER_AND_UPS' });
+  assert.equal(dual.statusCode, 201, dual.body);
+  const rackId = json(dual).id;
+  let rack = json(await request('GET', `/api/v1/racks/${rackId}`, admin));
+  assert.equal(rack.powerMode, 'SUPPLIER_AND_UPS');
+  assert.deepEqual(rack.pdus.map((p: any) => p.source), ['SUPPLIER', 'UPS']);
+  const [supplierId, upsId] = rack.pdus.map((p: any) => p.id);
+
+  // Devices: manual watts, model watts, type default
+  const model = await prisma.deviceModel.create({ data: { manufacturer: 'QA', model: 'SW-120', type: 'SWITCH', typicalWatts: 120 } });
+  const dev = { srv: '94000000-0000-4000-8000-000000000001', sw: '94000000-0000-4000-8000-000000000002', fw: '94000000-0000-4000-8000-000000000003' };
+  await prisma.device.createMany({ data: [
+    { id: dev.srv, name: 'PWR Server', type: 'SERVER', siteId: ids.siteA, rackId, estimatedWatts: 400 },
+    { id: dev.sw, name: 'PWR Switch', type: 'SWITCH', siteId: ids.siteA, rackId, modelId: model.id },
+    { id: dev.fw, name: 'PWR Firewall', type: 'FIREWALL', siteId: ids.siteA, rackId },
+  ] });
+  for (const id of [dev.srv, dev.sw, dev.fw]) {
+    const response = await request('PUT', `/api/v1/devices/${id}/power`, admin, {});
+    assert.equal(response.statusCode, 200, response.body);
+    const body = json(response);
+    assert.equal(body.device.plugCount, 2);
+    assert.deepEqual(body.device.assignments.map((a: any) => a.source), ['SUPPLIER', 'UPS']);
+    assert.equal(body.device.redundant, true);
+  }
+  rack = json(await request('GET', `/api/v1/racks/${rackId}`, admin));
+  const supplier = rack.pdus.find((p: any) => p.source === 'SUPPLIER');
+  assert.deepEqual(Object.fromEntries(supplier.connections.map((c: any) => [c.deviceName, [c.wattsSource, c.deviceEstimatedWatts, c.estimatedWattsShare, c.outlets.map((o: any) => o.outletIndex)]])), {
+    'PWR Server': ['manual', 400, 200, [1]], 'PWR Switch': ['modelo', 120, 60, [2]], 'PWR Firewall': ['padrão', 200, 100, [3]],
+  });
+  assert.deepEqual([supplier.usedOutlets, supplier.estimatedWatts, supplier.failoverWatts], [3, 360, 720]);
+  assert.deepEqual(rack.power.totals.bySource, { SUPPLIER: 360, UPS: 360 });
+  assert.equal(rack.power.totals.estimatedWatts, 720);
+
+  // Double-booked outlet → 409, nothing changed
+  conflict(await request('PUT', `/api/v1/devices/${dev.fw}/power`, admin, { plugs: [{ plugIndex: 1, pduId: supplierId, outletIndex: 1 }] }), 'PDU_OUTLET_TAKEN');
+  assert.equal(await prisma.pduOutletAssignment.count({ where: { deviceId: dev.fw } }), 2);
+
+  // Shrinking below used outlets / removing a connected UPS → 409 with the device list
+  const shrink = conflict(await request('PUT', `/api/v1/racks/${rackId}/pdus`, admin, { mode: 'SUPPLIER_AND_UPS', supplier: { outletCount: 2 } }), 'PDU_OUTLETS_IN_USE');
+  assert.deepEqual(shrink.details.devices.map((d: any) => [d.deviceName, d.outlets]), [['PWR Firewall', [3]]]);
+  const removeUps = conflict(await request('PUT', `/api/v1/racks/${rackId}/pdus`, admin, { mode: 'SUPPLIER_ONLY' }), 'PDU_HAS_CONNECTIONS');
+  assert.deepEqual(removeUps.details.devices.map((d: any) => d.deviceName).sort(), ['PWR Firewall', 'PWR Server', 'PWR Switch']);
+  assert.equal(await prisma.rackPdu.count({ where: { rackId } }), 2);
+
+  // Read-only and scope-limited users get 403 on every write; network operator is blocked by role even for a SWITCH
+  for (const persona of ['qa-readonly', 'qa-auditor', 'qa-systems-scoped', 'qa-network-scoped']) {
+    assert.equal((await request('PUT', `/api/v1/devices/${dev.sw}/power`, persona, {})).statusCode, 403, persona);
+    assert.equal((await request('PUT', `/api/v1/racks/${rackId}/pdus`, persona, { mode: 'SUPPLIER_AND_UPS' })).statusCode, 403, persona);
+    assert.equal((await request('DELETE', `/api/v1/racks/${rackId}/pdus/${upsId}/devices/${dev.srv}`, persona)).statusCode, 403, persona);
+    assert.equal((await request('DELETE', `/api/v1/racks/${rackId}/pdus/${upsId}/devices/${dev.sw}`, persona)).statusCode, 403, persona);
+  }
+  assert.equal(await prisma.pduOutletAssignment.count({ where: { pduId: upsId } }), 3);
+
+  // Desligar frees only that PDU's outlets
+  const off = await request('DELETE', `/api/v1/racks/${rackId}/pdus/${upsId}/devices/${dev.srv}`, admin);
+  assert.equal(off.statusCode, 200, off.body);
+  assert.equal(json(off).removed, 1);
+  assert.equal(json(off).pdus.find((p: any) => p.source === 'UPS').usedOutlets, 2);
+  assert.deepEqual((await prisma.pduOutletAssignment.findMany({ where: { deviceId: dev.srv } })).map((a) => a.pduId), [supplierId]);
+
+  // Moving a device to another rack frees its outlets; deleting a device frees its outlets
+  const moved = await request('PATCH', `/api/v1/devices/${dev.sw}`, admin, { name: 'PWR Switch', type: 'SWITCH', siteId: ids.siteA, rackId: json(plain).id, rackUnitStart: 1, rackUnitSize: 1 });
+  assert.equal(moved.statusCode, 200, moved.body);
+  assert.equal(await prisma.pduOutletAssignment.count({ where: { deviceId: dev.sw } }), 0);
+  // HTTP delete is gated by the retirement checklist (409); the hard delete itself cascades in the database
+  assert.equal((await request('DELETE', `/api/v1/devices/${dev.fw}`, admin)).statusCode, 409);
+  assert.equal(await prisma.pduOutletAssignment.count({ where: { deviceId: dev.fw } }), 2);
+  await prisma.device.delete({ where: { id: dev.fw } });
+  assert.equal(await prisma.pduOutletAssignment.count({ where: { deviceId: dev.fw } }), 0);
+
+  // With the UPS empty it can now be removed
+  for (const device of [dev.srv]) await request('DELETE', `/api/v1/racks/${rackId}/pdus/${upsId}/devices/${device}`, admin);
+  const removed = await request('PUT', `/api/v1/racks/${rackId}/pdus`, admin, { mode: 'SUPPLIER_ONLY' });
+  assert.equal(removed.statusCode, 200, removed.body);
+  assert.equal(json(removed).mode, 'SUPPLIER_ONLY');
+
+  // Every write is audited
+  const actions = (await prisma.auditLog.findMany({ where: { userId: ids.admin, action: { in: ['DEVICE_POWER_UPDATED', 'DEVICE_POWER_DISCONNECTED', 'RACK_POWER_UPDATED'] } }, select: { action: true } })).map((a) => a.action);
+  assert.equal(actions.filter((a) => a === 'DEVICE_POWER_UPDATED').length, 3);
+  assert.equal(actions.filter((a) => a === 'DEVICE_POWER_DISCONNECTED').length, 1);
+  assert.equal(actions.filter((a) => a === 'RACK_POWER_UPDATED').length, 1);
+  const moveAudit = await prisma.auditLog.findFirst({ where: { entityId: dev.sw, action: { contains: 'UPDATED' }, NOT: { action: 'DEVICE_POWER_UPDATED' } }, orderBy: { createdAt: 'desc' } });
+  assert.equal((moveAudit?.metadata as any)?.powerAssignmentsRemoved, 2);
+});
