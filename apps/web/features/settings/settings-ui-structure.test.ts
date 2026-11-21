@@ -44,4 +44,11 @@ describe('Settings page structure', () => {
     expect(groups).toContain('settings-group-skeletons');
     expect(directory).toContain('settings-status-skeleton');
   });
+
+  it('links site counts to the Site in Infraestrutura / IPAM and shows the role-request queue to admins', () => {
+    expect(settings).toContain('<Link href={`/infraestrutura?siteId=${encodeURIComponent(site.id)}`}');
+    expect(settings).toContain('<Link href={`/ipam?siteId=${encodeURIComponent(site.id)}`}');
+    expect(settings).toContain("tab === 'users' ? <>{admin && <RoleRequestQueue");
+    expect(read('features/settings/components/role-request-queue.tsx')).not.toContain('section-kicker');
+  });
 });
