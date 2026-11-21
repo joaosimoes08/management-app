@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { ResponsiveOverflowMenu, ResponsiveToolbarActions, visibleActionIndexes, visibleEqualSlotIndexes, visibleOverflowIndexes } from './responsive-overflow';
+import { flattenToolbarChildren, ResponsiveOverflowMenu, ResponsiveToolbarActions, visibleActionIndexes, visibleEqualSlotIndexes, visibleOverflowIndexes } from './responsive-overflow';
 
 afterEach(cleanup);
 
@@ -161,5 +161,19 @@ describe('responsive shell overflow priorities', () => {
     expect(select).toHaveValue('two');
     expect(screen.getByRole('group', { name: 'Mais ações' })).toBeInTheDocument();
     expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('keeps keys unique when actions nest fragments (no duplicate-key warnings)', () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const canAct = true;
+    const actions = <>{canAct && <><button>Reconhecer</button><button>Atribuir</button><button>Adiar</button></>}<button>Atualizar</button></>;
+    const items = flattenToolbarChildren(actions);
+    const keys = items.map((item) => (item as { key: string }).key);
+    expect(keys).toHaveLength(4);
+    expect(new Set(keys).size).toBe(4);
+    render(<ResponsiveToolbarActions>{actions}</ResponsiveToolbarActions>);
+    expect(screen.getAllByRole('button', { name: 'Atualizar' }).length).toBeGreaterThan(0);
+    expect(errors.mock.calls.some((call) => String(call[0]).includes('same key'))).toBe(false);
+    errors.mockRestore();
   });
 });
