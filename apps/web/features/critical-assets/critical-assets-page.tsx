@@ -44,6 +44,8 @@ export function CriticalAssetsPage() {
   const { search, filters, setSearch, setFilter } = table;
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [detailId, setDetailId] = useState('');
+  const [linkedWeek, setLinkedWeek] = useState('');
+  const openedLink = useRef(false);
   const [review, setReview] = useState<Review | null>(null);
   const [ownerType, setOwnerType] = useState<string | null>(null);
   const [bulkPlan, setBulkPlan] = useState<{ selectedCount: number; olderCount: number; items: BulkItem[] } | null>(null);
@@ -72,6 +74,15 @@ export function CriticalAssetsPage() {
   }, [locale]);
 
   const rows = useMemo(() => buildRows(data), [data]);
+  useEffect(() => {
+    if (openedLink.current || !rows.length) return;
+    const query = new URLSearchParams(window.location.search);
+    const asset = rows.find((row) => row.id === query.get('assetId'));
+    if (!asset) return;
+    openedLink.current = true;
+    setDetailId(asset.id);
+    setLinkedWeek(query.get('week') ?? '');
+  }, [rows]);
   const counts = useMemo(() => countRows(rows), [rows]);
   const visible = useMemo(() => filterRows(rows, search, filters), [rows, search, filters]);
   const owners = useMemo(() => {
@@ -113,7 +124,7 @@ export function CriticalAssetsPage() {
 
   const remember = () => { returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; };
   const restoreFocus = () => { const target = returnFocus.current; returnFocus.current = null; window.setTimeout(() => target?.isConnected && target.focus(), 0); };
-  const openDetail = (row: AssetRow) => { remember(); setDetailId(row.id); };
+  const openDetail = (row: AssetRow) => { remember(); setLinkedWeek(''); setDetailId(row.id); };
   const closeDetail = () => { setDetailId(''); restoreFocus(); };
   const openReview = (asset: AssetRow, attestation: Attestation, outcome: Outcome) => { if (!detailId) remember(); setReview({ asset, attestation, outcome }); };
   const closeReview = () => { setReview(null); if (!detailId) restoreFocus(); };
@@ -383,7 +394,7 @@ export function CriticalAssetsPage() {
         empty="Ainda não existem revisões para este ativo."
         events={detail.attestations.map((attestation) => ({
           id: attestation.id,
-          title: `Semana de ${formatDate(attestation.weekStart)}`,
+          title: <>{`Semana de ${formatDate(attestation.weekStart)}`}{attestation.weekStart.slice(0, 10) === linkedWeek && <> · {translateLegacyText(locale, 'Revisão ligada à notificação')}</>}</>,
           status: <span className={`state-badge ${outcomeTone(attestation.outcome)}`}><i />{outcomeLabel(attestation.outcome)}</span>,
           at: attestation.outcome ? attestation.confirmedAt : null,
           actor: attestation.outcome ? attestation.confirmedByName ?? 'Revisor desconhecido' : null,

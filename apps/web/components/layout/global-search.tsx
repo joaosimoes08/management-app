@@ -1,9 +1,11 @@
 'use client';
 
+import { useEscapeClose } from '@/components/ui/use-escape-close';
 import { useEffect, useRef, useState } from 'react';
 import { ChevronRight, ClipboardCheck, GitPullRequestArrow, History, Loader2, Search, Wrench } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { apiFetch } from '@/lib/api/client';
+import { entityHref } from '@/components/data-table/entity-link';
 
 type SearchResult = { id: string; type: string; title: string; detail: string; href: string; actionHref?: string };
 
@@ -14,8 +16,11 @@ export const isSearchTypesInvalid = (cause: unknown) => {
   const error = cause as { status?: number; code?: string; payload?: { code?: string } } | null;
   return error?.status === 400 && (error.code ?? error.payload?.code) === 'SEARCH_TYPES_INVALID';
 };
+/** Devices open on their Device 360 page (Step 29); the Site comes from the API's href. */
+const siteIdFromHref = (href: string) => { try { return new URL(href, 'http://local').searchParams.get('siteId'); } catch { return null; } };
+export const withDevicePage = (item: SearchResult): SearchResult => item.type === 'DEVICE' ? { ...item, href: entityHref({ kind: 'device', id: item.id, siteId: siteIdFromHref(item.href) }) } : item;
 /** A quality finding with a fix page gets a second entry that opens it directly. */
-export const expandSearchResults = (items: SearchResult[]): SearchResult[] => items.flatMap((item) => item.type === 'QUALITY_FINDING' && item.actionHref && item.actionHref !== item.href
+export const expandSearchResults = (items: SearchResult[]): SearchResult[] => items.map(withDevicePage).flatMap((item) => item.type === 'QUALITY_FINDING' && item.actionHref && item.actionHref !== item.href
   ? [item, { id: `${item.id}-action`, type: 'QUALITY_FINDING_ACTION', title: `Corrigir: ${item.title}`, detail: 'Qualidade · abrir a página de correção', href: item.actionHref }]
   : [item]);
 const resultIcons: Record<string, typeof Search> = { CHANGE_PLAN: GitPullRequestArrow, AUDIT_EVENT: History, QUALITY_FINDING: ClipboardCheck, QUALITY_FINDING_ACTION: Wrench };
@@ -100,6 +105,7 @@ export function GlobalSearchPalette({ open, onClose, rackSearch, localSearch }: 
   };
   const handleClose = () => { if (scope === 'local' && rackSearch) rackSearch.onChange(''); onClose(); };
 
+  useEscapeClose(handleClose, open);
   if (!open) return null;
 
   return <div className="command-backdrop" role="presentation" onMouseDown={handleClose}>
@@ -114,7 +120,6 @@ export function GlobalSearchPalette({ open, onClose, rackSearch, localSearch }: 
           if (event.key === 'ArrowDown') { event.preventDefault(); setActiveIndex((index) => Math.min(index + 1, results.length - 1)); }
           if (event.key === 'ArrowUp') { event.preventDefault(); setActiveIndex((index) => Math.max(index - 1, 0)); }
           if (event.key === 'Enter') { event.preventDefault(); activate(results[activeIndex]); }
-          if (event.key === 'Escape') handleClose();
         }} />
         <kbd>ESC</kbd>
       </div>

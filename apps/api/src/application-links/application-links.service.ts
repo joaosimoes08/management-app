@@ -103,10 +103,10 @@ export class ApplicationLinksService {
   async check(id: string, user: AuthenticatedUser) {
     const link = await this.prisma.applicationLink.findUnique({ where: { id } });
     if (!link) throw new NotFoundException('Ligação não encontrada');
-    const { available } = await this.probe(link.url);
+    const { available, code } = await this.probe(link.url);
     const updated = await this.prisma.applicationLink.update({ where: { id }, data: { lastCheckedAt: new Date(), isAvailable: available }, include: { roles: true } });
-    await this.audit.record({ userId: user.id, action: 'APPLICATION_LINK_CHECKED', entityType: 'ApplicationLink', entityId: id, metadata: { available } });
-    return updated;
+    await this.audit.record({ userId: user.id, action: 'APPLICATION_LINK_CHECKED', entityType: 'ApplicationLink', entityId: id, metadata: { available, ...(code ? { code } : {}) } });
+    return { ...updated, code };
   }
 
   /**

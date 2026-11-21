@@ -1,3 +1,4 @@
+import { NotificationTopic, unmutedRecipients } from '../notifications/notification-preferences';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@simoes/database';
 import { AuthenticatedUser } from '../auth/auth.service';
@@ -204,7 +205,14 @@ export class CriticalAssetsService implements OnModuleInit, OnModuleDestroy {
               if (!mapping) return;
               const created = await tx.criticalAssetAttestation.createMany({ data: [{ siteId: site.id, deviceId: device.id, weekStart }], skipDuplicates: true });
               if (!created.count) return;
-              if (mapping.group.members.length) await tx.notification.createMany({ data: mapping.group.members.map(({ userId }) => ({ userId, type: 'CRITICAL_ASSET_ATTESTATION', title: 'Revisão semanal de ativo crítico', message: `${site.name}: confirma nome, tipo, hostname, IP de gestão, número de série, etiqueta e estado de ${device.name}.` })) });
+              const type = NotificationTopic.CRITICAL_ASSET_ATTESTATION;
+              const recipients = await unmutedRecipients(tx, mapping.group.members.map(({ userId }) => userId), type);
+              const source = new URLSearchParams({ siteId: site.id, assetId: device.id, week: weekStart.toISOString().slice(0, 10) });
+              if (recipients.length) await tx.notification.createMany({ data: recipients.map((userId) => ({
+                userId, type, title: 'Revisão semanal de ativo crítico',
+                message: `${site.name}: confirma nome, tipo, hostname, IP de gestão, número de série, etiqueta e estado de ${device.name}.`,
+                sourceHref: `/attestacao-ativos?${source}`,
+              })) });
             });
           } catch (error) {
             this.logger.error(`Weekly attestation failed for device ${device.id} at site ${site.id}`, error instanceof Error ? error.stack : String(error));

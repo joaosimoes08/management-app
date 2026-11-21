@@ -23,6 +23,7 @@ const operationalFiles = [
   'apps/web/features/critical-assets/workbench.ts',
   'apps/web/features/change-plans/change-plans-page.tsx',
   'apps/web/features/change-plans/change-calendar.tsx',
+  'apps/web/features/change-plans/change-execution.tsx',
   'apps/web/features/change-plans/workspace.ts',
   'apps/web/components/data-table/data-table.tsx',
   'apps/web/components/data-table/entity-link.tsx',
@@ -48,6 +49,7 @@ const operationalFiles = [
   'apps/web/components/ui/bulk-review-dialog.tsx',
   'apps/web/features/discovery/discovery-results.tsx',
   'apps/web/features/snmp/snmp-fleet.tsx',
+  'apps/web/features/snmp/snmp-page.tsx',
   'apps/web/features/snmp/snmp-drifts.tsx',
   'apps/web/features/snmp/snmp-bounds.ts',
 ];
@@ -96,9 +98,11 @@ const uncovered = [];
 for (const relative of operationalFiles) {
   const source = sourceFile(relative);
   function visit(node) {
-    if ((ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) && portuguese.test(node.text) && !node.text.startsWith('/') && !legacyKeys.has(node.text)) {
+    const snmpText = relative.endsWith('/snmp-page.tsx') && ts.isJsxText(node);
+    const value = snmpText ? node.text.trim() : node.text;
+    if ((snmpText || ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) && portuguese.test(value) && !value.startsWith('/') && !legacyKeys.has(value)) {
       const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
-      uncovered.push(`${relative}:${line + 1}: ${JSON.stringify(node.text)}`);
+      uncovered.push(`${relative}:${line + 1}: ${JSON.stringify(value)}`);
     }
     ts.forEachChild(node, visit);
   }

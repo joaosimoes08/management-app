@@ -1,5 +1,6 @@
 'use client';
 
+import { useEscapeClose } from '@/components/ui/use-escape-close';
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { Plug, X } from 'lucide-react';
@@ -52,6 +53,11 @@ export function RackPduStrip({ view, side, width, height, canDisconnect, onDisco
     if (returnFocus) stripRef.current?.focus();
   }, []);
   useEffect(() => () => window.clearTimeout(closeTimer.current), []);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('pduId') !== view.pdu.id) return;
+    stripRef.current?.scrollIntoView?.({ block: 'nearest' });
+    setOpen('pinned');
+  }, [view.pdu.id]);
 
   const hoverIn = () => { cancelClose(); setOpen((current) => current ?? 'hover'); };
   const hoverOut = () => {
@@ -200,6 +206,11 @@ function RackPduCard({ ref, id, anchor, side, view, source, badge, canDisconnect
   const loadLevel = powerLevel({ used: 0, total: 0, watts: view.watts, budget: view.budget, warningRatio });
   const percent = view.budget ? ` · ${Math.round((view.watts / view.budget) * 100)}%` : '';
 
+  useEscapeClose(() => {
+    if (confirming) setConfirming('');
+    else onClose();
+  });
+
   if (typeof document === 'undefined') return null;
   return createPortal(<div
     ref={ref}
@@ -216,12 +227,6 @@ function RackPduCard({ ref, id, anchor, side, view, source, badge, canDisconnect
     onPointerLeave={onPointerLeave}
     onFocus={onFocusInside}
     onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onBlurOutside(event.relatedTarget); }}
-    onKeyDown={(event) => {
-      if (event.key !== 'Escape') return;
-      event.stopPropagation();
-      if (confirming) { setConfirming(''); return; }
-      onClose();
-    }}
   >
     <header className="rack-pdu-card-head">
       <strong>{view.name}</strong>
