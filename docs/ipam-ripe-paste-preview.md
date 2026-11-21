@@ -108,6 +108,21 @@ VRF, purpose and environment stay masked.
 `vrfId`, `purpose`, `environment`) to get the same diff response as a paste,
 with `"source": "RIPESTAT"`.
 
+Where the prefixes come from (checked against the live RIPEstat API on 2026-11-21):
+
+- `asn` (e.g. `AS3333`) → `announced-prefixes`. `data.prefixes` is a list of
+  objects, `[{ "prefix": "193.0.12.0/23", "timelines": [...] }]`; plain strings
+  are accepted too.
+- `prefix` (an IP prefix or address) → `whois`. `data.records` and
+  `data.irr_records` are lists of records, each a list of `{ key, value }`
+  attributes; the prefix is the value of `inetnum`, `inet6num`, `route` or
+  `route6`.
+- `organisation` is not supported by RIPEstat (`whois` answers 400
+  "unsupported resource type"), so the API returns
+  `400 RIPE_ORGANISATION_UNSUPPORTED` without calling RIPEstat. Look up the
+  organisation's ASN instead, or paste its prefix list. Any other RIPEstat
+  error message is passed through in the 400.
+
 ### 3. Confirm — `POST /api/v1/ipam/ripe/import` (unchanged)
 
 ```json
