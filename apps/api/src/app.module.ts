@@ -7,6 +7,7 @@ import { AuditModule } from './audit/audit.module';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { ApplicationLinksModule } from './application-links/application-links.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { SetupModule } from './setup/setup.module';
 import { IpamModule } from './ipam/ipam.module';
@@ -34,6 +35,7 @@ import { ChangePlansModule } from './change-plans/change-plans.module';
     HealthModule,
     ApplicationLinksModule,
     DashboardModule,
+    NotificationsModule,
     SetupModule,
     IpamModule,
     InfrastructureModule,

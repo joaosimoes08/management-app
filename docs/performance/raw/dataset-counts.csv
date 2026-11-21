@@ -1,0 +1,13 @@
+table,count
+"Site","3"
+"Rack","7"
+"Device","7"
+"IpAddress","3"
+"Subnet","5"
+"AuditLog","7672111"
+"ChangePlan","1"
+"SnmpSnapshot","0"
+"SnmpInterfaceObservation","0"
+"InventoryFinding","0"
+"TopologyMap","3"
+"ApplicationLink","0"

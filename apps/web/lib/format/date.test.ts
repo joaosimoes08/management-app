@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { formatDate, formatDateTime, formatNumber, getFormatLocale, setFormatLocale } from './date';
+import { formatDate, formatDateTime, formatNumber, getFormatLocale, isLocalDateTime, setFormatLocale } from './date';
 
 const iso = '2026-03-05T14:07:09Z';
 
@@ -27,5 +27,15 @@ describe('shared formatters', () => {
     expect(formatDateTime(iso, { timeZone: 'UTC' })).toBe('05/03/2026, 14:07:09');
     expect(formatDateTime(iso, { timeZone: 'Asia/Tokyo' })).toBe('05/03/2026, 23:07:09');
     expect(formatDateTime(iso, { locale: 'en-US', timeZone: 'UTC', dateStyle: 'medium', timeStyle: 'short' })).toBe('Mar 5, 2026, 2:07 PM');
+  });
+});
+
+describe('isLocalDateTime', () => {
+  it.each(['2026-11-21T00:00', '2026-11-21T23:59'])('accepts %s', (value) => {
+    expect(isLocalDateTime(value)).toBe(true);
+  });
+
+  it.each(['', 'T17:00', '2026-11-21T', '2026-11-21T24:00', '2026-11-21T13:60', '2026-11-21T1:05', '2026-11-21T13:00Z'])('rejects %s', (value) => {
+    expect(isLocalDateTime(value)).toBe(false);
   });
 });

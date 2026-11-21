@@ -105,3 +105,16 @@ describe('AppHeader missing device config alert', () => {
     expect(screen.getByRole('link', { name: /1 dispositivo sem imagem traseira/ })).toBeInTheDocument();
   });
 });
+
+it('refreshes the badge immediately when a notification read state changes', async () => {
+  mocks.hasRole.mockReturnValue(false);
+  mocks.apiFetch.mockResolvedValueOnce({
+    ...state,
+    notificationUnreadCount: 2,
+    alerts: [{ id: 'notification-a', severity: 'INFO', title: 'Review', detail: 'Pending', href: '/perfil?tab=notifications', occurredAt: state.updatedAt }],
+  }).mockResolvedValueOnce({ ...state, notificationUnreadCount: 1 });
+  render(<AppHeader section="Perfil" onOpenSidebar={vi.fn()} onOpenGlobalSearch={vi.fn()} />);
+  expect(await screen.findByRole('button', { name: '2 alertas ativos' })).toBeInTheDocument();
+  window.dispatchEvent(new Event('cociber:notifications-changed'));
+  expect(await screen.findByRole('button', { name: '1 alerta ativo' })).toBeInTheDocument();
+});

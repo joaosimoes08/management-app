@@ -1,5 +1,6 @@
 'use client';
 
+import { formatIpamPercent } from '../utilization';
 import { useEffect, useState } from 'react';
 import type { Subnet } from '../types';
 import { getSubnetPlanning, type SubnetPlanning } from '../api';
@@ -16,7 +17,7 @@ export function SubnetPlanningView({ subnets }: { subnets: Subnet[] }) {
     {plan && <div className="activity-list">
       {plan.message ? <div className="no-data">{plan.message}</div> : <>
         <div className="activity-row"><strong>Intervalo utilizável</strong><span>{plan.usableRange?.start ?? '—'} – {plan.usableRange?.end ?? '—'}</span></div>
-        <div className="activity-row"><strong>Utilização</strong><span>{plan.unavailable} / {plan.usableTotal} indisponíveis (inclui reservas) · {plan.utilizationPercent ?? 0}% · {plan.free} livres</span></div>
+        <div className="activity-row"><strong>Utilização</strong><span>{plan.unavailable} / {plan.usableTotal} indisponíveis (inclui reservas) · {formatIpamPercent(plan.utilizationPercent ?? 0)} · {plan.free} livres</span></div>
         <div className="activity-row"><strong>Broadcast</strong><span>{plan.broadcast}</span></div>
         <h3>Gaps utilizáveis</h3>
         {plan.usableGaps.map((gap) => <div className="activity-row" key={`${gap.start}-${gap.end}`}><span>{gap.start} – {gap.end}</span><small>{gap.count} endereços</small></div>)}

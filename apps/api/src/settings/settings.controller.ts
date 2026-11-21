@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Put, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { Roles } from '../auth/roles.decorator';
@@ -31,7 +31,7 @@ export class SettingsController {
   @Get('legacy-role-assignments') @Roles('ADMIN') legacyRoleAssignments() { return this.service.legacyRoleAssignments(); }
   @Patch('users/:externalId/roles') @Roles('ADMIN') updateUserRoles(@Param('externalId') externalId: string, @Body() body: UpdateUserRolesDto, @Req() req: { user: AuthenticatedUser }) { return this.keycloak.updateRoles(externalId, body.roles, req.user); }
   @Get('role-requests') @Roles('ADMIN') listRoleRequests(@Query('status') status?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) { return this.roleRequests.list({ status, page, pageSize }); }
-  @Get('role-requests/me') mineRoleRequests(@Req() req: { user: AuthenticatedUser }) { return this.roleRequests.mine(req.user); }
+  @Get('role-requests/me') mineRoleRequests(@Req() req: { user: AuthenticatedUser }, @Query('requestId', new ParseUUIDPipe({ optional: true })) requestId?: string) { return this.roleRequests.mine(req.user, requestId); }
   @Post('role-requests') submitRoleRequest(@Body() body: CreateRoleRequestDto, @Req() req: { user: AuthenticatedUser }) { return this.roleRequests.submit(req.user, body.roles); }
   @Patch('role-requests/:id') @Roles('ADMIN') decideRoleRequest(@Param('id') id: string, @Body() body: DecideRoleRequestDto, @Req() req: { user: AuthenticatedUser }) { return this.roleRequests.decide(id, body.decision, req.user); }
   @Get('access-groups') @Roles('ADMIN') groups(@Query('siteId') siteId?: string) { return this.accessGroups.list(siteId); }
