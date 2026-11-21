@@ -1115,9 +1115,7 @@ const enUS: LegacyDictionary = {
   'Seleciona um grupo': 'Select a group',
   'Guardar responsável': 'Save owner',
   '1 ativo tem semanas anteriores por rever. Revê-as individualmente no histórico.': '1 asset has earlier weeks to review. Review them individually in the history.',
-  ' · todos os Sites': ' · all Sites',
   '· todos os Sites': '· all Sites',
-  'Remover filtro de configuração em falta': 'Remove missing-configuration filter',
   // Phase D front end
   'Equipamentos críticos': 'Critical devices',
   'Ciclo de vida expirado': 'Lifecycle expired',
