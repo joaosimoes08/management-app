@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
@@ -33,22 +33,33 @@ export function ConfirmDialog({ message, title, confirmLabel, cancelLabel = 'Can
     return () => { document.body.style.overflow = previousOverflow; };
   }, [destructive]);
 
-  const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onResolve(false); return; }
-    if (event.key !== 'Tab' || !cardRef.current) return;
-    const focusable = [...cardRef.current.querySelectorAll<HTMLElement>(focusableSelector)];
-    if (!focusable.length) return;
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-  };
+  const resolveRef = useRef(onResolve);
+  resolveRef.current = onResolve;
+
+  // Listen on the document, not the card: if focus falls to <body> (e.g. a click on the message text),
+  // Escape must still cancel and Tab must still land inside the dialog.
+  useEffect(() => {
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); resolveRef.current(false); return; }
+      if (event.key !== 'Tab' || !cardRef.current) return;
+      const focusable = [...cardRef.current.querySelectorAll<HTMLElement>(focusableSelector)];
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (!active || !cardRef.current.contains(active)) { event.preventDefault(); (event.shiftKey ? last : first).focus(); }
+      else if (event.shiftKey && active === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && active === last) { event.preventDefault(); first.focus(); }
+    };
+    document.addEventListener('keydown', onKeyDown, true);
+    return () => document.removeEventListener('keydown', onKeyDown, true);
+  }, []);
 
   const lines = message.split('\n');
   const body: ReactNode = lines.map((line, index) => <span key={index}>{line}{index < lines.length - 1 && <br />}</span>);
 
   return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onResolve(false)}>
-    <section ref={cardRef} className="modal-card" role="alertdialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={messageId} onKeyDown={onKeyDown}>
+    <section ref={cardRef} className="modal-card" role="alertdialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={messageId}>
       <div className="modal-heading"><h2 id={titleId}>{title ?? (destructive ? 'Confirmar eliminação' : 'Confirmar')}</h2><button type="button" className="icon-button subtle" onClick={() => onResolve(false)} aria-label="Fechar"><X size={16} /></button></div>
       <div className="modal-form">
         <p className="panel-description" id={messageId}>{body}</p>

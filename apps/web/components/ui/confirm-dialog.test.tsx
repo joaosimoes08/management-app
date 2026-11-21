@@ -67,6 +67,25 @@ describe('useConfirm', () => {
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 
+  it('keeps Escape and the Tab trap working when focus has fallen to the page body', async () => {
+    render(<Harness options={{ message: 'Eliminar a regra NAT web?', destructive: true }} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir' }));
+    const dialog = screen.getByRole('alertdialog');
+    // A click on the message text moves focus to <body>.
+    (document.activeElement as HTMLElement).blur();
+    expect(document.activeElement).toBe(document.body);
+    fireEvent.keyDown(document.body, { key: 'Tab' });
+    expect(dialog).toContainElement(document.activeElement as HTMLElement);
+    expect(within(dialog).getByRole('button', { name: 'Fechar' })).toHaveFocus();
+    (document.activeElement as HTMLElement).blur();
+    fireEvent.keyDown(document.body, { key: 'Tab', shiftKey: true });
+    expect(within(dialog).getByRole('button', { name: 'Eliminar' })).toHaveFocus();
+    (document.activeElement as HTMLElement).blur();
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    await waitFor(() => expect(screen.getByLabelText('Resultado')).toHaveTextContent('false'));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
   it('keeps line breaks of multi-line messages', () => {
     render(<Harness options={{ message: 'Atualizar 2 equipamentos?\n\nstatus: INACTIVE' }} />);
     fireEvent.click(screen.getByRole('button', { name: 'Abrir' }));
