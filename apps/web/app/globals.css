@@ -2523,6 +2523,9 @@ body { color:var(--ink); background:#e9eef5; }
 .critical-assets-counts button:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
 .context-toolbar-contribution .critical-assets-filters { flex-wrap:wrap; }
 .critical-assets-card .table-actions .secondary-button,.critical-assets-panel .table-actions .secondary-button { padding:7px 9px; font-size:10px; }
+/* Shared table kit: sortable header button inherits the .ip-table th look. */
+.ip-table th .data-table-sort { display:inline-flex; align-items:center; gap:4px; padding:0; color:inherit; border:0; background:transparent; font:inherit; cursor:pointer; }
+.ip-table th .data-table-sort:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
 .change-detail-heading-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:8px; }
 .change-editor-backdrop { z-index:120; animation:change-dialog-in .18s ease-out both; }
 .change-editor { width:min(760px,100%); max-height:min(88vh,900px); overflow:auto; }

@@ -511,8 +511,16 @@ const enUS: LegacyDictionary = {
   'Seleciona uma imagem frontal para posicionar as portas.': 'Choose a front image to position the ports.',
   'Seleciona uma imagem traseira para posicionar as portas.': 'Choose a rear image to position the ports.',
   'Mapeia as portas em cada face do equipamento e associa-as à interface correspondente. Arrasta para mover; usa as setas para ajustes precisos. Alt + setas redimensiona. As posições são relativas à imagem de cada face.': 'Map the ports on each face of the device and link them to the matching interface. Drag to move; use the arrow keys for fine adjustments. Alt + arrows resizes. Positions are relative to each face image.',
+  // Shared table kit
+  'Exportar CSV': 'Export CSV',
+  'ordem crescente': 'ascending order',
+  'ordem decrescente': 'descending order',
   // Critical assets workbench
   'Ativos críticos': 'Critical assets',
+  'Data do último resultado': 'Latest result date',
+  'Data do prazo': 'Due date',
+  'Revisões pendentes': 'Pending reviews',
+  'Revisor': 'Reviewer',
   'Revisão semanal dos dados de inventário dos ativos críticos do Site.': 'Weekly review of the inventory data of the Site’s critical assets.',
   'Não foi possível carregar os ativos críticos.': 'Could not load the critical assets.',
   'Pesquisar nome, hostname, IP, série ou etiqueta…': 'Search name, hostname, IP, serial or tag…',
