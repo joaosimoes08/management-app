@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ClipboardList, Eye, Upload, X } from 'lucide-react';
 import { ApiRequestError } from '@/lib/api/errors';
 import { getRipeImport, importRipe, listRipeImports, listVrfs, previewRipe } from '../api';
-import type { NetworkMapVlan, RipeDiffItem, RipeDiffReason, RipeDiffStatus, RipeImportRecord, RipeImportResult, RipePreview, RipePreviewInput, RipeQueryType, RipeSubnetRef, Vrf } from '../types';
+import type { NetworkMapVlan, RipeDiffItem, RipeOverlap, RipeDiffReason, RipeDiffStatus, RipeImportRecord, RipeImportResult, RipePreview, RipePreviewInput, RipeQueryType, RipeSubnetRef, Vrf } from '../types';
 import { Empty, IpamModal } from './ipam-modal';
 
 const statusLabel: Record<RipeDiffStatus, string> = { new: 'Novo', changed: 'Alterado', exists: 'Já existe', conflict: 'Conflito' };
@@ -38,7 +38,14 @@ const formatDate = (value: string) => new Date(value).toLocaleString('pt-PT');
 /** The server diff is tied to the target Site + VRF; changing either makes it stale. */
 const targetKey = (siteId: string, vrfId: string) => `${siteId}|${vrfId}`;
 
-const subnetLabel = (ref?: RipeSubnetRef) => (!ref ? '' : ref.hidden ? 'uma subnet sem acesso de leitura' : ref.cidr);
+const subnetLabel = (ref?: RipeSubnetRef) => (!ref || ref.hidden || !ref.cidr ? 'uma subnet sem acesso de leitura' : ref.cidr);
+const overlapLine = (overlap: RipeOverlap) => {
+  if (overlap.source === 'paste') return `Sobrepõe-se a ${overlap.prefix} (nesta lista)`;
+  return `${overlap.relation === 'within' ? 'Dentro de' : 'Contém'} ${subnetLabel(overlap.subnet)}${overlap.sameScope ? '' : ' (outro Site/VRF)'}`;
+};
+/** An OVERLAP caused only by earlier prefixes of the same paste is not about the inventory. */
+const pasteOnlyOverlap = (item: RipeDiffItem) => item.reason === 'OVERLAP' && Boolean(item.overlaps?.length) && (item.overlaps ?? []).every((overlap) => overlap.source === 'paste');
+const reasonText = (item: RipeDiffItem) => (pasteOnlyOverlap(item) ? 'Sobrepõe um prefixo anterior desta lista no mesmo Site/VRF; só o primeiro é importado.' : reasonLabel[item.reason] ?? item.message);
 
 /** Extra detail for a diff row: the colliding subnet, the overlaps or the attribute differences. */
 export function ripeDiffDetail(item: RipeDiffItem, vrfs: Vrf[] = []): string[] {
@@ -46,8 +53,10 @@ export function ripeDiffDetail(item: RipeDiffItem, vrfs: Vrf[] = []): string[] {
   const value = (field: string, raw: string | null) => (field === 'vrfId' ? vrfName(raw) : raw || '—');
   const lines: string[] = [];
   if (item.existing && item.reason !== 'EXISTS_SAME') lines.push(`Subnet existente: ${subnetLabel(item.existing)}`);
-  for (const change of item.changes ?? []) lines.push(`${fieldLabel[change.field] ?? change.field}: ${value(change.field, change.current)} → ${value(change.field, change.proposed)}`);
-  for (const overlap of item.overlaps ?? []) lines.push(`${overlap.relation === 'within' ? 'Dentro de' : 'Contém'} ${subnetLabel(overlap.subnet)}${overlap.sameScope ? '' : ' (outro Site/VRF)'}`);
+  const changes = Array.isArray(item.changes) ? item.changes : [];
+  for (const change of changes) lines.push(`${fieldLabel[change.field] ?? change.field}: ${value(change.field, change.current)} → ${value(change.field, change.proposed)}`);
+  if (item.status === 'changed' && !changes.length) lines.push('Os valores atuais estão ocultos: sem acesso de leitura a esta subnet.');
+  for (const overlap of Array.isArray(item.overlaps) ? item.overlaps : []) lines.push(overlapLine(overlap));
   return lines;
 }
 
@@ -177,7 +186,7 @@ export function RipeView({ siteId, search, vlans, canPreview, canImport, success
             <td><input type="checkbox" aria-label={`Importar ${item.prefix}`} disabled={!item.importable || !canImport} checked={chosen.includes(item.prefix)} onChange={(event) => toggle(item.prefix, event.target.checked)} /></td>
             <td className="mono">{item.prefix}{item.input !== item.prefix && <small>{`Introduzido: ${item.input}`}</small>}</td>
             <td><DiffBadge status={item.status} /></td>
-            <td>{reasonLabel[item.reason] ?? item.message}{ripeDiffDetail(item, vrfs).map((line) => <small key={line}>{line}</small>)}</td>
+            <td>{reasonText(item)}{ripeDiffDetail(item, vrfs).map((line) => <small key={line}>{line}</small>)}</td>
           </tr>)}
           {(preview.invalid ?? []).map((item) => <tr key={`invalid-${item.input}`}>
             <td><input type="checkbox" aria-label={`Importar ${item.input}`} disabled checked={false} readOnly /></td>
@@ -243,7 +252,7 @@ function RipeImportPanel({ item, vrfs, close }: { item: RipeImportRecord | null;
         <div><span>Ignorados</span><strong>{skipped.length}</strong></div>
       </div>
       {skipped.length > 0 && <section className="host-section"><h3>Prefixos ignorados</h3>{skipped.map((entry) => <article className="host-relation" key={entry.cidr}><div><strong className="mono">{entry.cidr}</strong><span>{entry.reason}</span></div></article>)}</section>}
-      <section className="host-section"><h3>Prefixos</h3>{prefixes.map((cidr) => { const entry = diffByPrefix.get(cidr); return <article className="host-relation" key={cidr}><div><strong className="mono">{cidr}</strong><span>{selectedPrefixes.has(cidr) ? 'Selecionado para importação' : 'Não selecionado'}{entry ? ` · ${reasonLabel[entry.reason] ?? entry.message}` : ''}</span>{entry && ripeDiffDetail(entry, vrfs).map((line) => <span key={line}>{line}</span>)}</div>{entry && <DiffBadge status={entry.status} />}</article>; })}{!prefixes.length && <p className="panel-description">Sem prefixos nesta consulta.</p>}</section>
+      <section className="host-section"><h3>Prefixos</h3>{prefixes.map((cidr) => { const entry = diffByPrefix.get(cidr); return <article className="host-relation" key={cidr}><div><strong className="mono">{cidr}</strong><span>{selectedPrefixes.has(cidr) ? 'Selecionado para importação' : 'Não selecionado'}{entry ? ` · ${reasonText(entry)}` : ''}</span>{entry && ripeDiffDetail(entry, vrfs).map((line) => <span key={line}>{line}</span>)}</div>{entry && <DiffBadge status={entry.status} />}</article>; })}{!prefixes.length && <p className="panel-description">Sem prefixos nesta consulta.</p>}</section>
       {Boolean(item.result?.invalid?.length) && <section className="host-section"><h3>Entradas inválidas</h3>{(item.result?.invalid ?? []).map((entry) => <article className="host-relation" key={entry.input}><div><strong className="mono">{entry.input}</strong><span>{entry.reason === 'MISSING_PREFIX_LENGTH' ? 'Falta o comprimento do prefixo (por exemplo /24).' : 'Não é um prefixo IPv4/IPv6 válido em notação CIDR.'}</span></div></article>)}</section>}
     </>}
   </aside>;

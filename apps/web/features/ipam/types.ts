@@ -375,8 +375,12 @@ export interface RipeDiffItem {
   importable: boolean;
   existing?: RipeSubnetRef;
   changes?: Array<{ field: 'vrfId' | 'purpose' | 'environment'; current: string | null; proposed: string | null }>;
-  overlaps?: Array<{ relation: 'contains' | 'within'; sameScope: boolean; subnet: RipeSubnetRef }>;
+  overlaps?: RipeOverlap[];
 }
+/** `existing`: a subnet already in the inventory (older servers omit `source`). `paste`: an earlier prefix of the same paste, with no `subnet`. */
+export type RipeOverlap =
+  | { source?: 'existing'; relation: 'contains' | 'within'; sameScope: boolean; subnet?: RipeSubnetRef }
+  | { source: 'paste'; relation: 'contains' | 'within'; sameScope: true; prefix: string };
 export interface RipeInvalidPrefix { input: string; reason: string; message: string }
 export interface RipeDiffTarget { siteId: string; vrfId: string | null; purpose: string | null; environment: string | null }
 export interface RipeDiffSummary { total: number; new: number; changed: number; exists: number; conflict: number; importable: number; invalid: number; duplicates: number }

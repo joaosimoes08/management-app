@@ -6,6 +6,7 @@ import { VrfsView } from './vrfs-view';
 import { NatView } from './nat-view';
 import { RipeView, ripeDiffDetail } from './ripe-view';
 import { ApiRequestError, apiErrorMessage } from '@/lib/api/errors';
+import { translateLegacyText } from '@/lib/i18n/legacy-messages';
 import type { NatRule, RipeDiffItem, RipeImportRecord, RipePreview, Subnet, Vrf, VrfDetail } from '../types';
 
 const api = vi.hoisted(() => ({
@@ -280,6 +281,58 @@ describe('RipeView', () => {
   it('describes changes and overlaps of a diff row', () => {
     const lines = ripeDiffDetail(diffItem('10.0.0.0/24', { status: 'changed', reason: 'EXISTS_DIFFERENT_ATTRIBUTES', importable: false, existing: { id: 's', cidr: '10.0.0.0/24', siteId: 'site-1', vrfId: 'vrf-1', purpose: 'Users', environment: null }, changes: [{ field: 'purpose', current: 'Users', proposed: 'Public' }, { field: 'vrfId', current: 'vrf-1', proposed: null }] }), [vrf]);
     expect(lines).toEqual(['Subnet existente: 10.0.0.0/24', 'Finalidade: Users → Public', 'VRF: CORE → sem VRF']);
+  });
+
+  it('renders an overlap inside the same paste: the first prefix is new and importable, the later one is a conflict', async () => {
+    api.previewRipe.mockResolvedValue(ripePreview({
+      id: 'imp-3', query: 'Lista colada (2 prefixos)', queryType: 'paste', source: 'PASTE',
+      diff: [
+        diffItem('10.9.0.0/16'),
+        diffItem('10.9.1.0/24', { status: 'conflict', reason: 'OVERLAP', importable: false, message: 'Sobrepõe outro prefixo desta lista.', overlaps: [{ source: 'paste', relation: 'within', sameScope: true, prefix: '10.9.0.0/16' }] }),
+      ],
+    }));
+    api.importRipe.mockResolvedValue({ status: 'IMPORTED', created: [{ id: 'a' }], skipped: [] });
+    renderWithQuery(createElement(RipeView, props()));
+    fireEvent.click(screen.getByRole('button', { name: /Colar ou carregar lista/ }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText(/Prefixos/), { target: { value: '10.9.0.0/16\n10.9.1.0/24' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /Pré-visualizar/ }));
+
+    expect(await screen.findByText('1 importáveis')).toBeInTheDocument();
+    const first = screen.getByText('10.9.0.0/16', { selector: 'td' }).closest('tr')!;
+    expect(within(first).getByText('Novo')).toBeInTheDocument();
+    expect(within(first).getByRole('checkbox')).toBeEnabled();
+    const second = screen.getByText('10.9.1.0/24', { selector: 'td' }).closest('tr')!;
+    expect(within(second).getByText('Conflito')).toBeInTheDocument();
+    expect(within(second).getByRole('checkbox')).toBeDisabled();
+    expect(within(second).getByText('Sobrepõe-se a 10.9.0.0/16 (nesta lista)')).toBeInTheDocument();
+    expect(within(second).getByText('Sobrepõe um prefixo anterior desta lista no mesmo Site/VRF; só o primeiro é importado.')).toBeInTheDocument();
+    expect(within(second).queryByText(/sem acesso de leitura/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Importar 1 prefixo/ }));
+    await waitFor(() => expect(api.importRipe).toHaveBeenCalledWith(expect.objectContaining({ importId: 'imp-3', prefixes: ['10.9.0.0/16'] })));
+    expect(translateLegacyText('en-US', 'Sobrepõe-se a 10.9.0.0/16 (nesta lista)')).toBe('Overlaps 10.9.0.0/16 (in this list)');
+    expect(translateLegacyText('en-US', 'Sobrepõe um prefixo anterior desta lista no mesmo Site/VRF; só o primeiro é importado.')).toBe('Overlaps an earlier prefix of this list in the same Site/VRF; only the first one is imported.');
+  });
+
+  it('renders a changed row for a hidden subnet that has no changes array', async () => {
+    api.previewRipe.mockResolvedValue(ripePreview({ diff: [
+      diffItem('10.77.0.0/24', { status: 'changed', reason: 'EXISTS_DIFFERENT_ATTRIBUTES', importable: false, existing: { id: null, cidr: null, hidden: true } }),
+      diffItem('10.78.0.0/16', { status: 'conflict', reason: 'OVERLAP', importable: false, overlaps: [{ relation: 'contains', sameScope: true, subnet: { id: null, cidr: null, hidden: true } }] }),
+    ] }));
+    renderWithQuery(createElement(RipeView, props()));
+    fireEvent.change(screen.getByLabelText('Consulta RIPEstat'), { target: { value: '10.77.0.0/24' } });
+    fireEvent.click(screen.getByRole('button', { name: /Pré-visualizar/ }));
+    const row = (await screen.findByText('10.77.0.0/24', { selector: 'td' })).closest('tr')!;
+    expect(within(row).getByText('Alterado')).toBeInTheDocument();
+    expect(within(row).getByRole('checkbox')).toBeDisabled();
+    expect(within(row).getByText('Subnet existente: uma subnet sem acesso de leitura')).toBeInTheDocument();
+    expect(within(row).getByText('Os valores atuais estão ocultos: sem acesso de leitura a esta subnet.')).toBeInTheDocument();
+    const overlapRow = screen.getByText('10.78.0.0/16', { selector: 'td' }).closest('tr')!;
+    expect(within(overlapRow).getByText('Contém uma subnet sem acesso de leitura')).toBeInTheDocument();
+    expect(ripeDiffDetail(diffItem('10.77.0.0/24', { status: 'changed', reason: 'EXISTS_DIFFERENT_ATTRIBUTES', importable: false, existing: { id: null, cidr: null, hidden: true } }))).toEqual(['Subnet existente: uma subnet sem acesso de leitura', 'Os valores atuais estão ocultos: sem acesso de leitura a esta subnet.']);
+    expect(translateLegacyText('en-US', 'Contém uma subnet sem acesso de leitura')).toBe('Contains a subnet you cannot read');
+    expect(translateLegacyText('en-US', 'Os valores atuais estão ocultos: sem acesso de leitura a esta subnet.')).toBe('The current values are hidden: you cannot read this subnet.');
   });
 
   it('shows the error returned by a RIPEstat lookup', async () => {
