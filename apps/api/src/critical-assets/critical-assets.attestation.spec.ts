@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { ConflictException } from '@nestjs/common';
-import { computeDueState, cycleWindow, CriticalAssetsService } from './critical-assets.service';
+import { ATTESTATION_OPENS_AT_HOUR, computeDueState, cycleWindow, CriticalAssetsService, weeklyWindow } from './critical-assets.service';
 
 const day = (value: string) => new Date(`${value}T00:00:00.000Z`);
 const pending = (weekStart: string) => ({ weekStart: day(weekStart), outcome: null });
@@ -69,6 +69,22 @@ test('up_to_date points at the next cycle to be generated', () => {
   // Wednesday with this week's cycle never generated (the scheduler only generates on Monday): next is next week's.
   const missed = computeDueState([recorded('2026-11-09')], true, 'Europe/Lisbon', new Date('2026-11-18T12:00:00.000Z'));
   assert.equal(missed.dueWeekStart, '2026-11-23');
+});
+
+test('an unowned asset with pending cycles is unscheduled, not overdue, but keeps its counts', () => {
+  // Rows can outlive a removed group mapping; nobody can review them, so they belong under "no owner".
+  const rows = [pending('2026-11-16'), pending('2026-11-02'), recorded('2026-10-26')];
+  const result = computeDueState(rows, false, 'Europe/Lisbon', new Date('2026-11-18T12:00:00.000Z'));
+  assert.deepEqual(result, { pendingCount: 2, overdueCount: 1, dueState: 'unscheduled', dueDate: null, dueWeekStart: null });
+  assert.equal(computeDueState(rows, true, 'Europe/Lisbon', new Date('2026-11-18T12:00:00.000Z')).dueState, 'overdue');
+});
+
+test('weekly generation opens at ATTESTATION_OPENS_AT_HOUR Site-local', () => {
+  assert.equal(ATTESTATION_OPENS_AT_HOUR, 9);
+  assert.equal(weeklyWindow(new Date('2026-11-16T08:59:00.000Z'), 'Europe/Lisbon').due, false);
+  assert.equal(weeklyWindow(new Date('2026-11-16T09:00:00.000Z'), 'Europe/Lisbon').due, true);
+  assert.equal(weeklyWindow(new Date('2026-11-16T13:59:00.000Z'), 'America/New_York').due, false);
+  assert.equal(weeklyWindow(new Date('2026-11-16T14:00:00.000Z'), 'America/New_York').due, true);
 });
 
 test('unscheduled when there is no owner group or no cycle yet', () => {
