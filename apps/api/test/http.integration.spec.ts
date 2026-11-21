@@ -19,6 +19,8 @@ import { configureApp } from '../src/app.factory';
 import { AuthGuard } from '../src/auth/auth.guard';
 import { IS_PUBLIC_KEY } from '../src/auth/public.decorator';
 import { KeycloakAdminService } from '../src/settings/keycloak-admin.service';
+import { deliverLifecycleReminders } from '../src/infrastructure/lifecycle-reminders';
+import { CriticalAssetsService } from '../src/critical-assets/critical-assets.service';
 
 const databaseUrl = process.env.DATABASE_URL ?? '';
 if (!/[_-]test(?:\?|$)/i.test(databaseUrl)) throw new Error('HTTP integration tests require an isolated DATABASE_URL whose database name ends in _test.');
@@ -484,6 +486,93 @@ test('normalizes conflicts and records audited ADMIN mutations', async () => {
   assert.equal(duplicate.statusCode, 409);
   assert.equal(json(duplicate).code, 'IP_CONFLICT');
   assert.equal(await prisma.auditLog.count({ where: { action: 'IP_ADDRESS_CREATED', userId: ids.admin } }), 1);
+});
+
+test('pages older notifications, isolates users and tracks individual read state in the bell', async (context) => {
+  const notifications = '/api/v1/notifications';
+  const user = 'qa-readonly';
+  const old = new Date('2025-09-01T08:00:00Z');
+  const titlePrefix = 'Step 27 archive';
+  const foreign = await prisma.notification.create({ data: { userId: ids.legacy, type: 'LIFECYCLE_DATE', title: `${titlePrefix} other`, message: 'Private' } });
+  await prisma.notification.createMany({ data: Array.from({ length: 27 }, (_, index) => ({
+    userId: ids.readonly, type: index === 0 ? 'ROLE_REQUEST_APPROVED' : 'LIFECYCLE_DATE',
+    title: `${titlePrefix} ${index}`, message: 'Archived', createdAt: old,
+  })) });
+  context.after(() => prisma.notification.deleteMany({ where: { title: { startsWith: titlePrefix } } }).then(() => undefined));
+  assert.equal((await request('GET', notifications)).statusCode, 401);
+  assert.equal((await request('GET', `${notifications}?status=unknown`, user)).statusCode, 400);
+  const page1 = json(await request('GET', `${notifications}?status=all`, user));
+  assert.equal(page1.items.length, 25);
+  assert.ok(page1.nextCursor);
+  const page2 = json(await request('GET', `${notifications}?status=all&cursor=${page1.nextCursor}`, user));
+  assert.equal(page2.items.length, 2);
+  assert.equal(page2.nextCursor, null);
+  const rows = [...page1.items, ...page2.items];
+  assert.equal(new Set(rows.map((item) => item.id)).size, 27);
+  assert.equal(rows.some((item) => item.id === foreign.id), false);
+  assert.ok(rows.every((item) => item.createdAt === old.toISOString()));
+  assert.equal(json(await request('GET', `${notifications}?type=ROLE_REQUEST`, user)).items.length, 1);
+
+  const badge = async () => json(await request('GET', '/api/v1/dashboard/topbar-state', user)).notificationUnreadCount;
+  assert.equal(await badge(), 27);
+  assert.equal((await request('PATCH', `${notifications}/${foreign.id}/read`, user, { read: true })).statusCode, 404);
+  assert.equal((await request('GET', `${notifications}?cursor=${foreign.id}`, user)).statusCode, 404);
+  const id = page1.nextCursor;
+  assert.equal((await request('PATCH', `${notifications}/${id}/read`, user, { read: true })).statusCode, 200);
+  assert.equal(await badge(), 26);
+  assert.equal((await prisma.notification.findFirstOrThrow({ where: { id: foreign.id } })).readAt, null);
+  assert.equal(json(await request('GET', `${notifications}?status=unread&cursor=${id}`, user)).items.length, 2);
+  assert.equal((await request('PATCH', `${notifications}/${id}/read`, user, { read: false })).statusCode, 200);
+  assert.equal(await badge(), 27);
+  assert.equal(json(await request('PATCH', '/api/v1/dashboard/notifications/read-all', user)).updated, 27);
+  assert.equal(await badge(), 0);
+  assert.deepEqual(json(await request('GET', `${notifications}?status=unread`, user)), { items: [], nextCursor: null });
+});
+
+test('persists per-user preferences and skips delivery for each muted notification topic', async (context) => {
+  const root = '/api/v1/notifications/preferences';
+  const muted = 'qa-readonly';
+  const receiver = 'qa-auditor';
+  const users = [ids.readonly, ids.auditor];
+  const topics = ['ROLE_REQUEST', 'CRITICAL_ASSET_ATTESTATION', 'LIFECYCLE_DATE'];
+  const due = new Date('2026-11-23T10:00:00Z');
+  const group = await prisma.accessGroup.create({ data: { name: 'Step 27 recipients', members: { create: users.map((userId) => ({ userId })) } } });
+  const device = await prisma.device.create({ data: { name: 'Step 27 notification device', type: 'SERVER', siteId: ids.siteB, isCritical: true } });
+  await prisma.criticalAssetGroupMapping.create({ data: { siteId: ids.siteB, assetType: 'SERVER', groupId: group.id } });
+  const date = await prisma.lifecycleDate.create({ data: { kind: 'SUPPORT', deviceId: device.id, dueDate: due, reminderDays: [0], responsibleGroupId: group.id } });
+  const roleRequests = await Promise.all(users.map((userId) => prisma.roleRequest.create({ data: { userId, roles: ['SYSTEMS_OPERATOR'] } })));
+  context.after(async () => {
+    await prisma.notification.deleteMany({ where: { OR: [{ roleRequestId: { in: roleRequests.map((row) => row.id) } }, { sourceHref: { contains: device.id } }, { sourceHref: { contains: date.id } }] } });
+    await prisma.roleRequest.deleteMany({ where: { id: { in: roleRequests.map((row) => row.id) } } });
+    await prisma.notificationMute.deleteMany({ where: { userId: { in: users } } });
+    await prisma.device.delete({ where: { id: device.id } });
+    await prisma.accessGroup.delete({ where: { id: group.id } });
+  });
+
+  for (const topic of topics) {
+    assert.equal((await request('PATCH', `${root}/${topic}`, muted, { muted: true })).statusCode, 200);
+  }
+  assert.equal((await request('GET', root)).statusCode, 401);
+  assert.deepEqual(json(await request('GET', root, muted)).map((item: { muted: boolean }) => item.muted), [true, true, true]);
+  assert.deepEqual(json(await request('GET', root, receiver)).map((item: { muted: boolean }) => item.muted), [false, false, false]);
+  for (const item of roleRequests) {
+    assert.equal((await request('PATCH', `/api/v1/settings/role-requests/${item.id}`, 'qa-admin', { decision: 'REJECT' })).statusCode, 200);
+  }
+  await app.get(CriticalAssetsService).runWeeklyChecks(due);
+  await deliverLifecycleReminders(prisma, due);
+  const inbox = async (persona: string) => json(await request('GET', '/api/v1/notifications', persona)).items;
+  assert.deepEqual(await inbox(muted), []);
+  const received = await inbox(receiver);
+  assert.deepEqual(received.map((item: { type: string }) => item.type).sort(), ['CRITICAL_ASSET_ATTESTATION', 'LIFECYCLE_DATE', 'ROLE_REQUEST_REJECTED']);
+  assert.ok(received.find((item: { type: string }) => item.type === 'LIFECYCLE_DATE').href.includes(`lifecycleId=${date.id}`));
+  assert.ok(received.find((item: { type: string }) => item.type === 'CRITICAL_ASSET_ATTESTATION').href.includes(`assetId=${device.id}`));
+  assert.ok(received.find((item: { type: string }) => item.type === 'ROLE_REQUEST_REJECTED').href.endsWith(`&requestId=${roleRequests[1].id}`));
+
+  assert.equal((await request('PATCH', `${root}/ROLE_REQUEST`, muted, { muted: false })).statusCode, 200);
+  const newRequest = await prisma.roleRequest.create({ data: { userId: ids.readonly, roles: ['AUDITOR'] } });
+  roleRequests.push(newRequest);
+  assert.equal((await request('PATCH', `/api/v1/settings/role-requests/${newRequest.id}`, 'qa-admin', { decision: 'REJECT' })).statusCode, 200);
+  assert.equal((await inbox(muted)).length, 1);
 });
 
 test('protects the last ADMIN through the HTTP settings endpoint', async () => {

@@ -25,7 +25,18 @@ function renderCalendar(canEdit: boolean) {
 
 describe('LifecycleDates read-only access', () => {
   beforeEach(() => apiFetch.mockReset().mockResolvedValue({ items: [lifecycleItem] }));
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    window.history.replaceState({}, '', '/');
+  });
+
+  it('opens the coverage referenced by a notification link', async () => {
+    window.history.replaceState({}, '', '/infraestrutura?tab=lifecycle&lifecycleId=lifecycle-1&due=2025-09-15');
+    apiFetch.mockResolvedValue({ items: [{ ...lifecycleItem, dueDate: '2025-09-15' }] });
+    renderCalendar(false);
+    expect(await screen.findByRole('dialog', { name: 'Detalhe da cobertura' })).toBeInTheDocument();
+    expect(apiFetch).toHaveBeenCalledWith('/api/v1/lifecycle-dates?siteId=site-1&from=2025-09-01&to=2025-09-30');
+  });
 
   it('uses the shared tab heading treatment for the lifecycle description', () => {
     renderCalendar(false);

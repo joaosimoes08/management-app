@@ -212,6 +212,7 @@ model User {
   roleRequests                RoleRequest[]
   reviewedRoleRequests        RoleRequest[]               @relation("RoleRequestReviewer")
   notifications               Notification[]
+  notificationMutes           NotificationMute[]
   lifecycleDatesAssigned      LifecycleDate[]             @relation("LifecycleDateResponsibleUser")
   lifecycleReminderDeliveries LifecycleReminderDelivery[]
   alertStates                 OperationalAlertUserState[]
@@ -259,12 +260,22 @@ model Notification {
   type          String
   title         String
   message       String
+  sourceHref    String?
   readAt        DateTime?
   createdAt     DateTime     @default(now())
   user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   roleRequest   RoleRequest? @relation(fields: [roleRequestId], references: [id], onDelete: SetNull)
 
   @@index([userId, readAt, createdAt])
+  @@index([userId, createdAt, id])
+}
+
+model NotificationMute {
+  userId String @db.Uuid
+  type   String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, type])
 }
 
 model UserRole {

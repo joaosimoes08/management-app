@@ -130,6 +130,9 @@ export function InfrastructureWorkspace() {
   const [missingConfig, setMissingConfig] = useState('');
   /** `allSites=1` (or a missingConfig link without siteId): cross-site list, not narrowed to the active Site. */
   const [missingConfigAllSites, setMissingConfigAllSites] = useState(false);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('tab') === 'lifecycle') setTab('lifecycle');
+  }, []);
   const requiredConfigRegistry = useRequiredConfigRegistry();
   const missingConfigLabel = requiredConfigRegistry?.configs?.find((config) => config.key === missingConfig)?.label ?? missingConfig;
   useEffect(() => {
