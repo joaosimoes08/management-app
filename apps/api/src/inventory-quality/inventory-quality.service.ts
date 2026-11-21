@@ -1,5 +1,5 @@
 import { portLayoutIncompleteMessage, portMappingStatus } from '../infrastructure/port-layout';
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, HttpException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@simoes/database';
 import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../auth/auth.service';
@@ -7,7 +7,36 @@ import { InfrastructureAccessService } from '../infrastructure/infrastructure-ac
 import { IpamAccessService } from '../ipam/ipam-access.service';
 import { AlertSeverityDto } from '../operations/dto';
 import { OperationsService } from '../operations/operations.service';
-import { AssignFindingDto, ListFindingsQueryDto, SnoozeFindingDto } from './dto';
+import { AssignFindingDto, BulkFindingActionDto, FindingFacetsQueryDto, ListFindingsQueryDto, SNOOZE_MAX_HOURS, SNOOZE_MIN_HOURS, SnoozeFindingDto } from './dto';
+
+const HOUR = 60 * 60 * 1000;
+const SNOOZE_CLOCK_GRACE_MS = 60 * 1000;
+/** Resolves the snooze end from exactly one of `until` or `durationHours`, bounded to 1h–30d from `now`. */
+export function resolveSnoozeUntil(input: { until?: string; durationHours?: number }, now = new Date()) {
+  const hasUntil = input.until !== undefined && input.until !== null && input.until !== '';
+  const hasDuration = input.durationHours !== undefined && input.durationHours !== null;
+  if (hasUntil === hasDuration) throw new BadRequestException({ code: 'SNOOZE_DURATION_REQUIRED', message: 'Indica a data de fim (until) ou a duração em horas (durationHours), mas não ambas.' });
+  if (hasDuration) {
+    const hours = Number(input.durationHours);
+    if (!Number.isInteger(hours) || hours < SNOOZE_MIN_HOURS || hours > SNOOZE_MAX_HOURS) throw new BadRequestException({ code: 'SNOOZE_DURATION_OUT_OF_RANGE', message: `A duração do snooze tem de estar entre ${SNOOZE_MIN_HOURS} hora e ${SNOOZE_MAX_HOURS / 24} dias.` });
+    return new Date(now.getTime() + hours * HOUR);
+  }
+  const until = new Date(input.until!);
+  if (!Number.isFinite(until.getTime())) throw new BadRequestException({ code: 'SNOOZE_DURATION_OUT_OF_RANGE', message: 'Data de snooze inválida.' });
+  if (until <= now) throw new BadRequestException('A data de snooze tem de ser futura');
+  const delta = until.getTime() - now.getTime();
+  if (delta < SNOOZE_MIN_HOURS * HOUR - SNOOZE_CLOCK_GRACE_MS || delta > SNOOZE_MAX_HOURS * HOUR + SNOOZE_CLOCK_GRACE_MS) throw new BadRequestException({ code: 'SNOOZE_DURATION_OUT_OF_RANGE', message: `A duração do snooze tem de estar entre ${SNOOZE_MIN_HOURS} hora e ${SNOOZE_MAX_HOURS / 24} dias.` });
+  return until;
+}
+
+export type BulkItemResult = { id: string; ok: boolean; code?: 'NOT_FOUND' | 'FORBIDDEN' | 'INVALID' | 'ERROR'; message?: string; status?: string };
+function bulkFailure(id: string, error: unknown): BulkItemResult {
+  if (error instanceof NotFoundException) return { id, ok: false, code: 'NOT_FOUND', message: 'Finding não encontrado' };
+  if (error instanceof ForbiddenException) return { id, ok: false, code: 'FORBIDDEN', message: error.message };
+  if (error instanceof BadRequestException) return { id, ok: false, code: 'INVALID', message: error.message };
+  if (error instanceof HttpException) return { id, ok: false, code: 'ERROR', message: error.message };
+  throw error;
+}
 
 type Candidate = {
   dedupKey: string; siteId: string | null; rule: string; severity: AlertSeverityDto;
@@ -75,12 +104,73 @@ export class InventoryQualityService {
     return finding;
   }
 
+  private assigneeWhere(user: AuthenticatedUser, assignee?: string) {
+    if (!assignee) return [];
+    if (assignee === 'unassigned') return [{ assignedToId: null }];
+    if (assignee === 'me') return [{ assignedToId: user.id }];
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(assignee)) throw new BadRequestException({ code: 'FINDING_FILTER_INVALID', message: 'assignee tem de ser um id de utilizador, "me" ou "unassigned".' });
+    return [{ assignedToId: assignee }];
+  }
+
+  /**
+   * Counts for the work queue. Each dimension is counted with every other filter applied
+   * but not its own, so a tab or dropdown shows how many items selecting it would give.
+   */
+  async facets(user: AuthenticatedUser, query: FindingFacetsQueryDto = {}) {
+    const siteIds = await this.visibleSiteIds(user);
+    if (query.siteId && !siteIds.includes(query.siteId)) throw new NotFoundException('Site não encontrado');
+    const scope = query.siteId ? { siteId: query.siteId } : user.roles.includes('ADMIN') ? { OR: [{ siteId: null }, { siteId: { in: siteIds } }] } : { siteId: { in: siteIds } };
+    const search = query.search ? [{ OR: [{ title: { contains: query.search, mode: 'insensitive' as const } }, { detail: { contains: query.search, mode: 'insensitive' as const } }] }] : [];
+    const candidates = await this.prisma.inventoryFinding.findMany({ where: { AND: [scope, ...search] }, select: { id: true, siteId: true, entityType: true, entityId: true, status: true, severity: true, rule: true, assignedToId: true } });
+    const visible = await this.filterVisibleFindings(user, candidates);
+    const assigneeId = query.assignee === 'me' ? user.id : query.assignee;
+    this.assigneeWhere(user, query.assignee); // validates the assignee value
+    const match = (item: (typeof visible)[number], skip: 'status' | 'severity' | 'rule' | 'assignee') =>
+      (skip === 'status' || !query.status || item.status === query.status)
+      && (skip === 'severity' || !query.severity || item.severity === query.severity)
+      && (skip === 'rule' || !query.rule || item.rule === query.rule)
+      && (skip === 'assignee' || !assigneeId || (assigneeId === 'unassigned' ? item.assignedToId === null : item.assignedToId === assigneeId));
+    const count = <K extends string>(skip: 'status' | 'severity' | 'rule' | 'assignee', key: (item: (typeof visible)[number]) => K) => {
+      const map = new Map<K, number>(); for (const item of visible) if (match(item, skip)) map.set(key(item), (map.get(key(item)) ?? 0) + 1); return map;
+    };
+    const byRuleStatus = new Map<string, Record<string, number>>();
+    for (const item of visible) if (match(item, 'rule') && match(item, 'status')) { const entry = byRuleStatus.get(item.rule) ?? {}; entry[item.status] = (entry[item.status] ?? 0) + 1; byRuleStatus.set(item.rule, entry); }
+    const assigneeCounts = count('assignee', (item) => item.assignedToId ?? 'unassigned');
+    const users = await this.prisma.user.findMany({ where: { id: { in: [...assigneeCounts.keys()].filter((id) => id !== 'unassigned') } }, select: { id: true, username: true, displayName: true } });
+    const userById = new Map(users.map((item) => [item.id, item]));
+    return {
+      total: visible.filter((item) => match(item, 'status') && (!query.status || item.status === query.status)).length,
+      byStatus: Object.fromEntries(['OPEN', 'ACKNOWLEDGED', 'SNOOZED', 'RESOLVED'].map((status) => [status, count('status', (item) => item.status).get(status as never) ?? 0])),
+      bySeverity: Object.fromEntries(['CRITICAL', 'HIGH', 'WARNING', 'INFO'].map((severity) => [severity, count('severity', (item) => item.severity).get(severity as never) ?? 0])),
+      byRule: [...count('rule', (item) => item.rule).entries()].map(([rule, total]) => ({ rule, total, byStatus: byRuleStatus.get(rule) ?? {} })).sort((a, b) => b.total - a.total || a.rule.localeCompare(b.rule)),
+      byAssignee: [...assigneeCounts.entries()].map(([id, total]) => id === 'unassigned' ? { userId: null, username: null, displayName: null, total } : { userId: id, username: userById.get(id)?.username ?? null, displayName: userById.get(id)?.displayName ?? null, total }).sort((a, b) => b.total - a.total),
+    };
+  }
+
+  /** Applies one action to many findings. Each item is checked on its own (visibility, Site permission, assignee scope); one failure does not stop the rest. */
+  async bulk(user: AuthenticatedUser, dto: BulkFindingActionDto) {
+    if (dto.action !== 'SNOOZE' && (dto.until !== undefined || dto.durationHours !== undefined)) throw new BadRequestException({ code: 'BULK_FIELDS_INVALID', message: 'until/durationHours só se aplicam a SNOOZE.' });
+    if (dto.action !== 'ASSIGN' && dto.userId !== undefined) throw new BadRequestException({ code: 'BULK_FIELDS_INVALID', message: 'userId só se aplica a ASSIGN.' });
+    const until = dto.action === 'SNOOZE' ? resolveSnoozeUntil(dto) : undefined;
+    const results: BulkItemResult[] = [];
+    for (const id of dto.ids) {
+      try {
+        const updated = dto.action === 'ACKNOWLEDGE' ? await this.acknowledge(user, id)
+          : dto.action === 'ASSIGN' ? await this.assign(user, id, { userId: dto.userId ?? null })
+          : await this.applySnooze(user, id, until!, dto.reason);
+        results.push({ id, ok: true, status: updated.status });
+      } catch (error) { results.push(bulkFailure(id, error)); }
+    }
+    const succeeded = results.filter((item) => item.ok).length;
+    return { action: dto.action, results, succeeded, failed: results.length - succeeded, ...(until ? { snoozedUntil: until.toISOString() } : {}) };
+  }
+
   async list(user: AuthenticatedUser, query: ListFindingsQueryDto = {}) {
     const page = Math.max(Number(query.page) || 1, 1); const pageSize = Math.min(Math.max(Number(query.pageSize) || 25, 1), 100);
     const siteIds = await this.visibleSiteIds(user);
     if (query.siteId && !siteIds.includes(query.siteId)) throw new NotFoundException('Site não encontrado');
     const scope = query.siteId ? { siteId: query.siteId } : user.roles.includes('ADMIN') ? { OR: [{ siteId: null }, { siteId: { in: siteIds } }] } : { siteId: { in: siteIds } };
-    const where = { AND: [scope, ...(query.status ? [{ status: query.status }] : []), ...(query.severity ? [{ severity: query.severity }] : []), ...(query.rule ? [{ rule: query.rule }] : []), ...(query.search ? [{ OR: [{ title: { contains: query.search, mode: 'insensitive' as const } }, { detail: { contains: query.search, mode: 'insensitive' as const } }] }] : [])] };
+    const where = { AND: [scope, ...(query.status ? [{ status: query.status }] : []), ...(query.severity ? [{ severity: query.severity }] : []), ...(query.rule ? [{ rule: query.rule }] : []), ...this.assigneeWhere(user, query.assignee), ...(query.search ? [{ OR: [{ title: { contains: query.search, mode: 'insensitive' as const } }, { detail: { contains: query.search, mode: 'insensitive' as const } }] }] : [])] };
     const candidates = await this.prisma.inventoryFinding.findMany({ where, orderBy: [{ severity: 'asc' }, { lastDetectedAt: 'desc' }], include: { site: { select: { id: true, name: true } }, assignedTo: { select: { id: true, username: true, displayName: true } } } });
     const visible = await this.filterVisibleFindings(user, candidates);
     const pageItems = visible.slice((page - 1) * pageSize, page * pageSize);
@@ -171,10 +261,13 @@ export class InventoryQualityService {
   }
 
   async snooze(user: AuthenticatedUser, id: string, dto: SnoozeFindingDto) {
-    await this.mutable(user, id); const until = new Date(dto.until);
-    if (until <= new Date()) throw new BadRequestException('A data de snooze tem de ser futura');
-    const finding = await this.prisma.inventoryFinding.update({ where: { id }, data: { status: 'SNOOZED', snoozedUntil: until, snoozeReason: dto.reason } });
-    await this.audit.record({ userId: user.id, action: 'INVENTORY_FINDING_SNOOZED', entityType: 'InventoryFinding', entityId: id, metadata: { until, reason: dto.reason } }); return finding;
+    return this.applySnooze(user, id, resolveSnoozeUntil(dto), dto.reason);
+  }
+
+  private async applySnooze(user: AuthenticatedUser, id: string, until: Date, reason?: string) {
+    await this.mutable(user, id);
+    const finding = await this.prisma.inventoryFinding.update({ where: { id }, data: { status: 'SNOOZED', snoozedUntil: until, snoozeReason: reason } });
+    await this.audit.record({ userId: user.id, action: 'INVENTORY_FINDING_SNOOZED', entityType: 'InventoryFinding', entityId: id, metadata: { until, reason } }); return finding;
   }
 
   async reconcile(user: AuthenticatedUser, siteId?: string) {

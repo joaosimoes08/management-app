@@ -5,12 +5,17 @@ import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { InfrastructureAccessService } from '../infrastructure/infrastructure-access.service';
 import { IpamAccessService } from '../ipam/ipam-access.service';
+import { computeOverlaps } from './change-windows';
 import { ChangePlanItemDto, CreateChangePlanDto, ReviewChangePlanDto, UpdateChangePlanDto } from './dto';
 
 const IMPACT_LIMIT = 400;
 const CREATORS = ['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR'];
 const VIEWERS = ['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'AUDITOR', 'READ_ONLY'];
 const ACTIVE_CONFLICT_STATUSES = [ChangePlanStatus.SUBMITTED, ChangePlanStatus.APPROVED];
+const CALENDAR_MAX_DAYS = 120;
+const CALENDAR_LIMIT = 500;
+const DAY = 24 * 60 * 60 * 1000;
+export type ChangePlanListFilters = { status?: string; from?: string; to?: string; q?: string };
 type GraphNode = { key: string; entityType: ChangeEntityType; entityId: string; label: string; href: string; siteId: string; updatedAt?: Date; observedAt?: Date; source?: string };
 type GraphEdge = { from: string; to: string; relationship: string; source: string; confidence: 'RECORDED' | 'LOW'; updatedAt?: Date };
 type ImpactEntry = GraphNode & { depth: number; dependencyPath: string[]; freshness: string; confidence: 'RECORDED' | 'LOW' };
@@ -83,20 +88,26 @@ export class ChangePlansService {
     }
   }
 
-  async candidates(user: AuthenticatedUser, siteId: string) {
+  async candidates(user: AuthenticatedUser, siteId: string, rawQuery?: string, rawType?: string) {
     this.requireRole(user, VIEWERS); await this.assertSite(user, siteId, 'READ');
+    const q = rawQuery?.trim().slice(0, 120) || undefined;
+    const type = rawType ? (Object.values(ChangeEntityType) as string[]).includes(rawType) ? rawType as ChangeEntityType : (() => { throw new BadRequestException({ code: 'CHANGE_FILTER_INVALID', message: 'Tipo de alvo inválido.' }); })() : undefined;
+    const want = (entityType: ChangeEntityType) => !type || type === entityType;
+    const c = q ? { contains: q, mode: 'insensitive' as const } : undefined;
+    const vlanNumber = q && /^\d{1,4}$/.test(q) ? Number(q) : undefined;
+    const none = Promise.resolve([] as never[]);
     const [devices, interfaces, vlans, subnets, ips, hosts, services] = await Promise.all([
-      this.prisma.device.findMany({ where: { siteId }, select: { id: true, name: true, type: true, updatedAt: true }, take: IMPACT_LIMIT + 1 }),
-      this.prisma.deviceInterface.findMany({ where: { device: { siteId } }, select: { id: true, name: true, deviceId: true }, take: IMPACT_LIMIT + 1 }),
-      this.prisma.vlan.findMany({ where: { siteId }, select: { id: true, name: true, vlanId: true }, take: IMPACT_LIMIT + 1 }),
-      this.prisma.subnet.findMany({ where: { siteId }, select: { id: true, cidr: true, purpose: true }, take: IMPACT_LIMIT + 1 }),
-      this.prisma.ipAddress.findMany({ where: { subnet: { siteId } }, select: { id: true, address: true, state: true, subnet: { select: { cidr: true } } }, take: IMPACT_LIMIT + 1 }),
-      this.prisma.host.findMany({ where: { OR: [{ device: { siteId } }, { ipAddresses: { some: { subnet: { siteId } } } }] }, select: { id: true, name: true }, take: IMPACT_LIMIT + 1 }),
-      this.prisma.service.findMany({ where: { host: { OR: [{ device: { siteId } }, { ipAddresses: { some: { subnet: { siteId } } } }] } }, select: { id: true, name: true, port: true, host: { select: { name: true } } }, take: IMPACT_LIMIT + 1 }),
+      want(ChangeEntityType.DEVICE) ? this.prisma.device.findMany({ where: { siteId, ...(c ? { name: c } : {}) }, select: { id: true, name: true, type: true, updatedAt: true }, take: IMPACT_LIMIT + 1 }) : none,
+      want(ChangeEntityType.INTERFACE) ? this.prisma.deviceInterface.findMany({ where: { device: { siteId }, ...(c ? { OR: [{ name: c }, { device: { name: c } }] } : {}) }, select: { id: true, name: true, deviceId: true, device: { select: { name: true } } }, take: IMPACT_LIMIT + 1 }) : none,
+      want(ChangeEntityType.VLAN) ? this.prisma.vlan.findMany({ where: { siteId, ...(c ? { OR: [{ name: c }, ...(vlanNumber !== undefined ? [{ vlanId: vlanNumber }] : [])] } : {}) }, select: { id: true, name: true, vlanId: true }, take: IMPACT_LIMIT + 1 }) : none,
+      want(ChangeEntityType.SUBNET) ? this.prisma.subnet.findMany({ where: { siteId, ...(c ? { OR: [{ cidr: c }, { purpose: c }] } : {}) }, select: { id: true, cidr: true, purpose: true }, take: IMPACT_LIMIT + 1 }) : none,
+      want(ChangeEntityType.IP_ADDRESS) ? this.prisma.ipAddress.findMany({ where: { subnet: { siteId }, ...(c ? { address: c } : {}) }, select: { id: true, address: true, state: true, subnet: { select: { cidr: true } } }, take: IMPACT_LIMIT + 1 }) : none,
+      want(ChangeEntityType.HOST) ? this.prisma.host.findMany({ where: { OR: [{ device: { siteId } }, { ipAddresses: { some: { subnet: { siteId } } } }], ...(c ? { name: c } : {}) }, select: { id: true, name: true }, take: IMPACT_LIMIT + 1 }) : none,
+      want(ChangeEntityType.SERVICE) ? this.prisma.service.findMany({ where: { host: { OR: [{ device: { siteId } }, { ipAddresses: { some: { subnet: { siteId } } } }] }, ...(c ? { OR: [{ name: c }, { host: { name: c } }] } : {}) }, select: { id: true, name: true, port: true, host: { select: { name: true } } }, take: IMPACT_LIMIT + 1 }) : none,
     ]);
     const groups: { entityType: ChangeEntityType; entityId: string; label: string; detail?: string }[][] = [
       devices.map((x) => ({ entityType: ChangeEntityType.DEVICE, entityId: x.id, label: x.name, detail: x.type })),
-      interfaces.map((x) => ({ entityType: ChangeEntityType.INTERFACE, entityId: x.id, label: `${devices.find((device) => device.id === x.deviceId)?.name ?? 'Equipamento'} · ${x.name}`, detail: 'Interface' })),
+      interfaces.map((x) => ({ entityType: ChangeEntityType.INTERFACE, entityId: x.id, label: `${x.device?.name ?? 'Equipamento'} · ${x.name}`, detail: 'Interface' })),
       vlans.map((x) => ({ entityType: ChangeEntityType.VLAN, entityId: x.id, label: `VLAN ${x.vlanId} · ${x.name}` })),
       subnets.map((x) => ({ entityType: ChangeEntityType.SUBNET, entityId: x.id, label: x.cidr, detail: x.purpose ?? undefined })),
       ips.map((x) => ({ entityType: ChangeEntityType.IP_ADDRESS, entityId: x.id, label: x.address, detail: `${x.subnet.cidr} · ${x.state}` })),
@@ -111,10 +122,103 @@ export class ChangePlansService {
     return { groups: visible, truncated: groups.some((group) => group.length > IMPACT_LIMIT) };
   }
 
-  async list(user: AuthenticatedUser, siteId: string) {
+  private parseStatuses(raw?: string) {
+    if (!raw) return undefined;
+    const values = raw.split(',').map((item) => item.trim().toUpperCase()).filter(Boolean);
+    const allowed = Object.values(ChangePlanStatus) as string[];
+    if (!values.length || values.some((item) => !allowed.includes(item))) throw new BadRequestException({ code: 'CHANGE_FILTER_INVALID', message: `status tem de ser um ou mais de ${allowed.join(', ')}.` });
+    return values as ChangePlanStatus[];
+  }
+  private parseRange(from?: string, to?: string, required = false) {
+    const parse = (value: string | undefined, name: string) => {
+      if (!value) return undefined;
+      const date = new Date(value);
+      if (!Number.isFinite(date.getTime())) throw new BadRequestException({ code: 'CHANGE_FILTER_INVALID', message: `Data inválida em ${name}.` });
+      return date;
+    };
+    const start = parse(from, 'from'); const end = parse(to, 'to');
+    if (required && (!start || !end)) throw new BadRequestException({ code: 'CHANGE_FILTER_INVALID', message: 'Indica from e to.' });
+    if (start && end && end <= start) throw new BadRequestException({ code: 'CHANGE_FILTER_INVALID', message: 'to tem de ser posterior a from.' });
+    return { start, end };
+  }
+  /** Prisma filter for plans whose window intersects [start, end). */
+  private windowWhere(start?: Date, end?: Date): Prisma.ChangePlanWhereInput {
+    return { ...(end ? { plannedStartAt: { lt: end } } : {}), ...(start ? { plannedEndAt: { gt: start } } : {}) };
+  }
+
+  async list(user: AuthenticatedUser, siteId: string, filters: ChangePlanListFilters = {}) {
     this.requireRole(user, VIEWERS); await this.assertSite(user, siteId, 'READ');
-    const plans = await this.prisma.changePlan.findMany({ where: { siteId }, include: { items: true, creator: { select: { id: true, username: true, displayName: true } }, reviewer: { select: { id: true, username: true, displayName: true } } }, orderBy: [{ plannedStartAt: 'desc' }, { createdAt: 'desc' }] });
+    const statuses = this.parseStatuses(filters.status); const { start, end } = this.parseRange(filters.from, filters.to);
+    const q = filters.q?.trim().slice(0, 120) || undefined;
+    const where: Prisma.ChangePlanWhereInput = { siteId, ...(statuses ? { status: { in: statuses } } : {}), ...this.windowWhere(start, end), ...(q ? { OR: [{ title: { contains: q, mode: 'insensitive' } }, { reason: { contains: q, mode: 'insensitive' } }, { items: { some: { operationSummary: { contains: q, mode: 'insensitive' } } } }] } : {}) };
+    const plans = await this.prisma.changePlan.findMany({ where, include: { items: true, creator: { select: { id: true, username: true, displayName: true } }, reviewer: { select: { id: true, username: true, displayName: true } } }, orderBy: [{ plannedStartAt: 'desc' }, { createdAt: 'desc' }] });
     return Promise.all(plans.map((plan) => this.get(user, plan.id)));
+  }
+
+  /** Plan counts per status for the status tabs, plus what is running now and what is coming up. */
+  async summary(user: AuthenticatedUser, siteId: string) {
+    this.requireRole(user, VIEWERS); await this.assertSite(user, siteId, 'READ');
+    const now = new Date();
+    const [groups, inProgress, upcoming] = await Promise.all([
+      this.prisma.changePlan.groupBy({ by: ['status'], where: { siteId }, _count: { _all: true } }),
+      this.prisma.changePlan.count({ where: { siteId, status: ChangePlanStatus.APPROVED, plannedStartAt: { lte: now }, plannedEndAt: { gt: now } } }),
+      this.prisma.changePlan.count({ where: { siteId, status: { in: ACTIVE_CONFLICT_STATUSES }, plannedStartAt: { gt: now } } }),
+    ]);
+    const byStatus = Object.fromEntries((Object.values(ChangePlanStatus) as string[]).map((status) => [status, groups.find((item) => item.status === status)?._count._all ?? 0]));
+    return { siteId, total: Object.values(byStatus).reduce((sum, value) => sum + value, 0), byStatus, inProgress, upcoming, generatedAt: now.toISOString() };
+  }
+
+  /**
+   * Change plans and maintenance windows that intersect [from, to), with overlaps computed
+   * server-side. Cancelled plans are left out unless includeCancelled is set.
+   */
+  async calendar(user: AuthenticatedUser, siteId: string, from?: string, to?: string, includeCancelled = false) {
+    this.requireRole(user, VIEWERS); await this.assertSite(user, siteId, 'READ');
+    const { start, end } = this.parseRange(from, to, true) as { start: Date; end: Date };
+    if (end.getTime() - start.getTime() > CALENDAR_MAX_DAYS * DAY) throw new BadRequestException({ code: 'CHANGE_FILTER_INVALID', message: `O intervalo do calendário não pode exceder ${CALENDAR_MAX_DAYS} dias.` });
+    const [plans, windows] = await Promise.all([
+      this.prisma.changePlan.findMany({ where: { siteId, ...(includeCancelled ? {} : { status: { not: ChangePlanStatus.CANCELLED } }), ...this.windowWhere(start, end) }, orderBy: [{ plannedStartAt: 'asc' }, { id: 'asc' }], take: CALENDAR_LIMIT + 1, select: { id: true, title: true, status: true, plannedStartAt: true, plannedEndAt: true, revision: true, creator: { select: { id: true, username: true, displayName: true } }, items: { select: { entityType: true, entityId: true } } } }),
+      this.prisma.maintenanceWindow.findMany({ where: { OR: [{ siteId }, { siteId: null }], startsAt: { lt: end }, endsAt: { gt: start } }, orderBy: [{ startsAt: 'asc' }, { id: 'asc' }], take: CALENDAR_LIMIT + 1, select: { id: true, name: true, reason: true, siteId: true, startsAt: true, endsAt: true } }),
+    ]);
+    // Shared targets are counted only over targets this user may read, so hidden records are never hinted at.
+    const readable = new Map<string, boolean>();
+    const canRead = async (entityType: ChangeEntityType, entityId: string) => {
+      const key = `${entityType}:${entityId}`;
+      if (!readable.has(key)) { try { await this.assertTarget(user, entityType, entityId, siteId, 'READ'); readable.set(key, true); } catch (error) { if (!this.isVisibilityFailure(error)) throw error; readable.set(key, false); } }
+      return readable.get(key)!;
+    };
+    const planWindows = await Promise.all(plans.slice(0, CALENDAR_LIMIT).map(async (plan) => {
+      const keys = new Set<string>();
+      for (const item of plan.items) if (await canRead(item.entityType, item.entityId)) keys.add(`${item.entityType}:${item.entityId}`);
+      return { plan, keys };
+    }));
+    const overlaps = computeOverlaps([
+      ...planWindows.map(({ plan, keys }) => ({ kind: 'CHANGE_PLAN' as const, id: plan.id, startsAt: plan.plannedStartAt, endsAt: plan.plannedEndAt, active: (ACTIVE_CONFLICT_STATUSES as ChangePlanStatus[]).includes(plan.status), targetKeys: keys })),
+      ...windows.slice(0, CALENDAR_LIMIT).map((item) => ({ kind: 'MAINTENANCE_WINDOW' as const, id: item.id, startsAt: item.startsAt, endsAt: item.endsAt, active: true })),
+    ]);
+    return {
+      siteId, from: start.toISOString(), to: end.toISOString(),
+      changePlans: planWindows.map(({ plan, keys }) => ({ id: plan.id, title: plan.title, status: plan.status, plannedStartAt: plan.plannedStartAt, plannedEndAt: plan.plannedEndAt, revision: plan.revision, creator: plan.creator, targetCount: keys.size, ...overlaps.get(`CHANGE_PLAN:${plan.id}`)! })),
+      maintenanceWindows: windows.slice(0, CALENDAR_LIMIT).map((item) => ({ ...item, global: item.siteId === null, ...overlaps.get(`MAINTENANCE_WINDOW:${item.id}`)! })),
+      truncated: plans.length > CALENDAR_LIMIT || windows.length > CALENDAR_LIMIT,
+    };
+  }
+
+  /** Who did what to a plan, oldest first, from the audit log. Only events recorded for this plan are returned. */
+  async activity(user: AuthenticatedUser, id: string) {
+    this.requireRole(user, VIEWERS);
+    const plan = await this.prisma.changePlan.findUnique({ where: { id }, select: { id: true, siteId: true } });
+    if (!plan) throw new NotFoundException({ code: 'CHANGE_PLAN_NOT_FOUND', message: 'Alteração não encontrada.' });
+    await this.assertSite(user, plan.siteId, 'READ');
+    const events = await this.prisma.auditLog.findMany({ where: { entityType: 'ChangePlan', entityId: id }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: 500, include: { user: { select: { id: true, username: true, displayName: true } } } });
+    return {
+      changePlanId: id,
+      items: events.map((event) => {
+        const metadata = (event.metadata && typeof event.metadata === 'object' && !Array.isArray(event.metadata) ? event.metadata : {}) as Record<string, unknown>;
+        return { id: event.id, action: event.action, at: event.createdAt, actor: event.user, revision: typeof metadata.revision === 'number' ? metadata.revision : null, note: typeof metadata.note === 'string' && metadata.note ? metadata.note : null, knownImpactCount: typeof metadata.knownImpactCount === 'number' ? metadata.knownImpactCount : null, coverage: typeof metadata.coverage === 'string' ? metadata.coverage : null, itemCount: typeof metadata.itemCount === 'number' ? metadata.itemCount : null };
+      }),
+      truncated: events.length >= 500,
+    };
   }
 
   async get(user: AuthenticatedUser, id: string) {
