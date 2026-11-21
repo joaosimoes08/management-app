@@ -985,6 +985,35 @@ test('required device configs: registry, create validation, legacy updates, grou
   assert.deepEqual(json(await request('GET', '/api/v1/dashboard/topbar-state', 'qa-readonly')).alerts.filter((a: any) => String(a.id).startsWith('device-missing-config-')), []);
 });
 
+test('critical asset review notes: over 2000 characters is a 400 for single and bulk confirm, and a bulk batch with one such note writes nothing', async () => {
+  const tooLong = 'x'.repeat(2001);
+  const week = new Date('2026-11-16T00:00:00.000Z');
+  const single = await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA, weekStart: week } });
+  const valid = await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA2, weekStart: week } });
+  const oversized = await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA, weekStart: new Date('2026-11-23T00:00:00.000Z') } });
+  const outcomes = async () => (await prisma.criticalAssetAttestation.findMany({ where: { id: { in: [single.id, valid.id, oversized.id] } }, orderBy: { id: 'asc' } })).map((row) => row.outcome);
+  try {
+    const one = await request('POST', `/api/v1/critical-assets/${single.id}/confirm`, 'qa-admin', { outcome: 'NEEDS_CORRECTION', notes: tooLong });
+    assert.equal(one.statusCode, 400, one.body);
+    const batch = await request('POST', '/api/v1/critical-assets/confirm-bulk', 'qa-admin', { items: [
+      { id: valid.id, outcome: 'CONFIRMED' },
+      { id: oversized.id, outcome: 'NEEDS_CORRECTION', notes: tooLong },
+    ] });
+    assert.equal(batch.statusCode, 400, batch.body);
+    assert.deepEqual(await outcomes(), [null, null, null], 'a rejected request writes nothing, not even the valid item');
+    assert.equal(await prisma.criticalAssetCorrection.count({ where: { attestationId: { in: [single.id, oversized.id] } } }), 0);
+
+    const exact = await request('POST', '/api/v1/critical-assets/confirm-bulk', 'qa-admin', { items: [{ id: valid.id, outcome: 'NEEDS_CORRECTION', notes: 'y'.repeat(2000) }] });
+    assert.equal(exact.statusCode, 201, exact.body);
+    assert.equal((await prisma.criticalAssetAttestation.findUniqueOrThrow({ where: { id: valid.id } })).outcome, 'NEEDS_CORRECTION', 'exactly 2000 characters is allowed');
+  } finally {
+    // Remove only the rows this test created, so the later per-device counts in this file are unchanged.
+    const created = { attestationId: { in: [single.id, valid.id, oversized.id] } };
+    await prisma.criticalAssetCorrection.deleteMany({ where: created });
+    await prisma.criticalAssetAttestation.deleteMany({ where: { id: { in: [single.id, valid.id, oversized.id] } } });
+  }
+});
+
 test('critical asset attestation: 409 on a second review of the same cycle, reviewer names and due state over HTTP', async () => {
   await prisma.user.update({ where: { id: ids.admin }, data: { displayName: 'QA Admin Person' } });
   await prisma.device.updateMany({ where: { id: { in: [ids.deviceA, ids.deviceA2] } }, data: { isCritical: true } });
@@ -1610,6 +1639,43 @@ test('Phase D search: opt-in types, audit only for ADMIN and AUDITOR, change pla
   assert.equal((await request('GET', '/api/v1/dashboard/search?q=Zebrafish&types=PEOPLE', 'qa-admin')).statusCode, 400);
 });
 
+test('Step 20 audit: reads are not audited and search skips HTTP_REQUEST rows', async () => {
+  // A GET is not written to AuditLog, so its URL cannot later match the search that issued it.
+  const term = 'step20probe';
+  const before = await prisma.auditLog.count({ where: { action: { contains: term } } });
+  assert.equal((await request('GET', `/api/v1/dashboard/search?q=${term}&types=AUDIT_EVENT`, 'qa-auditor')).statusCode, 200);
+  assert.equal(await prisma.auditLog.count({ where: { action: { contains: term } } }), before);
+
+  // Rows that are HTTP_REQUEST never appear as AUDIT_EVENT results, even when the term matches their action.
+  await prisma.auditLog.create({ data: { userId: ids.admin, action: 'POST /api/v1/step20probe-http', entityType: 'HTTP_REQUEST', metadata: { statusCode: 201 } } });
+  await prisma.auditLog.create({ data: { userId: ids.admin, action: 'STEP20_PROBE_EVENT', entityType: 'Device', entityId: ids.deviceA } });
+  const hits = json(await request('GET', `/api/v1/dashboard/search?q=${term}&types=AUDIT_EVENT`, 'qa-auditor')).items as Array<{ title: string }>;
+  assert.deepEqual(hits.map((item) => item.title), []);
+  const events = json(await request('GET', '/api/v1/dashboard/search?q=STEP20_PROBE&types=AUDIT_EVENT', 'qa-auditor')).items as Array<{ title: string }>;
+  assert.deepEqual(events.map((item) => item.title), ['STEP20_PROBE_EVENT']);
+});
+
+test('Step 20 export trail: sensitive exports write explicit audit events', async () => {
+  const term = 'step20exportprobe';
+  await prisma.auditLog.create({ data: { userId: ids.admin, action: term, entityType: 'Device', entityId: ids.deviceA } });
+
+  // The audit CSV export is a GET, so it must leave its own explicit row (no HTTP_REQUEST-only trace).
+  const csv = await request('GET', `/api/v1/audit/events/export?action=${term}`, 'qa-auditor');
+  assert.equal(csv.statusCode, 200, csv.body);
+  const exported = await prisma.auditLog.findFirst({ where: { action: 'AUDIT_EVENTS_EXPORTED', userId: ids.auditor }, orderBy: { createdAt: 'desc' } });
+  assert.ok(exported, 'AUDIT_EVENTS_EXPORTED row missing');
+  const metadata = exported.metadata as { filters: Record<string, unknown>; rowCount: number; truncated: boolean };
+  assert.equal(metadata.filters.action, term);
+  assert.equal(metadata.rowCount, 1);
+  assert.equal(metadata.truncated, false);
+
+  // Ansible inventory export and an explicit data export each record their own event.
+  assert.equal((await request('GET', '/api/v1/exports/ansible', 'qa-auditor')).statusCode, 200);
+  assert.ok(await prisma.auditLog.findFirst({ where: { action: 'ANSIBLE_INVENTORY_EXPORTED', userId: ids.auditor } }), 'ANSIBLE_INVENTORY_EXPORTED row missing');
+  assert.equal((await request('GET', '/api/v1/exports/devices/csv', 'qa-auditor')).statusCode, 200);
+  assert.ok(await prisma.auditLog.findFirst({ where: { action: 'DATA_EXPORTED', userId: ids.auditor, entityType: 'Export' } }), 'DATA_EXPORTED row missing');
+});
+
 test('Phase E portal: favourites, check-all link health and the pending role-request queue', async () => {
   const server = createServer((req, res) => { res.statusCode = req.url === '/down' ? 503 : 200; res.end(); });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -2107,6 +2173,12 @@ test('Step 31 email: ADMIN SMTP settings start off, keep the password encrypted 
   assert.deepEqual([anonymous.smtp.username, anonymous.smtp.passwordSet], [null, false]);
   assert.equal((await prisma.deliveryChannelConfig.findUniqueOrThrow({ where: { kind_target: { kind: 'EMAIL', target: 'USER_NOTIFICATIONS' } } })).ciphertext, null);
   assert.equal(json(await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true, smtp: SMTP_BODY })).smtp.passwordSet, true);
+  // A row saved before hosts were normalised may hold mixed case: the same server in lowercase is not a connection change.
+  const beforeCase = await prisma.deliveryChannelConfig.findUniqueOrThrow({ where: { kind_target: { kind: 'EMAIL', target: 'USER_NOTIFICATIONS' } } });
+  await prisma.deliveryChannelConfig.update({ where: { kind_target: { kind: 'EMAIL', target: 'USER_NOTIFICATIONS' } }, data: { settings: { ...(beforeCase.settings as object), host: 'SMTP.Example.pt' } } });
+  const caseOnly = await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true, smtp: withoutPassword });
+  assert.equal(caseOnly.statusCode, 200, caseOnly.body);
+  assert.deepEqual([json(caseOnly).smtp.host, json(caseOnly).smtp.passwordSet], ['smtp.example.pt', true], 'a case-only host change keeps the stored password');
 
   assert.equal(json(await request('PUT', `${root}/EMAIL/GROUP_ALERTS`, 'qa-admin', { enabled: true, recipients: ['bad'] })).code, 'EMAIL_RECIPIENTS_INVALID');
   const group = await request('PUT', `${root}/EMAIL/GROUP_ALERTS`, 'qa-admin', { enabled: true, minSeverity: 'CRITICAL', recipients: [' NOC@example.pt ', 'oncall@example.pt'] });
@@ -2559,4 +2631,81 @@ test('Step 32 scheduled reports: figures equal the source endpoints, per-recipie
   assert.equal(await prisma.scheduledReportOutput.count(), 0);
   const actions = (await prisma.auditLog.findMany({ where: { entityType: 'ScheduledReport' }, select: { action: true } })).map((row) => row.action);
   for (const action of ['SCHEDULED_REPORT_CREATED', 'SCHEDULED_REPORT_UPDATED', 'SCHEDULED_REPORT_RUN', 'SCHEDULED_REPORT_UNSUBSCRIBED', 'SCHEDULED_REPORT_SUBSCRIBED', 'SCHEDULED_REPORT_DELETED']) assert.ok(actions.includes(action), action);
+});
+
+test('Step 36 tags: site-scoped catalogue, RBAC, audit, device and subnet filters, Site mismatch and cascade on delete', async () => {
+  const create = async (siteId: string, name: string, color: string, persona = 'qa-admin') => request('POST', '/api/v1/tags', persona, { siteId, name, color });
+  const core = json(await create(ids.siteA, 'core', 'blue'));
+  const dmz = json(await create(ids.siteA, '  dmz  ', 'red'));
+  const lab = json(await create(ids.siteB, 'lab', 'green'));
+  assert.equal(dmz.name, 'dmz');
+  const duplicate = await create(ids.siteA, 'CORE', 'gray');
+  assert.equal(duplicate.statusCode, 409, duplicate.body);
+  assert.equal(json(duplicate).code, 'TAG_NAME_TAKEN');
+  assert.equal((await create(ids.siteB, 'core', 'gray')).statusCode, 201, 'the same name is free on another Site');
+  assert.equal((await create(ids.siteA, 'x', 'violet')).statusCode, 400);
+  assert.equal((await create(ids.siteA, 'ro', 'gray', 'qa-readonly')).statusCode, 403);
+  assert.equal((await create(ids.siteA, 'audit', 'gray', 'qa-auditor')).statusCode, 403);
+
+  const readable = await request('GET', `/api/v1/tags?siteId=${ids.siteA}`, 'qa-readonly');
+  assert.equal(readable.statusCode, 200, readable.body);
+  assert.deepEqual(json(readable).map((tag: { name: string }) => tag.name), ['core', 'dmz']);
+  assert.ok([403, 404].includes((await request('GET', `/api/v1/tags?siteId=${ids.siteB}`, 'qa-readonly')).statusCode), 'no access to Site B');
+
+  const put = (kind: 'devices' | 'subnets', id: string, tagIds: string[], persona = 'qa-admin') => request('PUT', `/api/v1/${kind}/${id}/tags`, persona, { tagIds });
+  const setA = await put('devices', ids.deviceA, [core.id]);
+  assert.equal(setA.statusCode, 200, setA.body);
+  assert.deepEqual(json(setA).tags.map((tag: { name: string }) => tag.name), ['core']);
+  assert.equal((await put('devices', ids.deviceA2, [dmz.id, core.id])).statusCode, 200);
+  const mismatch = await put('devices', ids.deviceA, [lab.id]);
+  assert.equal(mismatch.statusCode, 400);
+  assert.equal(json(mismatch).code, 'TAG_SITE_MISMATCH');
+  assert.equal((await put('devices', ids.deviceA, [core.id], 'qa-readonly')).statusCode, 403);
+  assert.equal((await put('devices', ids.deviceA, [core.id], 'qa-systems-scoped')).statusCode, 403, 'read-only scope cannot tag');
+
+  const deviceNames = async (tag: string, persona = 'qa-admin') => {
+    const response = await request('GET', `/api/v1/devices?siteId=${ids.siteA}&tag=${tag}`, persona);
+    assert.equal(response.statusCode, 200, response.body);
+    return json(response).items.map((item: { name: string; tags: Array<{ name: string }> }) => `${item.name}:${item.tags.map((t) => t.name).join('+')}`).sort();
+  };
+  assert.deepEqual(await deviceNames(core.id), ['HTTP Switch A2:core+dmz', 'HTTP Switch A:core']);
+  assert.deepEqual(await deviceNames(`${core.id},${dmz.id}`), ['HTTP Switch A2:core+dmz']);
+  assert.deepEqual(await deviceNames(core.id, 'qa-systems-scoped'), ['HTTP Switch A2:core+dmz', 'HTTP Switch A:core']);
+  const badFilter = await request('GET', `/api/v1/devices?siteId=${ids.siteA}&tag=nope`, 'qa-admin');
+  assert.equal(badFilter.statusCode, 400);
+  assert.equal(json(badFilter).code, 'TAG_FILTER_INVALID');
+  const single = json(await request('GET', `/api/v1/devices/${ids.deviceA}`, 'qa-admin'));
+  assert.deepEqual(single.tags.map((tag: { name: string }) => tag.name), ['core']);
+
+  const subnetSet = await put('subnets', ids.subnetA, [dmz.id], 'qa-network-scoped');
+  assert.equal(subnetSet.statusCode, 200, subnetSet.body);
+  assert.notEqual((await put('subnets', ids.subnetB, [lab.id], 'qa-network-scoped')).statusCode, 200, 'no write access to Site B');
+  const subnets = await request('GET', `/api/v1/subnets?siteId=${ids.siteA}&tag=${dmz.id}`, 'qa-network-scoped');
+  assert.equal(subnets.statusCode, 200, subnets.body);
+  assert.deepEqual(json(subnets).items.map((item: { cidr: string }) => item.cidr), ['10.250.1.0/24']);
+  assert.deepEqual(json(await request('GET', `/api/v1/subnets?siteId=${ids.siteA}&tag=${core.id}`, 'qa-admin')).items, []);
+  assert.deepEqual(json(await request('GET', `/api/v1/subnets/${ids.subnetA}`, 'qa-admin')).tags.map((tag: { name: string }) => tag.name), ['dmz']);
+
+  // NETWORK_OPERATOR assigns existing tags (above) but cannot change the Site catalog: deleting a tag would reach servers too.
+  assert.equal((await create(ids.siteA, 'net', 'gray', 'qa-network-scoped')).statusCode, 403, 'NETWORK_OPERATOR cannot create tags');
+  assert.equal((await request('PATCH', `/api/v1/tags/${core.id}`, 'qa-network-scoped', { name: 'hijack', color: 'red' })).statusCode, 403, 'NETWORK_OPERATOR cannot rename or recolour tags');
+  assert.equal((await request('DELETE', `/api/v1/tags/${dmz.id}`, 'qa-network-scoped')).statusCode, 403, 'NETWORK_OPERATOR cannot delete tags');
+  assert.deepEqual(json(await request('GET', `/api/v1/tags?siteId=${ids.siteA}`, 'qa-network-scoped')).map((tag: { name: string; color: string }) => `${tag.name}:${tag.color}`), ['core:blue', 'dmz:red'], 'catalog unchanged, still readable');
+
+  const renamed = await request('PATCH', `/api/v1/tags/${core.id}`, 'qa-admin', { name: 'backbone', color: 'purple' });
+  assert.equal(renamed.statusCode, 200, renamed.body);
+  assert.equal(json(renamed).deviceCount, 2);
+  assert.equal((await request('DELETE', `/api/v1/tags/${dmz.id}`, 'qa-admin')).statusCode, 200);
+  assert.deepEqual(json(await request('GET', `/api/v1/devices/${ids.deviceA2}`, 'qa-admin')).tags.map((tag: { name: string }) => tag.name), ['backbone']);
+  assert.deepEqual(json(await request('GET', `/api/v1/subnets/${ids.subnetA}`, 'qa-admin')).tags, []);
+
+  const actions = (await prisma.auditLog.findMany({ where: { action: { in: ['TAG_CREATED', 'TAG_UPDATED', 'TAG_DELETED', 'DEVICE_TAGS_UPDATED', 'SUBNET_TAGS_UPDATED'] } }, select: { action: true, metadata: true } }));
+  const count = (action: string) => actions.filter((entry) => entry.action === action).length;
+  assert.equal(count('TAG_CREATED'), 4);
+  assert.equal(count('TAG_UPDATED'), 1);
+  assert.equal(count('TAG_DELETED'), 1);
+  assert.equal(count('DEVICE_TAGS_UPDATED'), 2);
+  assert.equal(count('SUBNET_TAGS_UPDATED'), 1);
+  const deleted = actions.find((entry) => entry.action === 'TAG_DELETED')?.metadata as { removedFromDevices: number; removedFromSubnets: number };
+  assert.deepEqual([deleted.removedFromDevices, deleted.removedFromSubnets], [1, 1]);
 });

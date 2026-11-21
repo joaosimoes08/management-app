@@ -167,9 +167,19 @@ export function summarizeAssets(assets: Array<{ owner: unknown; dueState: string
   };
 }
 
+export const REVIEW_NOTES_MAX_LENGTH = 2000;
+
+/** Notes are stored as correction text, so they are capped the same way for single and bulk review. */
+export function assertReviewNotesLength(notes: unknown): void {
+  if (typeof notes === 'string' && notes.trim().length > REVIEW_NOTES_MAX_LENGTH) {
+    throw new BadRequestException(`As notas podem ter no máximo ${REVIEW_NOTES_MAX_LENGTH} caracteres.`);
+  }
+}
+
 /** Outcome and notes rules shared by single and bulk review. A correction request needs the data to fix. */
 export function validateReview(outcome: unknown, notes: unknown): { outcome: CriticalAssetOutcomeValue; notes?: string } {
   if (!isCriticalAssetOutcome(outcome)) throw new BadRequestException('Resultado inválido');
+  assertReviewNotesLength(notes);
   const text = typeof notes === 'string' ? notes.trim() : '';
   if (outcome === 'NEEDS_CORRECTION' && !text) throw new BadRequestException('Indica os dados a corrigir.');
   return { outcome, notes: text || undefined };
@@ -368,6 +378,8 @@ export class CriticalAssetsService implements OnModuleInit, OnModuleDestroy {
       const record = (item ?? {}) as Record<string, unknown>;
       return { id: typeof record.id === 'string' ? record.id : '', outcome: record.outcome, notes: record.notes };
     });
+    // An oversized note rejects the whole request before anything is written, instead of skipping only that item.
+    for (const item of parsed) assertReviewNotesLength(item.notes);
     const ids = [...new Set(parsed.map((item) => item.id).filter(Boolean))];
     const attestations = await this.prisma.criticalAssetAttestation.findMany({ where: { id: { in: ids } }, include: { device: true } });
     const byId = new Map(attestations.map((row) => [row.id, row]));

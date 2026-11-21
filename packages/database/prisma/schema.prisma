@@ -426,6 +426,7 @@ model Site {
   criticalAssetCorrections  CriticalAssetCorrection[]
   changePlans               ChangePlan[]
   netAppIntegration         NetAppIntegration?
+  tags                      Tag[]
   createdAt                 DateTime                    @default(now())
   updatedAt                 DateTime                    @updatedAt
 }
@@ -617,6 +618,7 @@ model Device {
   criticalAssetAttestations CriticalAssetAttestation[]
   criticalAssetCorrections  CriticalAssetCorrection[]
   pduOutlets                PduOutletAssignment[]
+  tags                      DeviceTag[]
   sourceConnections         DeviceConnection[]         @relation("ConnectionSourceDevice")
   targetConnections         DeviceConnection[]         @relation("ConnectionTargetDevice")
   createdAt                 DateTime                   @default(now())
@@ -1431,6 +1433,7 @@ model Subnet {
   childSubnets       Subnet[]                 @relation("SubnetHierarchy")
   natSourceRules     NatRule[]                @relation("NatSourceSubnet")
   natTranslatedRules NatRule[]                @relation("NatTranslatedSubnet")
+  tags               SubnetTag[]
   scanEnabled        Boolean                  @default(false)
   scanIntervalHours  Int                      @default(12)
   scanMethods        Json?
@@ -1443,6 +1446,44 @@ model Subnet {
 
   @@index([vlanId])
   @@index([siteId, vrfId, version])
+}
+
+/// Step 36: site-scoped labels for devices and subnets. Names are unique per Site, case-insensitively (checked by the API).
+model Tag {
+  id        String      @id @default(uuid()) @db.Uuid
+  siteId    String      @db.Uuid
+  name      String
+  /// One of the design-system tones: gray, blue, green, amber, red, purple.
+  color     String      @default("gray")
+  site      Site        @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  devices   DeviceTag[]
+  subnets   SubnetTag[]
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@unique([siteId, name])
+}
+
+model DeviceTag {
+  deviceId  String   @db.Uuid
+  tagId     String   @db.Uuid
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([deviceId, tagId])
+  @@index([tagId])
+}
+
+model SubnetTag {
+  subnetId  String   @db.Uuid
+  tagId     String   @db.Uuid
+  subnet    Subnet   @relation(fields: [subnetId], references: [id], onDelete: Cascade)
+  tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([subnetId, tagId])
+  @@index([tagId])
 }
 
 model SubnetCapacitySnapshot {

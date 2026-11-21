@@ -6,6 +6,7 @@ import { Queue } from 'bullmq';
 import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { IpamAccessService } from './ipam-access.service';
+import { tagsInclude, withFlatTags } from '../tags/tag-rules';
 import { assertDiscoveryAllowed, DiscoveryPolicyError } from '../discovery/discovery-policy';
 import { CalculatorDto, CreateNatRuleDto, RIPE_PASTE_MAX_PREFIXES, RipePreviewDto, CreateSubnetDto, CreateVrfDto, UpdateNatRuleDto, UpdateSubnetDto, UpdateSubnetScanDto, UpdateVrfDto } from './dto';
 import * as net from 'node:net';
@@ -45,7 +46,7 @@ export class IpamAdvancedService implements OnModuleDestroy {
   async onModuleDestroy() { await this.queue.disconnect(); }
   private redisConnection() { const url = new URL(process.env.REDIS_URL ?? 'redis://localhost:6379'); return { host: url.hostname, port: Number(url.port || 6379), ...(url.password ? { password: url.password } : {}) }; }
   private async log(user: AuthenticatedUser, action: string, entityType: string, entityId: string, metadata?: unknown) { await this.audit.record({ userId: user.id, action, entityType, entityId, metadata }); }
-  async getSubnet(id: string, user?: AuthenticatedUser) { if (user) await this.access.assertSubnet(user, 'READ', id); const item = await this.prisma.subnet.findUnique({ where: { id }, include: { site: true, vlan: true, vrf: true, parentSubnet: true, childSubnets: true, discoverySchedule: true } }); if (!item) throw new NotFoundException('Subnet não encontrada'); return item; }
+  async getSubnet(id: string, user?: AuthenticatedUser) { if (user) await this.access.assertSubnet(user, 'READ', id); const item = await this.prisma.subnet.findUnique({ where: { id }, include: { site: true, vlan: true, vrf: true, parentSubnet: true, childSubnets: true, discoverySchedule: true, ...tagsInclude } }); if (!item) throw new NotFoundException('Subnet não encontrada'); return withFlatTags(item); }
   async subnetPlanning(id: string, user: AuthenticatedUser) {
     const subnet = await this.getSubnet(id, user);
     if (subnet.version !== 4) return { subnet, version: 6, usableGaps: [], utilizationPercent: null, message: 'O planeamento por intervalos está disponível para IPv4.' };
@@ -99,6 +100,8 @@ export class IpamAdvancedService implements OnModuleDestroy {
     const networkAddress = info.version === 4 ? ipv4Address(info.network) : info.network;
     if (conflicts.some((item) => addressInCidr(networkAddress, item.cidr) || addressInCidr(item.cidr.split('/')[0], info.cidr))) throw new ConflictException('A subnet sobrepõe uma subnet existente no mesmo Site/VRF');
     const item = await this.prisma.subnet.update({ where: { id }, data: { cidr: info.cidr, version: info.version, gateway: dto.gateway, purpose: dto.purpose, environment: dto.environment, ...placement } }).catch(() => { throw new ConflictException('Não foi possível atualizar a subnet.'); });
+    // Step 36: tags are per Site, so a subnet that changes Site drops the old Site's tags.
+    if (placement.siteId !== current.siteId) await this.prisma.subnetTag.deleteMany({ where: { subnetId: id, ...(placement.siteId ? { tag: { siteId: { not: placement.siteId } } } : {}) } });
     await this.log(user, 'SUBNET_UPDATED', 'Subnet', id, { cidr: item.cidr }); return item;
   }
   async updateSubnetScan(id: string, dto: UpdateSubnetScanDto, user: AuthenticatedUser) { await this.access.assertSubnet(user, 'DISCOVER', id); const subnet = await this.getSubnet(id); const defaults = await this.prisma.systemSettings.findFirst(); try { assertDiscoveryAllowed(subnet.cidr, defaults?.discoveryAllowedCidrs); } catch (error) { if (error instanceof DiscoveryPolicyError) throw new BadRequestException({ code: error.code, message: error.message }); throw error; } const methods = [...new Set(dto.methods)]; if (!methods.length || (methods.includes('TCP') && !dto.tcpPorts?.length)) throw new BadRequestException('Configuração de scanning inválida'); const intervalHours = dto.intervalHours ?? defaults?.discoveryDefaultIntervalHours ?? 12; const reverseDns = dto.reverseDns ?? defaults?.discoveryDefaultReverseDns ?? true; const every = intervalHours * 60 * 60 * 1000; const next = dto.enabled ? new Date(Date.now() + every) : null; const item = await this.prisma.subnet.update({ where: { id }, data: { scanEnabled: dto.enabled, scanIntervalHours: intervalHours, scanMethods: methods, scanTcpPorts: dto.tcpPorts ?? [], reverseDnsEnabled: reverseDns, nextScanAt: next } }); if (dto.enabled) await this.queue.upsertJobScheduler(`subnet-${id}`, { every }, { name: 'scheduled-subnet-scan', data: { subnetId: id } }); else await this.queue.removeJobScheduler(`subnet-${id}`); await this.log(user, 'SUBNET_SCAN_CONFIG_UPDATED', 'Subnet', id, { ...dto, intervalHours, reverseDns }); return item; }
