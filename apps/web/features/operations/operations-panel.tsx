@@ -27,6 +27,12 @@ async function listProblemAlerts(siteId: string | undefined): Promise<{ items: O
  * `siteId` scopes the cards to one site (the dashboard passes its workspace site); when omitted or empty
  * the cards follow the global site selector, as before.
  */
+type LoadResults = [
+  PromiseSettledResult<{ items?: OperationalAlert[]; total?: number } | undefined>,
+  PromiseSettledResult<InventoryQuality | undefined>,
+  PromiseSettledResult<{ items?: InventoryFinding[] } | undefined>,
+];
+
 export function OperationsPanel({ showAlerts = true, showQuality = true, compact = false, siteId: scopedSiteId }: { showAlerts?: boolean; showQuality?: boolean; compact?: boolean; siteId?: string }) {
   const { siteId: contextSiteId } = useSiteContext(); const { hasRole } = useAuth();
   const siteId = scopedSiteId || contextSiteId;
@@ -36,15 +42,28 @@ export function OperationsPanel({ showAlerts = true, showQuality = true, compact
   const requestRef = useRef(0);
   // A new scope must never show the previous site's numbers, not even while loading or after a failed request.
   useEffect(() => { setAlerts([]); setAlertTotal(0); setQuality(undefined); setFindings(undefined); setLoaded(false); setLoadError(false); setQualityError(false); }, [siteId]);
-  const load = useCallback(async () => {
+  const inFlight = useRef<{ key: string; results: Promise<LoadResults> } | null>(null);
+  // The mount effect and the events fallback poll (which starts at once when the event stream is
+  // unavailable) both load on page load; they share one set of requests for the same scope.
+  // Events and actions pass fresh=true, because an older request may predate the change.
+  const load = useCallback(async (fresh = false) => {
     const request = ++requestRef.current; // ignore a slower response for a previous site scope
     const scope = siteId || undefined;
-    // allSettled: one failing card must not drop the other card's update.
-    const [alertsResult, qualityResult, findingsResult] = await Promise.allSettled([
-      showAlerts ? (compact ? listProblemAlerts(scope) : listOperationalAlerts(scope)) : Promise.resolve(undefined),
-      showQuality ? getInventoryQuality(scope) : Promise.resolve(undefined),
-      showQuality && compact ? getInventoryQualityItems(scope) : Promise.resolve(undefined),
-    ]);
+    const key = JSON.stringify([scope ?? null, showAlerts, showQuality, compact]);
+    let results: Promise<LoadResults>;
+    if (!fresh && inFlight.current?.key === key) results = inFlight.current.results;
+    else {
+      // allSettled: one failing card must not drop the other card's update.
+      results = Promise.allSettled([
+        showAlerts ? (compact ? listProblemAlerts(scope) : listOperationalAlerts(scope)) : Promise.resolve(undefined),
+        showQuality ? getInventoryQuality(scope) : Promise.resolve(undefined),
+        showQuality && compact ? getInventoryQualityItems(scope) : Promise.resolve(undefined),
+      ]);
+      const entry = { key, results };
+      inFlight.current = entry;
+      void results.finally(() => { if (inFlight.current === entry) inFlight.current = null; });
+    }
+    const [alertsResult, qualityResult, findingsResult] = await results;
     if (request !== requestRef.current) return;
     if (alertsResult.status === 'fulfilled' && alertsResult.value) { setAlerts(alertsResult.value.items ?? []); setAlertTotal(alertsResult.value.total ?? alertsResult.value.items?.length ?? 0); }
     if (qualityResult.status === 'fulfilled' && qualityResult.value) setQuality(qualityResult.value);
@@ -54,8 +73,8 @@ export function OperationsPanel({ showAlerts = true, showQuality = true, compact
     setLoaded(true);
   }, [siteId, showAlerts, showQuality, compact]);
   useEffect(() => { void load(); }, [load]);
-  useOperationalEvents({ fallback: load, onEvent: (event) => { if (event.event !== 'heartbeat') void load(); } });
-  const act = async (fn: () => Promise<unknown>) => { await fn(); await load(); };
+  useOperationalEvents({ fallback: () => load(), onEvent: (event) => { if (event.event !== 'heartbeat') void load(true); } });
+  const act = async (fn: () => Promise<unknown>) => { await fn(); await load(true); };
   const alertRows = alerts.map((alert) => <div className={`alert-row ${alert.severity.toLowerCase()}`} key={alert.id}><AlertTriangle size={15} aria-hidden="true" /><span><strong>{compact && <SeverityTag severity={alert.severity} />}{alert.title}</strong><small>{alert.detail ?? 'Requer atenção operacional.'}</small></span>{canEdit && <span className="button-row"><button className="secondary-button" onClick={() => void act(() => acknowledgeOperationalAlert(alert.id))}>Reconhecer</button><button className="secondary-button" onClick={() => void act(() => snoozeOperationalAlert(alert.id))}><Clock3 size={13} /> Adiar</button><button className="secondary-button" onClick={() => void act(() => resolveOperationalAlert(alert.id))}><Check size={13} /> Resolver</button></span>}</div>);
   const alertError = <div className="no-data panel-load-error" role="alert">{alerts.length ? 'Não foi possível atualizar os alertas. A lista pode estar desatualizada.' : 'Não foi possível carregar os alertas. Tenta atualizar.'}</div>;
   const alertEmpty = !loaded ? <div className="no-data" role="status">A carregar alertas…</div> : loadError ? null : <div className="no-data">Sem alertas ativos.</div>;
