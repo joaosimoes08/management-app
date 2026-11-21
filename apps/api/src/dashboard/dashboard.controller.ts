@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Patch, Put, Query, Req } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { DashboardService } from './dashboard.service';
@@ -19,6 +20,8 @@ export class DashboardController {
     return this.service.search(query, limit, request.user, types);
   }
 
+  // Polled on every page load; a per-route budget keeps it from using up the global per-IP limit.
+  @Throttle({ default: { limit: 600, ttl: 60_000 } })
   @Get('topbar-state')
   topbarState(@Req() request: { user: AuthenticatedUser }) { return this.service.topbarState(request.user); }
 

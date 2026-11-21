@@ -1,0 +1,6 @@
+s21-before start: 21:01  up 6 days, 17:10, 1 user, load averages: 5.73 13.92 27.03
+s21-before end: 21:06  up 6 days, 17:15, 1 user, load averages: 5.57 8.86 20.84
+s21-after start: 20:57  up 6 days, 17:06, 1 user, load averages: 9.71 24.10 34.36
+s21-after end: 21:00  up 6 days, 17:10, 1 user, load averages: 6.10 15.59 28.45
+s21-after-throttle start: 21:08  up 6 days, 17:17, 1 user, load averages: 8.46 8.57 19.31
+s21-after-throttle end: 21:12  up 6 days, 17:21, 1 user, load averages: 4.77 6.94 16.09
