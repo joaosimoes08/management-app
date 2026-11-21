@@ -1,9 +1,11 @@
 'use client';
 
+import { useEffect } from 'react';
 import { EquipmentTypeIcon } from '../equipment-type-icon';
-import { RACK_UNITS, RACK_VIEWPORT, rackUnitFromDrop } from '../../utils';
-import type { Rack } from '../../types';
+import { deviceFaceImage, RACK_UNITS, RACK_VIEWPORT, rackUnitBox, rackUnitFromDrop } from '../../utils';
+import type { Rack, RackFace } from '../../types';
 import { AssetImage } from '../asset-image';
+import { clearActiveRackCard, clearActiveRackCards, RackDeviceHoverCard, setActiveRackCard, useActiveRackCard } from './rack-device-hover-card';
 
 export interface RackEquipmentOverlayProps {
   rack: Rack;
@@ -13,10 +15,27 @@ export interface RackEquipmentOverlayProps {
   onDragging: (deviceId: string) => void;
   canEdit: boolean;
   pendingDeviceId?: string;
+  /** Face drawn by this overlay; placement is shared because devices are full depth. */
+  face?: RackFace;
 }
 
+const FACE_TEXT: Record<RackFace, { name: string; image: string; missing: string }> = {
+  front: { name: 'frente', image: 'Vista frontal de', missing: 'Sem imagem frontal' },
+  rear: { name: 'traseira', image: 'Vista traseira de', missing: 'Sem imagem traseira' },
+};
+
 /** Interactive overlay over the 42U rack picture in the rack detail view. */
-export function RackEquipmentOverlay({ rack, onSelect, onDropDevice, draggingDeviceId, onDragging, canEdit, pendingDeviceId }: RackEquipmentOverlayProps) {
+export function RackEquipmentOverlay({ rack, onSelect, onDropDevice, draggingDeviceId, onDragging, canEdit, pendingDeviceId, face = 'front' }: RackEquipmentOverlayProps) {
+  const text = FACE_TEXT[face];
+  // One card at a time across the front and rear overlays: the store is shared, keyed by face and device.
+  const active = useActiveRackCard();
+  const cardKey = (id: string) => `${face}:${id}`;
+  const show = (id: string, anchor: HTMLElement) => setActiveRackCard({ key: cardKey(id), anchor });
+  const hide = (id: string) => clearActiveRackCard(cardKey(id));
+  useEffect(() => () => clearActiveRackCards(`${face}:`), [face]);
+  const isFocusVisible = (element: HTMLElement) => {
+    try { return element.matches(':focus-visible'); } catch { return true; }
+  };
   const placed = (rack.devices ?? []).filter((device) => {
     const start = Number(device.rackUnitStart);
     const size = Math.max(1, Number(device.rackUnitSize) || 1);
@@ -40,10 +59,14 @@ export function RackEquipmentOverlay({ rack, onSelect, onDropDevice, draggingDev
       const start = Number(device.rackUnitStart);
       const size = Math.max(1, Number(device.rackUnitSize) || 1);
       const end = start + size - 1;
-      const top = ((RACK_UNITS - end) / RACK_UNITS) * 100;
-      const height = (size / RACK_UNITS) * 100;
-      const visual = device.frontAsset || device.model?.frontAsset;
-      return <button type="button" key={device.id} draggable={canEdit} className={`rack-overlay rack-${String(device.type || 'other').toLowerCase()}${draggingDeviceId === device.id ? ' moving' : ''}${pendingDeviceId === device.id ? ' pending-placement' : ''}`} style={{ top: `${top}%`, height: `${height}%` }} onKeyDown={(event) => {
+      const { top, height } = rackUnitBox(start, size);
+      const visual = deviceFaceImage(device, face);
+      const cardId = `rack-device-card-${face}-${device.id}`;
+      const showCard = active?.key === cardKey(device.id) && !draggingDeviceId;
+      return <button type="button" key={device.id} draggable={canEdit} className={`rack-overlay rack-${String(device.type || 'other').toLowerCase()}${draggingDeviceId === device.id ? ' moving' : ''}${pendingDeviceId === device.id ? ' pending-placement' : ''}`} style={{ top: `${top}%`, height: `${height}%` }} aria-describedby={showCard ? cardId : undefined} onMouseEnter={(event) => show(device.id, event.currentTarget)} onMouseLeave={() => hide(device.id)} onFocus={(event) => {
+        if (isFocusVisible(event.currentTarget)) show(device.id, event.currentTarget);
+      }} onBlur={() => hide(device.id)} onKeyDown={(event) => {
+        if (event.key === 'Escape') { hide(device.id); return; }
         if (!canEdit) return;
         if (event.key === 'ArrowUp') { event.preventDefault(); void onDropDevice(device.id, start + 1); }
         if (event.key === 'ArrowDown') { event.preventDefault(); void onDropDevice(device.id, start - 1); }
@@ -55,12 +78,14 @@ export function RackEquipmentOverlay({ rack, onSelect, onDropDevice, draggingDev
         event.dataTransfer.setData('application/x-device-id', device.id);
         event.dataTransfer.setData('application/x-device-size', String(size));
         event.dataTransfer.setData('application/x-rack-offset', String(offset));
+        hide(device.id);
         onDragging(device.id);
       }} onDragEnd={() => window.setTimeout(() => onDragging(''), 0)} onClick={() => {
+        hide(device.id);
         if (!draggingDeviceId) onSelect(device.id);
-      }} aria-label={`${canEdit ? 'Arrastar ou abrir' : 'Abrir'} ${device.name}, U${start}${size > 1 ? ` a U${end}` : ''}`}>
-      <span className="rack-device-media">{visual ? <AssetImage asset={visual} alt={`Vista frontal de ${device.name}`} /> : <EquipmentTypeIcon type={device.type} alt={`Ícone de ${device.type}`} className="rack-device-type-icon" />}</span>
-      <span className="rack-equipment-tooltip" role="tooltip"><strong>{device.name}</strong><span><small>Localização:</small><b>{rack.name}</b></span><span><small>U:</small><b>{size > 1 ? `U${start}–U${end}` : `U${start}`}</b></span><span><small>IP Management:</small><b>{device.managementIp || 'não definido'}</b></span><span><small>Status:</small><b>{String(device.status || 'unknown').toLowerCase()}</b></span></span>
+      }} data-face={face} aria-label={`${canEdit ? 'Arrastar ou abrir' : 'Abrir'} ${device.name}, U${start}${size > 1 ? ` a U${end}` : ''}, ${text.name}`}>
+      <span className={`rack-device-media${visual ? '' : ' rack-device-media-missing'}`}>{visual ? <AssetImage asset={visual} alt={`${text.image} ${device.name}`} /> : <><EquipmentTypeIcon type={device.type} alt={`Ícone de ${device.type}`} className="rack-device-type-icon" /><span className="rack-device-missing-face">{text.missing}</span></>}</span>
+      {showCard && active && <RackDeviceHoverCard id={cardId} anchor={active.anchor}><strong>{device.name}</strong><span><small>Localização:</small><b>{rack.name}</b></span><span><small>U:</small><b>{size > 1 ? `U${start}–U${end}` : `U${start}`}</b></span><span><small>IP Management:</small><b>{device.managementIp || 'não definido'}</b></span><span><small>Status:</small><b>{String(device.status || 'unknown').toLowerCase()}</b></span>{!visual && <span><small>Imagem:</small><b>{text.missing}</b></span>}</RackDeviceHoverCard>}
     </button>;
     })}
   </div>;

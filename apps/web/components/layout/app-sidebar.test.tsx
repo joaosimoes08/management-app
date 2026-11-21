@@ -8,7 +8,14 @@ vi.mock('next/navigation', () => ({ usePathname: () => '/infraestrutura', useRou
 vi.mock('motion/react', () => ({ useReducedMotion: () => motionPreference.reduced }));
 vi.mock('motion/react-m', async () => {
   const React = await import('react');
-  return { aside: React.forwardRef(({ initial, animate, whileHover, transition, ...props }: Record<string, unknown>, ref: React.Ref<HTMLElement>) => React.createElement('aside', { ...props, ref, 'data-motion-duration': String((transition as { duration?: number }).duration) })) };
+  const MotionAside = React.forwardRef(({ initial, animate, whileHover, transition, ...props }: Record<string, unknown>, ref: React.Ref<HTMLElement>) => {
+    void initial;
+    void animate;
+    void whileHover;
+    return React.createElement('aside', { ...props, ref, 'data-motion-duration': String((transition as { duration?: number }).duration) });
+  });
+  MotionAside.displayName = 'MotionAside';
+  return { aside: MotionAside };
 });
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: () => true }) }));
 vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }));
@@ -68,6 +75,19 @@ describe('AppSidebar footer controls', () => {
     fireEvent.mouseEnter(sidebar);
     fireEvent.click(screen.getByRole('button', { name: 'Profile and settings' }));
     expect(screen.getByRole('menu')).toBeInTheDocument();
+  });
+
+  it('shows a muted copyright line below the account controls, shortened when collapsed', () => {
+    const { container, rerender } = render(<AppSidebar collapsed={false} onToggle={vi.fn()} />);
+    const copyright = container.querySelector('.sidebar-copyright') as HTMLElement;
+    expect(copyright).toBeInTheDocument();
+    expect(container.querySelector('.sidebar-bottom-row')?.nextElementSibling).toBe(copyright);
+    expect(copyright.querySelector('.sidebar-copyright-full')).toHaveTextContent('shell.copyright');
+    expect(copyright.querySelector('.sidebar-copyright-short')).toHaveAttribute('aria-hidden', 'true');
+    expect(copyright).toHaveAttribute('title', 'shell.copyright');
+    rerender(<AppSidebar collapsed onToggle={vi.fn()} />);
+    expect(container.querySelector('.sidebar-copyright-full')).toHaveTextContent('shell.copyright');
+    expect(container.querySelector('.sidebar-copyright-short')).toHaveTextContent('shell.copyrightShort');
   });
 
   it('disables sidebar width motion when reduced motion is preferred', () => {

@@ -13,6 +13,7 @@ class TestResizeObserver {
 }
 
 vi.mock('./rack-device-zoom', () => ({ RackDeviceZoom: () => null }));
+vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }));
 
 beforeEach(() => { vi.stubGlobal('ResizeObserver', TestResizeObserver); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); notifyResize = undefined; });
@@ -42,28 +43,58 @@ describe('RackDetail viewport fit and interactions', () => {
   it.each([[900, 400], [360, 560]])('fits a 42U rack within %s×%s available pixels', async (width, height) => {
     const { container, setSize } = renderRack();
     setSize(width, height);
-    const expectedWidth = Math.min(304, width - 24, (height - 24) * 304 / 820);
+    const expectedWidth = Math.min(304, width - 24, (height - 24) * 304 / 838);
     const frame = container.querySelector('.rack-frame') as HTMLDivElement;
     const inner = container.querySelector('.rack-stage-inner') as HTMLDivElement;
     await waitFor(() => expect(parseFloat(frame.style.width)).toBeCloseTo(expectedWidth, 3));
-    expect(parseFloat(inner.style.height)).toBeCloseTo(expectedWidth * 820 / 304, 3);
+    expect(parseFloat(inner.style.height)).toBeCloseTo(expectedWidth * 838 / 304, 3);
     expect(parseFloat(frame.style.width)).toBeLessThanOrEqual(width - 24);
     expect(parseFloat(inner.style.height)).toBeLessThanOrEqual(height - 24 + 0.001);
   });
 
-  it('bounds zoom and restores the measured fit with reset', async () => {
+  it('keeps the utility-bar tools compact: icon-only View label, no Zoom word, labelled action buttons', () => {
+    render(<RackDetail rack={rack} onOut={vi.fn()} onDevice={vi.fn()} canEdit onPreviewPlacement={vi.fn()} onPlaceDevice={vi.fn()} onEditDevice={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} />);
+    const view = screen.getByRole('combobox', { name: 'rack.view' });
+    expect(view.closest('label')).toHaveAttribute('title', 'rack.view');
+    expect(view.closest('label')?.querySelector('span')).toBeNull();
+    const zoom = screen.getByRole('button', { name: 'rack.zoom: 0%' });
+    expect(zoom).toHaveAttribute('title', 'rack.zoom');
+    expect(zoom).not.toHaveTextContent('rack.zoom');
+    for (const name of ['rack.back', 'rack.edit', 'rack.delete']) {
+      const button = screen.getByRole('button', { name });
+      expect(button).toHaveAttribute('title', name);
+      expect(button.querySelector('.rack-action-label')).toHaveTextContent(name);
+    }
+  });
+
+  it('keeps the delete action label, name and tooltip in step while deleting', () => {
+    render(<RackDetail rack={rack} onOut={vi.fn()} onDevice={vi.fn()} canEdit onPreviewPlacement={vi.fn()} onPlaceDevice={vi.fn()} onEditDevice={vi.fn()} onDelete={vi.fn()} deleting />);
+    const button = screen.getByRole('button', { name: 'rack.deleting' });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('title', 'rack.deleting');
+    expect(button.querySelector('.rack-action-label')).toHaveTextContent('rack.deleting');
+  });
+
+  it('maps the 0–100% zoom slider onto the fitted rack and restores the fit', async () => {
     const { container, setSize } = renderRack();
     setSize(900, 400);
     const frame = container.querySelector('.rack-frame') as HTMLDivElement;
     await waitFor(() => expect(parseFloat(frame.style.width)).toBeLessThan(304));
     const fittedWidth = parseFloat(frame.style.width);
-    const zoomIn = screen.getByRole('button', { name: 'Aumentar zoom' });
-    for (let step = 0; step < 12; step += 1) fireEvent.click(zoomIn);
-    expect(screen.getByText('250%')).toBeInTheDocument();
+    const trigger = screen.getByRole('button', { name: 'rack.zoom: 0%' });
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    const slider = screen.getByRole('slider', { name: 'rack.zoomLevel' });
+    expect(slider).toHaveFocus();
+    fireEvent.change(slider, { target: { value: '100' } });
     expect(parseFloat(frame.style.width)).toBeCloseTo(fittedWidth * 2.5, 2);
-    fireEvent.click(screen.getByRole('button', { name: 'Ajustar' }));
-    expect(screen.getByText('100%')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'rack.zoom: 100%' })).toBeInTheDocument();
+    fireEvent.change(slider, { target: { value: '50' } });
+    expect(parseFloat(frame.style.width)).toBeCloseTo(fittedWidth * 1.75, 2);
+    fireEvent.click(screen.getByRole('button', { name: 'rack.zoomFit' }));
     expect(parseFloat(frame.style.width)).toBeCloseTo(fittedWidth, 2);
+    expect(screen.getByRole('button', { name: 'rack.zoom: 0%' })).toBeInTheDocument();
   });
 
   it('maps a drop from the rendered overlay bounds to the corresponding rack unit', async () => {
@@ -71,7 +102,7 @@ describe('RackDetail viewport fit and interactions', () => {
     setSize(900, 400);
     const area = container.querySelector('.rack-overlay-area') as HTMLDivElement;
     const frame = container.querySelector('.rack-frame') as HTMLDivElement;
-    const frameHeight = parseFloat(frame.style.width) * 820 / 304;
+    const frameHeight = parseFloat(frame.style.width) * 838 / 304;
     const areaTop = 10 + frameHeight * RACK_VIEWPORT.top;
     const areaHeight = frameHeight * RACK_VIEWPORT.height;
     vi.spyOn(area, 'getBoundingClientRect').mockReturnValue({ x: 0, y: areaTop, top: areaTop, bottom: areaTop + areaHeight, left: 0, right: 0, width: 0, height: areaHeight, toJSON: () => ({}) });

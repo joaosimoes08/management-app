@@ -1,3 +1,4 @@
+import { portLayoutIncompleteMessage, portMappingStatus } from '../infrastructure/port-layout';
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@simoes/database';
 import { AuditService } from '../audit/audit.service';
@@ -95,7 +96,7 @@ export class InventoryQualityService {
     const suggestions: Record<string, string> = {
       DEVICE_MISSING_SITE: 'Associar o equipamento ao Site correto.', DEVICE_MISSING_LOCATION: 'Atribuir o equipamento ao bastidor e à posição física corretos.', DEVICE_MISSING_MODEL: 'Associar o modelo de equipamento correspondente.',
       NETWORK_DEVICE_MISSING_MANAGEMENT_IP: 'Atribuir um endereço IP de gestão válido ao equipamento.', INTERFACE_MISSING_MODE: 'Definir o modo da interface como ACCESS ou TRUNK.', ACCESS_INTERFACE_MISSING_VLAN: 'Selecionar a VLAN de acesso da interface.', TRUNK_INTERFACE_MISSING_VLANS: 'Adicionar as VLANs permitidas nesta interface trunk.',
-      NETWORK_MODEL_MISSING_PORT_MAP: 'Completar e guardar o mapa de portas do modelo.', STALE_SNMP_OBSERVATION: 'Confirmar conectividade e configuração SNMP ou atualizar o inventário manualmente.', STALE_SNMP_DRIFT: 'Rever e resolver a divergência SNMP pendente.', DUPLICATE_IP_ROUTING_DOMAIN: 'Verificar as atribuições duplicadas e corrigir o endereço ou domínio de routing.',
+      NETWORK_MODEL_MISSING_PORT_MAP: 'Completar e guardar o mapa de portas do modelo (frente e traseira) até todas as portas de rede estarem mapeadas.', DEVICE_MODEL_MISSING_FRONT_IMAGE: 'Carregar a imagem frontal do modelo.', STALE_SNMP_OBSERVATION: 'Confirmar conectividade e configuração SNMP ou atualizar o inventário manualmente.', STALE_SNMP_DRIFT: 'Rever e resolver a divergência SNMP pendente.', DUPLICATE_IP_ROUTING_DOMAIN: 'Verificar as atribuições duplicadas e corrigir o endereço ou domínio de routing.',
     };
     const items = pageItems.map((item) => {
       const deviceId = item.entityType === 'Device' ? item.entityId : item.entityType === 'DeviceInterface' ? ownerByInterface.get(item.entityId) : item.entityType === 'SnmpDrift' ? ownerByDrift.get(item.entityId) : undefined;
@@ -216,7 +217,11 @@ export class InventoryQualityService {
       if (currentSite && !device.rackId) add({ dedupKey: `${prefix}:missing-location`, siteId: currentSite, rule: 'DEVICE_MISSING_LOCATION', severity: AlertSeverityDto.WARNING, entityType: 'Device', entityId: device.id, title: 'Equipamento sem localização', detail: `${device.name} não está colocado num bastidor.` });
       if (currentSite && !device.modelId) add({ dedupKey: `${prefix}:missing-model`, siteId: currentSite, rule: 'DEVICE_MISSING_MODEL', severity: AlertSeverityDto.WARNING, entityType: 'Device', entityId: device.id, title: 'Equipamento sem modelo', detail: `${device.name} não tem modelo associado.` });
       if (currentSite && ['SWITCH', 'ROUTER', 'FIREWALL'].includes(device.type) && device.status === 'ACTIVE' && !device.managementIp) add({ dedupKey: `${prefix}:missing-management-ip`, siteId: currentSite, rule: 'NETWORK_DEVICE_MISSING_MANAGEMENT_IP', severity: AlertSeverityDto.HIGH, entityType: 'Device', entityId: device.id, title: 'Equipamento de rede sem IP de gestão', detail: `${device.name} está ativo mas não tem IP de gestão.` });
-      if (currentSite && device.model?.supportsNetworkPorts && !device.model.portLayout) add({ dedupKey: `model:${device.model.id}:site:${currentSite}:missing-port-map`, siteId: currentSite, rule: 'NETWORK_MODEL_MISSING_PORT_MAP', severity: AlertSeverityDto.WARNING, entityType: 'DeviceModel', entityId: device.model.id, title: 'Modelo de rede sem portas mapeadas', detail: `${device.model.manufacturer} ${device.model.model} não tem layout de portas.` });
+      if (currentSite && device.model) {
+        const model = device.model; const mapping = portMappingStatus(model);
+        if (model.supportsNetworkPorts && (!mapping.complete || mapping.expected === 0)) add({ dedupKey: `model:${model.id}:site:${currentSite}:missing-port-map`, siteId: currentSite, rule: 'NETWORK_MODEL_MISSING_PORT_MAP', severity: AlertSeverityDto.WARNING, entityType: 'DeviceModel', entityId: model.id, title: 'Mapeamento de portas em falta', detail: mapping.expected === 0 ? `${model.manufacturer} ${model.model} tem portas de rede mas não tem o número de portas definido.` : `${model.manufacturer} ${model.model}: ${portLayoutIncompleteMessage(mapping)}`, metadata: { expected: mapping.expected, mapped: mapping.mapped, partialFaces: mapping.partialFaces.join(',') } });
+        if (!model.frontAssetId) add({ dedupKey: `model:${model.id}:site:${currentSite}:missing-front-image`, siteId: currentSite, rule: 'DEVICE_MODEL_MISSING_FRONT_IMAGE', severity: AlertSeverityDto.WARNING, entityType: 'DeviceModel', entityId: model.id, title: 'Sem vista frontal', detail: `${model.manufacturer} ${model.model} não tem imagem frontal.` });
+      }
       for (const iface of device.interfaces) {
         if (!currentSite) continue;
         if (!iface.mode) add({ dedupKey: `interface:${iface.id}:missing-mode`, siteId: currentSite, rule: 'INTERFACE_MISSING_MODE', severity: AlertSeverityDto.WARNING, entityType: 'DeviceInterface', entityId: iface.id, title: 'Interface sem modo', detail: `${device.name} · ${iface.name} não tem modo definido.` });

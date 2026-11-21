@@ -1,4 +1,4 @@
-import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsIP, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsIP, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateIf } from 'class-validator';
 import { PartialType } from '@nestjs/swagger';
 
 export class CreateSiteDto {
@@ -99,9 +99,24 @@ export class CreateNatRuleDto {
   @IsOptional() @IsString() @MaxLength(500) description?: string;
 }
 export class UpdateNatRuleDto extends CreateNatRuleDto {}
+export const RIPE_PASTE_MAX_PREFIXES = 500;
+/**
+ * Two sources:
+ * - RIPEstat lookup: `{ query, queryType? }` (unchanged).
+ * - Pasted/uploaded list: `{ prefixes: string[], siteId, vrfId?, purpose?, environment?, query? }`.
+ *   `query` is then only an optional label. Each array item may hold several
+ *   prefixes separated by whitespace, commas or semicolons (a pasted blob).
+ * When `siteId` is given (required for a paste), the response carries a
+ * per-prefix diff against that Site's subnets.
+ */
 export class RipePreviewDto {
-  @IsString() @MinLength(2) @MaxLength(160) query!: string;
+  @ValidateIf((dto: RipePreviewDto) => dto.prefixes === undefined || dto.query !== undefined) @IsString() @MinLength(2) @MaxLength(160) query?: string;
   @IsOptional() @IsIn(['asn', 'organisation', 'prefix']) queryType?: string;
+  @IsOptional() @IsArray() @ArrayMinSize(1) @ArrayMaxSize(RIPE_PASTE_MAX_PREFIXES) @IsString({ each: true }) @MaxLength(20000, { each: true }) prefixes?: string[];
+  @ValidateIf((dto: RipePreviewDto) => dto.prefixes !== undefined || dto.siteId !== undefined) @IsUUID() siteId?: string;
+  @IsOptional() @IsUUID() vrfId?: string;
+  @IsOptional() @IsString() @MaxLength(100) purpose?: string;
+  @IsOptional() @IsString() @MaxLength(50) environment?: string;
 }
 export class RipeImportDto {
   @IsString() importId!: string;
