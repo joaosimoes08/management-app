@@ -52,6 +52,7 @@ const operationalFiles = [
   'apps/web/features/snmp/snmp-page.tsx',
   'apps/web/features/snmp/snmp-drifts.tsx',
   'apps/web/features/snmp/snmp-bounds.ts',
+  'apps/web/features/snmp/snmp-change-plan-attach.tsx',
   // Step 34 impact analysis and path view
   'apps/web/features/topology/impact-panel.tsx',
   'apps/web/features/topology/impact-api.ts',

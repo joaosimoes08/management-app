@@ -60,9 +60,11 @@ export class TopologyImpactService {
       pduIds = rack.pdus.map((pdu: any) => pdu.id);
       return { origin: { kind: 'RACK' as const, id: rack.id, name: rack.name }, siteId: rack.room.building.siteId as string, down, pduIds };
     }
+    const pduRef = await this.db().rackPdu.findUnique({ where: { id: query.pduId }, select: { rackId: true } });
+    if (!pduRef) throw new NotFoundException('PDU não encontrada');
+    await this.access.assertRack(user, 'READ', pduRef.rackId, 'DEVICE');
     const pdu = await this.db().rackPdu.findUnique({ where: { id: query.pduId }, select: { id: true, name: true, source: true, rackId: true, rack: { select: { name: true, room: { select: { building: { select: { siteId: true } } } } } } } });
     if (!pdu) throw new NotFoundException('PDU não encontrada');
-    await this.access.assertRack(user, 'READ', pdu.rackId, 'DEVICE');
     pduIds = [pdu.id];
     return { origin: { kind: 'PDU' as const, id: pdu.id, name: pdu.name || `${pdu.rack.name} · ${pdu.source}` }, siteId: pdu.rack.room.building.siteId as string, down, pduIds };
   }
