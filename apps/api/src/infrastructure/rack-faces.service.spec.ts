@@ -304,7 +304,7 @@ describe('controller routes', () => {
   test('passes ?face through, defaults to rear and rejects unknown faces', async () => {
     const calls: unknown[][] = [];
     const service = new Proxy({}, { get: (_target, name) => (...args: unknown[]) => { calls.push([name, ...args]); return {}; } }) as any;
-    const controller = new InfrastructureController(service, {} as any);
+    const controller = new InfrastructureController(service, {} as any, { record: async () => undefined } as any);
     controller.portLayout('m');
     controller.portLayout('m', 'front');
     controller.replacePortLayout('m', { ports: [] }, { user }, 'front');

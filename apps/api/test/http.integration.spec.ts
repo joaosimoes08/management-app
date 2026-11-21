@@ -24,12 +24,15 @@ import { CriticalAssetsService } from '../src/critical-assets/critical-assets.se
 import { EmailSender } from '../src/notifications/delivery/email-sender';
 import { NotificationDeliveryService } from '../src/notifications/delivery/notification-delivery.service';
 import { OperationsService } from '../src/operations/operations.service';
+import { ScheduledReportsService } from '../src/reports/scheduled-reports.service';
 
 const databaseUrl = process.env.DATABASE_URL ?? '';
 if (!/[_-]test(?:\?|$)/i.test(databaseUrl)) throw new Error('HTTP integration tests require an isolated DATABASE_URL whose database name ends in _test.');
 
 // Step 31: the background poll is off so these tests drive delivery explicitly; the immediate kick still runs.
 process.env.NOTIFICATION_DELIVERY_DISABLED = 'true';
+// Step 32: the minute scheduler is off; the tests call tick() and run() themselves.
+process.env.SCHEDULED_REPORTS_DISABLED = 'true';
 
 const prisma = new PrismaClient();
 const ids = {
@@ -982,6 +985,35 @@ test('required device configs: registry, create validation, legacy updates, grou
   assert.deepEqual(json(await request('GET', '/api/v1/dashboard/topbar-state', 'qa-readonly')).alerts.filter((a: any) => String(a.id).startsWith('device-missing-config-')), []);
 });
 
+test('critical asset review notes: over 2000 characters is a 400 for single and bulk confirm, and a bulk batch with one such note writes nothing', async () => {
+  const tooLong = 'x'.repeat(2001);
+  const week = new Date('2026-11-16T00:00:00.000Z');
+  const single = await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA, weekStart: week } });
+  const valid = await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA2, weekStart: week } });
+  const oversized = await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA, weekStart: new Date('2026-11-23T00:00:00.000Z') } });
+  const outcomes = async () => (await prisma.criticalAssetAttestation.findMany({ where: { id: { in: [single.id, valid.id, oversized.id] } }, orderBy: { id: 'asc' } })).map((row) => row.outcome);
+  try {
+    const one = await request('POST', `/api/v1/critical-assets/${single.id}/confirm`, 'qa-admin', { outcome: 'NEEDS_CORRECTION', notes: tooLong });
+    assert.equal(one.statusCode, 400, one.body);
+    const batch = await request('POST', '/api/v1/critical-assets/confirm-bulk', 'qa-admin', { items: [
+      { id: valid.id, outcome: 'CONFIRMED' },
+      { id: oversized.id, outcome: 'NEEDS_CORRECTION', notes: tooLong },
+    ] });
+    assert.equal(batch.statusCode, 400, batch.body);
+    assert.deepEqual(await outcomes(), [null, null, null], 'a rejected request writes nothing, not even the valid item');
+    assert.equal(await prisma.criticalAssetCorrection.count({ where: { attestationId: { in: [single.id, oversized.id] } } }), 0);
+
+    const exact = await request('POST', '/api/v1/critical-assets/confirm-bulk', 'qa-admin', { items: [{ id: valid.id, outcome: 'NEEDS_CORRECTION', notes: 'y'.repeat(2000) }] });
+    assert.equal(exact.statusCode, 201, exact.body);
+    assert.equal((await prisma.criticalAssetAttestation.findUniqueOrThrow({ where: { id: valid.id } })).outcome, 'NEEDS_CORRECTION', 'exactly 2000 characters is allowed');
+  } finally {
+    // Remove only the rows this test created, so the later per-device counts in this file are unchanged.
+    const created = { attestationId: { in: [single.id, valid.id, oversized.id] } };
+    await prisma.criticalAssetCorrection.deleteMany({ where: created });
+    await prisma.criticalAssetAttestation.deleteMany({ where: { id: { in: [single.id, valid.id, oversized.id] } } });
+  }
+});
+
 test('critical asset attestation: 409 on a second review of the same cycle, reviewer names and due state over HTTP', async () => {
   await prisma.user.update({ where: { id: ids.admin }, data: { displayName: 'QA Admin Person' } });
   await prisma.device.updateMany({ where: { id: { in: [ids.deviceA, ids.deviceA2] } }, data: { isCritical: true } });
@@ -1607,6 +1639,43 @@ test('Phase D search: opt-in types, audit only for ADMIN and AUDITOR, change pla
   assert.equal((await request('GET', '/api/v1/dashboard/search?q=Zebrafish&types=PEOPLE', 'qa-admin')).statusCode, 400);
 });
 
+test('Step 20 audit: reads are not audited and search skips HTTP_REQUEST rows', async () => {
+  // A GET is not written to AuditLog, so its URL cannot later match the search that issued it.
+  const term = 'step20probe';
+  const before = await prisma.auditLog.count({ where: { action: { contains: term } } });
+  assert.equal((await request('GET', `/api/v1/dashboard/search?q=${term}&types=AUDIT_EVENT`, 'qa-auditor')).statusCode, 200);
+  assert.equal(await prisma.auditLog.count({ where: { action: { contains: term } } }), before);
+
+  // Rows that are HTTP_REQUEST never appear as AUDIT_EVENT results, even when the term matches their action.
+  await prisma.auditLog.create({ data: { userId: ids.admin, action: 'POST /api/v1/step20probe-http', entityType: 'HTTP_REQUEST', metadata: { statusCode: 201 } } });
+  await prisma.auditLog.create({ data: { userId: ids.admin, action: 'STEP20_PROBE_EVENT', entityType: 'Device', entityId: ids.deviceA } });
+  const hits = json(await request('GET', `/api/v1/dashboard/search?q=${term}&types=AUDIT_EVENT`, 'qa-auditor')).items as Array<{ title: string }>;
+  assert.deepEqual(hits.map((item) => item.title), []);
+  const events = json(await request('GET', '/api/v1/dashboard/search?q=STEP20_PROBE&types=AUDIT_EVENT', 'qa-auditor')).items as Array<{ title: string }>;
+  assert.deepEqual(events.map((item) => item.title), ['STEP20_PROBE_EVENT']);
+});
+
+test('Step 20 export trail: sensitive exports write explicit audit events', async () => {
+  const term = 'step20exportprobe';
+  await prisma.auditLog.create({ data: { userId: ids.admin, action: term, entityType: 'Device', entityId: ids.deviceA } });
+
+  // The audit CSV export is a GET, so it must leave its own explicit row (no HTTP_REQUEST-only trace).
+  const csv = await request('GET', `/api/v1/audit/events/export?action=${term}`, 'qa-auditor');
+  assert.equal(csv.statusCode, 200, csv.body);
+  const exported = await prisma.auditLog.findFirst({ where: { action: 'AUDIT_EVENTS_EXPORTED', userId: ids.auditor }, orderBy: { createdAt: 'desc' } });
+  assert.ok(exported, 'AUDIT_EVENTS_EXPORTED row missing');
+  const metadata = exported.metadata as { filters: Record<string, unknown>; rowCount: number; truncated: boolean };
+  assert.equal(metadata.filters.action, term);
+  assert.equal(metadata.rowCount, 1);
+  assert.equal(metadata.truncated, false);
+
+  // Ansible inventory export and an explicit data export each record their own event.
+  assert.equal((await request('GET', '/api/v1/exports/ansible', 'qa-auditor')).statusCode, 200);
+  assert.ok(await prisma.auditLog.findFirst({ where: { action: 'ANSIBLE_INVENTORY_EXPORTED', userId: ids.auditor } }), 'ANSIBLE_INVENTORY_EXPORTED row missing');
+  assert.equal((await request('GET', '/api/v1/exports/devices/csv', 'qa-auditor')).statusCode, 200);
+  assert.ok(await prisma.auditLog.findFirst({ where: { action: 'DATA_EXPORTED', userId: ids.auditor, entityType: 'Export' } }), 'DATA_EXPORTED row missing');
+});
+
 test('Phase E portal: favourites, check-all link health and the pending role-request queue', async () => {
   const server = createServer((req, res) => { res.statusCode = req.url === '/down' ? 503 : 200; res.end(); });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -2104,6 +2173,12 @@ test('Step 31 email: ADMIN SMTP settings start off, keep the password encrypted 
   assert.deepEqual([anonymous.smtp.username, anonymous.smtp.passwordSet], [null, false]);
   assert.equal((await prisma.deliveryChannelConfig.findUniqueOrThrow({ where: { kind_target: { kind: 'EMAIL', target: 'USER_NOTIFICATIONS' } } })).ciphertext, null);
   assert.equal(json(await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true, smtp: SMTP_BODY })).smtp.passwordSet, true);
+  // A row saved before hosts were normalised may hold mixed case: the same server in lowercase is not a connection change.
+  const beforeCase = await prisma.deliveryChannelConfig.findUniqueOrThrow({ where: { kind_target: { kind: 'EMAIL', target: 'USER_NOTIFICATIONS' } } });
+  await prisma.deliveryChannelConfig.update({ where: { kind_target: { kind: 'EMAIL', target: 'USER_NOTIFICATIONS' } }, data: { settings: { ...(beforeCase.settings as object), host: 'SMTP.Example.pt' } } });
+  const caseOnly = await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true, smtp: withoutPassword });
+  assert.equal(caseOnly.statusCode, 200, caseOnly.body);
+  assert.deepEqual([json(caseOnly).smtp.host, json(caseOnly).smtp.passwordSet], ['smtp.example.pt', true], 'a case-only host change keeps the stored password');
 
   assert.equal(json(await request('PUT', `${root}/EMAIL/GROUP_ALERTS`, 'qa-admin', { enabled: true, recipients: ['bad'] })).code, 'EMAIL_RECIPIENTS_INVALID');
   const group = await request('PUT', `${root}/EMAIL/GROUP_ALERTS`, 'qa-admin', { enabled: true, minSeverity: 'CRITICAL', recipients: [' NOC@example.pt ', 'oncall@example.pt'] });
@@ -2318,4 +2393,319 @@ test('Step 34 topology impact: core switch, loops, depth bound, PDU feeds, path 
   for (const bad of ['', `deviceId=${dev.get('fw')}&rackId=${rack}`, 'deviceId=not-a-uuid']) assert.equal((await request('GET', `/api/v1/topology/impact?${bad}`, 'qa-admin')).statusCode, 400, bad);
   assert.equal((await request('GET', `/api/v1/topology/impact?deviceId=${dev.get('core1')}`, 'qa-systems-scoped')).statusCode, 404, 'out-of-scope devices are not revealed');
   console.log(`[step34] core ${core.elapsed.toFixed(0)} ms (server ${core.body.elapsedMs} ms), wide ${wide.elapsed.toFixed(0)} ms (server ${wide.body.elapsedMs} ms), path ${path.elapsed.toFixed(0)} ms`);
+});
+
+// ----- Step 32: scheduled reports -----
+
+type ReportSite = { siteId: string; siteName: string; compliance?: any; lifecycle?: any; quality?: any; capacity?: any; changes?: any };
+const dayIso = (date: Date) => date.toISOString().slice(0, 10);
+const addUtcDays = (iso: string, days: number) => dayIso(new Date(Date.parse(`${iso}T00:00:00.000Z`) + days * 86_400_000));
+
+/** Recomputes every report figure for one Site from the source endpoints, as `persona`, for the report's date range. */
+async function sourceFigures(persona: string, siteId: string, report: { periodStart: string; periodEnd: string }, lifecycle: { from: string; to: string }) {
+  const get = async (url: string) => { const response = await request('GET', url, persona); assert.equal(response.statusCode, 200, `${url}: ${response.body}`); return json(response); };
+  const end = addUtcDays(report.periodEnd, 1); // UTC report: the period ends at midnight after its last day
+  const critical = await get(`/api/v1/critical-assets?siteId=${siteId}`);
+  const assets = new Map<string, any>();
+  for (const asset of [...critical.assets, ...critical.unassigned]) if (!assets.has(asset.id)) assets.set(asset.id, asset);
+  let expected = 0; let onTime = 0;
+  for (const asset of assets.values()) {
+    if (!asset.owner?.name) continue;
+    for (const item of asset.attestations) {
+      const week = String(item.weekStart).slice(0, 10);
+      if (week < report.periodStart || week >= end) continue;
+      expected += 1;
+      if (item.outcome && item.confirmedAt && Date.parse(item.confirmedAt) < Date.parse(item.dueAt)) onTime += 1;
+    }
+  }
+  const dates = await get(`/api/v1/lifecycle-dates?siteId=${siteId}&from=${lifecycle.from}&to=${lifecycle.to}`);
+  const quality = await get(`/api/v1/inventory-quality/summary?siteId=${siteId}`);
+  const bySeverity: Record<string, number> = {};
+  for (const group of quality.groups) bySeverity[group.severity] = (bySeverity[group.severity] ?? 0) + group._count._all;
+  const outlook = await get(`/api/v1/sites/${siteId}/capacity-outlook`);
+  const plansBody = await get(`/api/v1/change-plans?siteId=${siteId}&status=COMPLETED,FAILED,ROLLED_BACK&from=${report.periodStart}T00:00:00.000Z&to=${end}T00:00:00.000Z`);
+  const plans: any[] = Array.isArray(plansBody) ? plansBody : plansBody.items;
+  return {
+    compliance: { expected, onTime },
+    lifecycle: dates.items.map((item: any) => [item.device.name, item.kind, item.dueDate]),
+    quality: { total: quality.findingCount, bySeverity },
+    capacity: {
+      warning: outlook.items.filter((item: any) => item.level === 'warning').length,
+      critical: outlook.items.filter((item: any) => item.level === 'critical').length,
+    },
+    changes: { completed: plans.filter((plan) => plan.status === 'COMPLETED').length, failed: plans.filter((plan) => plan.status === 'FAILED').length, rolledBack: plans.filter((plan) => plan.status === 'ROLLED_BACK').length, titles: plans.map((plan) => plan.title).sort() },
+  };
+}
+
+function reportFigures(site: ReportSite) {
+  return {
+    compliance: { expected: site.compliance.expected, onTime: site.compliance.onTime },
+    lifecycle: site.lifecycle.items.map((item: any) => [item.deviceName, item.kind, item.dueDate]),
+    quality: { total: site.quality.total, bySeverity: site.quality.bySeverity },
+    capacity: { warning: site.capacity.warning, critical: site.capacity.critical },
+    changes: { completed: site.changes.completed, failed: site.changes.failed, rolledBack: site.changes.rolledBack, titles: site.changes.items.map((item: any) => item.title).sort() },
+  };
+}
+
+test('Step 32 scheduled reports: figures equal the source endpoints, per-recipient Sites, e-mail with CSV, Teams summary, unsubscribe link and toggle', async (context) => {
+  await cleanTeams();
+  const smtp = mockSmtp(() => 'ok');
+  const teams = mockTeams(() => 200);
+  const delivery = app.get(NotificationDeliveryService);
+  const reports = app.get(ScheduledReportsService);
+  const originalPublicUrl = process.env.APP_PUBLIC_URL;
+  process.env.APP_PUBLIC_URL = 'https://mgmt.example.pt';
+  const created: { plans: string[]; dates: string[]; attestations: string[] } = { plans: [], dates: [], attestations: [] };
+  context.after(async () => {
+    smtp.restore(); teams.restore();
+    if (originalPublicUrl === undefined) delete process.env.APP_PUBLIC_URL; else process.env.APP_PUBLIC_URL = originalPublicUrl;
+    await prisma.scheduledReport.deleteMany({});
+    await prisma.changePlan.deleteMany({ where: { id: { in: created.plans } } });
+    await prisma.lifecycleDate.deleteMany({ where: { id: { in: created.dates } } });
+    await prisma.criticalAssetAttestation.deleteMany({ where: { id: { in: created.attestations } } });
+    await cleanTeams();
+  });
+
+  // Channels and addresses.
+  assert.equal((await request('PUT', '/api/v1/settings/notification-channels/EMAIL/USER_NOTIFICATIONS', 'qa-admin', { enabled: true, smtp: SMTP_BODY })).statusCode, 200);
+  assert.equal((await request('PUT', '/api/v1/settings/notification-channels/TEAMS/GROUP_ALERTS', 'qa-admin', { enabled: true, webhookUrl: TEAMS_ALERTS_URL })).statusCode, 200);
+  await prisma.user.update({ where: { id: ids.admin }, data: { email: 'admin@example.pt' } });
+  await prisma.user.update({ where: { id: ids.scoped }, data: { email: 'scoped@example.pt' } });
+
+  // Source data in both Sites, inside the weekly period (UTC: the 7 days before today) and the next 90 days.
+  const today = dayIso(new Date());
+  const periodStart = addUtcDays(today, -7);
+  const monday = [0, 1, 2, 3, 4, 5, 6].map((offset) => addUtcDays(periodStart, offset)).find((iso) => new Date(`${iso}T00:00:00.000Z`).getUTCDay() === 1)!;
+  const at = (iso: string, hour: number) => new Date(`${iso}T${String(hour).padStart(2, '0')}:00:00.000Z`);
+  await prisma.device.updateMany({ where: { id: { in: [ids.deviceA, ids.deviceB] } }, data: { isCritical: true } });
+  await prisma.criticalAssetGroupMapping.upsert({ where: { siteId_assetType: { siteId: ids.siteA, assetType: 'SWITCH' } }, create: { siteId: ids.siteA, assetType: 'SWITCH', groupId: ids.groupRead }, update: {} });
+  await prisma.criticalAssetGroupMapping.upsert({ where: { siteId_assetType: { siteId: ids.siteB, assetType: 'SWITCH' } }, create: { siteId: ids.siteB, assetType: 'SWITCH', groupId: ids.groupWrite }, update: {} });
+  for (const [deviceId, siteId] of [[ids.deviceA, ids.siteA], [ids.deviceB, ids.siteB]]) {
+    const row = await prisma.criticalAssetAttestation.upsert({
+      where: { deviceId_weekStart: { deviceId, weekStart: at(monday, 0) } },
+      create: { deviceId, siteId, weekStart: at(monday, 0), outcome: 'CONFIRMED', confirmedAt: at(monday, 12), confirmedBy: ids.admin },
+      update: { outcome: 'CONFIRMED', confirmedAt: at(monday, 12), confirmedBy: ids.admin },
+    });
+    created.attestations.push(row.id);
+  }
+  for (const [deviceId, kind, days] of [[ids.deviceA, 'WARRANTY', 30], [ids.deviceB, 'LICENSE', 20]] as const) {
+    await prisma.lifecycleDate.deleteMany({ where: { deviceId, kind } });
+    created.dates.push((await prisma.lifecycleDate.create({ data: { deviceId, kind, dueDate: at(addUtcDays(today, days), 0) } })).id);
+  }
+  const plan = async (siteId: string, title: string, status: 'COMPLETED' | 'FAILED' | 'ROLLED_BACK' | 'APPROVED', iso: string) =>
+    created.plans.push((await prisma.changePlan.create({ data: { siteId, title, reason: 'Step 32', plannedStartAt: at(iso, 21), plannedEndAt: at(iso, 23), status, createdById: ids.admin } })).id);
+  await plan(ids.siteA, 'Step 32 done A', 'COMPLETED', addUtcDays(today, -3));
+  await plan(ids.siteA, 'Step 32 failed A', 'FAILED', addUtcDays(today, -2));
+  await plan(ids.siteA, 'Step 32 approved A (not reported)', 'APPROVED', addUtcDays(today, -2));
+  await plan(ids.siteA, 'Step 32 done long ago (outside)', 'COMPLETED', addUtcDays(today, -20));
+  await plan(ids.siteB, 'Step 32 rolled back B', 'ROLLED_BACK', addUtcDays(today, -1));
+
+  // Definitions are ADMIN only.
+  const root = '/api/v1/settings/scheduled-reports';
+  const definition = { name: 'Operação semanal', frequency: 'WEEKLY', dayOfWeek: 1, hour: 8, timezone: 'UTC', sections: ['COMPLIANCE', 'LIFECYCLE', 'QUALITY', 'CAPACITY', 'CHANGES'], recipientIds: [ids.admin, ids.scoped], sendEmail: true, sendTeams: true };
+  assert.equal((await request('GET', root)).statusCode, 401);
+  assert.equal((await request('GET', root, 'qa-network-scoped')).statusCode, 403);
+  assert.equal((await request('POST', root, 'qa-auditor', definition)).statusCode, 403);
+  assert.equal((await request('POST', root, 'qa-admin', { ...definition, sections: [] })).statusCode, 400);
+  assert.equal((await request('POST', root, 'qa-admin', { ...definition, timezone: 'Mars/Base' })).statusCode, 400);
+  assert.equal((await request('POST', root, 'qa-admin', { ...definition, sendEmail: false, sendTeams: false })).statusCode, 400);
+  const createdReport = await request('POST', root, 'qa-admin', definition);
+  assert.equal(createdReport.statusCode, 201, createdReport.body);
+  const report = json(createdReport);
+  assert.equal(new Date(report.nextRunAt).getUTCDay(), 1);
+  assert.equal(new Date(report.nextRunAt).getUTCHours(), 8);
+  assert.deepEqual(report.recipients.map((item: any) => item.userId).sort(), [ids.admin, ids.scoped].sort());
+  const listed = json(await request('GET', root, 'qa-admin'));
+  assert.deepEqual(listed.channels, { email: true, teams: true });
+  assert.equal(listed.reports.length, 1);
+
+  // Report figures equal the source endpoints for the same range, for each person and Site they can read.
+  const adminDoc = json(await request('GET', `${root}/${report.id}/preview`, 'qa-admin'));
+  assert.deepEqual([adminDoc.periodStart, adminDoc.periodEnd], [periodStart, addUtcDays(today, -1)]);
+  // No Sites chosen: an ADMIN gets every Site (earlier tests add some), by name.
+  const allSites = (await prisma.site.findMany({ select: { id: true }, orderBy: { name: 'asc' } })).map(({ id }) => id);
+  assert.ok(allSites.includes(ids.siteA) && allSites.includes(ids.siteB));
+  assert.deepEqual(adminDoc.sites.map((site: ReportSite) => site.siteId), allSites);
+  for (const site of adminDoc.sites as ReportSite[]) {
+    assert.deepEqual(reportFigures(site), await sourceFigures('qa-admin', site.siteId, adminDoc, site.lifecycle), `admin, ${site.siteName}`);
+  }
+  const siteA = (adminDoc.sites as ReportSite[]).find((site) => site.siteId === ids.siteA)!;
+  assert.ok(siteA.compliance.expected >= 1 && siteA.compliance.onTime >= 1, 'the seeded on-time attestation counts');
+  assert.deepEqual([siteA.changes.completed, siteA.changes.failed], [1, 1]);
+  assert.ok(siteA.lifecycle.items.some((item: any) => item.deviceName === 'HTTP Switch A' && item.kind === 'WARRANTY'));
+  assert.equal((adminDoc.sites as ReportSite[]).find((site) => site.siteId === ids.siteB)!.changes.rolledBack, 1);
+
+  const scopedDoc = json(await request('GET', `/api/v1/reports/subscriptions/${report.id}/preview`, 'qa-network-scoped'));
+  assert.deepEqual(scopedDoc.sites.map((site: ReportSite) => site.siteId), [ids.siteA], 'a scoped recipient gets only the Sites they can read');
+  assert.deepEqual(reportFigures(scopedDoc.sites[0]), await sourceFigures('qa-network-scoped', ids.siteA, scopedDoc, scopedDoc.sites[0].lifecycle));
+  assert.equal((await request('GET', `/api/v1/reports/subscriptions/${report.id}/preview`, 'qa-readonly')).statusCode, 404, 'only recipients');
+
+  // CSV on demand.
+  const csv = await request('GET', `/api/v1/reports/subscriptions/${report.id}/csv`, 'qa-network-scoped');
+  assert.equal(csv.statusCode, 200);
+  assert.match(String(csv.headers['content-type']), /^text\/csv/);
+  assert.match(String(csv.headers['content-disposition']), /attachment; filename="relatorio-operacao-semanal-\d{4}-\d{2}-\d{2}\.csv"/);
+  assert.ok(csv.body.includes('HTTP Site A') && !csv.body.includes('HTTP Site B'));
+  assert.equal((await request('GET', `${root}/${report.id}/csv`, 'qa-admin')).statusCode, 200);
+
+  // Send now: one e-mail per recipient with their own Sites, CSV attached and List-Unsubscribe; one Teams post without figures.
+  const run = await request('POST', `${root}/${report.id}/run`, 'qa-admin');
+  assert.equal(run.statusCode, 200, run.body);
+  const sent = json(run);
+  assert.deepEqual(Object.fromEntries(sent.recipients.map((item: any) => [item.userId, [item.siteIds, item.email]])), { [ids.admin]: [allSites, 'QUEUED'], [ids.scoped]: [[ids.siteA], 'QUEUED'] });
+  assert.equal(sent.teams, 'QUEUED');
+  await delivery.kick();
+  const mails = Object.fromEntries(smtp.calls.map((call) => [call.mail.to[0], call.mail]));
+  assert.deepEqual(Object.keys(mails).sort(), ['admin@example.pt', 'scoped@example.pt']);
+  const scopedMail = mails['scoped@example.pt'];
+  assert.match(scopedMail.subject, /^Relatório semanal: Operação semanal \(/);
+  assert.ok(scopedMail.text.includes('HTTP Site A') && !scopedMail.text.includes('HTTP Site B'));
+  assert.ok(!scopedMail.html.includes('HTTP Site B'));
+  assert.equal(scopedMail.attachments.length, 1);
+  assert.match(scopedMail.attachments[0].filename, /\.csv$/);
+  assert.ok(scopedMail.attachments[0].content.includes('HTTP Site A') && !scopedMail.attachments[0].content.includes('HTTP Site B'));
+  assert.ok(mails['admin@example.pt'].attachments[0].content.includes('HTTP Site B'));
+  const unsubscribeHeader = scopedMail.headers['List-Unsubscribe'] as string;
+  const match = /^<https:\/\/mgmt\.example\.pt\/relatorios\/cancelar-subscricao\?token=([A-Za-z0-9_-]+)>$/.exec(unsubscribeHeader);
+  assert.ok(match, unsubscribeHeader);
+  assert.ok(scopedMail.html.includes(`cancelar-subscricao?token=${match![1]}`), 'the body carries the same link');
+  assert.equal(teams.calls.length, 1);
+  assert.equal(teams.calls[0].url, TEAMS_ALERTS_URL);
+  const teamsText = JSON.stringify(teams.calls[0].body);
+  assert.ok(teamsText.includes('Operação semanal') && teamsText.includes('https://mgmt.example.pt/perfil?tab=notifications'));
+  assert.ok(!teamsText.includes('HTTP Site') && !teamsText.includes('Step 32 done A') && !teamsText.includes('HTTP Switch'), 'no figures or names in the shared channel');
+  assert.equal(await prisma.notificationDelivery.count({ where: { topic: 'SCHEDULED_REPORT', status: 'SENT' } }), 3);
+
+  // The unsubscribe link: GET only reads (mail scanners), POST unsubscribes, no sign-in needed; bad tokens are 404.
+  const token = match![1];
+  assert.equal((await request('GET', '/api/v1/reports/unsubscribe?token=not-a-real-token-at-all-xx')).statusCode, 404);
+  assert.deepEqual(json(await request('GET', `/api/v1/reports/unsubscribe?token=${token}`)), { reportName: 'Operação semanal', subscribed: true });
+  assert.deepEqual(json(await request('GET', `/api/v1/reports/unsubscribe?token=${token}`)), { reportName: 'Operação semanal', subscribed: true }, 'GET changes nothing');
+  const unsubscribed = await request('POST', '/api/v1/reports/unsubscribe', undefined, { token });
+  assert.equal(unsubscribed.statusCode, 200, unsubscribed.body);
+  assert.equal(json(unsubscribed).subscribed, false);
+  assert.equal(json(await request('GET', '/api/v1/reports/subscriptions', 'qa-network-scoped')).items[0].subscribed, false);
+  assert.ok(json(await request('GET', root, 'qa-admin')).reports[0].recipients.find((item: any) => item.userId === ids.scoped).unsubscribedAt);
+
+  smtp.calls.length = 0;
+  const second = json(await request('POST', `${root}/${report.id}/run`, 'qa-admin'));
+  assert.deepEqual(second.recipients.map((item: any) => item.userId), [ids.admin], 'unsubscribed recipients get nothing');
+  await delivery.kick();
+  assert.deepEqual(smtp.calls.map((call) => call.mail.to[0]), ['admin@example.pt']);
+
+  // An ADMIN edit keeps the person's choice; the profile toggle subscribes again.
+  assert.equal((await request('PUT', `${root}/${report.id}`, 'qa-admin', { ...definition, name: 'Operação semanal' })).statusCode, 200);
+  assert.equal(json(await request('GET', '/api/v1/reports/subscriptions', 'qa-network-scoped')).items[0].subscribed, false);
+  assert.equal((await request('PATCH', `/api/v1/reports/subscriptions/${report.id}`, 'qa-readonly', { subscribed: true })).statusCode, 404);
+  const toggled = await request('PATCH', `/api/v1/reports/subscriptions/${report.id}`, 'qa-network-scoped', { subscribed: true });
+  assert.deepEqual(json(toggled), { reportId: report.id, subscribed: true });
+  smtp.calls.length = 0;
+  await request('POST', `${root}/${report.id}/run`, 'qa-admin');
+  await delivery.kick();
+  assert.deepEqual(smtp.calls.map((call) => call.mail.to[0]).sort(), ['admin@example.pt', 'scoped@example.pt']);
+
+  // Unsubscribing after the e-mail was queued still stops it at send time.
+  await prisma.notificationDelivery.updateMany({ where: { topic: 'SCHEDULED_REPORT' }, data: { status: 'SENT' } });
+  const kick = delivery.kick;
+  delivery.kick = async () => undefined; // hold the queue so the unsubscribe lands between queueing and sending
+  let queued: Awaited<ReturnType<typeof reports.run>>;
+  try { queued = await reports.run(report.id, 'MANUAL', null); } finally { delivery.kick = kick; }
+  await prisma.scheduledReportRecipient.update({ where: { reportId_userId: { reportId: report.id, userId: ids.scoped } }, data: { unsubscribedAt: new Date() } });
+  await delivery.kick();
+  const late = await prisma.notificationDelivery.findFirstOrThrow({ where: { dedupKey: `report:${queued.runId}:EMAIL:${ids.scoped}` } });
+  assert.deepEqual([late.status, late.failureReason], ['FAILED', 'REPORT_UNSUBSCRIBED']);
+  assert.equal((await prisma.notificationDelivery.findFirstOrThrow({ where: { dedupKey: `report:${queued.runId}:EMAIL:${ids.admin}` } })).status, 'SENT');
+
+  // The scheduler sends a due report once and moves it to the next slot.
+  await prisma.scheduledReport.update({ where: { id: report.id }, data: { nextRunAt: new Date(Date.now() - 60_000) } });
+  const runsBefore = await prisma.scheduledReportRun.count({ where: { reportId: report.id } });
+  await Promise.all([reports.tick(), reports.tick()]);
+  assert.equal(await prisma.scheduledReportRun.count({ where: { reportId: report.id, trigger: 'SCHEDULE' } }), 1);
+  assert.equal(await prisma.scheduledReportRun.count({ where: { reportId: report.id } }), runsBefore + 1);
+  const after = await prisma.scheduledReport.findUniqueOrThrow({ where: { id: report.id } });
+  assert.ok(after.nextRunAt!.getTime() > Date.now() && after.lastRunAt);
+
+  // Deleting the definition removes recipients and outputs; the audit trail stays.
+  assert.equal((await request('DELETE', `${root}/${report.id}`, 'qa-admin')).statusCode, 200);
+  assert.equal(await prisma.scheduledReportRecipient.count(), 0);
+  assert.equal(await prisma.scheduledReportOutput.count(), 0);
+  const actions = (await prisma.auditLog.findMany({ where: { entityType: 'ScheduledReport' }, select: { action: true } })).map((row) => row.action);
+  for (const action of ['SCHEDULED_REPORT_CREATED', 'SCHEDULED_REPORT_UPDATED', 'SCHEDULED_REPORT_RUN', 'SCHEDULED_REPORT_UNSUBSCRIBED', 'SCHEDULED_REPORT_SUBSCRIBED', 'SCHEDULED_REPORT_DELETED']) assert.ok(actions.includes(action), action);
+});
+
+test('Step 36 tags: site-scoped catalogue, RBAC, audit, device and subnet filters, Site mismatch and cascade on delete', async () => {
+  const create = async (siteId: string, name: string, color: string, persona = 'qa-admin') => request('POST', '/api/v1/tags', persona, { siteId, name, color });
+  const core = json(await create(ids.siteA, 'core', 'blue'));
+  const dmz = json(await create(ids.siteA, '  dmz  ', 'red'));
+  const lab = json(await create(ids.siteB, 'lab', 'green'));
+  assert.equal(dmz.name, 'dmz');
+  const duplicate = await create(ids.siteA, 'CORE', 'gray');
+  assert.equal(duplicate.statusCode, 409, duplicate.body);
+  assert.equal(json(duplicate).code, 'TAG_NAME_TAKEN');
+  assert.equal((await create(ids.siteB, 'core', 'gray')).statusCode, 201, 'the same name is free on another Site');
+  assert.equal((await create(ids.siteA, 'x', 'violet')).statusCode, 400);
+  assert.equal((await create(ids.siteA, 'ro', 'gray', 'qa-readonly')).statusCode, 403);
+  assert.equal((await create(ids.siteA, 'audit', 'gray', 'qa-auditor')).statusCode, 403);
+
+  const readable = await request('GET', `/api/v1/tags?siteId=${ids.siteA}`, 'qa-readonly');
+  assert.equal(readable.statusCode, 200, readable.body);
+  assert.deepEqual(json(readable).map((tag: { name: string }) => tag.name), ['core', 'dmz']);
+  assert.ok([403, 404].includes((await request('GET', `/api/v1/tags?siteId=${ids.siteB}`, 'qa-readonly')).statusCode), 'no access to Site B');
+
+  const put = (kind: 'devices' | 'subnets', id: string, tagIds: string[], persona = 'qa-admin') => request('PUT', `/api/v1/${kind}/${id}/tags`, persona, { tagIds });
+  const setA = await put('devices', ids.deviceA, [core.id]);
+  assert.equal(setA.statusCode, 200, setA.body);
+  assert.deepEqual(json(setA).tags.map((tag: { name: string }) => tag.name), ['core']);
+  assert.equal((await put('devices', ids.deviceA2, [dmz.id, core.id])).statusCode, 200);
+  const mismatch = await put('devices', ids.deviceA, [lab.id]);
+  assert.equal(mismatch.statusCode, 400);
+  assert.equal(json(mismatch).code, 'TAG_SITE_MISMATCH');
+  assert.equal((await put('devices', ids.deviceA, [core.id], 'qa-readonly')).statusCode, 403);
+  assert.equal((await put('devices', ids.deviceA, [core.id], 'qa-systems-scoped')).statusCode, 403, 'read-only scope cannot tag');
+
+  const deviceNames = async (tag: string, persona = 'qa-admin') => {
+    const response = await request('GET', `/api/v1/devices?siteId=${ids.siteA}&tag=${tag}`, persona);
+    assert.equal(response.statusCode, 200, response.body);
+    return json(response).items.map((item: { name: string; tags: Array<{ name: string }> }) => `${item.name}:${item.tags.map((t) => t.name).join('+')}`).sort();
+  };
+  assert.deepEqual(await deviceNames(core.id), ['HTTP Switch A2:core+dmz', 'HTTP Switch A:core']);
+  assert.deepEqual(await deviceNames(`${core.id},${dmz.id}`), ['HTTP Switch A2:core+dmz']);
+  assert.deepEqual(await deviceNames(core.id, 'qa-systems-scoped'), ['HTTP Switch A2:core+dmz', 'HTTP Switch A:core']);
+  const badFilter = await request('GET', `/api/v1/devices?siteId=${ids.siteA}&tag=nope`, 'qa-admin');
+  assert.equal(badFilter.statusCode, 400);
+  assert.equal(json(badFilter).code, 'TAG_FILTER_INVALID');
+  const single = json(await request('GET', `/api/v1/devices/${ids.deviceA}`, 'qa-admin'));
+  assert.deepEqual(single.tags.map((tag: { name: string }) => tag.name), ['core']);
+
+  const subnetSet = await put('subnets', ids.subnetA, [dmz.id], 'qa-network-scoped');
+  assert.equal(subnetSet.statusCode, 200, subnetSet.body);
+  assert.notEqual((await put('subnets', ids.subnetB, [lab.id], 'qa-network-scoped')).statusCode, 200, 'no write access to Site B');
+  const subnets = await request('GET', `/api/v1/subnets?siteId=${ids.siteA}&tag=${dmz.id}`, 'qa-network-scoped');
+  assert.equal(subnets.statusCode, 200, subnets.body);
+  assert.deepEqual(json(subnets).items.map((item: { cidr: string }) => item.cidr), ['10.250.1.0/24']);
+  assert.deepEqual(json(await request('GET', `/api/v1/subnets?siteId=${ids.siteA}&tag=${core.id}`, 'qa-admin')).items, []);
+  assert.deepEqual(json(await request('GET', `/api/v1/subnets/${ids.subnetA}`, 'qa-admin')).tags.map((tag: { name: string }) => tag.name), ['dmz']);
+
+  // NETWORK_OPERATOR assigns existing tags (above) but cannot change the Site catalog: deleting a tag would reach servers too.
+  assert.equal((await create(ids.siteA, 'net', 'gray', 'qa-network-scoped')).statusCode, 403, 'NETWORK_OPERATOR cannot create tags');
+  assert.equal((await request('PATCH', `/api/v1/tags/${core.id}`, 'qa-network-scoped', { name: 'hijack', color: 'red' })).statusCode, 403, 'NETWORK_OPERATOR cannot rename or recolour tags');
+  assert.equal((await request('DELETE', `/api/v1/tags/${dmz.id}`, 'qa-network-scoped')).statusCode, 403, 'NETWORK_OPERATOR cannot delete tags');
+  assert.deepEqual(json(await request('GET', `/api/v1/tags?siteId=${ids.siteA}`, 'qa-network-scoped')).map((tag: { name: string; color: string }) => `${tag.name}:${tag.color}`), ['core:blue', 'dmz:red'], 'catalog unchanged, still readable');
+
+  const renamed = await request('PATCH', `/api/v1/tags/${core.id}`, 'qa-admin', { name: 'backbone', color: 'purple' });
+  assert.equal(renamed.statusCode, 200, renamed.body);
+  assert.equal(json(renamed).deviceCount, 2);
+  assert.equal((await request('DELETE', `/api/v1/tags/${dmz.id}`, 'qa-admin')).statusCode, 200);
+  assert.deepEqual(json(await request('GET', `/api/v1/devices/${ids.deviceA2}`, 'qa-admin')).tags.map((tag: { name: string }) => tag.name), ['backbone']);
+  assert.deepEqual(json(await request('GET', `/api/v1/subnets/${ids.subnetA}`, 'qa-admin')).tags, []);
+
+  const actions = (await prisma.auditLog.findMany({ where: { action: { in: ['TAG_CREATED', 'TAG_UPDATED', 'TAG_DELETED', 'DEVICE_TAGS_UPDATED', 'SUBNET_TAGS_UPDATED'] } }, select: { action: true, metadata: true } }));
+  const count = (action: string) => actions.filter((entry) => entry.action === action).length;
+  assert.equal(count('TAG_CREATED'), 4);
+  assert.equal(count('TAG_UPDATED'), 1);
+  assert.equal(count('TAG_DELETED'), 1);
+  assert.equal(count('DEVICE_TAGS_UPDATED'), 2);
+  assert.equal(count('SUBNET_TAGS_UPDATED'), 1);
+  const deleted = actions.find((entry) => entry.action === 'TAG_DELETED')?.metadata as { removedFromDevices: number; removedFromSubnets: number };
+  assert.deepEqual([deleted.removedFromDevices, deleted.removedFromSubnets], [1, 1]);
 });

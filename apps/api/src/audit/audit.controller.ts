@@ -1,5 +1,6 @@
-import { Controller, Get, Query, Res } from '@nestjs/common';
+import { Controller, Get, Query, Req, Res } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { AuthenticatedUser } from '../auth/auth.service';
 import { Roles } from '../auth/roles.decorator';
 import { AuditPageFilters, AuditService } from './audit.service';
 
@@ -37,9 +38,11 @@ export class AuditController {
   @Get('events/page') @Roles('ADMIN', 'AUDITOR') page(@Query() query: AuditPageQuery) {
     return this.audit.page(pageFilters(query));
   }
-  @Get('events/export') @Roles('ADMIN', 'AUDITOR') async export(@Query() query: AuditPageQuery, @Res({ passthrough: true }) reply: { header: (name: string, value: string) => unknown; type: (value: string) => unknown }) {
+  @Get('events/export') @Roles('ADMIN', 'AUDITOR') async export(@Query() query: AuditPageQuery, @Req() req: { user: AuthenticatedUser; ip?: string }, @Res({ passthrough: true }) reply: { header: (name: string, value: string) => unknown; type: (value: string) => unknown }) {
     const { cursor: _ignored, ...rest } = query;
     const result = await this.audit.exportCsv(pageFilters(rest));
+    // GET requests are no longer written as HTTP_REQUEST rows, so the export records itself.
+    await this.audit.record({ userId: req.user.id, action: 'AUDIT_EVENTS_EXPORTED', entityType: 'AuditLog', metadata: { filters: rest, rowCount: result.rowCount, truncated: result.truncated }, ipAddress: req.ip });
     reply.type('text/csv; charset=utf-8');
     reply.header('Content-Disposition', `attachment; filename="audit-events-${new Date().toISOString().slice(0, 10)}.csv"`);
     reply.header('X-Export-Row-Count', String(result.rowCount));

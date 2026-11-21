@@ -2,11 +2,12 @@
  * Equipamentos list filters that arrive in the URL (dashboard drill-through):
  * `?tab=devices&status=ACTIVE,MAINTENANCE&critical=true&lifecycle=overdue|due:N&lifecycleKind=SUPPORT`.
  * They are passed as-is to GET /devices, which validates them (400 with a message).
+ * Step 36: `tag=<id>[,<id>]` keeps devices that carry every listed tag; saved views store it too.
  */
 import { hasTableFilters, parseTableState, serializeTableState, type TableStateConfig } from '@/components/data-table';
 
-export type DeviceUrlFilters = { status: string; critical: string; lifecycle: string; lifecycleKind: string; tier: string };
-export const emptyDeviceUrlFilters: DeviceUrlFilters = { status: '', critical: '', lifecycle: '', lifecycleKind: '', tier: '' };
+export type DeviceUrlFilters = { status: string; critical: string; lifecycle: string; lifecycleKind: string; tier: string; tag: string };
+export const emptyDeviceUrlFilters: DeviceUrlFilters = { status: '', critical: '', lifecycle: '', lifecycleKind: '', tier: '', tag: '' };
 /** Search stays in the page's own box (`search` key unused in the URL), so only the filters are read here. */
 export const deviceUrlConfig: TableStateConfig<DeviceUrlFilters> = { filters: emptyDeviceUrlFilters, sortable: [], searchKey: 'deviceSearch' };
 
@@ -26,7 +27,7 @@ export function deviceFilterQuery(filters: Partial<DeviceUrlFilters> = {}): stri
 const statusLabels: Record<string, string> = { ACTIVE: 'Ativo', INACTIVE: 'Inativo', MAINTENANCE: 'Em manutenção', RETIRED: 'Retirado', UNKNOWN: 'Desconhecido' };
 
 /** Readable summary of the active filters, e.g. ["Estado: Ativo, Em manutenção", "Críticos"]. */
-export function deviceFilterLabels(filters: DeviceUrlFilters): string[] {
+export function deviceFilterLabels(filters: DeviceUrlFilters, tagName?: string): string[] {
   const labels: string[] = [];
   if (filters.status) labels.push(`Estado: ${filters.status.split(',').map((value) => statusLabels[value.trim().toUpperCase()] ?? value.trim()).join(', ')}`);
   if (filters.critical === 'true') labels.push('Críticos');
@@ -38,5 +39,6 @@ export function deviceFilterLabels(filters: DeviceUrlFilters): string[] {
   else if (filters.lifecycle) labels.push(`Ciclo de vida: ${filters.lifecycle}`);
   if (filters.lifecycleKind) labels.push(`Tipo de data: ${filters.lifecycleKind}`);
   if (filters.tier) labels.push(`Criticidade: ${filters.tier}`);
+  if (filters.tag) labels.push(`Etiqueta: ${tagName || filters.tag}`);
   return labels;
 }

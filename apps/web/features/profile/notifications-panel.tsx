@@ -9,6 +9,7 @@ import {
   notificationTopics, saveNotificationPreference, type NotificationItem, type NotificationPreferenceChange, type NotificationTopic,
 } from './api';
 import styles from './notifications-panel.module.css';
+import { ReportSubscriptions } from './report-subscriptions';
 
 type Status = 'unread' | 'all';
 
@@ -128,5 +129,6 @@ export function NotificationsPanel({ userId }: { userId: string }) {
         </li>)}
       </ul>
     </section>
+    <ReportSubscriptions userId={userId} />
   </div>;
 }

@@ -3,6 +3,34 @@ import type { AppLocale } from './i18n';
 type LegacyDictionary = Record<string, string>;
 
 const enUS: LegacyDictionary = {
+  // Step 36: tags on devices and subnets
+  'Etiquetas': 'Tags',
+  'Gerir etiquetas': 'Manage tags',
+  'Todas as etiquetas': 'All tags',
+  'Etiqueta removida': 'Removed tag',
+  'Filtrar por etiqueta': 'Filter by tag',
+  'Cinzento': 'Gray',
+  'Azul': 'Blue',
+  'Verde': 'Green',
+  'Âmbar': 'Amber',
+  'Vermelho': 'Red',
+  'Roxo': 'Purple',
+  'Não foi possível guardar as etiquetas.': 'Could not save the tags.',
+  'Nome da nova etiqueta': 'New tag name',
+  'Nova etiqueta': 'New tag',
+  'Cor da nova etiqueta': 'New tag colour',
+  'Nome da etiqueta': 'Tag name',
+  'Cor da etiqueta': 'Tag colour',
+  'Guardar etiquetas': 'Save tags',
+  'A carregar etiquetas…': 'Loading tags…',
+  'Este site ainda não tem etiquetas. Cria a primeira abaixo.': 'This site has no tags yet. Create the first one below.',
+  'Este site ainda não tem etiquetas. Um administrador pode criá-las.': 'This site has no tags yet. An administrator can create them.',
+  'Só administradores e operadores de sistemas podem criar, renomear ou eliminar etiquetas.': 'Only administrators and systems operators can create, rename or delete tags.',
+  'Etiquetas do site': 'Site tags',
+  'Equipamentos · Sub-redes': 'Devices · Subnets',
+  'As etiquetas pertencem a este site e servem equipamentos e sub-redes. Contagem: equipamentos · sub-redes.': 'Tags belong to this site and apply to devices and subnets. Count: devices · subnets.',
+  'Sem subnets com esta etiqueta': 'No subnets with this tag',
+  'Escolhe outra etiqueta ou limpa o filtro.': 'Choose another tag or clear the filter.',
   // Step 34: impact analysis and path view
   'Ver na Topologia': 'View in Topology',
   'Destino': 'Destination',
@@ -1578,6 +1606,12 @@ const enUS: LegacyDictionary = {
 };
 
 const substitutions: Array<[RegExp, string]> = [
+  // Step 36: tags
+  [/^Etiquetas · (.+)$/g, 'Tags · $1'],
+  [/^Eliminar a etiqueta "(.+)"\? Sai de (\d+) itens\.$/g, 'Delete the tag "$1"? It is removed from $2 items.'],
+  [/^Eliminar a etiqueta "(.+)"\?$/g, 'Delete the tag "$1"?'],
+  [/^Etiquetas de (.+)$/g, 'Tags of $1'],
+  [/^Etiqueta: (.+)$/g, 'Tag: $1'],
   [/^(\d+) execuções · (\d+) leituras$/g, '$1 runs · $2 samples'],
   [/^(\d+)\/(\d+) polls · (\d+) sem medição$/g, '$1/$2 polls · $3 unmeasured'],
   [/^Disponibilidade histórica: (\d+) de (\d+) execuções concluídas\.$/g, 'Historical availability: $1 of $2 successful runs.'],

@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
 import { getSharedSetupStatus } from '@/lib/setup/shared-setup-status';
 import { getPublicOrganizationName, getPublicRuntimeConfig } from '@/lib/runtime-config';
+import { PUBLIC_UNSUBSCRIBE_PATH, ReportUnsubscribe } from '@/features/reports/report-unsubscribe';
 
 function AuthVisual({ organizationName }: { organizationName: string }) {
   return <div className="auth-visual" aria-hidden="true">
@@ -33,9 +34,11 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const [checkingSetup, setCheckingSetup] = useState(false);
   const [setupError, setSetupError] = useState<string | null>(null);
   const isSetupPage = typeof window !== 'undefined' && window.location.pathname === '/setup';
+  // The email unsubscribe link works without a session: its token is the credential, so nothing below runs for it.
+  const isUnsubscribePage = typeof window !== 'undefined' && window.location.pathname === PUBLIC_UNSUBSCRIBE_PATH;
 
   useEffect(() => {
-    if (!authenticated || isSetupPage) return;
+    if (!authenticated || isSetupPage || isUnsubscribePage) return;
     let active = true;
     setCheckingSetup(true);
     void getSharedSetupStatus()
@@ -45,7 +48,8 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       .catch((error) => { if (active) setSetupError(error instanceof Error ? error.message : 'Não foi possível validar o setup inicial.'); })
       .finally(() => { if (active) setCheckingSetup(false); });
     return () => { active = false; };
-  }, [authenticated, isSetupPage]);
+  }, [authenticated, isSetupPage, isUnsubscribePage]);
+  if (isUnsubscribePage) return <AuthLayout organizationName={organizationName}><ReportUnsubscribe token={new URLSearchParams(window.location.search).get('token')} /></AuthLayout>;
   if (loading) return <div className="auth-loading"><div className="auth-spinner" /><span>{locale === 'en-US' ? `Connecting to ${organizationName}…` : `A ligar a ${organizationName}...`}</span></div>;
   if (authError) return <AuthLayout error organizationName={organizationName}><div className="auth-panel-icon error"><AlertTriangle size={21} /></div><span className="section-kicker">{organizationName.toLocaleUpperCase()}</span><h1>Não foi possível ligar.</h1><p>{authError} Confirma se o Keycloak está ativo e se o client <code>simoes-web</code> existe no realm <code>{realm}</code>.</p><div className="auth-actions"><button className="secondary-button" onClick={retry}><RefreshCw size={15} /> Tentar novamente</button><button className="primary-button" onClick={() => void login()}><LogIn size={16} /> Iniciar sessão</button></div></AuthLayout>;
   if (!authenticated) return <AuthLayout organizationName={organizationName}><span className="section-kicker">{locale === 'en-US' ? 'SECURE ACCESS' : 'ACESSO SEGURO'}</span><h1>{locale === 'en-US' ? `Welcome to ${organizationName}.` : `Bem-vindo ao ${organizationName}.`}</h1><p>{locale === 'en-US' ? `Sign in to the infrastructure and cyber defence management center for ${organizationName}.` : `Entra no centro de gestão de infraestrutura e ciberdefesa de ${organizationName}.`}</p><button className="primary-button auth-login" onClick={() => void login()}><LogIn size={16} /> {locale === 'en-US' ? 'Continue with Keycloak' : 'Continuar com Keycloak'}</button><div className="auth-panel-note"><ShieldCheck size={14} /><span>{locale === 'en-US' ? 'Secure authentication' : 'Autenticação segura'} · Realm {realm}</span></div></AuthLayout>;

@@ -7,6 +7,8 @@ import { NotificationsPanel } from './notifications-panel';
 
 vi.mock('@/lib/api/client', () => ({ apiFetch: vi.fn() }));
 vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string) => key, formatDate: (value: string) => value }) }));
+// Covered in report-subscriptions.test.tsx; this file checks notifications only.
+vi.mock('./report-subscriptions', () => ({ ReportSubscriptions: () => null }));
 
 const first = {
   id: 'notice-a', title: 'Review due', type: 'CRITICAL_ASSET_ATTESTATION', message: 'Review this record.',

@@ -1,8 +1,11 @@
 'use client';
 
 import { useEffect, useState, type ReactNode } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Activity, ExternalLink, Pencil, Plus, Route, Server } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Activity, ExternalLink, Pencil, Plus, Route, Server, Tags } from 'lucide-react';
+import { setDeviceTags } from '@/features/tags/api';
+import { TagChips, TagEditor } from '@/features/tags/tag-components';
+import { canManageTagCatalog } from '@/features/tags/types';
 import { AppShell } from '@/components/layout/app-shell';
 import { deviceEditHref, entityHref } from '@/components/data-table/entity-link';
 import { rememberRecentItem } from '@/lib/recent-items';
@@ -80,10 +83,14 @@ export function Device360Page({ deviceId }: { deviceId: string }) {
   const can = (key: keyof typeof ROLES) => ROLES[key].some((role) => hasRole(role));
 
   const [impactOpen, setImpactOpen] = useState(false);
+  const [editingTags, setEditingTags] = useState(false);
+  const queryClient = useQueryClient();
   const deviceQuery = useQuery({ queryKey: ['device-360', deviceId], queryFn: () => getDevice(deviceId), enabled: Boolean(deviceId) });
   const device = deviceQuery.data as (Device & FutureDeviceFields) | undefined;
   const siteId = device?.siteId ?? device?.site?.id ?? '';
   const ready = Boolean(device);
+  /** Step 36: ADMIN and SYSTEMS_OPERATOR tag any device; NETWORK_OPERATOR only network equipment (the API checks it too). */
+  const canEditTags = Boolean(device && siteId) && (hasRole('ADMIN') || hasRole('SYSTEMS_OPERATOR') || (hasRole('NETWORK_OPERATOR') && ['SWITCH', 'ROUTER', 'FIREWALL'].includes(device?.type ?? '')));
   const deviceName = device?.name;
   useEffect(() => {
     if (deviceName) rememberRecentItem(user?.id, { id: `device:${deviceId}`, kind: 'Equipamento', label: deviceName, href: entityHref({ kind: 'device', id: deviceId, siteId }) });
@@ -126,15 +133,18 @@ export function Device360Page({ deviceId }: { deviceId: string }) {
           <span className="state-badge"><i />{device.status}</span>
           {tier ? <span className="state-badge warning" data-testid="tier-badge" title="Criticidade">{TIER_LABELS[tier] ?? tier}</span> : device.isCritical ? <span className="state-badge warning" data-testid="tier-badge">Crítico</span> : null}
         </p>
+        {device.tags?.length ? <TagChips tags={device.tags} className="device-360-tags" /> : null}
       </div>
       <div className="device-360-actions">
         {can('edit') && <a className="primary-button" href={deviceEditHref({ id: device.id, siteId })}><Pencil size={14} aria-hidden="true" /> Editar</a>}
+        {canEditTags && <button type="button" className="secondary-button" onClick={() => setEditingTags(true)}><Tags size={14} aria-hidden="true" /> Etiquetas</button>}
         {rackHref && <a className="secondary-button" href={rackHref}>Abrir no rack</a>}
         <button type="button" className="secondary-button" aria-expanded={impactOpen} aria-controls="d360-impacto-section" onClick={() => setImpactOpen((open) => !open)}><Activity size={14} aria-hidden="true" /> Impacto</button>
         {siteId && <a className="secondary-button" href={`/topology${q({ siteId, pathFrom: device.id })}`}><Route size={14} aria-hidden="true" /> Caminho até…</a>}
         {can('changeCreate') && <a className="secondary-button" href={`/alteracoes${q({ siteId, new: '1', deviceId: device.id })}`}><Plus size={14} aria-hidden="true" /> Criar alteração</a>}
       </div>
     </header>
+    {editingTags && device && siteId && <TagEditor siteId={siteId} canCreate={canManageTagCatalog(hasRole)} itemLabel={device.name} selected={device.tags ?? []} save={async (tagIds) => { await setDeviceTags(device.id, tagIds); await queryClient.invalidateQueries({ queryKey: ['device-360', deviceId] }); void queryClient.invalidateQueries({ queryKey: ['tags', siteId] }); void queryClient.invalidateQueries({ queryKey: ['infrastructure', 'devices', siteId] }); }} close={() => setEditingTags(false)} />}
 
     {impactOpen && <section id="d360-impacto-section" className="ipam-card device-360-section device-360-impact" aria-labelledby="d360-impacto" data-section="impacto">
       <header className="device-360-section-head"><h2 id="d360-impacto">Impacto se este equipamento for abaixo</h2><button type="button" className="text-button" onClick={() => setImpactOpen(false)}>Fechar</button></header>

@@ -11,7 +11,15 @@ export type DeliveryMessage = {
   /** Shown for per-user messages posted to a shared Teams channel. E-mail goes to the person, so it is not needed there. */
   recipientLabel?: string | null;
   severity?: string | null;
+  /** E-mail only: a full prepared body (Step 32 reports) used instead of the short title/message layout. */
+  body?: { text: string; html: string } | null;
+  /** E-mail only: files sent as attachments (in memory; never read from disk or a URL). */
+  attachments?: DeliveryAttachment[];
+  /** E-mail only: one-click unsubscribe page, sent as the List-Unsubscribe header. */
+  unsubscribeUrl?: string | null;
 };
+
+export type DeliveryAttachment = { filename: string; content: string; contentType: string };
 
 export type SmtpSecurity = 'TLS' | 'STARTTLS' | 'NONE';
 

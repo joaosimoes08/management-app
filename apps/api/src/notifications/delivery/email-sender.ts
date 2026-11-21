@@ -57,8 +57,20 @@ const clip = (value: string) => value.length > MAX_TEXT ? `${value.slice(0, MAX_
 const oneLine = (value: string) => value.replace(/[\r\n]+/g, ' ').trim();
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!);
 
+/** Upper bound for a prepared body (reports); the short layout keeps its 4000-character clip. */
+const MAX_BODY = 500_000;
+const safeFilename = (value: string) => value.replace(/[\r\n"\\/]+/g, '').slice(0, 120) || 'anexo';
+
+/** Attachments and List-Unsubscribe header for nodemailer. Content is always an in-memory string. */
+export function emailExtras(message: DeliveryMessage) {
+  const attachments = (message.attachments ?? []).map((item) => ({ filename: safeFilename(item.filename), content: item.content, contentType: item.contentType }));
+  const unsubscribe = message.unsubscribeUrl && /^https?:\/\/[^\s<>]+$/.test(message.unsubscribeUrl) ? message.unsubscribeUrl : null;
+  return { ...(attachments.length ? { attachments } : {}), ...(unsubscribe ? { headers: { 'List-Unsubscribe': `<${unsubscribe}>` } } : {}) };
+}
+
 export function emailContent(message: DeliveryMessage) {
   const subject = clip(oneLine(message.title)).slice(0, 250);
+  if (message.body) return { subject, text: message.body.text.slice(0, MAX_BODY), html: message.body.html.slice(0, MAX_BODY) };
   const text = [clip(message.message), message.url ? `Abrir na aplicação: ${message.url}` : null, '— Management-App'].filter(Boolean).join('\n\n');
   const colour = message.severity === 'CRITICAL' ? '#b42318' : message.severity === 'HIGH' ? '#b54708' : '#101828';
   const html = `<div style="font-family:system-ui,sans-serif;font-size:14px;line-height:1.5;color:#101828">`
@@ -142,7 +154,7 @@ export class EmailSender implements DeliveryChannelSender {
     catch { throw new DeliveryError('SMTP_ECONFIG', false); }
     try {
       const recipients = destination.bcc ? { to: destination.smtp.from, bcc: destination.to } : { to: destination.to };
-      await transport.sendMail({ from: destination.smtp.from, ...recipients, ...emailContent(message) });
+      await transport.sendMail({ from: destination.smtp.from, ...recipients, ...emailContent(message), ...emailExtras(message) });
     } catch (error) {
       throw smtpFailure(error);
     } finally {

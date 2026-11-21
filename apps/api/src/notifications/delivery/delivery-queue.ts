@@ -52,6 +52,12 @@ export async function channelsAvailableForUsers(db: Db): Promise<ChannelAvailabi
   return { teams: Boolean(usable(rows, 'TEAMS', 'USER_NOTIFICATIONS')), email: Boolean(usable(rows, 'EMAIL', 'USER_NOTIFICATIONS')) };
 }
 
+/** Step 32: which channels a scheduled report can go out on now (personal e-mail, Teams operational channel). */
+export async function reportChannelsAvailable(db: Db) {
+  const rows = await configRows(db);
+  return { email: Boolean(usable(rows, 'EMAIL', 'USER_NOTIFICATIONS')), teams: Boolean(usable(rows, 'TEAMS', 'GROUP_ALERTS')) };
+}
+
 /**
  * Queues external copies of in-app notifications for users who opted in, per channel. Call inside the same
  * transaction that creates the notifications, so a rolled-back notification never gets an external copy.

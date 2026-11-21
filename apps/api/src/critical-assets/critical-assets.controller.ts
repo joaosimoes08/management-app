@@ -4,10 +4,10 @@ import { ArrayMaxSize, IsArray, IsIn, IsOptional, IsString, IsUUID, MaxLength } 
 import { Roles } from '../auth/roles.decorator';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { IsIanaTimeZone } from '../common/time-zone';
-import { AssetQuery, BULK_CONFIRM_LIMIT, CriticalAssetsService } from './critical-assets.service';
+import { AssetQuery, BULK_CONFIRM_LIMIT, CriticalAssetsService, REVIEW_NOTES_MAX_LENGTH } from './critical-assets.service';
 
 /** Free-text lengths: notes and descriptions stay well under a page; references are short identifiers. */
-export const NOTES_MAX_LENGTH = 2000;
+export const NOTES_MAX_LENGTH = REVIEW_NOTES_MAX_LENGTH;
 export const REFERENCE_MAX_LENGTH = 200;
 
 /** A paging query parameter: absent is fine, anything else must be a positive whole number. */
