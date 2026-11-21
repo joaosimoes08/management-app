@@ -135,3 +135,42 @@ export function withRecordedAttestation(current: CriticalAssetsResult | undefine
   };
   return { ...current, assets: current.assets.map(update), unassigned: current.unassigned.map(update) };
 }
+
+export type Correction = {
+  id: string;
+  status: 'OPEN' | 'RESOLVED' | 'REJECTED';
+  description: string;
+  requestedAt: string;
+  closedAt?: string | null;
+  closeNote?: string | null;
+  changeReference?: string | null;
+  groupName?: string | null;
+  device?: { id: string; name: string; type: string } | null;
+};
+
+/** One line of the compliance view: a group's reviews for one weekly cycle. */
+export type ComplianceCell = { group: string; weekStart: string; expected: number; onTime: number; percent: number | null };
+
+/** How many weekly cycles the compliance view shows, newest first. */
+export const COMPLIANCE_PERIODS = 12;
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Share of each group's reviews recorded on time, per weekly cycle (last 12 cycles that exist).
+ * A cycle counts as on time when its outcome was recorded before the next cycle opened (one week after weekStart).
+ * Only cycles that opened are counted: an asset with no attestation for a week is not expected for it.
+ */
+export function complianceCells(rows: AssetRow[]): { weeks: string[]; groups: string[]; cells: ComplianceCell[] } {
+  const weeks = [...new Set(rows.flatMap((row) => row.attestations.map((item) => item.weekStart.slice(0, 10))))].sort().reverse().slice(0, COMPLIANCE_PERIODS);
+  const groups = [...new Set(rows.map((row) => row.owner?.name).filter((name): name is string => Boolean(name)))].sort((a, b) => a.localeCompare(b));
+  const cells: ComplianceCell[] = [];
+  for (const group of groups) {
+    for (const week of weeks) {
+      const deadline = new Date(`${week}T00:00:00.000Z`).getTime() + WEEK_MS;
+      const items = rows.filter((row) => row.owner?.name === group).flatMap((row) => row.attestations.filter((item) => item.weekStart.slice(0, 10) === week));
+      const onTime = items.filter((item) => item.outcome && item.confirmedAt && new Date(item.confirmedAt).getTime() < deadline).length;
+      cells.push({ group, weekStart: week, expected: items.length, onTime, percent: items.length ? Math.round((onTime / items.length) * 100) : null });
+    }
+  }
+  return { weeks, groups, cells };
+}
