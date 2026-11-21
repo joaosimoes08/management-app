@@ -368,6 +368,7 @@ model Rack {
   frontAsset   AssetFile? @relation("RackFrontOverride", fields: [frontAssetId], references: [id], onDelete: SetNull)
   room         Room       @relation(fields: [roomId], references: [id], onDelete: Cascade)
   devices      Device[]
+  pdus         RackPdu[]
 
   @@unique([roomId, name])
   @@index([roomId, displayOrder])
@@ -425,6 +426,10 @@ model DeviceModel {
   backAssetId          String?    @db.Uuid
   iconAssetId          String?    @db.Uuid
   portLayout           Json?
+  /// Power: number of PSU plugs/cords and estimated draw. Null = fall back to the defaults in apps/api/src/infrastructure/power/power-defaults.ts.
+  powerPlugCount       Int?
+  typicalWatts         Int?
+  maxWatts             Int?
   devices              Device[]
   frontAsset           AssetFile? @relation("DeviceModelFront", fields: [frontAssetId], references: [id], onDelete: SetNull)
   backAsset            AssetFile? @relation("DeviceModelBack", fields: [backAssetId], references: [id], onDelete: SetNull)
@@ -452,6 +457,9 @@ model Device {
   frontAssetId      String?            @db.Uuid
   backAssetId       String?            @db.Uuid
   iconAssetId       String?            @db.Uuid
+  /// Power overrides: null falls back to DeviceModel, then to the type default (power-defaults.ts).
+  powerPlugCount    Int?
+  estimatedWatts    Int?
   model             DeviceModel?       @relation(fields: [modelId], references: [id], onDelete: SetNull)
   frontAsset        AssetFile?         @relation("DeviceFrontOverride", fields: [frontAssetId], references: [id], onDelete: SetNull)
   backAsset         AssetFile?         @relation("DeviceBackOverride", fields: [backAssetId], references: [id], onDelete: SetNull)
@@ -475,6 +483,7 @@ model Device {
   snmpWriteRequests SnmpWriteRequest[]
   topologyNodes     TopologyMapNode[]
   criticalAssetAttestations CriticalAssetAttestation[]
+  pduOutlets        PduOutletAssignment[]
   sourceConnections DeviceConnection[] @relation("ConnectionSourceDevice")
   targetConnections DeviceConnection[] @relation("ConnectionTargetDevice")
   createdAt         DateTime           @default(now())
@@ -1553,4 +1562,40 @@ model RipeImport {
   updatedAt DateTime @updatedAt
 
   @@index([status, createdAt])
+}
+
+enum PowerFeedSource {
+  SUPPLIER
+  UPS
+}
+
+/// A rack PDU (power strip). Rack power mode is derived: a UPS PDU exists => "Rede + UPS".
+model RackPdu {
+  id          String                @id @default(uuid()) @db.Uuid
+  rackId      String                @db.Uuid
+  source      PowerFeedSource
+  name        String?
+  outletCount Int                   @default(32)
+  budgetWatts Int?                  @default(3680)
+  rack        Rack                  @relation(fields: [rackId], references: [id], onDelete: Cascade)
+  outlets     PduOutletAssignment[]
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  @@unique([rackId, source])
+}
+
+/// One row per occupied outlet: a device plug connected to a PDU outlet.
+model PduOutletAssignment {
+  id          String   @id @default(uuid()) @db.Uuid
+  pduId       String   @db.Uuid
+  outletIndex Int
+  deviceId    String   @db.Uuid
+  plugIndex   Int
+  pdu         RackPdu  @relation(fields: [pduId], references: [id], onDelete: Cascade)
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@unique([pduId, outletIndex])
+  @@unique([deviceId, plugIndex])
 }

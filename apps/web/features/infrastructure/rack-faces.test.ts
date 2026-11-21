@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { AssetFile, Device, DeviceModel } from './types';
-import { RACK_VIEW_STORAGE_KEY, allPortLayoutPorts, expectedPortCount, isPortFullyMapped, deviceFaceImage, normalizePortLayout, normalizedPortLayoutPorts, portMappingStatus, primaryPortFace, readRackView, writeRackView } from './utils';
+import { RACK_VIEW_STORAGE_KEY, allPortLayoutPorts, expectedPortCount, isPortFullyMapped, deviceFaceImage, normalizePortLayout, normalizedPortLayoutPorts, portMappingStatus, primaryPortFace, rackViewChoices, readRackView, writeRackView } from './utils';
 
 const asset = (id: string): AssetFile => ({ id, filename: `${id}.png`, mimeType: 'image/png' } as AssetFile);
 const port = (portKey: string) => ({ portKey, label: portKey, x: 0, y: 0, width: 10, height: 10 });
@@ -97,5 +97,14 @@ describe('rack view memory', () => {
     expect(readRackView(1920)).toBe('rear');
     writeRackView('both');
     expect(readRackView(390)).toBe('front');
+  });
+});
+
+describe('rack view picker choices', () => {
+  it('offers Both only for the rack on wide screens, never while a device is focused', () => {
+    expect(rackViewChoices({ wide: true, focused: false })).toEqual(['front', 'rear', 'both']);
+    expect(rackViewChoices({ wide: false, focused: false })).toEqual(['front', 'rear']);
+    expect(rackViewChoices({ wide: true, focused: true })).toEqual(['front', 'rear']);
+    expect(rackViewChoices({ wide: false, focused: true })).toEqual(['front', 'rear']);
   });
 });
