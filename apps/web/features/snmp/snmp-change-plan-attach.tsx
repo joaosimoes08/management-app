@@ -4,6 +4,9 @@ import { useQuery } from '@tanstack/react-query';
 import { formatDateTime } from '@/lib/format/date';
 import { getAttachableChangePlans, linkSnmpWriteToChangePlan } from './api';
 
+/** Query key for the attachable plans of one device; invalidated after a SET is attached. */
+export const attachableChangePlansKey = (deviceId: string) => ['snmp', 'attachable-change-plans', deviceId] as const;
+
 const statusLabels = { APPROVED: 'Aprovada', IN_PROGRESS: 'Em curso' } as const;
 
 /**
@@ -12,7 +15,7 @@ const statusLabels = { APPROVED: 'Aprovada', IN_PROGRESS: 'Em curso' } as const;
  * when no plan qualifies or the list cannot be read, so the SET flow is unchanged.
  */
 export function SnmpChangePlanAttach({ deviceId, value, onChange }: { deviceId: string; value: string; onChange: (planId: string) => void }) {
-  const { data, isError } = useQuery({ queryKey: ['snmp', 'attachable-change-plans', deviceId], queryFn: () => getAttachableChangePlans(deviceId), enabled: Boolean(deviceId) });
+  const { data, isError } = useQuery({ queryKey: attachableChangePlansKey(deviceId), queryFn: () => getAttachableChangePlans(deviceId), enabled: Boolean(deviceId) });
   if (isError || !data?.length) return null;
   return <label>
     <span>Associar a uma alteração</span>

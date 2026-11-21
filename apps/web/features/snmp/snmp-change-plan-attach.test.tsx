@@ -48,6 +48,10 @@ describe('SNMP SET attach to a change plan (Step 30)', () => {
     const calls = mockedFetch.mock.calls.map(([path]) => String(path));
     expect(calls.findIndex((p) => p.includes('/execute'))).toBeLessThan(calls.findIndex((p) => p.includes('/snmp-writes')));
     expect(await screen.findByText('Operação submetida com sucesso.')).toBeInTheDocument();
+    // The attachable list is read again after the link, so the dropdown reflects the new state.
+    const after = mockedFetch.mock.calls.map(([path]) => String(path));
+    const linkAt = after.findIndex((p) => p.includes('/snmp-writes'));
+    expect(after.slice(linkAt + 1).some((p) => p.startsWith('/api/v1/change-plans/attachable'))).toBe(true);
   });
 
   it('shows nothing and never links when no change plan qualifies', async () => {
