@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, HttpException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { DeviceListFilterInput, deviceListFilterWhere } from './device-list-filters';
+import { criticalityWrite } from './criticality';
 import { assetEtag } from './asset-cache';
 import { sniffImageMime } from './asset-sniff';
 import { Prisma, PrismaClient } from '@simoes/database';
@@ -327,7 +328,7 @@ export class InfrastructureService implements OnModuleInit {
     await this.validateManagementIp(user, dto.managementIpAddressId, targetSiteId);
     try {
       const item = await this.prisma.$transaction(async (tx) => {
-        const data = { ...dto, siteId: targetSiteId, status: status as never } as any; delete data.managementIpAddressId; delete data.power;
+        const data = { ...dto, ...criticalityWrite(dto), siteId: targetSiteId, status: status as never } as any; delete data.managementIpAddressId; delete data.power;
         const created = await tx.device.create({ data });
         if (dto.managementIpAddressId) await tx.ipAddress.update({ where: { id: dto.managementIpAddressId }, data: { deviceId: created.id } });
         if (dto.power) {
@@ -422,7 +423,7 @@ export class InfrastructureService implements OnModuleInit {
   async updateDevice(id: string, dto: UpdateDeviceDto, user: AuthenticatedUser, preserveRequestedStatus = false) {
     const enforceRequiredConfig = !preserveRequestedStatus;
     dto = this.normalizeDeviceAssetFields(dto);
-    const current = await this.prisma.device.findUnique({ where: { id }, select: { id: true, name: true, status: true, siteId: true, rackId: true, modelId: true, frontAssetId: true, backAssetId: true, type: true, powerPlugCount: true, estimatedWatts: true, model: { select: { backAssetId: true, powerPlugCount: true, typicalWatts: true, maxWatts: true } }, _count: { select: { pduOutlets: true } }, rack: { select: { room: { select: { building: { select: { siteId: true } } } } } } } });
+    const current = await this.prisma.device.findUnique({ where: { id }, select: { id: true, name: true, status: true, siteId: true, rackId: true, modelId: true, frontAssetId: true, backAssetId: true, type: true, criticalityTier: true, criticalityTierReviewed: true, powerPlugCount: true, estimatedWatts: true, model: { select: { backAssetId: true, powerPlugCount: true, typicalWatts: true, maxWatts: true } }, _count: { select: { pduOutlets: true } }, rack: { select: { room: { select: { building: { select: { siteId: true } } } } } } } });
     if (!current) throw new NotFoundException('Equipamento não encontrado');
     this.assertDeviceCapability(user, current.type); this.assertDeviceCapability(user, dto.type);
     await this.access.assertDevice(user, 'UPDATE', id);
@@ -456,7 +457,7 @@ export class InfrastructureService implements OnModuleInit {
     }
     let powerAssignmentsRemoved = 0;
     const item = await this.prisma.$transaction(async (tx) => {
-      const data = { ...dto, siteId: targetSiteId, status: status as never, managementIpAddressId: undefined } as any; delete data.managementIpAddressId; delete data.power;
+      const data = { ...dto, ...criticalityWrite(dto, { criticalityTier: current.criticalityTier, criticalityTierReviewed: current.criticalityTierReviewed }), siteId: targetSiteId, status: status as never, managementIpAddressId: undefined } as any; delete data.managementIpAddressId; delete data.power;
       for (const field of ['frontAssetId', 'backAssetId']) if (data[field] === undefined) delete data[field];
       const updated = await tx.device.update({ where: { id }, data });
       if (dto.managementIpAddressId) await tx.ipAddress.update({ where: { id: dto.managementIpAddressId }, data: { deviceId: id } });
