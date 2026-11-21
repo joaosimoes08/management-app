@@ -28,12 +28,18 @@ function renderWithQuery(element: ReactElement) {
 
 const callbacks = () => ({ success: vi.fn(), toastError: vi.fn() });
 
+/** Accepts the in-app confirm dialog that replaced window.confirm. */
+async function acceptConfirm(label: string) {
+  const dialog = await screen.findByRole('alertdialog');
+  fireEvent.click(within(dialog).getByRole('button', { name: label }));
+  return dialog;
+}
+
 beforeEach(() => {
   Object.values(api).forEach((mock) => mock.mockReset());
   api.listVrfs.mockResolvedValue([vrf, guestVrf]);
   api.listNatRules.mockResolvedValue([natRule]);
   api.listRipeImports.mockResolvedValue([]);
-  vi.spyOn(window, 'confirm').mockReturnValue(true);
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
@@ -181,8 +187,11 @@ describe('RipeView', () => {
 
     fireEvent.change(screen.getByLabelText('Finalidade'), { target: { value: 'Public' } });
     fireEvent.click(screen.getByRole('button', { name: /Importar 1 prefixo/ }));
+    const dialog = await screen.findByRole('alertdialog', { name: 'Importar prefixos RIPE' });
+    expect(dialog).toHaveTextContent('Importar 1 prefixo(s) como subnets deste Site?');
+    expect(api.importRipe).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Importar' }));
     await waitFor(() => expect(api.importRipe).toHaveBeenCalledWith({ importId: 'imp-1', prefixes: ['192.0.2.0/24'], siteId: 'site-1', vrfId: undefined, vlanId: undefined, purpose: 'Public', environment: undefined }));
-    expect(window.confirm).toHaveBeenCalledWith('Importar 1 prefixo(s) como subnets deste Site?');
     expect(view.success).toHaveBeenCalledWith('Importação RIPE', '1 subnet(s) criada(s).');
   });
 
@@ -228,6 +237,7 @@ describe('RipeView', () => {
     expect(screen.getByLabelText('Importar 10.251.2.0/24')).toBeDisabled();
 
     fireEvent.click(screen.getByRole('button', { name: /Importar 2 prefixo/ }));
+    await acceptConfirm('Importar');
     await waitFor(() => expect(api.importRipe).toHaveBeenCalledWith(expect.objectContaining({ importId: 'imp-2', prefixes: ['10.251.20.0/24', '2001:db8:251::/48'], siteId: 'site-1', vrfId: 'vrf-1' })));
   });
 
@@ -262,6 +272,7 @@ describe('RipeView', () => {
     fireEvent.change(screen.getByLabelText('Consulta RIPEstat'), { target: { value: 'AS64500' } });
     fireEvent.click(screen.getByRole('button', { name: /Pré-visualizar/ }));
     fireEvent.click(await screen.findByRole('button', { name: /Importar 1 prefixo/ }));
+    await acceptConfirm('Importar');
     expect(await screen.findByRole('alert')).toHaveTextContent('Pré-visualiza novamente antes de importar');
     expect(screen.queryByText('1 importáveis')).not.toBeInTheDocument();
     expect(view.toastError).toHaveBeenCalledWith('Importação RIPE', expect.stringContaining('O Site ou VRF mudou'));
@@ -310,6 +321,7 @@ describe('RipeView', () => {
     expect(within(second).queryByText(/sem acesso de leitura/)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /Importar 1 prefixo/ }));
+    await acceptConfirm('Importar');
     await waitFor(() => expect(api.importRipe).toHaveBeenCalledWith(expect.objectContaining({ importId: 'imp-3', prefixes: ['10.9.0.0/16'] })));
     expect(translateLegacyText('en-US', 'Sobrepõe-se a 10.9.0.0/16 (nesta lista)')).toBe('Overlaps 10.9.0.0/16 (in this list)');
     expect(translateLegacyText('en-US', 'Sobrepõe um prefixo anterior desta lista no mesmo Site/VRF; só o primeiro é importado.')).toBe('Overlaps an earlier prefix of this list in the same Site/VRF; only the first one is imported.');
