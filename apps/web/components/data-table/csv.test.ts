@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest';
-import { CSV_BOM, csvCell, csvFileName, toCsv } from './csv';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { CSV_BOM, CSV_URL_REVOKE_DELAY_MS, csvCell, csvFileName, downloadCsv, toCsv } from './csv';
+
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe('CSV export', () => {
   it('escapes separators, quotes, line breaks and edge spaces', () => {
@@ -35,5 +37,19 @@ describe('CSV export', () => {
 
   it('names the file after the local export day', () => {
     expect(csvFileName('ativos-criticos', new Date(2026, 0, 5, 23, 30))).toBe('ativos-criticos-2026-01-05.csv');
+  });
+
+  it('keeps the blob URL alive for a moment after the click so the download can start', () => {
+    vi.useFakeTimers();
+    const revoke = vi.fn();
+    Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:csv'), revokeObjectURL: revoke });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    downloadCsv('ativos.csv', 'a;b');
+    expect(click).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(CSV_URL_REVOKE_DELAY_MS - 1);
+    expect(revoke).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(revoke).toHaveBeenCalledWith('blob:csv');
+    expect(CSV_URL_REVOKE_DELAY_MS).toBeGreaterThanOrEqual(1000);
   });
 });

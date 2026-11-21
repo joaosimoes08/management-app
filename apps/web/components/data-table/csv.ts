@@ -36,6 +36,9 @@ export function csvFileName(base: string, now = new Date()): string {
   return `${base}-${day}.csv`;
 }
 
+/** How long the blob URL stays valid after the download click. */
+export const CSV_URL_REVOKE_DELAY_MS = 1000;
+
 export function downloadCsv(fileName: string, content: string): void {
   const url = URL.createObjectURL(new Blob([content], { type: 'text/csv;charset=utf-8' }));
   const link = document.createElement('a');
@@ -45,5 +48,6 @@ export function downloadCsv(fileName: string, content: string): void {
   document.body.appendChild(link);
   link.click();
   link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  // Some browsers start the download after the click handler returns: keep the URL alive for a moment.
+  window.setTimeout(() => URL.revokeObjectURL(url), CSV_URL_REVOKE_DELAY_MS);
 }
