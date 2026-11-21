@@ -3141,3 +3141,28 @@ a.dashboard-kpi:focus-visible { box-shadow:0 9px 24px rgba(35,55,87,.09); outlin
 .react-flow__edge.topology-edge--impact .react-flow__edge-path { stroke:var(--impact-color); stroke-width:3px; }
 .react-flow__edge.topology-edge--impact-down .react-flow__edge-path { stroke-dasharray:6 4; }
 @media (prefers-reduced-motion: no-preference) { .react-flow__node.topology-node--impact, .react-flow__edge.topology-edge--impact { transition:opacity .2s ease; } }
+
+/* Step 36: site-scoped tags on devices and subnets (design-system tones only). */
+.tag-chips { display:flex; flex-wrap:wrap; gap:4px; margin-top:5px; }
+.tag-chip { display:inline-flex; align-items:center; max-width:160px; padding:2px 7px; overflow:hidden; color:#5f5b62; border:1px solid var(--line); border-radius:999px; background:var(--surface); font-size:9px; line-height:1.5; text-overflow:ellipsis; white-space:nowrap; }
+.tag-chip--blue { color:var(--blue); border-color:transparent; background:var(--soft-blue); }
+.tag-chip--green { color:#32734d; border-color:transparent; background:var(--soft-green); }
+.tag-chip--amber { color:#946528; border-color:transparent; background:#fff4df; }
+.tag-chip--red { color:#a14c41; border-color:transparent; background:#fff0ed; }
+.tag-chip--purple { color:#755f95; border-color:transparent; background:var(--soft-purple); }
+.tag-chip--more { color:var(--muted); background:transparent; }
+.tag-filter { max-width:180px; }
+.subnet-heading-tags,.device-360-tags { margin-top:8px; }
+.tag-editor-options { display:flex; flex-wrap:wrap; gap:6px; margin:0; padding:0; border:0; }
+.tag-editor-option { display:inline-flex; align-items:center; gap:6px; padding:6px 8px; border:1px solid var(--line); border-radius:8px; cursor:pointer; }
+.tag-editor-option input { margin:0; }
+.tag-editor-option:has(input:focus-visible) { outline:2px solid var(--blue); outline-offset:1px; }
+.tag-new-form { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding-top:10px; border-top:1px solid var(--line); }
+.tag-new-form input { flex:1 1 160px; min-width:0; margin:0; }
+.tag-new-form select,.tag-manager-row select { width:auto; margin:0; }
+.tag-new-form .form-error,.tag-manager-row .form-error { flex-basis:100%; margin:0; }
+.tag-manager-list { display:grid; gap:6px; margin:0; padding:0; list-style:none; }
+.tag-manager-row { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding-bottom:6px; border-bottom:1px solid #f0eeee; }
+.tag-manager-row input { flex:1 1 140px; min-width:0; margin:0; }
+.tag-manager-uses { color:var(--muted); font:9px 'DM Mono',monospace; }
+@media (max-width: 640px) { .tag-filter { max-width:none; width:100%; } .tag-chip { max-width:120px; } }

@@ -1,9 +1,10 @@
 'use client';
 
 import { useEscapeClose } from '@/components/ui/use-escape-close';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { PageToolbarPortal } from '@/components/layout/app-shell';
-import { Archive, Check, ChevronDown, Edit3, Plus, Server, X } from 'lucide-react';
+import { Archive, Check, ChevronDown, Edit3, Plus, Server, Tags, X } from 'lucide-react';
+import { TagChips } from '@/features/tags/tag-components';
 import { EquipmentTypeIcon } from '../equipment-type-icon';
 import { AssetImage } from '../asset-image';
 import type { Device } from '../../types';
@@ -28,6 +29,12 @@ export interface DeviceListProps {
   tierFilter?: string;
   onTierFilterChange?: (tier: string) => void;
   tierCounts?: TierCounts;
+  /** Step 36: filter controls (tag, saved views) shown first in the page toolbar, for every role. */
+  toolbarFilters?: ReactNode;
+  /** Step 36: opens the tag editor of one device; omitted when the user cannot edit tags. */
+  onEditTags?: (device: Device) => void;
+  /** Per-row check for the tag button (NETWORK_OPERATOR only tags network equipment). */
+  canEditTagsFor?: (device: Device) => boolean;
   onBulkUpdate?: (ids: string[], changes: { status?: string; modelId?: string | null; rackId?: string | null }) => Promise<{ updated: number; updatedIds: string[]; failed: { id: string; message: string }[]; auditFailed: { id: string; message: string }[]; batchAuditFailed: boolean }>;
 }
 
@@ -37,7 +44,7 @@ export function getPopoverAlignment(anchor: Pick<DOMRect, 'left' | 'right'>, vie
 }
 
 /** Active device inventory of the site. */
-export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire, canRetire, canEdit, selectedId, models = [], racks = [], onImport, canImport = canEdit, onBulkUpdate, tierFilter = '', onTierFilterChange, tierCounts }: DeviceListProps) {
+export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire, canRetire, canEdit, selectedId, models = [], racks = [], onImport, canImport = canEdit, onBulkUpdate, tierFilter = '', onTierFilterChange, tierCounts, toolbarFilters, onEditTags, canEditTagsFor }: DeviceListProps) {
   const { confirm: askConfirm, confirmDialog } = useConfirm();
   const [selected, setSelected] = useState<string[]>([]);
   const [status, setStatus] = useState('');
@@ -167,7 +174,8 @@ export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire,
         <button key={value || 'all'} type="button" aria-pressed={tierFilter === value} className={tierFilter === value ? 'active' : ''} onClick={() => onTierFilterChange(tierFilter === value ? '' : value)}><strong>{count ?? '—'}</strong><span>{label}</span></button>
       ))}
     </div>}
-    {(canEdit || (canImport && onImport)) && <PageToolbarPortal><div className="device-list-toolbar">
+    {(toolbarFilters || canEdit || (canImport && onImport)) && <PageToolbarPortal><div className="device-list-toolbar">
+      {toolbarFilters}
       {canImport && onImport && <button className="secondary-button" type="button" onClick={onImport}>Importar CSV</button>}
       {canEdit && <div className="device-selection-dropdown" ref={selectionMenuRef} onKeyDown={handleSelectionMenuKeyDown}>
         <button ref={selectionTriggerRef} type="button" className="device-selection-trigger" aria-label="Selecionar equipamentos visíveis" aria-haspopup={bulkPopoverPhase !== 'closed' ? 'dialog' : 'menu'} aria-controls={selectionMenuOpen || selectionMenuPhase === 'closing' ? 'device-selection-menu' : bulkPopoverOpen || bulkPopoverPhase === 'closing' ? 'device-bulk-popover' : undefined} aria-expanded={selectionMenuOpen || bulkPopoverOpen} onClick={() => { if (selectionMenuOpen) closeSelectionMenu(); else if (bulkPopoverOpen) closeBulkPopover(); else { if (selectionMenuCloseTimer.current !== null) window.clearTimeout(selectionMenuCloseTimer.current); selectionMenuCloseTimer.current = null; restoreSelectionFocus.current = false; if (selectionMenuPhase === 'closing') setSelectionMenuPhase('closed'); if (bulkPopoverPhase === 'closing') setBulkPopoverPhase('closed'); setSelectionMenuPhase('open'); } }}>
@@ -194,9 +202,9 @@ export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire,
     {devices.map((device) => <div className={`host-row infra-device-row ${selectedId === device.id ? 'selected' : ''}`} key={device.id} onClick={() => onSelect(device)} aria-current={selectedId === device.id ? 'true' : undefined}>
       {canEdit && <input type="checkbox" aria-label={`Selecionar ${device.name}`} checked={selected.includes(device.id)} onClick={(event) => event.stopPropagation()} onChange={(event) => setSelected(event.target.checked ? [...selected, device.id] : selected.filter((id) => id !== device.id))} />}
       <span className="host-icon equipment-type-icon-frame">{device.frontAsset ?? device.model?.frontAsset ? <AssetImage asset={device.frontAsset ?? device.model?.frontAsset} alt={`${device.name} — imagem frontal`} className="catalog-icon" fallback={<EquipmentTypeIcon type={device.type} />} /> : <EquipmentTypeIcon type={device.type} />}</span>
-      <span><strong>{device.name}</strong><small>{device.type} · {device.model ? `${device.model.manufacturer} ${device.model.model}` : 'Sem modelo'} · {device.managementIp || 'Sem IP de gestão'} · {device.rack ? `${device.rack.name} / ${device.rackUnitStart ?? '?'}U` : 'Por localizar'}</small></span>
+      <span><strong>{device.name}</strong><small>{device.type} · {device.model ? `${device.model.manufacturer} ${device.model.model}` : 'Sem modelo'} · {device.managementIp || 'Sem IP de gestão'} · {device.rack ? `${device.rack.name} / ${device.rackUnitStart ?? '?'}U` : 'Por localizar'}</small><TagChips tags={device.tags} limit={4} /></span>
       <em className="status-active">{device.status}</em>
-      {(canEdit || canRetire) && <span className="row-actions">{canEdit && <button type="button" className="icon-button subtle" aria-label={`Editar ${device.name}`} onClick={(event) => { event.stopPropagation(); onEdit(device, event.detail > 0); }}><Edit3 size={14} /></button>}{canRetire && <button type="button" className="icon-button subtle" aria-label={`Rever retirada de ${device.name}`} onClick={(event) => { event.stopPropagation(); onRetire(device); }}><Archive size={14} /></button>}</span>}
+      {(canEdit || canRetire || onEditTags) && <span className="row-actions">{onEditTags && (canEditTagsFor?.(device) ?? true) && <button type="button" className="icon-button subtle" aria-label={`Etiquetas de ${device.name}`} title="Etiquetas" onClick={(event) => { event.stopPropagation(); onEditTags(device); }}><Tags size={14} /></button>}{canEdit && <button type="button" className="icon-button subtle" aria-label={`Editar ${device.name}`} onClick={(event) => { event.stopPropagation(); onEdit(device, event.detail > 0); }}><Edit3 size={14} /></button>}{canRetire && <button type="button" className="icon-button subtle" aria-label={`Rever retirada de ${device.name}`} onClick={(event) => { event.stopPropagation(); onRetire(device); }}><Archive size={14} /></button>}</span>}
     </div>)}
     {!devices.length && <div className="empty-context"><Server size={26} /><strong>{search ? 'Sem equipamentos correspondentes' : 'Não existem equipamentos ativos neste Site'}</strong></div>}
   </section></>;

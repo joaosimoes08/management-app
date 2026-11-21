@@ -1,3 +1,4 @@
+import type { TagSummary } from '@/features/tags/types';
 import type { Device, Site } from '@/features/infrastructure/types';
 
 // ── VLANs ──────────────────────────────────────────────────────────────────
@@ -34,6 +35,8 @@ export interface Subnet {
   _count?: { ips?: number; discoveryJobs?: number };
   /** Phase E: capacity snapshot from GET /subnets. Optional so older payloads still render. */
   utilization?: SubnetUtilization | null;
+  /** Step 36: site-scoped tags, sorted by name. */
+  tags?: TagSummary[];
 }
 
 /** OK < 80% ≤ WARNING < 90% ≤ CRITICAL; IPv6 is UNTRACKED (no percentage). Unknown bands render generically. */

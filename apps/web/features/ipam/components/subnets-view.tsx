@@ -2,7 +2,7 @@
 
 import { ipStateLabel } from '../ip-state';
 import { useMemo, useState } from 'react';
-import { Edit3, ListChecks, Network, Plus, Trash2 } from 'lucide-react';
+import { Edit3, ListChecks, Network, Plus, Tags, Trash2 } from 'lucide-react';
 import type { IpAddressRow, ReserveNextIpsResult, Subnet, SubnetCapacityHistory, SubnetUsage } from '../types';
 import { Empty } from './ipam-modal';
 import { PageToolbarPortal } from '@/components/layout/app-shell';
@@ -10,10 +10,14 @@ import { SubnetCapacityTrend } from './subnet-capacity-trend';
 import { NextFreeIpModal } from './next-free-ip-modal';
 import { formatDateTime } from '@/lib/format/date';
 import { DataTable, SavedViews, sortByColumns, useTableUrlState, type DataTableColumn, type TableStateConfig } from '@/components/data-table';
+import { setSubnetTags } from '@/features/tags/api';
+import { ManageTagsButton, TagChips, TagEditor, TagFilter, TagManager } from '@/features/tags/tag-components';
+import { hasAllTags } from '@/features/tags/types';
 import { formatIpamPercent, utilizationBadge, utilizationBandOptions, utilizationSortValue } from '../utilization';
 
-const subnetTableConfig: TableStateConfig<{ band: string }> = {
-  filters: { band: '' },
+/** `tag` (Step 36) is a comma list of tag ids, all required; saved views keep it with the band. */
+export const subnetTableConfig: TableStateConfig<{ band: string; tag: string }> = {
+  filters: { band: '', tag: '' },
   sortable: ['cidr', 'vlan', 'ips', 'utilization'],
   prefix: 'subnets',
 };
@@ -46,6 +50,8 @@ export interface SubnetsViewProps {
   releaseReservation: (ip: IpAddressRow) => void;
   /** Called after "Próximo IP livre" reserved addresses (the page refreshes IPAM and toasts). */
   reservedNext?: (result: ReserveNextIpsResult) => void;
+  /** Step 36: called after tags of a subnet or the site catalogue changed, so the page refetches subnets. */
+  tagsChanged?: () => void;
 }
 
 function UtilizationCell({ subnet }: { subnet: Subnet }) {
@@ -55,35 +61,39 @@ function UtilizationCell({ subnet }: { subnet: Subnet }) {
 }
 
 /** Site subnets as a sortable table with the utilisation band from GET /subnets. */
-function SubnetTable({ items, loading, canEdit, openSubnet, editSubnet, removeSubnet }: Pick<SubnetsViewProps, 'items' | 'loading' | 'canEdit' | 'openSubnet' | 'editSubnet' | 'removeSubnet'>) {
+function SubnetTable({ items, loading, canEdit, siteId, openSubnet, editSubnet, removeSubnet, tagsChanged }: Pick<SubnetsViewProps, 'items' | 'loading' | 'canEdit' | 'siteId' | 'openSubnet' | 'editSubnet' | 'removeSubnet' | 'tagsChanged'>) {
+  const [managingTags, setManagingTags] = useState(false);
   const table = useTableUrlState(subnetTableConfig);
   const columns = useMemo<DataTableColumn<Subnet>[]>(() => [
     { id: 'cidr', header: 'Subnet', sortValue: (subnet) => subnet.cidr, cell: (subnet) => <button className="link-button" onClick={() => openSubnet(subnet.id)}><Network size={14} /> <strong>{subnet.cidr}</strong></button> },
     { id: 'vlan', header: 'VLAN', sortValue: (subnet) => subnet.vlan?.name ?? null, cell: (subnet) => <>{`IPv${subnet.version}`} · {subnet.vlan?.name || 'Sem VLAN'}</> },
     { id: 'ips', header: 'IPs', sortValue: (subnet) => subnet._count?.ips ?? 0, cell: (subnet) => subnet._count?.ips ?? 0 },
     { id: 'utilization', header: 'Utilização', sortValue: utilizationSortValue, cell: (subnet) => <UtilizationCell subnet={subnet} /> },
+    { id: 'tags', header: 'Etiquetas', cell: (subnet) => subnet.tags?.length ? <TagChips tags={subnet.tags} limit={3} /> : <span className="muted-cell">—</span> },
     ...(canEdit ? [{ id: 'actions', header: 'Ações', className: 'table-actions', cell: (subnet: Subnet) => <><button className="icon-button subtle" title={`Editar subnet ${subnet.cidr}`} aria-label={`Editar subnet ${subnet.cidr}`} onClick={() => editSubnet(subnet)}><Edit3 size={14} /></button><button className="icon-button subtle danger" title={`Eliminar subnet ${subnet.cidr}`} aria-label={`Eliminar subnet ${subnet.cidr}`} onClick={() => removeSubnet(subnet)}><Trash2 size={14} /></button></> }] : []),
   ], [canEdit, editSubnet, openSubnet, removeSubnet]);
-  const band = table.filters.band;
-  const rows = useMemo(() => sortByColumns(band ? items.filter((subnet) => (subnet.utilization?.band ?? '') === band) : items, columns, table.sort), [band, columns, items, table.sort]);
+  const { band, tag } = table.filters;
+  const rows = useMemo(() => sortByColumns(items.filter((subnet) => (!band || (subnet.utilization?.band ?? '') === band) && hasAllTags(subnet, tag)), columns, table.sort), [band, columns, items, tag, table.sort]);
   return <>
-    <PageToolbarPortal><div className="interface-toolbar-controls"><label>Utilização<select aria-label="Filtrar subnets por utilização" value={band} onChange={(event) => table.setFilter('band', event.target.value)}><option value="">Todas</option>{utilizationBandOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><SavedViews pageId="ipam-subnets" config={subnetTableConfig} table={table} /></div></PageToolbarPortal>
-    <DataTable rows={rows} columns={columns} rowKey={(subnet) => subnet.id} label="Subnets do Site" sort={table.sort} onSortChange={table.setSort} defaultSort={table.defaultSort} loading={loading} empty={band ? <Empty title="Sem subnets nesta faixa de utilização" text="Escolhe outra faixa ou limpa o filtro." /> : null} />
+    <PageToolbarPortal><div className="interface-toolbar-controls"><label>Utilização<select aria-label="Filtrar subnets por utilização" value={band} onChange={(event) => table.setFilter('band', event.target.value)}><option value="">Todas</option>{utilizationBandOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>Etiqueta<TagFilter siteId={siteId} value={tag} onChange={(value) => table.setFilter('tag', value)} /></label>{canEdit && <ManageTagsButton onClick={() => setManagingTags(true)} />}<SavedViews pageId="ipam-subnets" config={subnetTableConfig} table={table} /></div></PageToolbarPortal>
+    <DataTable rows={rows} columns={columns} rowKey={(subnet) => subnet.id} label="Subnets do Site" sort={table.sort} onSortChange={table.setSort} defaultSort={table.defaultSort} loading={loading} empty={tag ? <Empty title="Sem subnets com esta etiqueta" text="Escolhe outra etiqueta ou limpa o filtro." /> : band ? <Empty title="Sem subnets nesta faixa de utilização" text="Escolhe outra faixa ou limpa o filtro." /> : null} />
+    {managingTags && <TagManager siteId={siteId} close={() => setManagingTags(false)} onChanged={() => tagsChanged?.()} />}
   </>;
 }
 
 /** Subnet list of the site, or the selected subnet with its IP table. */
-export function SubnetsView({ selected, items, loading = false, usage, usageLoading = false, capacityHistory, capacityHistoryLoading = false, ips, loadingIps = false, search, setSearch, openSubnet, openHost, canEdit, canReserve, canReleaseReservations, newSubnet, editSubnet, removeSubnet, editIp, newIp, createHost, reserveIp, releaseReservation, reservedNext }: SubnetsViewProps) {
+export function SubnetsView({ selected, items, loading = false, usage, usageLoading = false, capacityHistory, capacityHistoryLoading = false, ips, loadingIps = false, search, setSearch, openSubnet, openHost, canEdit, canReserve, canReleaseReservations, siteId, newSubnet, editSubnet, removeSubnet, editIp, newIp, createHost, reserveIp, releaseReservation, reservedNext, tagsChanged }: SubnetsViewProps) {
   const [nextFreeOpen, setNextFreeOpen] = useState(false);
+  const [editingTags, setEditingTags] = useState(false);
 
   if (!selected) return <section className="ipam-card">
     <div className="panel-heading"><h2>Subnets do Site</h2></div>{canEdit && <PageToolbarPortal><button className="primary-button" onClick={newSubnet}><Plus size={14} /> Nova subnet</button></PageToolbarPortal>}
-    {loading ? <div className="ipam-loading-skeletons subnet-loading-skeletons" aria-label="A carregar subnets" aria-busy="true">{[0, 1, 2].map((item) => <div className="content-skeleton ipam-subnet-skeleton" key={item}/>)}</div> : items.length > 0 && <SubnetTable items={items} loading={loading} canEdit={canEdit} openSubnet={openSubnet} editSubnet={editSubnet} removeSubnet={removeSubnet} />}
+    {loading ? <div className="ipam-loading-skeletons subnet-loading-skeletons" aria-label="A carregar subnets" aria-busy="true">{[0, 1, 2].map((item) => <div className="content-skeleton ipam-subnet-skeleton" key={item}/>)}</div> : items.length > 0 && <SubnetTable items={items} loading={loading} canEdit={canEdit} siteId={siteId} openSubnet={openSubnet} editSubnet={editSubnet} removeSubnet={removeSubnet} tagsChanged={tagsChanged} />}
     {!loading && !items.length && <Empty title={search ? 'Sem subnets correspondentes' : 'Este Site ainda não tem subnets'} text={search ? 'Experimenta outra pesquisa.' : 'Cria uma subnet diretamente nesta página.'} />}
   </section>;
 
   return <section className="ipam-card">
-    <div className="panel-heading"><div><span className="section-kicker">SUBNET SELECIONADA</span><h2>{selected.cidr}</h2></div></div><PageToolbarPortal><div className="subnet-actions"><button className="secondary-button" onClick={() => { setSearch(''); location.href = `/ipam?siteId=${selected.siteId}` }}>← Todas as subnets</button><button className="secondary-button" onClick={() => setNextFreeOpen(true)}><ListChecks size={14} /> Próximo IP livre</button>{canEdit && <><button className="secondary-button" onClick={() => editSubnet(selected)}><Edit3 size={14} /> Editar subnet</button><button className="secondary-button danger" onClick={() => removeSubnet(selected)}><Trash2 size={14} /> Eliminar subnet</button><button className="primary-button" onClick={newIp}><Plus size={14} /> Novo endereço IP</button></>}</div></PageToolbarPortal>
+    <div className="panel-heading"><div><span className="section-kicker">SUBNET SELECIONADA</span><h2>{selected.cidr}</h2>{selected.tags?.length ? <TagChips tags={selected.tags} className="subnet-heading-tags" /> : null}</div></div><PageToolbarPortal><div className="subnet-actions"><button className="secondary-button" onClick={() => { setSearch(''); location.href = `/ipam?siteId=${selected.siteId}` }}>← Todas as subnets</button><button className="secondary-button" onClick={() => setNextFreeOpen(true)}><ListChecks size={14} /> Próximo IP livre</button>{canEdit && <><button className="secondary-button" onClick={() => editSubnet(selected)}><Edit3 size={14} /> Editar subnet</button>{selected.siteId && <button className="secondary-button" onClick={() => setEditingTags(true)}><Tags size={14} /> Etiquetas</button>}<button className="secondary-button danger" onClick={() => removeSubnet(selected)}><Trash2 size={14} /> Eliminar subnet</button><button className="primary-button" onClick={newIp}><Plus size={14} /> Novo endereço IP</button></>}</div></PageToolbarPortal>
     <div className="usage-summary" aria-busy={usageLoading}>{usageLoading ? <div className="usage-summary-skeletons"><span className="content-skeleton usage-skeleton-primary"/><span className="content-skeleton usage-skeleton-detail"/><span className="content-skeleton usage-skeleton-detail short"/></div> : usage?.version === 6
       ? <><strong>{usage.known} endereços geridos</strong><span>{usage.occupied} ocupados · {usage.reserved} reservados · {usage.excluded} excluídos</span><span>Capacidade livre do prefixo não enumerada</span></>
       : usage?.version === 4
@@ -104,6 +114,7 @@ export function SubnetsView({ selected, items, loading = false, usage, usageLoad
       </tr>; })}</tbody>
     </table></div>
     {!loadingIps && !ips.length && <Empty title={search ? 'Sem IPs correspondentes' : 'Ainda não existem endereços nesta subnet'} text={search ? 'Experimenta outra pesquisa.' : 'Adiciona o primeiro IP ou executa Discovery.'} />}
+    {editingTags && selected.siteId && <TagEditor siteId={selected.siteId} itemLabel={selected.cidr} selected={selected.tags ?? []} save={async (tagIds) => { await setSubnetTags(selected.id, tagIds); tagsChanged?.(); }} close={() => setEditingTags(false)} />}
     {nextFreeOpen && <NextFreeIpModal subnet={selected} canReserve={canReserve} close={() => setNextFreeOpen(false)} reserved={(result) => { setNextFreeOpen(false); reservedNext?.(result); }} />}
   </section>;
 }

@@ -1,10 +1,14 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { createElement } from 'react';
+import { createElement, type ReactElement } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, expect, it, vi } from 'vitest';
 import { NetworkMap } from './network-map';
 import { SubnetsView } from './subnets-view';
 import type { NetworkMapVlan, Subnet } from '../types';
 import { readFileSync } from 'node:fs';
+
+vi.mock('@/features/tags/api', () => ({ listTags: vi.fn(async () => []), tagsQueryKey: (siteId: string) => ['tags', siteId], setSubnetTags: vi.fn() }));
+const withQuery = (element: ReactElement) => createElement(QueryClientProvider, { client: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }, element);
 import { resolve } from 'node:path';
 
 const subnet: Subnet = { id: 'subnet-1', cidr: '10.0.0.0/24', version: 4, siteId: 'site-1', vlanId: 'vlan-1', vlan: { id: 'vlan-1', vlanId: 10, name: 'Users' }, _count: { ips: 2 } };
@@ -38,7 +42,7 @@ describe('IPAM subnet actions', () => {
     const editSubnet = vi.fn();
     const removeSubnet = vi.fn();
 
-    render(createElement(SubnetsView, { selected: null, items: [subnet], usage: null, capacityHistory: null, ips: [], search: '', setSearch: vi.fn(), openSubnet, openHost: vi.fn(), canEdit: true, canReserve: true, canReleaseReservations: true, siteId: 'site-1', newSubnet: vi.fn(), editSubnet, removeSubnet, editIp: vi.fn(), newIp: vi.fn(), createHost: vi.fn(), reserveIp: vi.fn(), releaseReservation: vi.fn() }));
+    render(withQuery(createElement(SubnetsView, { selected: null, items: [subnet], usage: null, capacityHistory: null, ips: [], search: '', setSearch: vi.fn(), openSubnet, openHost: vi.fn(), canEdit: true, canReserve: true, canReleaseReservations: true, siteId: 'site-1', newSubnet: vi.fn(), editSubnet, removeSubnet, editIp: vi.fn(), newIp: vi.fn(), createHost: vi.fn(), reserveIp: vi.fn(), releaseReservation: vi.fn() })));
 
 
     fireEvent.click(screen.getByRole('button', { name: 'Editar subnet 10.0.0.0/24' }));
@@ -50,7 +54,7 @@ describe('IPAM subnet actions', () => {
   });
 
   it('shows subnet list skeletons without a false empty state while loading', () => {
-    render(createElement(SubnetsView, { selected: null, items: [], loading: true, usage: null, capacityHistory: null, ips: [], search: '', setSearch: vi.fn(), openSubnet: vi.fn(), openHost: vi.fn(), canEdit: false, canReserve: false, canReleaseReservations: false, siteId: 'site-1', newSubnet: vi.fn(), editSubnet: vi.fn(), removeSubnet: vi.fn(), editIp: vi.fn(), newIp: vi.fn(), createHost: vi.fn(), reserveIp: vi.fn(), releaseReservation: vi.fn() }));
+    render(withQuery(createElement(SubnetsView, { selected: null, items: [], loading: true, usage: null, capacityHistory: null, ips: [], search: '', setSearch: vi.fn(), openSubnet: vi.fn(), openHost: vi.fn(), canEdit: false, canReserve: false, canReleaseReservations: false, siteId: 'site-1', newSubnet: vi.fn(), editSubnet: vi.fn(), removeSubnet: vi.fn(), editIp: vi.fn(), newIp: vi.fn(), createHost: vi.fn(), reserveIp: vi.fn(), releaseReservation: vi.fn() })));
 
     expect(screen.getByLabelText('A carregar subnets')).toHaveAttribute('aria-busy', 'true');
     expect(screen.queryByText('Este Site ainda não tem subnets')).not.toBeInTheDocument();

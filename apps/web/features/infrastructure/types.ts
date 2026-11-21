@@ -1,5 +1,6 @@
 export type CriticalityTier = 'T1' | 'T2' | 'T3';
 import type { PaginatedResponse } from '@/lib/api/types';
+import type { TagSummary } from '@/features/tags/types';
 
 // ── Shared enumerations (mirror Prisma enums / API DTOs) ──────────────────
 
@@ -241,6 +242,8 @@ export interface Device {
   backAssetId?: string | null;
   /** Required configs this device lacks (GET /devices, GET /devices/:id). */
   requiredConfig?: { missing: string[]; missingTabs: string[]; complete: boolean } | null;
+  /** Step 36: site-scoped tags, sorted by name (GET /devices, GET /devices/:id). */
+  tags?: TagSummary[];
   model?: DeviceModel | null;
   frontAsset?: AssetFile | null;
   backAsset?: AssetFile | null;
