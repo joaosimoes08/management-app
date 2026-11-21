@@ -618,8 +618,16 @@ const enUS: LegacyDictionary = {
   'A consulta não devolveu prefixos.': 'The lookup returned no prefixes.',
   'O Site ou o VRF de destino mudou depois da pré-visualização. Pré-visualiza novamente para atualizar as diferenças antes de importar.': 'The target Site or VRF changed after the preview. Preview again to refresh the differences before importing.',
   'Entradas inválidas': 'Invalid entries',
+  // Shared table kit
+  'Exportar CSV': 'Export CSV',
+  'ordem crescente': 'ascending order',
+  'ordem decrescente': 'descending order',
   // Critical assets workbench
   'Ativos críticos': 'Critical assets',
+  'Data do último resultado': 'Latest result date',
+  'Data do prazo': 'Due date',
+  'Revisões pendentes': 'Pending reviews',
+  'Revisor': 'Reviewer',
   'Revisão semanal dos dados de inventário dos ativos críticos do Site.': 'Weekly review of the inventory data of the Site’s critical assets.',
   'Não foi possível carregar os ativos críticos.': 'Could not load the critical assets.',
   'Pesquisar nome, hostname, IP, série ou etiqueta…': 'Search name, hostname, IP, serial or tag…',

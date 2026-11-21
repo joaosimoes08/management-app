@@ -18,7 +18,8 @@ vi.mock('@/components/layout/app-shell', async (importOriginal) => ({
     {children}
   </>,
 }));
-vi.mock('@/lib/site-context', () => ({ useSiteContext: () => ({ siteId: 'site-1' }) }));
+const site = vi.hoisted(() => ({ current: 'site-1' }));
+vi.mock('@/lib/site-context', () => ({ useSiteContext: () => ({ siteId: site.current }) }));
 const roles = vi.hoisted(() => ({ current: ['ADMIN'] as string[] }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: (role: string) => roles.current.includes(role) }) }));
 vi.mock('@/lib/api/client', () => ({ apiFetch: vi.fn() }));
@@ -62,7 +63,10 @@ const visibleNames = () => [...document.querySelectorAll('.critical-assets-table
 
 afterEach(cleanup);
 beforeEach(() => {
+  // Filters, search and sort live in the URL: every test starts from a clean address.
+  window.history.replaceState(null, '', '/attestacao-ativos');
   roles.current = ['ADMIN'];
+  site.current = 'site-1';
   data = pageData();
   vi.mocked(apiFetch).mockReset();
   vi.mocked(apiFetch).mockImplementation(async (url: string, init?: RequestInit) => {
@@ -267,6 +271,67 @@ describe('CriticalAssetsPage', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
+  it('bulk confirms only rows on screen: a selection hidden by a filter is dropped and the count follows', async () => {
+    const posted: string[] = [];
+    vi.mocked(apiFetch).mockImplementation(async (url: string) => {
+      if (url.includes('/settings/access-groups')) return [network, systems] as never;
+      if (url.endsWith('/confirm')) { posted.push(url); return savedReview(url.split('/').at(-2) as string, 'CONFIRMED') as never; }
+      return data as never;
+    });
+    renderPage();
+    const actions = screen.getByTestId('toolbar-actions');
+    fireEvent.click(within(await rowFor('Core switch')).getByRole('checkbox'));
+    fireEvent.click(within(await rowFor('Edge router')).getByRole('checkbox'));
+    expect(within(actions).getByRole('button', { name: /Confirmar selecionados \(2\)/ })).toBeEnabled();
+    // Filter Core switch (SWITCH) out of view: it leaves the selection and the count drops to 1.
+    fireEvent.change(screen.getByLabelText('Filtrar por tipo'), { target: { value: 'ROUTER' } });
+    expect(visibleNames()).toEqual(['Edge router']);
+    expect(within(actions).getByRole('button', { name: /Confirmar selecionados \(1\)/ })).toBeEnabled();
+    // Showing it again does not bring the hidden selection back.
+    fireEvent.change(screen.getByLabelText('Filtrar por tipo'), { target: { value: '' } });
+    expect(within(actions).getByRole('button', { name: /Confirmar selecionados \(1\)/ })).toBeEnabled();
+    fireEvent.click(within(actions).getByRole('button', { name: /Confirmar selecionados \(1\)/ }));
+    const dialog = screen.getByRole('dialog', { name: 'Confirmar selecionados' });
+    expect(within(dialog).queryByText('Core switch')).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: /Confirmar 1 revis/ }));
+    await waitFor(() => expect(posted).toEqual(['/api/v1/critical-assets/a-edge-2/confirm']));
+  });
+
+  it('clears an owner filter from the previous Site after a Site switch, without a history entry', async () => {
+    const otherSite = { ...pageData(), mappings: [], assets: [], unassigned: [] } as unknown as CriticalAssetsResult;
+    let releaseSite2: () => void = () => undefined;
+    const site2Ready = new Promise<void>((resolve) => { releaseSite2 = resolve; });
+    vi.mocked(apiFetch).mockImplementation(async (url: string) => {
+      const isSite2 = url.includes('site-2');
+      if (isSite2) await site2Ready;
+      if (url.includes('/settings/access-groups')) return (isSite2 ? [] : [network, systems]) as never;
+      return (isSite2 ? otherSite : data) as never;
+    });
+    window.history.replaceState(null, '', '/attestacao-ativos?siteId=site-1&owner=group-2');
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = renderPage(queryClient);
+    await rowFor('Edge router');
+    expect(screen.getByLabelText('Filtrar por grupo responsável')).toHaveValue('group-2');
+    const entries = window.history.length;
+    site.current = 'site-2';
+    view.rerender(<QueryClientProvider client={queryClient}><CriticalAssetsPage /></QueryClientProvider>);
+    // Still loading the new Site: the empty owner list must not clear the filter yet.
+    await act(async () => { await Promise.resolve(); });
+    expect(window.location.search).toContain('owner=group-2');
+    await act(async () => { releaseSite2(); });
+    await waitFor(() => expect(window.location.search).not.toContain('owner='));
+    expect(window.history.length).toBe(entries);
+    expect(screen.getByLabelText('Filtrar por grupo responsável')).toHaveValue('');
+  });
+
+  it('never treats the "no owner" filter as stale once the Site has loaded', async () => {
+    window.history.replaceState(null, '', `/attestacao-ativos?owner=${NO_OWNER}`);
+    renderPage();
+    await rowFor('Perimeter firewall');
+    await waitFor(() => expect(screen.getByLabelText('Filtrar por grupo responsável')).toHaveValue(NO_OWNER));
+    expect(window.location.search).toContain(`owner=${NO_OWNER}`);
+  });
+
   it('uses the singular for one asset with earlier weeks and the plural otherwise, in pt-PT and English', () => {
     const dialog = (olderCount: number) => render(<BulkConfirmDialog selectedCount={2} olderCount={olderCount} items={[]} results={null} running={false} formatDate={(value) => value ?? ''} close={() => undefined} run={() => undefined} />);
     const one = dialog(1);
@@ -326,6 +391,96 @@ describe('CriticalAssetsPage', () => {
     expect(region).toHaveAttribute('tabindex', '0');
     const core = await rowFor('Core switch');
     for (const control of within(core).getAllByRole('button')) expect(control.tagName).toBe('BUTTON');
+  });
+
+  it('sorts from the column headers, keeps the sort in the URL and returns to overdue-first on the third click', async () => {
+    renderPage();
+    await rowFor('Core switch');
+    expect(visibleNames()).toEqual(['Core switch', 'Edge router', 'Perimeter firewall', 'Backup array']);
+    const equipment = screen.getByRole('columnheader', { name: /Equipamento/ });
+    fireEvent.click(within(equipment).getByRole('button'));
+    expect(equipment).toHaveAttribute('aria-sort', 'ascending');
+    expect(visibleNames()).toEqual(['Backup array', 'Core switch', 'Edge router', 'Perimeter firewall']);
+    expect(new URLSearchParams(window.location.search).get('sort')).toBe('name');
+    fireEvent.click(within(equipment).getByRole('button'));
+    expect(visibleNames()).toEqual(['Perimeter firewall', 'Edge router', 'Core switch', 'Backup array']);
+    fireEvent.click(within(equipment).getByRole('button'));
+    expect(equipment).not.toHaveAttribute('aria-sort');
+    expect(visibleNames()).toEqual(['Core switch', 'Edge router', 'Perimeter firewall', 'Backup array']);
+    expect(window.location.search).toBe('');
+    // Owner: groups alphabetically, the unowned asset last.
+    fireEvent.click(within(screen.getByRole('columnheader', { name: /Grupo responsável/ })).getByRole('button'));
+    expect(visibleNames()).toEqual(['Core switch', 'Edge router', 'Backup array', 'Perimeter firewall']);
+    // Prazo descending: up to date first, overdue last.
+    fireEvent.click(within(screen.getByRole('columnheader', { name: /Prazo/ })).getByRole('button'));
+    fireEvent.click(within(screen.getByRole('columnheader', { name: /Prazo/ })).getByRole('button'));
+    expect(visibleNames()).toEqual(['Backup array', 'Perimeter firewall', 'Edge router', 'Core switch']);
+    expect(screen.getByRole('columnheader', { name: /Ações/ })).not.toHaveAttribute('aria-sort');
+  });
+
+  it('opens with the filters of a shared link, writes filter changes to the URL and follows the back button', async () => {
+    window.history.replaceState(null, '', '/attestacao-ativos?siteId=site-1&due=overdue&q=core');
+    renderPage();
+    await rowFor('Core switch');
+    expect(visibleNames()).toEqual(['Core switch']);
+    expect(screen.getByLabelText('Pesquisa da página')).toHaveValue('core');
+    expect(screen.getByLabelText('Filtrar por prazo')).toHaveValue('overdue');
+    const strip = screen.getByRole('group', { name: 'Resumo e filtros rápidos' });
+    expect(within(strip).getByRole('button', { name: /Em atraso/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('heading', { name: '1 de 4 ativos' })).toBeInTheDocument();
+    fireEvent.click(within(strip).getByRole('button', { name: /Em atraso/ }));
+    expect(window.location.search).toBe('?siteId=site-1&q=core');
+    fireEvent.change(screen.getByLabelText('Filtrar por tipo'), { target: { value: 'ROUTER' } });
+    expect(window.location.search).toBe('?siteId=site-1&q=core&type=ROUTER');
+    expect(visibleNames()).toEqual([]);
+    act(() => { window.history.replaceState(null, '', '/attestacao-ativos?siteId=site-1&q=core'); window.dispatchEvent(new PopStateEvent('popstate')); });
+    expect(screen.getByLabelText('Filtrar por tipo')).toHaveValue('');
+    expect(visibleNames()).toEqual(['Core switch']);
+    fireEvent.click(screen.getByRole('button', { name: /Limpar filtros/ }));
+    expect(window.location.search).toBe('?siteId=site-1');
+    expect(visibleNames()).toHaveLength(4);
+  });
+
+  it('exports the filtered, sorted rows to CSV with readable values', async () => {
+    const blobs: Blob[] = [];
+    Object.assign(URL, { createObjectURL: vi.fn((blob: Blob) => { blobs.push(blob); return 'blob:x'; }), revokeObjectURL: vi.fn() });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    renderPage();
+    await rowFor('Core switch');
+    fireEvent.change(screen.getByLabelText('Filtrar por grupo responsável'), { target: { value: 'group-2' } });
+    fireEvent.click(within(screen.getByRole('columnheader', { name: /Equipamento/ })).getByRole('button'));
+    fireEvent.click(within(screen.getByTestId('toolbar-actions')).getByRole('button', { name: /Exportar CSV/ }));
+    const bytes = new Uint8Array(await blobs[0].arrayBuffer());
+    expect([...bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
+    const lines = new TextDecoder().decode(bytes.slice(3)).trimEnd().split('\r\n');
+    expect(lines[0]).toBe('Equipamento;Hostname;IP de gestão;Número de série;Etiqueta;Tipo;Grupo responsável;Último resultado;Data do último resultado;Revisor;Prazo;Data do prazo;Revisões pendentes');
+    expect(lines.slice(1).map((line) => line.split(';')[0])).toEqual(['Backup array', 'Edge router']);
+    expect(lines[2]).toBe('Edge router;edge-router;192.0.2.1;SN-device-2;AT-device-2;ROUTER;Systems Team;Confirmado;2026-11-10T10:00:00.000Z;Carla;Para esta semana;2026-11-23T09:00:00.000Z;1');
+    click.mockRestore();
+  });
+
+  it('links the asset to its device record from the side panel', async () => {
+    roles.current = ['VIEWER'];
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Abrir histórico de Core switch' }));
+    const panel = screen.getByRole('complementary', { name: 'Histórico de Core switch' });
+    expect(within(panel).getByRole('link', { name: /Abrir equipamento/ })).toHaveAttribute('href', '/infraestrutura?siteId=site-1&tab=devices&deviceId=device-1');
+    expect(panel.querySelectorAll('.host-relation time')).toHaveLength(4);
+    expect(within(panel).queryByRole('button', { name: 'Confirmar' })).not.toBeInTheDocument();
+  });
+
+  it('per-row confirm still records the oldest pending week while bulk records the current one', async () => {
+    const firewall = data.assets[3];
+    firewall.owner = network; firewall.assignedGroup = network; firewall.dueState = 'overdue';
+    firewall.attestations = [attestation('a-fw-new', '2026-11-16T00:00:00.000Z'), attestation('a-fw-old', '2026-11-09T00:00:00.000Z')];
+    data.unassigned = [];
+    renderPage();
+    fireEvent.click(within(await rowFor('Perimeter firewall')).getByRole('button', { name: 'Confirmar revisão de Perimeter firewall' }));
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith('/api/v1/critical-assets/a-fw-old/confirm', expect.anything()));
+    fireEvent.click(within(await rowFor('Perimeter firewall')).getByRole('checkbox', { name: 'Selecionar ativo Perimeter firewall' }));
+    fireEvent.click(within(screen.getByTestId('toolbar-actions')).getByRole('button', { name: /Confirmar selecionados \(1\)/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar 1 revisões' }));
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith('/api/v1/critical-assets/a-fw-new/confirm', expect.anything()));
   });
 
   it('hydrates server markup without a mismatch', async () => {
