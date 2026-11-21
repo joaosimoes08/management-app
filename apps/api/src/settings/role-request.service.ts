@@ -12,11 +12,15 @@ export type SelfRequestRole = (typeof SELF_REQUEST_ROLES)[number];
 export class RoleRequestService {
   constructor(private readonly prisma: PrismaClient, private readonly keycloak: KeycloakAdminService, private readonly audit: AuditService) {}
 
-  async mine(user: AuthenticatedUser) {
+  async mine(user: AuthenticatedUser, requestId?: string) {
     const [pendingRequest, history] = await Promise.all([
       this.prisma.roleRequest.findFirst({ where: { userId: user.id, status: { in: ['PENDING', 'PROCESSING'] } }, orderBy: { createdAt: 'desc' } }),
       this.prisma.roleRequest.findMany({ where: { userId: user.id }, orderBy: { createdAt: 'desc' }, take: 50 }),
     ]);
+    if (requestId && !history.some((item) => item.id === requestId)) {
+      const target = await this.prisma.roleRequest.findFirst({ where: { id: requestId, userId: user.id } });
+      if (target) history.push(target);
+    }
     return { eligibleRoles: [...SELF_REQUEST_ROLES], currentRoles: user.roles, pendingRequest: pendingRequest ? this.present(pendingRequest) : null, history: history.map((item) => this.present(item)) };
   }
 
@@ -80,6 +84,7 @@ export class RoleRequestService {
     return this.prisma.$transaction(async (tx) => {
       const result = await tx.roleRequest.updateMany({ where: { id, status: 'PROCESSING' }, data: { status, reviewerId, decidedAt: new Date() } });
       if (!result.count) throw new ConflictException({ code: 'ROLE_REQUEST_NOT_PENDING', message: 'O pedido já foi processado.' });
+      // The requester's own outcome always reaches them; the ROLE_REQUEST mute only silences incoming notices for approvers.
       await tx.notification.create({ data: { userId, roleRequestId: id, type: `ROLE_REQUEST_${status}`, title, message } });
       return tx.roleRequest.findUniqueOrThrow({ where: { id } });
     });

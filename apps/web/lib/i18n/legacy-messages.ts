@@ -3,6 +3,7 @@ import type { AppLocale } from './i18n';
 type LegacyDictionary = Record<string, string>;
 
 const enUS: LegacyDictionary = {
+  'Revisão ligada à notificação': 'Review linked to the notification',
   // Step 35: SNMP device view and consistency labels
   'Operação submetida com sucesso.': 'Operation submitted successfully.',
   'A operação falhou.': 'The operation failed.',
@@ -1007,6 +1008,9 @@ const enUS: LegacyDictionary = {
   'Notas:': 'Notes:',
   'Revisor desconhecido': 'Unknown reviewer',
   'Ainda não existem revisões para este ativo.': 'There are no reviews for this asset yet.',
+  'Sem resposta para esta revisão.': 'No response for this review.',
+  'Não foi possível registar as revisões.': 'Could not record the reviews.',
+  'Não encontrado': 'Not found',
   'Resultado da revisão': 'Review result',
   'Dados corretos': 'Data is correct',
   'Dados a corrigir (obrigatório)': 'Data to correct (required)',

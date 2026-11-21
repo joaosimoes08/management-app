@@ -3056,3 +3056,17 @@ a.dashboard-kpi:focus-visible { box-shadow:0 9px 24px rgba(35,55,87,.09); outlin
 .quality-bulk-results .state-badge { max-width:100%; white-space:normal; overflow-wrap:anywhere; }
 .quality-bulk-results .state-badge i { flex:none; }
 .subnet-capacity-chart .subnet-capacity-single-point { stroke:#247b70; stroke-width:6px; stroke-linecap:round; }
+
+/* Step 29 — Device 360 page */
+.device-360-head { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.device-360-head > div:nth-child(2), .device-360-head > div:first-of-type { flex: 1 1 280px; min-width: 0; }
+.device-360-image { width: 160px; max-height: 64px; object-fit: contain; }
+.device-360-badges { display: flex; gap: 8px; flex-wrap: wrap; }
+.device-360-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.device-360-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 16px; }
+.device-360-section { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.device-360-section-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.device-360-section-head h2 { font-size: 1rem; margin: 0; }
+.device-360-facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; }
+.device-360-facts dd { margin: 0; overflow-wrap: anywhere; }
+.device-360-list { margin: 0; padding-left: 18px; display: grid; gap: 4px; overflow-wrap: anywhere; }

@@ -30,6 +30,10 @@ enum ChangePlanStatus {
   APPROVED
   REJECTED
   CANCELLED
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  ROLLED_BACK
 }
 
 enum ChangeEntityType {
@@ -196,35 +200,40 @@ enum InventoryFindingStatus {
 }
 
 model User {
-  id                     String                      @id @default(uuid()) @db.Uuid
-  externalId             String                      @unique
-  username               String                      @unique
-  displayName            String?
-  email                  String?
-  roles                  UserRole[]
-  accessGroupMemberships AccessGroupMember[]
-  auditLogs              AuditLog[]
-  createdIpReservations  IpReservation[]
-  roleRequests           RoleRequest[]
-  reviewedRoleRequests   RoleRequest[]               @relation("RoleRequestReviewer")
-  notifications          Notification[]
-  lifecycleDatesAssigned LifecycleDate[] @relation("LifecycleDateResponsibleUser")
+  id                          String                      @id @default(uuid()) @db.Uuid
+  externalId                  String                      @unique
+  username                    String                      @unique
+  displayName                 String?
+  email                       String?
+  roles                       UserRole[]
+  accessGroupMemberships      AccessGroupMember[]
+  auditLogs                   AuditLog[]
+  createdIpReservations       IpReservation[]
+  roleRequests                RoleRequest[]
+  reviewedRoleRequests        RoleRequest[]               @relation("RoleRequestReviewer")
+  notifications               Notification[]
+  notificationMutes           NotificationMute[]
+  lifecycleDatesAssigned      LifecycleDate[]             @relation("LifecycleDateResponsibleUser")
   lifecycleReminderDeliveries LifecycleReminderDelivery[]
-  alertStates            OperationalAlertUserState[]
-  acknowledgedAlerts     OperationalAlert[]          @relation("AlertAcknowledgedBy")
-  resolvedAlerts         OperationalAlert[]          @relation("AlertResolvedBy")
-  createdMaintenanceWindows MaintenanceWindow[]      @relation("MaintenanceWindowCreator")
-  dashboardLayouts       DashboardLayout[]           @relation("DashboardLayoutUpdatedBy")
-  dashboardPreferences   UserDashboardPreference[]
-  topologyMaps           TopologyMap[]               @relation("TopologyMapCreatedBy")
-  deviceConnections      DeviceConnection[]          @relation("DeviceConnectionCreatedBy")
-  assignedFindings       InventoryFinding[]          @relation("FindingAssignee")
-  acknowledgedFindings   InventoryFinding[]          @relation("FindingAcknowledgedBy")
-  createdChangePlans     ChangePlan[]                @relation("ChangePlanCreator")
-  reviewedChangePlans    ChangePlan[]                @relation("ChangePlanReviewer")
-  createdAt              DateTime                    @default(now())
-  updatedAt              DateTime                    @updatedAt
-  applicationFavorites   UserApplicationFavorite[]
+  alertStates                 OperationalAlertUserState[]
+  acknowledgedAlerts          OperationalAlert[]          @relation("AlertAcknowledgedBy")
+  resolvedAlerts              OperationalAlert[]          @relation("AlertResolvedBy")
+  createdMaintenanceWindows   MaintenanceWindow[]         @relation("MaintenanceWindowCreator")
+  dashboardLayouts            DashboardLayout[]           @relation("DashboardLayoutUpdatedBy")
+  dashboardPreferences        UserDashboardPreference[]
+  topologyMaps                TopologyMap[]               @relation("TopologyMapCreatedBy")
+  deviceConnections           DeviceConnection[]          @relation("DeviceConnectionCreatedBy")
+  assignedFindings            InventoryFinding[]          @relation("FindingAssignee")
+  acknowledgedFindings        InventoryFinding[]          @relation("FindingAcknowledgedBy")
+  createdChangePlans          ChangePlan[]                @relation("ChangePlanCreator")
+  reviewedChangePlans         ChangePlan[]                @relation("ChangePlanReviewer")
+  startedChangePlans          ChangePlan[]                @relation("ChangePlanStarter")
+  closedChangePlans           ChangePlan[]                @relation("ChangePlanCloser")
+  changeChecklistDone         ChangePlanChecklistItem[]   @relation("ChangePlanChecklistDoneBy")
+  changeChecklistCreated      ChangePlanChecklistItem[]   @relation("ChangePlanChecklistCreator")
+  createdAt                   DateTime                    @default(now())
+  updatedAt                   DateTime                    @updatedAt
+  applicationFavorites        UserApplicationFavorite[]
 }
 
 model RoleRequest {
@@ -251,12 +260,22 @@ model Notification {
   type          String
   title         String
   message       String
+  sourceHref    String?
   readAt        DateTime?
   createdAt     DateTime     @default(now())
   user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   roleRequest   RoleRequest? @relation(fields: [roleRequestId], references: [id], onDelete: SetNull)
 
   @@index([userId, readAt, createdAt])
+  @@index([userId, createdAt, id])
+}
+
+model NotificationMute {
+  userId String @db.Uuid
+  type   String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, type])
 }
 
 model UserRole {
@@ -284,36 +303,37 @@ model AuditLog {
 }
 
 model Site {
-  id                   String                    @id @default(uuid()) @db.Uuid
-  name                 String
-  code                 String                    @unique
-  address              String?
-  city                 String?
-  region               String?
-  country              String?
-  timezone             String                    @default("Europe/Lisbon")
-  buildings            Building[]
-  subnets              Subnet[]
-  vlans                Vlan[]
-  devices              Device[]
-  vrfs                 Vrf[]
-  natRules             NatRule[]
-  accessGroupSites     AccessGroupSite[]
-  snmpTrapEnrollments  SnmpTrapEnrollment[]
-  operationalAlerts    OperationalAlert[]
-  alertRules           AlertRule[]
-  maintenanceWindows   MaintenanceWindow[]
-  dashboardLayouts     DashboardLayout[]
-  dashboardPreferences UserDashboardPreference[]
-  topologyMaps         TopologyMap[]
-  deviceConnections    DeviceConnection[]
-  inventoryFindings    InventoryFinding[]
-  criticalAssetMappings    CriticalAssetGroupMapping[]
+  id                        String                      @id @default(uuid()) @db.Uuid
+  name                      String
+  code                      String                      @unique
+  address                   String?
+  city                      String?
+  region                    String?
+  country                   String?
+  timezone                  String                      @default("Europe/Lisbon")
+  buildings                 Building[]
+  subnets                   Subnet[]
+  vlans                     Vlan[]
+  devices                   Device[]
+  vrfs                      Vrf[]
+  natRules                  NatRule[]
+  accessGroupSites          AccessGroupSite[]
+  snmpTrapEnrollments       SnmpTrapEnrollment[]
+  operationalAlerts         OperationalAlert[]
+  alertRules                AlertRule[]
+  maintenanceWindows        MaintenanceWindow[]
+  dashboardLayouts          DashboardLayout[]
+  dashboardPreferences      UserDashboardPreference[]
+  topologyMaps              TopologyMap[]
+  deviceConnections         DeviceConnection[]
+  inventoryFindings         InventoryFinding[]
+  criticalAssetMappings     CriticalAssetGroupMapping[]
   criticalAssetAttestations CriticalAssetAttestation[]
+  criticalAssetCorrections  CriticalAssetCorrection[]
   changePlans               ChangePlan[]
-  netAppIntegration    NetAppIntegration?
-  createdAt            DateTime                  @default(now())
-  updatedAt            DateTime                  @updatedAt
+  netAppIntegration         NetAppIntegration?
+  createdAt                 DateTime                    @default(now())
+  updatedAt                 DateTime                    @updatedAt
 }
 
 model SystemSettings {
@@ -455,55 +475,56 @@ model DeviceModel {
 }
 
 model Device {
-  id                String             @id @default(uuid()) @db.Uuid
-  name              String
-  type              String
-  serialNumber      String?
-  assetTag          String?
-  hostname          String?
-  managementIp      String?
-  notes             String?
-  isCritical        Boolean            @default(false)
-  source            SourceType         @default(MANUAL)
-  status            AssetStatus        @default(UNKNOWN)
-  modelId           String?            @db.Uuid
-  rackId            String?            @db.Uuid
-  rackUnitStart     Int?
-  rackUnitSize      Int?
-  frontAssetId      String?            @db.Uuid
-  backAssetId       String?            @db.Uuid
-  iconAssetId       String?            @db.Uuid
+  id                        String                     @id @default(uuid()) @db.Uuid
+  name                      String
+  type                      String
+  serialNumber              String?
+  assetTag                  String?
+  hostname                  String?
+  managementIp              String?
+  notes                     String?
+  isCritical                Boolean                    @default(false)
+  source                    SourceType                 @default(MANUAL)
+  status                    AssetStatus                @default(UNKNOWN)
+  modelId                   String?                    @db.Uuid
+  rackId                    String?                    @db.Uuid
+  rackUnitStart             Int?
+  rackUnitSize              Int?
+  frontAssetId              String?                    @db.Uuid
+  backAssetId               String?                    @db.Uuid
+  iconAssetId               String?                    @db.Uuid
   /// Power overrides: null falls back to DeviceModel, then to the type default (power-defaults.ts).
-  powerPlugCount    Int?
-  estimatedWatts    Int?
-  model             DeviceModel?       @relation(fields: [modelId], references: [id], onDelete: SetNull)
-  frontAsset        AssetFile?         @relation("DeviceFrontOverride", fields: [frontAssetId], references: [id], onDelete: SetNull)
-  backAsset         AssetFile?         @relation("DeviceBackOverride", fields: [backAssetId], references: [id], onDelete: SetNull)
-  iconAsset         AssetFile?         @relation("DeviceIconOverride", fields: [iconAssetId], references: [id], onDelete: SetNull)
-  siteId            String?            @db.Uuid
-  site              Site?              @relation(fields: [siteId], references: [id], onDelete: SetNull)
-  rack              Rack?              @relation(fields: [rackId], references: [id], onDelete: SetNull)
-  interfaces        DeviceInterface[]
-  lifecycleDates   LifecycleDate[]
-  ipAddresses       IpAddress[]
-  host              Host?
-  natRules          NatRule[]
-  snmpConfig        SnmpDeviceConfig?
-  snmpCredentials   SnmpCredential[]
-  snmpJobs          SnmpJob[]
-  snmpSnapshots     SnmpSnapshot[]
-  snmpTraps         SnmpTrapEvent[]
-  snmpDrifts        SnmpDrift[]
-  topologyProposals TopologyProposal[]
-  lldpObservations  LldpObservation[]
-  snmpWriteRequests SnmpWriteRequest[]
-  topologyNodes     TopologyMapNode[]
+  powerPlugCount            Int?
+  estimatedWatts            Int?
+  model                     DeviceModel?               @relation(fields: [modelId], references: [id], onDelete: SetNull)
+  frontAsset                AssetFile?                 @relation("DeviceFrontOverride", fields: [frontAssetId], references: [id], onDelete: SetNull)
+  backAsset                 AssetFile?                 @relation("DeviceBackOverride", fields: [backAssetId], references: [id], onDelete: SetNull)
+  iconAsset                 AssetFile?                 @relation("DeviceIconOverride", fields: [iconAssetId], references: [id], onDelete: SetNull)
+  siteId                    String?                    @db.Uuid
+  site                      Site?                      @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  rack                      Rack?                      @relation(fields: [rackId], references: [id], onDelete: SetNull)
+  interfaces                DeviceInterface[]
+  lifecycleDates            LifecycleDate[]
+  ipAddresses               IpAddress[]
+  host                      Host?
+  natRules                  NatRule[]
+  snmpConfig                SnmpDeviceConfig?
+  snmpCredentials           SnmpCredential[]
+  snmpJobs                  SnmpJob[]
+  snmpSnapshots             SnmpSnapshot[]
+  snmpTraps                 SnmpTrapEvent[]
+  snmpDrifts                SnmpDrift[]
+  topologyProposals         TopologyProposal[]
+  lldpObservations          LldpObservation[]
+  snmpWriteRequests         SnmpWriteRequest[]
+  topologyNodes             TopologyMapNode[]
   criticalAssetAttestations CriticalAssetAttestation[]
-  pduOutlets        PduOutletAssignment[]
-  sourceConnections DeviceConnection[] @relation("ConnectionSourceDevice")
-  targetConnections DeviceConnection[] @relation("ConnectionTargetDevice")
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
+  criticalAssetCorrections  CriticalAssetCorrection[]
+  pduOutlets                PduOutletAssignment[]
+  sourceConnections         DeviceConnection[]         @relation("ConnectionSourceDevice")
+  targetConnections         DeviceConnection[]         @relation("ConnectionTargetDevice")
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
 
   @@unique([siteId, managementIp])
   @@index([type, status])
@@ -511,19 +532,19 @@ model Device {
 }
 
 model LifecycleDate {
-  id                  String   @id @default(uuid()) @db.Uuid
-  deviceId            String   @db.Uuid
-  kind                String
-  dueDate             DateTime @db.Date
-  reminderDays        Json     @default("[30,7,0]")
-  responsibleUserId   String?  @db.Uuid
-  responsibleGroupId  String?  @db.Uuid
-  device              Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  responsibleUser     User?    @relation("LifecycleDateResponsibleUser", fields: [responsibleUserId], references: [id], onDelete: SetNull)
-  responsibleGroup   AccessGroup? @relation(fields: [responsibleGroupId], references: [id], onDelete: SetNull)
-  deliveries          LifecycleReminderDelivery[]
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id                 String                      @id @default(uuid()) @db.Uuid
+  deviceId           String                      @db.Uuid
+  kind               String
+  dueDate            DateTime                    @db.Date
+  reminderDays       Json                        @default("[30,7,0]")
+  responsibleUserId  String?                     @db.Uuid
+  responsibleGroupId String?                     @db.Uuid
+  device             Device                      @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  responsibleUser    User?                       @relation("LifecycleDateResponsibleUser", fields: [responsibleUserId], references: [id], onDelete: SetNull)
+  responsibleGroup   AccessGroup?                @relation(fields: [responsibleGroupId], references: [id], onDelete: SetNull)
+  deliveries         LifecycleReminderDelivery[]
+  createdAt          DateTime                    @default(now())
+  updatedAt          DateTime                    @updatedAt
 
   @@unique([deviceId, kind])
   @@index([dueDate, kind])
@@ -710,28 +731,37 @@ model MaintenanceWindow {
 }
 
 model ChangePlan {
-  id              String           @id @default(uuid()) @db.Uuid
-  siteId          String           @db.Uuid
+  id              String                    @id @default(uuid()) @db.Uuid
+  siteId          String                    @db.Uuid
   title           String
   reason          String
   plannedStartAt  DateTime
   plannedEndAt    DateTime
-  status          ChangePlanStatus @default(DRAFT)
-  revision        Int              @default(1)
+  status          ChangePlanStatus          @default(DRAFT)
+  revision        Int                       @default(1)
   previewRevision Int?
   previewSnapshot Json?
   previewedAt     DateTime?
   submittedAt     DateTime?
-  reviewerId      String?          @db.Uuid
+  reviewerId      String?                   @db.Uuid
   reviewedAt      DateTime?
   reviewNote      String?
-  createdById     String?          @db.Uuid
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  site            Site             @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  creator         User?            @relation("ChangePlanCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  reviewer        User?            @relation("ChangePlanReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  startedAt       DateTime?
+  startedById     String?                   @db.Uuid
+  closedAt        DateTime?
+  closedById      String?                   @db.Uuid
+  closingNote     String?
+  createdById     String?                   @db.Uuid
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+  site            Site                      @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  creator         User?                     @relation("ChangePlanCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  reviewer        User?                     @relation("ChangePlanReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  startedBy       User?                     @relation("ChangePlanStarter", fields: [startedById], references: [id], onDelete: SetNull)
+  closedBy        User?                     @relation("ChangePlanCloser", fields: [closedById], references: [id], onDelete: SetNull)
   items           ChangePlanItem[]
+  checklist       ChangePlanChecklistItem[]
+  snmpWrites      SnmpWriteRequest[]
 
   @@index([siteId, status, plannedStartAt])
   @@index([createdById, createdAt])
@@ -750,6 +780,22 @@ model ChangePlanItem {
 
   @@unique([changePlanId, entityType, entityId])
   @@index([entityType, entityId])
+}
+
+model ChangePlanChecklistItem {
+  id           String     @id @default(uuid()) @db.Uuid
+  changePlanId String     @db.Uuid
+  position     Int
+  label        String
+  doneAt       DateTime?
+  doneById     String?    @db.Uuid
+  createdById  String?    @db.Uuid
+  createdAt    DateTime   @default(now())
+  changePlan   ChangePlan @relation(fields: [changePlanId], references: [id], onDelete: Cascade)
+  doneBy       User?      @relation("ChangePlanChecklistDoneBy", fields: [doneById], references: [id], onDelete: SetNull)
+  createdBy    User?      @relation("ChangePlanChecklistCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([changePlanId, position])
 }
 
 model DashboardLayout {
@@ -904,8 +950,8 @@ model SnmpDeviceConfig {
 }
 
 model NetAppIntegration {
-  id            String    @id @default(uuid()) @db.Uuid
-  siteId        String    @unique @db.Uuid
+  id            String                 @id @default(uuid()) @db.Uuid
+  siteId        String                 @unique @db.Uuid
   endpointUrl   String
   username      String
   ciphertext    Bytes
@@ -919,9 +965,9 @@ model NetAppIntegration {
   lastAttemptAt DateTime?
   lastSuccessAt DateTime?
   lastErrorCode String?
-  site          Site      @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  site          Site                   @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
   samples       NetAppCapacitySample[]
 
   @@index([lastSuccessAt])
@@ -936,8 +982,8 @@ enum NetAppSampleKind {
 /// One capacity reading per cluster total / aggregate / volume per successful ONTAP refresh.
 /// The current snapshot stays on NetAppIntegration.snapshot; this table only keeps history for trends.
 model NetAppCapacitySample {
-  id            String           @id @default(uuid()) @db.Uuid
-  integrationId String           @db.Uuid
+  id            String            @id @default(uuid()) @db.Uuid
+  integrationId String            @db.Uuid
   kind          NetAppSampleKind
   /// ONTAP uuid when present, otherwise the object name. "cluster" for the CLUSTER total.
   objectKey     String
@@ -1232,11 +1278,14 @@ model SnmpWriteRequest {
   requestedAt           DateTime           @default(now())
   startedAt             DateTime?
   completedAt           DateTime?
+  changePlanId          String?            @db.Uuid
   device                Device             @relation(fields: [deviceId], references: [id], onDelete: Cascade)
   job                   SnmpJob?           @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  changePlan            ChangePlan?        @relation(fields: [changePlanId], references: [id], onDelete: SetNull)
 
   @@index([deviceId, requestedAt])
   @@index([status, requestedAt])
+  @@index([changePlanId])
 }
 
 model Vlan {
@@ -1265,32 +1314,32 @@ model InterfaceVlan {
 }
 
 model Subnet {
-  id                 String             @id @default(uuid()) @db.Uuid
-  cidr               String             @unique
+  id                 String                   @id @default(uuid()) @db.Uuid
+  cidr               String                   @unique
   version            Int
   gateway            String?
   purpose            String?
   environment        String?
-  siteId             String?            @db.Uuid
-  vlanId             String?            @db.Uuid
-  site               Site?              @relation(fields: [siteId], references: [id], onDelete: SetNull)
-  vlan               Vlan?              @relation(fields: [vlanId], references: [id], onDelete: SetNull)
+  siteId             String?                  @db.Uuid
+  vlanId             String?                  @db.Uuid
+  site               Site?                    @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  vlan               Vlan?                    @relation(fields: [vlanId], references: [id], onDelete: SetNull)
   ips                IpAddress[]
-  capacitySnapshots SubnetCapacitySnapshot[]
+  capacitySnapshots  SubnetCapacitySnapshot[]
   discoveryJobs      DiscoveryJob[]
   discoverySchedule  DiscoverySchedule?
-  vrfId              String?            @db.Uuid
-  parentSubnetId     String?            @db.Uuid
-  vrf                Vrf?               @relation(fields: [vrfId], references: [id], onDelete: SetNull)
-  parentSubnet       Subnet?            @relation("SubnetHierarchy", fields: [parentSubnetId], references: [id], onDelete: SetNull)
-  childSubnets       Subnet[]           @relation("SubnetHierarchy")
-  natSourceRules     NatRule[]          @relation("NatSourceSubnet")
-  natTranslatedRules NatRule[]          @relation("NatTranslatedSubnet")
-  scanEnabled        Boolean            @default(false)
-  scanIntervalHours  Int                @default(12)
+  vrfId              String?                  @db.Uuid
+  parentSubnetId     String?                  @db.Uuid
+  vrf                Vrf?                     @relation(fields: [vrfId], references: [id], onDelete: SetNull)
+  parentSubnet       Subnet?                  @relation("SubnetHierarchy", fields: [parentSubnetId], references: [id], onDelete: SetNull)
+  childSubnets       Subnet[]                 @relation("SubnetHierarchy")
+  natSourceRules     NatRule[]                @relation("NatSourceSubnet")
+  natTranslatedRules NatRule[]                @relation("NatTranslatedSubnet")
+  scanEnabled        Boolean                  @default(false)
+  scanIntervalHours  Int                      @default(12)
   scanMethods        Json?
   scanTcpPorts       Json?
-  reverseDnsEnabled  Boolean            @default(true)
+  reverseDnsEnabled  Boolean                  @default(true)
   lastScanAt         DateTime?
   nextScanAt         DateTime?
   lastScanStatus     String?
@@ -1301,18 +1350,18 @@ model Subnet {
 }
 
 model SubnetCapacitySnapshot {
-  id                  String   @id @default(uuid()) @db.Uuid
-  subnetId            String   @db.Uuid
-  sampledAt           DateTime
-  version             Int
-  usableCapacity      Int?
-  trackedAddresses    Int
-  occupiedAddresses   Int
-  reservedAddresses   Int
-  allocatedAddresses  Int
-  freeAddresses       Int?
-  utilizationPercent  Float?
-  subnet              Subnet   @relation(fields: [subnetId], references: [id], onDelete: Cascade)
+  id                 String   @id @default(uuid()) @db.Uuid
+  subnetId           String   @db.Uuid
+  sampledAt          DateTime
+  version            Int
+  usableCapacity     Int?
+  trackedAddresses   Int
+  occupiedAddresses  Int
+  reservedAddresses  Int
+  allocatedAddresses Int
+  freeAddresses      Int?
+  utilizationPercent Float?
+  subnet             Subnet   @relation(fields: [subnetId], references: [id], onDelete: Cascade)
 
   @@unique([subnetId, sampledAt])
 }
@@ -1385,17 +1434,17 @@ model IpAddress {
 }
 
 model IpReservation {
-  id          String     @id @default(uuid()) @db.Uuid
-  ipAddressId String     @db.Uuid
-  createdById String     @db.Uuid
-  reason      String     @db.VarChar(500)
+  id          String    @id @default(uuid()) @db.Uuid
+  ipAddressId String    @db.Uuid
+  createdById String    @db.Uuid
+  reason      String    @db.VarChar(500)
   expiresAt   DateTime
-  status      String     @default("ACTIVE") @db.VarChar(16)
+  status      String    @default("ACTIVE") @db.VarChar(16)
   releasedAt  DateTime?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  ipAddress   IpAddress  @relation(fields: [ipAddressId], references: [id], onDelete: Cascade)
-  createdBy   User       @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  ipAddress   IpAddress @relation(fields: [ipAddressId], references: [id], onDelete: Cascade)
+  createdBy   User      @relation(fields: [createdById], references: [id], onDelete: Restrict)
 
   @@index([status, expiresAt])
   @@index([ipAddressId, status])
@@ -1435,16 +1484,16 @@ model NatRule {
 }
 
 model AccessGroup {
-  id                        String                     @id @default(uuid()) @db.Uuid
-  name                      String                     @unique
+  id                        String                      @id @default(uuid()) @db.Uuid
+  name                      String                      @unique
   description               String?
   members                   AccessGroupMember[]
   siteAssignments           AccessGroupSite[]
   criticalAssetMappings     CriticalAssetGroupMapping[]
   infrastructurePermissions InfrastructurePermission[]
   lifecycleDates            LifecycleDate[]
-  createdAt                 DateTime                   @default(now())
-  updatedAt                 DateTime                   @updatedAt
+  createdAt                 DateTime                    @default(now())
+  updatedAt                 DateTime                    @updatedAt
 }
 
 model CriticalAssetGroupMapping {
@@ -1461,21 +1510,58 @@ model CriticalAssetGroupMapping {
   @@index([groupId])
 }
 
+enum CriticalAssetOutcome {
+  CONFIRMED
+  NEEDS_CORRECTION
+  NOT_FOUND
+}
+
+enum CriticalAssetCorrectionStatus {
+  OPEN
+  RESOLVED
+  REJECTED
+}
+
 model CriticalAssetAttestation {
-  id          String   @id @default(uuid()) @db.Uuid
-  deviceId    String   @db.Uuid
-  siteId      String   @db.Uuid
-  weekStart   DateTime @db.Date
-  outcome     String?
+  id          String                    @id @default(uuid()) @db.Uuid
+  deviceId    String                    @db.Uuid
+  siteId      String                    @db.Uuid
+  weekStart   DateTime                  @db.Date
+  outcome     CriticalAssetOutcome?
   notes       String?
   confirmedAt DateTime?
-  confirmedBy String?  @db.Uuid
-  createdAt   DateTime @default(now())
-  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  site        Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  confirmedBy String?                   @db.Uuid
+  createdAt   DateTime                  @default(now())
+  device      Device                    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  site        Site                      @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  corrections CriticalAssetCorrection[]
 
   @@unique([deviceId, weekStart])
   @@index([siteId, weekStart])
+}
+
+/// A correction request raised by NEEDS_CORRECTION, owned by the group that reviews the asset type.
+/// It is kept after it is resolved or rejected, so the history stays.
+model CriticalAssetCorrection {
+  id              String                        @id @default(uuid()) @db.Uuid
+  attestationId   String                        @db.Uuid
+  deviceId        String                        @db.Uuid
+  siteId          String                        @db.Uuid
+  groupId         String?                       @db.Uuid
+  status          CriticalAssetCorrectionStatus @default(OPEN)
+  description     String
+  requestedBy     String?                       @db.Uuid
+  requestedAt     DateTime                      @default(now())
+  closedBy        String?                       @db.Uuid
+  closedAt        DateTime?
+  closeNote       String?
+  changeReference String?
+  attestation     CriticalAssetAttestation      @relation(fields: [attestationId], references: [id], onDelete: Cascade)
+  device          Device                        @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  site            Site                          @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@index([siteId, status])
+  @@index([attestationId])
 }
 
 model AccessGroupMember {
@@ -1567,21 +1653,21 @@ model DiscoveryResult {
 }
 
 model ApplicationLink {
-  id                String                @id @default(uuid()) @db.Uuid
+  id                String                    @id @default(uuid()) @db.Uuid
   name              String
   url               String
-  icon              String                @default("external-link")
+  icon              String                    @default("external-link")
   description       String?
-  category          String                @default("Operações")
-  sortOrder         Int                   @default(0)
-  isActive          Boolean               @default(true)
-  checkAvailability Boolean               @default(false)
+  category          String                    @default("Operações")
+  sortOrder         Int                       @default(0)
+  isActive          Boolean                   @default(true)
+  checkAvailability Boolean                   @default(false)
   lastCheckedAt     DateTime?
   isAvailable       Boolean?
   roles             ApplicationLinkRole[]
   favorites         UserApplicationFavorite[]
-  createdAt         DateTime              @default(now())
-  updatedAt         DateTime              @updatedAt
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
 
   @@index([isActive, category, sortOrder])
 }
