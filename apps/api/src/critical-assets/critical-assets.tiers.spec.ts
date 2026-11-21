@@ -59,9 +59,9 @@ describe('criticality write rules', () => {
     assert.deepEqual(criticalityWrite({ criticalityTier: null }), { criticalityTier: null, isCritical: false, criticalityTierReviewed: true });
   });
 
-  it('legacy isCritical=true keeps an existing tier and defaults a new one to T2 unreviewed', () => {
+  it('legacy isCritical=true keeps an existing tier and defaults a new one to T1 unreviewed', () => {
     assert.deepEqual(criticalityWrite({ isCritical: true }, { criticalityTier: 'T3', criticalityTierReviewed: true }), { isCritical: true });
-    assert.deepEqual(criticalityWrite({ isCritical: true }), { isCritical: true, criticalityTier: 'T2', criticalityTierReviewed: false });
+    assert.deepEqual(criticalityWrite({ isCritical: true }), { isCritical: true, criticalityTier: 'T1', criticalityTierReviewed: false });
   });
 
   it('legacy isCritical=false clears the tier, and no input leaves criticality alone', () => {
