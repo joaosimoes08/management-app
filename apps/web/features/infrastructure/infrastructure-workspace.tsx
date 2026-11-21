@@ -209,7 +209,7 @@ export function InfrastructureWorkspace() {
   // Drill-through filters (dashboard links) apply to the Equipamentos tab only.
   const activeDeviceFilters = tab === 'devices' && hasDeviceUrlFilters(deviceFilters) ? deviceFilters : null;
   const { data: devicesData, error: devicesError } = useQuery({
-    queryKey: ['infrastructure', 'devices', siteId, tab === 'devices' ? debouncedSearch : '', activeDeviceFilters, missingConfigAllSites ? '' : missingConfig],
+    queryKey: ['infrastructure', 'devices', siteId, tab === 'devices' ? debouncedSearch : '', missingConfigAllSites ? '' : missingConfig, activeDeviceFilters],
     queryFn: () => listDevices(siteId, tab === 'devices' ? debouncedSearch : '', 1, activeDeviceFilters ?? undefined, missingConfigAllSites ? '' : missingConfig),
     enabled: Boolean(siteId),
   });
