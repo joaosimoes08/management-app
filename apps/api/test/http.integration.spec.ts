@@ -1,10 +1,13 @@
 import 'reflect-metadata';
 import { strict as assert } from 'node:assert';
 import { randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { CanActivate, ConflictException, ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
@@ -514,6 +517,187 @@ test('enforces scoped operations, dashboard, topology and quality workflows', as
   const findingId = json(findings).items[0].id;
   assert.equal((await request('PATCH', `/api/v1/inventory-quality/findings/${findingId}/acknowledge`, 'qa-auditor')).statusCode, 403);
   assert.equal((await request('PATCH', `/api/v1/inventory-quality/findings/${findingId}/assign`, 'qa-network-scoped', { userId: ids.scoped })).statusCode, 200);
+});
+
+test('enforces the Site permission on every NAT write, whatever links the rule to the Site', async () => {
+  const vrfA = await prisma.vrf.create({ data: { name: 'HTTP VRF A', siteId: ids.siteA } });
+  const vrfB = await prisma.vrf.create({ data: { name: 'HTTP VRF B', siteId: ids.siteB } });
+  const vrfOnlyA = await prisma.natRule.create({ data: { name: 'HTTP NAT VRF-only A', type: 'SNAT', vrfId: vrfA.id } });
+  const siteOnlyA = await prisma.natRule.create({ data: { name: 'HTTP NAT Site-only A', type: 'DNAT', siteId: ids.siteA } });
+  const vrfOnlyB = await prisma.natRule.create({ data: { name: 'HTTP NAT VRF-only B', type: 'SNAT', vrfId: vrfB.id } });
+  const body = (extra: Record<string, unknown>) => ({ name: 'HTTP NAT edited', type: 'SNAT', ...extra });
+
+  // Scoped operator: Site A READ/CREATE/UPDATE, no DELETE. These deletes used to succeed.
+  const deniedVrfDelete = await request('DELETE', `/api/v1/nat-rules/${vrfOnlyA.id}`, 'qa-network-scoped');
+  assert.equal(deniedVrfDelete.statusCode, 403, deniedVrfDelete.body);
+  assert.equal(json(deniedVrfDelete).code, 'IPAM_SCOPE_FORBIDDEN');
+  assert.equal((await request('DELETE', `/api/v1/nat-rules/${siteOnlyA.id}`, 'qa-network-scoped')).statusCode, 403);
+  assert.ok(await prisma.natRule.findUnique({ where: { id: vrfOnlyA.id } }));
+  assert.ok(await prisma.natRule.findUnique({ where: { id: siteOnlyA.id } }));
+  assert.equal((await request('PATCH', `/api/v1/nat-rules/${vrfOnlyA.id}`, 'qa-network-scoped', body({}))).statusCode, 200);
+
+  // A Site the user can read but not write: 403 on create, update, delete and on moving a rule there.
+  await prisma.accessGroupSite.create({ data: { groupId: ids.groupRead, siteId: ids.siteB } });
+  await prisma.accessGroupSitePermission.create({ data: { groupId: ids.groupRead, siteId: ids.siteB, permission: 'READ' } });
+  try {
+    assert.equal((await request('GET', `/api/v1/nat-rules/${vrfOnlyB.id}`, 'qa-network-scoped')).statusCode, 200);
+    const deniedUpdate = await request('PATCH', `/api/v1/nat-rules/${vrfOnlyB.id}`, 'qa-network-scoped', body({}));
+    assert.equal(deniedUpdate.statusCode, 403, deniedUpdate.body);
+    assert.equal((await request('DELETE', `/api/v1/nat-rules/${vrfOnlyB.id}`, 'qa-network-scoped')).statusCode, 403);
+    assert.equal((await request('POST', '/api/v1/nat-rules', 'qa-network-scoped', body({ vrfId: vrfB.id }))).statusCode, 403);
+    assert.equal((await request('POST', '/api/v1/nat-rules', 'qa-network-scoped', body({ siteId: ids.siteB }))).statusCode, 403);
+    assert.equal((await request('POST', '/api/v1/nat-rules', 'qa-network-scoped', body({ siteId: ids.siteA, translatedSubnetId: ids.subnetB }))).statusCode, 403);
+    assert.equal((await request('PATCH', `/api/v1/nat-rules/${vrfOnlyA.id}`, 'qa-network-scoped', body({ vrfId: vrfB.id }))).statusCode, 403);
+    assert.equal((await prisma.natRule.findUniqueOrThrow({ where: { id: vrfOnlyA.id } })).vrfId, vrfA.id);
+  } finally {
+    await prisma.accessGroupSitePermission.deleteMany({ where: { groupId: ids.groupRead, siteId: ids.siteB } });
+    await prisma.accessGroupSite.deleteMany({ where: { groupId: ids.groupRead, siteId: ids.siteB } });
+  }
+
+  // Invisible Site stays a 404; an unscoped rule is refused for non-admins; allowed writes still work.
+  assert.equal((await request('POST', '/api/v1/nat-rules', 'qa-network-scoped', body({ vrfId: vrfB.id }))).statusCode, 404);
+  const unscoped = await request('POST', '/api/v1/nat-rules', 'qa-network-scoped', body({}));
+  assert.equal(unscoped.statusCode, 403);
+  assert.equal(json(unscoped).code, 'IPAM_NAT_SITE_REQUIRED');
+  assert.equal((await request('POST', '/api/v1/nat-rules', 'qa-network-scoped', body({ vrfId: vrfA.id }))).statusCode, 201);
+  assert.equal((await request('DELETE', `/api/v1/nat-rules/${vrfOnlyB.id}`, 'qa-admin')).statusCode, 200);
+});
+
+test('previews a pasted prefix list with a server-side diff and imports it through the same confirm flow', async () => {
+  const vrfA = await prisma.vrf.create({ data: { name: 'HTTP RIPE VRF', siteId: ids.siteA } });
+  await prisma.subnet.createMany({ data: [
+    { cidr: '10.251.1.0/24', version: 4, siteId: ids.siteA, purpose: 'Users' },
+    { cidr: '10.251.2.0/24', version: 4, siteId: ids.siteA, vrfId: vrfA.id },
+    { cidr: '10.251.8.0/22', version: 4, siteId: ids.siteA },
+  ] });
+  const pasted = ['10.251.1.0/24\n10.251.2.0/24', '10.251.9.0/24, 10.250.2.0/24; 10.251.20.1/24', '2001:db8:251::/48', 'nope', '10.251.20.0/24'];
+  const preview = await request('POST', '/api/v1/ipam/ripe/preview', 'qa-admin', { prefixes: pasted, siteId: ids.siteA, query: 'HTTP paste' });
+  assert.equal(preview.statusCode, 201, preview.body);
+  const result = json(preview);
+  assert.equal(result.source, 'PASTE');
+  assert.equal(result.queryType, 'paste');
+  assert.equal(result.status, 'PREVIEW');
+  assert.deepEqual(result.target, { siteId: ids.siteA, vrfId: null, purpose: null, environment: null });
+  assert.deepEqual(result.prefixes, ['10.251.1.0/24', '10.251.2.0/24', '10.251.9.0/24', '10.250.2.0/24', '10.251.20.0/24', '2001:db8:251::/48']);
+  const status = Object.fromEntries(result.diff.map((item: { prefix: string; status: string; reason: string }) => [item.prefix, `${item.status}:${item.reason}`]));
+  assert.deepEqual(status, {
+    '10.251.1.0/24': 'exists:EXISTS_SAME',
+    '10.251.2.0/24': 'changed:EXISTS_DIFFERENT_ATTRIBUTES',
+    '10.251.9.0/24': 'conflict:OVERLAP',
+    '10.250.2.0/24': 'conflict:EXISTS_OUTSIDE_SITE',
+    '10.251.20.0/24': 'new:NEW',
+    '2001:db8:251::/48': 'new:NEW',
+  });
+  assert.deepEqual(result.summary, { total: 6, new: 2, changed: 1, exists: 1, conflict: 2, importable: 2, invalid: 1, duplicates: 1 });
+  assert.deepEqual(result.invalid.map((item: { input: string }) => item.input), ['nope']);
+  assert.deepEqual(result.normalized, [{ input: '10.251.20.1/24', prefix: '10.251.20.0/24' }]);
+  const stored = await prisma.ripeImport.findUniqueOrThrow({ where: { id: result.id } });
+  assert.equal(stored.source, 'PASTE');
+  assert.equal(json(await request('GET', `/api/v1/ipam/ripe/imports/${result.id}`, 'qa-admin')).result.summary.new, 2);
+
+  // Same confirm endpoint as RIPEstat previews; the target must match what was diffed.
+  assert.equal(json(await request('POST', '/api/v1/ipam/ripe/import', 'qa-admin', { importId: result.id, prefixes: ['10.251.20.0/24'], siteId: ids.siteB })).code, 'RIPE_PREVIEW_TARGET_MISMATCH');
+  assert.equal((await request('POST', '/api/v1/ipam/ripe/import', 'qa-admin', { importId: result.id, prefixes: ['10.251.20.0/24'], siteId: ids.siteA, vrfId: vrfA.id })).statusCode, 400);
+  const imported = await request('POST', '/api/v1/ipam/ripe/import', 'qa-admin', { importId: result.id, prefixes: ['10.251.20.0/24', '2001:db8:251::/48', '10.251.1.0/24'], siteId: ids.siteA });
+  assert.equal(imported.statusCode, 201, imported.body);
+  assert.equal(json(imported).status, 'PARTIAL');
+  assert.deepEqual(json(imported).created.map((item: { cidr: string }) => item.cidr).sort(), ['10.251.20.0/24', '2001:db8:251::/48']);
+  assert.deepEqual(json(imported).skipped.map((item: { cidr: string }) => item.cidr), ['10.251.1.0/24']);
+
+  // Validation and role gating.
+  assert.equal((await request('POST', '/api/v1/ipam/ripe/preview', 'qa-admin', { prefixes: ['10.251.30.0/24'] })).statusCode, 400);
+  assert.equal((await request('POST', '/api/v1/ipam/ripe/preview', 'qa-admin', { prefixes: [], siteId: ids.siteA })).statusCode, 400);
+  const noneValid = await request('POST', '/api/v1/ipam/ripe/preview', 'qa-admin', { prefixes: ['garbage', '10.0.0.1'], siteId: ids.siteA });
+  assert.equal(json(noneValid).code, 'RIPE_PASTE_NO_VALID_PREFIX');
+  const tooMany = await request('POST', '/api/v1/ipam/ripe/preview', 'qa-admin', { prefixes: [Array.from({ length: 501 }, (_, index) => `10.252.${index >> 8}.${index & 255}/32`).join('\n')], siteId: ids.siteA });
+  assert.equal(json(tooMany).code, 'RIPE_PASTE_TOO_MANY');
+  assert.equal((await request('POST', '/api/v1/ipam/ripe/preview', 'qa-admin', { prefixes: ['10.251.30.0/24'], siteId: ids.siteA, vrfId: (await prisma.vrf.create({ data: { name: 'HTTP RIPE VRF B', siteId: ids.siteB } })).id })).statusCode, 400);
+  assert.equal((await request('POST', '/api/v1/ipam/ripe/preview', 'qa-readonly', { prefixes: ['10.251.30.0/24'], siteId: ids.siteA })).statusCode, 403);
+  assert.equal((await request('POST', '/api/v1/ipam/ripe/preview', 'qa-network-scoped', { prefixes: ['10.251.30.0/24'], siteId: ids.siteA })).statusCode, 403);
+  assert.equal((await request('POST', '/api/v1/ipam/ripe/preview', 'qa-network-scoped', { prefixes: ['10.251.30.0/24'], siteId: ids.siteB })).statusCode, 404);
+});
+
+test('keeps the RIPEstat lookup preview response unchanged and adds a diff only when a Site is given', async () => {
+  // The stand-in serves real RIPEstat responses (test/fixtures, captured 2026-11-21) by data call.
+  const fixture = (name: string) => readFileSync(join(__dirname, 'fixtures', name), 'utf8');
+  const calls: string[] = [];
+  const server = createServer((req, res) => {
+    calls.push(req.url ?? '');
+    res.setHeader('content-type', 'application/json');
+    if (req.url?.startsWith('/data/announced-prefixes/')) return res.end(fixture('ripestat-announced-prefixes-AS3333.json'));
+    if (req.url?.startsWith('/data/whois/') && req.url.includes('193.0.0.0')) return res.end(fixture('ripestat-whois-193.0.0.0-21.json'));
+    res.statusCode = 400; res.end(fixture('ripestat-whois-unsupported.json'));
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const original = process.env.RIPESTAT_BASE_URL;
+  process.env.RIPESTAT_BASE_URL = `http://127.0.0.1:${(server.address() as AddressInfo).port}/data/`;
+  const as3333 = ['193.0.12.0/23', '2001:67c:2e8::/48', '193.0.10.0/23', '193.0.18.0/23', '193.0.22.0/23', '193.0.20.0/23', '193.0.0.0/21', '2a13:27c0::/44'];
+  try {
+    const legacy = await request('POST', '/api/v1/ipam/ripe/preview', 'qa-admin', { query: 'AS3333' });
+    assert.equal(legacy.statusCode, 201, legacy.body);
+    assert.deepEqual(Object.keys(json(legacy)).sort(), ['id', 'prefixes', 'query', 'queryType', 'status']);
+    assert.deepEqual(json(legacy).prefixes, as3333);
+    assert.match(calls[0], /announced-prefixes\/data\.json\?resource=AS3333$/);
+    const withSite = await request('POST', '/api/v1/ipam/ripe/preview', 'qa-admin', { query: 'AS3333', siteId: ids.siteA });
+    assert.equal(withSite.statusCode, 201, withSite.body);
+    assert.equal(json(withSite).source, 'RIPESTAT');
+    assert.deepEqual(json(withSite).diff.map((item: { prefix: string }) => item.prefix), as3333);
+    assert.deepEqual([...new Set(json(withSite).diff.map((item: { status: string }) => item.status))], ['new']);
+
+    const whois = await request('POST', '/api/v1/ipam/ripe/preview', 'qa-admin', { query: '193.0.0.0/21' });
+    assert.equal(whois.statusCode, 201, whois.body);
+    assert.equal(json(whois).queryType, 'prefix');
+    assert.deepEqual(json(whois).prefixes, ['193.0.0.0/21']);
+
+    const callsBefore = calls.length;
+    const organisation = await request('POST', '/api/v1/ipam/ripe/preview', 'qa-admin', { query: 'RIPE-NCC' });
+    assert.equal(organisation.statusCode, 400);
+    assert.equal(json(organisation).code, 'RIPE_ORGANISATION_UNSUPPORTED');
+    assert.equal(calls.length, callsBefore, 'organisation lookups must not call RIPEstat');
+    const unsupported = await request('POST', '/api/v1/ipam/ripe/preview', 'qa-admin', { query: '10.9.9.9/32' });
+    assert.equal(unsupported.statusCode, 400);
+    assert.match(json(unsupported).message, /unsupported resource type/);
+  } finally {
+    if (original === undefined) delete process.env.RIPESTAT_BASE_URL; else process.env.RIPESTAT_BASE_URL = original;
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('marks a prefix overlapping an earlier prefix of the same paste as a conflict', async () => {
+  const preview = await request('POST', '/api/v1/ipam/ripe/preview', 'qa-admin', { prefixes: ['10.253.0.0/16\n10.253.1.0/24\n10.254.0.0/24'], siteId: ids.siteA });
+  assert.equal(preview.statusCode, 201, preview.body);
+  const result = json(preview);
+  assert.deepEqual(result.diff.map((item: { prefix: string; status: string; importable: boolean }) => [item.prefix, item.status, item.importable]), [
+    ['10.253.0.0/16', 'new', true],
+    ['10.253.1.0/24', 'conflict', false],
+    ['10.254.0.0/24', 'new', true],
+  ]);
+  assert.equal(result.diff[1].reason, 'OVERLAP');
+  assert.deepEqual(result.diff[1].overlaps, [{ source: 'paste', relation: 'within', sameScope: true, prefix: '10.253.0.0/16' }]);
+  assert.equal(result.summary.importable, 2);
+  const imported = await request('POST', '/api/v1/ipam/ripe/import', 'qa-admin', { importId: result.id, prefixes: result.diff.filter((item: { importable: boolean }) => item.importable).map((item: { prefix: string }) => item.prefix), siteId: ids.siteA });
+  assert.equal(imported.statusCode, 201, imported.body);
+  assert.equal(json(imported).status, 'IMPORTED');
+  assert.deepEqual(json(imported).skipped, []);
+});
+
+test('imports by the stored diff, not by the order the client sends the prefixes', async () => {
+  const preview = await request('POST', '/api/v1/ipam/ripe/preview', 'qa-admin', { prefixes: ['10.252.0.0/16\n10.252.1.0/24'], siteId: ids.siteA });
+  assert.equal(preview.statusCode, 201, preview.body);
+  const result = json(preview);
+  assert.deepEqual(result.diff.map((item: { prefix: string; status: string; importable: boolean }) => [item.prefix, item.status, item.importable]), [
+    ['10.252.0.0/16', 'new', true],
+    ['10.252.1.0/24', 'conflict', false],
+  ]);
+  // The /24 is sent first: it must still be skipped as OVERLAP and the /16 created.
+  const imported = await request('POST', '/api/v1/ipam/ripe/import', 'qa-admin', { importId: result.id, prefixes: ['10.252.1.0/24', '10.252.0.0/16'], siteId: ids.siteA });
+  assert.equal(imported.statusCode, 201, imported.body);
+  assert.equal(json(imported).status, 'PARTIAL');
+  assert.deepEqual(json(imported).created.map((item: { cidr: string }) => item.cidr), ['10.252.0.0/16']);
+  assert.deepEqual(json(imported).skipped.map((item: { cidr: string; reason: string }) => [item.cidr, item.reason]), [['10.252.1.0/24', 'OVERLAP']]);
+  assert.equal(await prisma.subnet.count({ where: { cidr: '10.252.1.0/24' } }), 0);
+  const stored = await prisma.ripeImport.findUniqueOrThrow({ where: { id: result.id } });
+  assert.equal(stored.status, 'PARTIAL');
 });
 
 test('critical asset attestation: 409 on a second review of the same cycle, reviewer names and due state over HTTP', async () => {
