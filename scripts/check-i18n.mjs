@@ -23,6 +23,7 @@ const operationalFiles = [
   'apps/web/features/critical-assets/workbench.ts',
   'apps/web/features/change-plans/change-plans-page.tsx',
   'apps/web/features/change-plans/change-calendar.tsx',
+  'apps/web/features/change-plans/change-execution.tsx',
   'apps/web/features/change-plans/workspace.ts',
   'apps/web/components/data-table/data-table.tsx',
   'apps/web/components/data-table/entity-link.tsx',
