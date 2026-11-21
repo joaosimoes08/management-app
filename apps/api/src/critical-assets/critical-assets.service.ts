@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { PrismaClient } from '@simoes/database';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { InfrastructureAccessService } from '../infrastructure/infrastructure-access.service';
+import { isIanaTimeZone } from '../common/time-zone';
 
 function localParts(date: Date, timezone: string) {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: timezone, weekday: 'short', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(date);
@@ -151,7 +152,7 @@ export class CriticalAssetsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async setMapping(siteId: string, assetType: string, groupId: string, timezone: string, user: AuthenticatedUser) {
-    try { new Intl.DateTimeFormat('en', { timeZone: timezone }); } catch { throw new BadRequestException('Fuso horário inválido'); }
+    if (!isIanaTimeZone(timezone)) throw new BadRequestException('Fuso horário inválido');
     await this.access.assertSite(user, 'UPDATE', siteId, 'DEVICE', assetType);
     const result = await this.prisma.$transaction(async (tx) => {
       const assignment = await tx.accessGroupSite.findUnique({ where: { groupId_siteId: { groupId, siteId } }, select: { groupId: true } });

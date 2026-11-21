@@ -7,6 +7,7 @@ import { PageToolbarPortal } from '@/components/layout/app-shell';
 import { createNatRule, deleteNatRule, listNatRules, listVrfs, updateNatRule } from '../api';
 import type { NatRule, NatRuleInput, NatRuleType, Subnet } from '../types';
 import { Empty, IpamModal } from './ipam-modal';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 
 export const natTypeLabels: Record<NatRuleType, string> = { SNAT: 'SNAT (origem)', DNAT: 'DNAT (destino)', STATIC_1_TO_1: 'Estático 1:1', PAT: 'PAT' };
 const natTypes = Object.keys(natTypeLabels) as NatRuleType[];
@@ -45,6 +46,7 @@ export function filterNatRules(items: NatRule[], search: string): NatRule[] {
 
 /** NAT rules of the active Site: filters by type/VRF, table and create/edit/delete with API validation messages. */
 export function NatView({ siteId, siteName, search, subnets, canCreate, canUpdate, canDelete, success, toastError }: NatViewProps) {
+  const { confirm: askConfirm, confirmDialog } = useConfirm();
   const queryClient = useQueryClient();
   const [type, setType] = useState<NatRuleType | ''>('');
   const [vrfId, setVrfId] = useState('');
@@ -100,7 +102,7 @@ export function NatView({ siteId, siteName, search, subnets, canCreate, canUpdat
   };
 
   const remove = async (rule: NatRule) => {
-    if (!confirm(`Eliminar a regra NAT ${rule.name}?`)) return;
+    if (!(await askConfirm({ message: `Eliminar a regra NAT ${rule.name}?`, destructive: true }))) return;
     try {
       await deleteNatRule(rule.id);
       success('Eliminar regra NAT', `A regra NAT ${rule.name} foi eliminada.`);
@@ -110,7 +112,7 @@ export function NatView({ siteId, siteName, search, subnets, canCreate, canUpdat
     }
   };
 
-  return <section className="ipam-card">
+  return <>{confirmDialog}<section className="ipam-card">
     <div className="panel-heading"><div><h2>Regras NAT do Site</h2><p className="panel-description">Traduções entre endereços internos e externos, por tipo e VRF.</p></div></div>
     <PageToolbarPortal>
       <select className="context-toolbar-selector" aria-label="Filtrar por tipo de NAT" value={type} onChange={(event) => setType(event.target.value as NatRuleType | '')}><option value="">Todos os tipos</option>{natTypes.map((value) => <option key={value} value={value}>{natTypeLabels[value]}</option>)}</select>
@@ -149,5 +151,5 @@ export function NatView({ siteId, siteName, search, subnets, canCreate, canUpdat
       <label className="settings-check"><input type="checkbox" checked={form.enabled} onChange={(event) => setForm({ ...form, enabled: event.target.checked })} /> Regra ativa</label>
       <button className="primary-button" disabled={saving}>{saving ? 'A guardar…' : form.id ? 'Guardar alterações' : 'Criar regra NAT'}</button>
     </form></IpamModal>}
-  </section>;
+  </section></>;
 }

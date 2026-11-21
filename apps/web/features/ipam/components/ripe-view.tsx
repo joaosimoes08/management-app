@@ -7,6 +7,8 @@ import { ApiRequestError } from '@/lib/api/errors';
 import { getRipeImport, importRipe, listRipeImports, listVrfs, previewRipe } from '../api';
 import type { NetworkMapVlan, RipeDiffItem, RipeOverlap, RipeDiffReason, RipeDiffStatus, RipeImportRecord, RipeImportResult, RipePreview, RipePreviewInput, RipeQueryType, RipeSubnetRef, Vrf } from '../types';
 import { Empty, IpamModal } from './ipam-modal';
+import { useConfirm } from '@/components/ui/confirm-dialog';
+import { formatDateTime } from '@/lib/format/date';
 
 const statusLabel: Record<RipeDiffStatus, string> = { new: 'Novo', changed: 'Alterado', exists: 'Já existe', conflict: 'Conflito' };
 const statusBadge: Record<RipeDiffStatus, string> = { new: 'free', changed: 'reserved', exists: 'occupied', conflict: 'excluded' };
@@ -34,7 +36,7 @@ export interface RipeViewProps {
 }
 
 const message = (cause: unknown) => (cause instanceof Error ? cause.message : 'Operação falhou.');
-const formatDate = (value: string) => new Date(value).toLocaleString('pt-PT');
+const formatDate = (value: string) => formatDateTime(value);
 /** The server diff is tied to the target Site + VRF; changing either makes it stale. */
 const targetKey = (siteId: string, vrfId: string) => `${siteId}|${vrfId}`;
 
@@ -70,6 +72,7 @@ function ImportStatusBadge({ status }: { status: string }) {
 
 /** RIPE import: RIPEstat lookup or pasted/uploaded list → server diff against the Site/VRF → confirm import; plus import history. */
 export function RipeView({ siteId, search, vlans, canPreview, canImport, success, toastError }: RipeViewProps) {
+  const { confirm: askConfirm, confirmDialog } = useConfirm();
   const queryClient = useQueryClient();
   const [pasteOpen, setPasteOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -137,7 +140,7 @@ export function RipeView({ siteId, search, vlans, canPreview, canImport, success
   const runImport = async (event: FormEvent) => {
     event.preventDefault();
     if (!preview || stale || !chosen.length) return;
-    if (!confirm(`Importar ${chosen.length} prefixo(s) como subnets deste Site?`)) return;
+    if (!(await askConfirm({ title: 'Importar prefixos RIPE', message: `Importar ${chosen.length} prefixo(s) como subnets deste Site?`, confirmLabel: 'Importar' }))) return;
     const target = preview.target ?? { siteId, vrfId: vrfId || null };
     setImporting(true);
     try {
@@ -161,7 +164,7 @@ export function RipeView({ siteId, search, vlans, canPreview, canImport, success
 
   const vrfSelect = <label>VRF de destino<select value={vrfId} onChange={(event) => setVrfId(event.target.value)}><option value="">Sem VRF</option>{(vrfs ?? []).map((vrf) => <option key={vrf.id} value={vrf.id}>{vrf.name}</option>)}</select><small>As diferenças são calculadas para este Site e VRF.</small></label>;
 
-  return <>
+  return <>{confirmDialog}<>
     <section className="ipam-card calculator-panel">
       <div className="panel-heading"><div><span className="section-kicker">RIPE</span><h2>Importar prefixos RIPE</h2><p className="panel-description">Consulta o RIPEstat ou cola uma lista de prefixos, revê as diferenças calculadas pelo servidor e confirma a importação.</p></div><button className="secondary-button" onClick={() => { setPreviewError(''); setPasteOpen(true); }}><ClipboardList size={14} /> Colar ou carregar lista</button></div>
       <form className="calculator-form" onSubmit={(event) => void runPreview(event, 'ripestat')}>
@@ -232,7 +235,7 @@ export function RipeView({ siteId, search, vlans, canPreview, canImport, success
     </form></IpamModal>}
 
     {detailId && <RipeImportPanel item={detail ?? null} vrfs={vrfs ?? []} close={() => setDetailId('')} />}
-  </>;
+  </></>;
 }
 
 function RipeImportPanel({ item, vrfs, close }: { item: RipeImportRecord | null; vrfs: Vrf[]; close: () => void }) {

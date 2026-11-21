@@ -48,6 +48,7 @@ import { VrfsView } from './components/vrfs-view';
 import { NatView } from './components/nat-view';
 import { RipeView } from './components/ripe-view';
 import { applyIpReservationOverrides, reconcileIpReservationOverrides, syncIpReservationCache, type IpReservationOverrideState } from './reservation-cache';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 
 const tabs: [string, string, typeof Map][] = [['map', 'Mapa', Map], ['subnets', 'Subnets', Network], ['planning', 'Planeamento', CalendarRange], ['vrfs', 'VRFs', Route], ['nat', 'NAT', ArrowLeftRight], ['calculator', 'Calculadora', Calculator], ['imports', 'RIPE', Upload]];
 
@@ -71,6 +72,7 @@ const blankSubnet: SubnetFormState = { id: '', cidr: '', version: 4, vlanId: '',
 const blankHost: HostFormState = { id: '', address: '', hostname: '', description: '' };
 
 export default function IpamPage() {
+  const { confirm: askConfirm, confirmDialog } = useConfirm();
   const { hasRole, user } = useAuth();
   const { t } = useI18n();
   const { siteId, activeSite } = useSiteContext();
@@ -267,7 +269,7 @@ export default function IpamPage() {
   };
 
   const remove = async (path: string, message: string) => {
-    if (confirm(message)) await save(path, {}, 'DELETE');
+    if (await askConfirm({ message, destructive: true })) await save(path, {}, 'DELETE');
   };
 
   const siteName = activeSite?.name ?? 'Seleciona um Site';
@@ -283,7 +285,7 @@ export default function IpamPage() {
   };
 
   const removeSubnet = async (item: Pick<Subnet, 'id' | 'cidr'>) => {
-    if (!confirm(`Eliminar a subnet ${item.cidr}? Os endereços IP e dados de discovery associados também serão eliminados.`)) return;
+    if (!(await askConfirm({ message: `Eliminar a subnet ${item.cidr}? Os endereços IP e dados de discovery associados também serão eliminados.`, destructive: true }))) return;
     const removed = await save(`/api/v1/subnets/${item.id}`, {}, 'DELETE');
     if (removed && selectedSubnetId === item.id) {
       setSelectedSubnetId('');
@@ -293,7 +295,7 @@ export default function IpamPage() {
   };
 
   const detachSubnet = async (item: NetworkMapVlan) => {
-    if (!item.subnet || !confirm(`Desassociar a subnet ${item.subnet.cidr} da VLAN ${item.vlanId}? A subnet não será eliminada.`)) return;
+    if (!item.subnet || !(await askConfirm({ title: 'Desassociar subnet', message: `Desassociar a subnet ${item.subnet.cidr} da VLAN ${item.vlanId}? A subnet não será eliminada.`, confirmLabel: 'Desassociar' }))) return;
     await save(`/api/v1/subnets/${item.subnet.id}`, { vlanId: null }, 'PATCH');
   };
 
@@ -336,7 +338,7 @@ export default function IpamPage() {
           : tab === 'imports' ? 'Pesquisar importações RIPE…'
             : 'Pesquisar subnets…';
 
-  return <AppShell section="IPAM" toolbarKey={tab} context={[siteName, ...(tab === 'map' ? [] : [tabLabel]), ...(selected ? [selected.cidr] : []), ...(hostDetail ? [hostDetail.name] : [])]} search={tab === 'calculator' ? undefined : { value: search, onChange: setSearch, placeholder: searchPlaceholder, scopeLabel: selected && tab === 'subnets' ? 'Endereços IP' : tabLabel }} actions={<><button className="secondary-button" onClick={() => void invalidateIpam()} disabled={busy}><RefreshCw size={14} /> Atualizar</button>{origin && <a className="secondary-button" href={`/infraestrutura?siteId=${encodeURIComponent(siteId)}&tab=interfaces&deviceId=${encodeURIComponent(origin.deviceId)}&interfaceId=${encodeURIComponent(origin.interfaceId || '')}`}>← Voltar à porta</a>}</>} moduleTabs={siteId ? <nav className="ipam-tabs ipam-feature-tabs" aria-label={t('nav.ipam')}>{visibleTabs.map(([value, label, Icon]) => <button key={value} className={tab === value ? 'active' : ''} aria-current={tab === value ? 'page' : undefined} onClick={() => { setTab(value); setSearch(''); }}><Icon size={15} />{label}</button>)}</nav> : null}>
+  return <>{confirmDialog}<AppShell section="IPAM" toolbarKey={tab} context={[siteName, ...(tab === 'map' ? [] : [tabLabel]), ...(selected ? [selected.cidr] : []), ...(hostDetail ? [hostDetail.name] : [])]} search={tab === 'calculator' ? undefined : { value: search, onChange: setSearch, placeholder: searchPlaceholder, scopeLabel: selected && tab === 'subnets' ? 'Endereços IP' : tabLabel }} actions={<><button className="secondary-button" onClick={() => void invalidateIpam()} disabled={busy}><RefreshCw size={14} /> Atualizar</button>{origin && <a className="secondary-button" href={`/infraestrutura?siteId=${encodeURIComponent(siteId)}&tab=interfaces&deviceId=${encodeURIComponent(origin.deviceId)}&interfaceId=${encodeURIComponent(origin.interfaceId || '')}`}>← Voltar à porta</a>}</>} moduleTabs={siteId ? <nav className="ipam-tabs ipam-feature-tabs" aria-label={t('nav.ipam')}>{visibleTabs.map(([value, label, Icon]) => <button key={value} className={tab === value ? 'active' : ''} aria-current={tab === value ? 'page' : undefined} onClick={() => { setTab(value); setSearch(''); }}><Icon size={15} />{label}</button>)}</nav> : null}>
     <main className="ipam-workspace aligned-workspace">
       {error && <div className="ipam-alert error"><X size={15} />{error}</div>}
       {siteId && unavailableIpamActions.length > 0 && !fetchingAccess && <p className="ipam-scope-note">{t('ipam.scope.limited', undefined, { site: siteName, actions: unavailableIpamActions.join(', ') })}</p>}
@@ -373,5 +375,5 @@ export default function IpamPage() {
 
       {modal === 'create-host' && selected && <IpamModal title="Criar Host e associar IP" close={() => setModal('')}><form className="modal-form" onSubmit={(event) => { event.preventDefault(); void save('/api/v1/hosts', { name: host.name, hostname: host.hostname, operatingSystem: host.operatingSystem, macAddress: host.macAddress, notes: host.notes, status: host.status, ipAddressId: host.ipAddressId }, 'POST', async () => { await openSubnet(selected.id); const list = await searchHosts(selected.id, host.name ?? ''); if (list.items?.[0]) await openHost(list.items[0].id); }); }}><label>Nome<input required value={host.name ?? ''} onChange={(event) => setHost({ ...host, name: event.target.value })} /></label><label>Hostname<input value={host.hostname ?? ''} onChange={(event) => setHost({ ...host, hostname: event.target.value })} /></label><label>Sistema operativo<input value={host.operatingSystem ?? ''} onChange={(event) => setHost({ ...host, operatingSystem: event.target.value })} /></label><label>Estado<select value={host.status ?? 'UNKNOWN'} onChange={(event) => setHost({ ...host, status: event.target.value })}>{['UNKNOWN', 'ACTIVE', 'INACTIVE', 'MAINTENANCE'].map((status) => <option key={status}>{status}</option>)}</select></label><label>Notas<textarea value={host.notes ?? ''} onChange={(event) => setHost({ ...host, notes: event.target.value })} /></label><button className="primary-button">Criar e associar</button></form></IpamModal>}
     </main>
-  </AppShell>;
+  </AppShell></>;
 }

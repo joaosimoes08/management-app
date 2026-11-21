@@ -5,6 +5,7 @@ import type { IpAddressRow, Subnet, SubnetCapacityHistory, SubnetUsage } from '.
 import { Empty } from './ipam-modal';
 import { PageToolbarPortal } from '@/components/layout/app-shell';
 import { SubnetCapacityTrend } from './subnet-capacity-trend';
+import { formatDateTime } from '@/lib/format/date';
 
 export interface SubnetsViewProps {
   selected: Subnet | null;
@@ -56,7 +57,7 @@ export function SubnetsView({ selected, items, loading = false, usage, usageLoad
       <thead><tr><th>IP</th><th>Estado manual / observado</th><th>Host</th><th>Hostname</th><th>Ações</th></tr></thead>
       <tbody>{loadingIps ? [0, 1, 2].map((item) => <tr className="ip-table-skeleton-row" aria-hidden="true" key={item}><td colSpan={5}><span className="content-skeleton ip-table-skeleton-line"/></td></tr>) : ips.map((ip) => { const reservation = ip.reservation ?? ip.reservations?.find((item) => item.status === 'ACTIVE') ?? null; return <tr key={ip.id}>
         <td className="mono">{ip.address}</td>
-        <td>{reservation ? 'RESERVED' : ip.state} / {ip.observedState || '—'}{reservation && <small className="reservation-summary">Até {new Date(reservation.expiresAt).toLocaleString('pt-PT')} · {reservation.reason}</small>}</td>
+        <td>{reservation ? 'RESERVED' : ip.state} / {ip.observedState || '—'}{reservation && <small className="reservation-summary">Até {formatDateTime(reservation.expiresAt)} · {reservation.reason}</small>}</td>
         <td>{ip.host
           ? <button className="link-button" onClick={() => openHost(ip.host!.id)}>{ip.host.name} · {ip.host._count?.services ?? 0} services</button>
           : canEdit && !reservation && ip.state === 'FREE' ? <button className="secondary-button" onClick={() => createHost(ip)}><Plus size={13} /> Criar/associar Host</button> : '—'}</td>
