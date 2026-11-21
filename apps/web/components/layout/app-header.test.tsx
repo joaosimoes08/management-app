@@ -60,3 +60,48 @@ describe('AppHeader persistent Next Steps alert', () => {
     expect(screen.queryByRole('link', { name: /Próximos passos/ })).not.toBeInTheDocument();
   });
 });
+
+describe('AppHeader missing device config alert', () => {
+  // GET /dashboard/topbar-state alert shape (docs/device-required-config.md).
+  const missingAlert = (config: string, count: number, href: string, title: string) => ({
+    id: `device-missing-config-${config}`, kind: 'DEVICE_MISSING_CONFIG', config, count, persistent: true, severity: 'WARNING', title,
+    detail: 'A carga das PDUs não inclui estes equipamentos.', href, occurredAt: '2026-11-20T00:00:00.000Z',
+  });
+
+  it('shows one alert per missing config, linking to the filtered list, and survives Limpar todos', async () => {
+    mocks.hasRole.mockReturnValue(false);
+    mocks.readAll.mockResolvedValue({ updated: 0 });
+    mocks.apiFetch.mockResolvedValue({ ...state, alerts: [
+      missingAlert('power', 3, '/infraestrutura?tab=devices&missingConfig=power', '3 dispositivos sem tomadas de energia configuradas'),
+      { id: 'a1', severity: 'CRITICAL', title: 'Link em baixo', detail: 'x', href: '/alertas', occurredAt: '2026-11-20T00:00:00.000Z' },
+    ] });
+    mocks.load.mockReturnValue(undefined);
+
+    render(<AppHeader section="Infraestrutura" onOpenSidebar={vi.fn()} onOpenGlobalSearch={vi.fn()} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: '2 alertas ativos' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: '2 alertas ativos' }));
+    const link = screen.getByRole('link', { name: /3 dispositivos sem tomadas de energia/ });
+    expect(link).toHaveAttribute('href', '/infraestrutura?tab=devices&missingConfig=power');
+    expect(link).toHaveClass('missing-config');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Limpar todos' }));
+    expect(screen.queryByRole('link', { name: /Link em baixo/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /3 dispositivos sem tomadas de energia/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '1 alerta ativo' })).toBeInTheDocument();
+  });
+
+  it('stays persistent even if the API omits the flag; a single device links to its settings tab', async () => {
+    mocks.hasRole.mockReturnValue(false);
+    mocks.readAll.mockResolvedValue({ updated: 0 });
+    const single = { ...missingAlert('rearImage', 1, '/infraestrutura?siteId=s1&tab=devices&deviceId=d9&settingsTab=imagens', '1 dispositivo sem imagem traseira'), persistent: undefined };
+    mocks.apiFetch.mockResolvedValue({ ...state, alerts: [single] });
+    mocks.load.mockReturnValue(undefined);
+
+    render(<AppHeader section="Infraestrutura" onOpenSidebar={vi.fn()} onOpenGlobalSearch={vi.fn()} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: '1 alerta ativo' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: '1 alerta ativo' }));
+    expect(screen.getByRole('link', { name: /1 dispositivo sem imagem traseira/ })).toHaveAttribute('href', '/infraestrutura?siteId=s1&tab=devices&deviceId=d9&settingsTab=imagens');
+    fireEvent.click(screen.getByRole('button', { name: 'Limpar todos' }));
+    expect(screen.getByRole('link', { name: /1 dispositivo sem imagem traseira/ })).toBeInTheDocument();
+  });
+});

@@ -9,8 +9,11 @@ export type ApiErrorPayload = {
   mapped?: number;
   /** PORT_LAYOUT_CONFLICT: the current revision. */
   revision?: string;
-  /** CRITICAL_ASSET_ATTESTATION_ALREADY_RECORDED: the cycle that was already reviewed and by whom. */
-  details?: { attestationId?: string; weekStart?: string; outcome?: string | null; confirmedAt?: string | null; confirmedBy?: string | null; confirmedByName?: string | null };
+  /**
+   * Extra data some errors carry, e.g. CRITICAL_ASSET_ATTESTATION_ALREADY_RECORDED (the cycle that was
+   * already reviewed and by whom) or PDU_HAS_CONNECTIONS (the devices still plugged in).
+   */
+  details?: { attestationId?: string; weekStart?: string; outcome?: string | null; confirmedAt?: string | null; confirmedBy?: string | null; confirmedByName?: string | null } & Record<string, unknown>;
 };
 
 export const localizedApiErrors: Record<string, Record<string, string>> = {

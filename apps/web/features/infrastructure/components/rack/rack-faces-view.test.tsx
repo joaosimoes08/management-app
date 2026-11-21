@@ -5,7 +5,7 @@ import { RACK_VIEW_STORAGE_KEY } from '../../utils';
 import { RackDetail } from './rack-detail';
 
 class TestResizeObserver { observe() {} disconnect() {} unobserve() {} }
-vi.mock('./rack-device-zoom', () => ({ RackDeviceZoom: ({ deviceId, face }: { deviceId: string; face: string }) => <div data-testid="device-focus" data-device={deviceId} data-face={face} /> }));
+vi.mock('./rack-device-zoom', () => ({ RackDeviceZoom: ({ deviceId, face, onBack }: { deviceId: string; face: string; onBack: () => void }) => <div data-testid="device-focus" data-device={deviceId} data-face={face}><button type="button" data-testid="device-focus-back" onClick={onBack}>back</button></div> }));
 vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }));
 vi.mock('../asset-image', () => ({ AssetImage: ({ alt }: { alt: string }) => <span role="img" aria-label={alt} /> }));
 
@@ -86,17 +86,45 @@ describe('RackDetail device focus face', () => {
     expect(focus()).toHaveAttribute('data-face', 'rear');
   });
 
-  it('follows the utility-bar view when it changes while the device is focused', () => {
+  it('offers only Front and Rear in the picker while a device is focused', () => {
     setViewport(1920);
+    const { container } = renderRack();
+    openDevice(container, 'rear');
+    const picker = screen.getByRole('combobox', { name: 'rack.view' }) as HTMLSelectElement;
+    expect(within(picker).getAllByRole('option').map((option) => option.textContent)).toEqual(['rack.view.front', 'rack.view.rear']);
+    expect(picker.value).toBe('rear');
+  });
+
+  it('changes only the focused device face, leaving the rack view and its stored choice alone', () => {
+    setViewport(1920);
+    sessionStorage.setItem(RACK_VIEW_STORAGE_KEY, 'both');
     const { container } = renderRack();
     openDevice(container, 'rear');
     const picker = screen.getByRole('combobox', { name: 'rack.view' });
     fireEvent.change(picker, { target: { value: 'front' } });
     expect(focus()).toHaveAttribute('data-face', 'front');
+    expect(faces(container)).toEqual(['front', 'rear']);
+    expect(container.querySelector('.rack-stage')).toHaveAttribute('data-view', 'both');
+    expect(sessionStorage.getItem(RACK_VIEW_STORAGE_KEY)).toBe('both');
     fireEvent.change(picker, { target: { value: 'rear' } });
     expect(focus()).toHaveAttribute('data-face', 'rear');
-    fireEvent.change(picker, { target: { value: 'both' } });
-    expect(focus()).toHaveAttribute('data-face', 'rear');
+    expect(sessionStorage.getItem(RACK_VIEW_STORAGE_KEY)).toBe('both');
+  });
+
+  it('restores the rack picker and view when the focus closes', () => {
+    setViewport(1920);
+    sessionStorage.setItem(RACK_VIEW_STORAGE_KEY, 'rear');
+    const { container } = renderRack();
+    openDevice(container, 'rear');
+    fireEvent.change(screen.getByRole('combobox', { name: 'rack.view' }), { target: { value: 'front' } });
+    expect(faces(container)).toEqual(['rear']);
+    expect(sessionStorage.getItem(RACK_VIEW_STORAGE_KEY)).toBe('rear');
+    fireEvent.click(screen.getByTestId('device-focus-back'));
+    expect(screen.queryByTestId('device-focus')).not.toBeInTheDocument();
+    const picker = screen.getByRole('combobox', { name: 'rack.view' }) as HTMLSelectElement;
+    expect(picker.value).toBe('rear');
+    expect(within(picker).getAllByRole('option')).toHaveLength(3);
+    expect(faces(container)).toEqual(['rear']);
   });
 
   it('in Front or Rear, shows that face', () => {

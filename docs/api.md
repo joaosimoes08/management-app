@@ -151,6 +151,7 @@ Uma VLAN só pode receber uma subnet associada. Discovery agendado cria `Discove
 - `GET /api/v1/sites/:siteId/racks` — bastidores e equipamentos posicionados de um Site.
 - `GET /api/v1/sites/:siteId/locations` — edifícios e salas disponíveis para criação de bastidores.
 - `GET /api/v1/racks/:id` — detalhe do bastidor padrão de 42U com os equipamentos posicionados.
+- `GET /api/v1/racks/:id/power-summary` e `GET /api/v1/sites/:siteId/power-summary` — resumo de energia: capacidade vs consumo estimado, PDUs, tomadas e equipamentos perto do limite. Limiares `warningPercent`/`criticalPercent` configuráveis (80/90 por omissão). Contrato em `docs/rack-pdu-power-api.md`.
 - `POST/PATCH/DELETE /api/v1/racks` — gestão de bastidores, com roles `ADMIN`/`SYSTEMS_OPERATOR`; os payloads de criação/edição contêm apenas `name` e `roomId`.
 - `GET /api/v1/device-models?type=&supportsNetworkPorts=true` — catálogo filtrável.
 - `POST /api/v1/device-models/seed` — seed idempotente do catálogo base, apenas `ADMIN`.
