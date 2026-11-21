@@ -12,6 +12,11 @@ const reservableIpWhere = { state: 'FREE' as const, deviceId: null, interfaceId:
 
 export const MAX_NEXT_FREE = 32;
 
+/** Prisma P2002 (unique constraint failed). */
+export function isUniqueViolation(error: unknown) {
+  return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'P2002';
+}
+
 @Injectable()
 export class IpamWorkflowsService {
   constructor(private readonly prisma: PrismaClient, private readonly access: IpamAccessService, private readonly audit: AuditService, private readonly ipam: IpamService) {}
@@ -76,7 +81,11 @@ export class IpamWorkflowsService {
           const claimed = await tx.ipAddress.updateMany({ where: { id: ipAddressId, subnetId, ...reservableIpWhere }, data: { state: 'RESERVED' } });
           if (claimed.count !== 1) throw changed();
         } else {
-          const row = await tx.ipAddress.create({ data: { address: item.address, subnetId, state: 'RESERVED', source: 'MANUAL', version: 4 }, select: { id: true } }).catch(() => { throw changed(); });
+          const row = await tx.ipAddress.create({ data: { address: item.address, subnetId, state: 'RESERVED', source: 'MANUAL', version: 4 }, select: { id: true } }).catch((error: unknown) => {
+            // Only a unique violation (someone created this address meanwhile) means the range changed; anything else is a real error.
+            if (isUniqueViolation(error)) throw changed();
+            throw error;
+          });
           ipAddressId = row.id;
         }
         const reservation = await tx.ipReservation.create({ data: { ipAddressId, createdById: user.id, reason, expiresAt } });

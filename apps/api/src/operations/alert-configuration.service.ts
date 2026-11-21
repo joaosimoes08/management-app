@@ -15,10 +15,12 @@ export class AlertConfigurationService {
     const [rules, windows, openAlerts, activeWindows] = await Promise.all([
       this.prisma.alertRule.findMany({ orderBy: [{ siteId: 'asc' }, { name: 'asc' }], include: { site: { select: { id: true, name: true } } } }),
       this.prisma.maintenanceWindow.findMany({ where: { endsAt: { gte: now } }, orderBy: { startsAt: 'asc' }, take: 100, include: { site: { select: { id: true, name: true } }, createdBy: { select: { username: true, displayName: true } } } }),
-      this.prisma.operationalAlert.findMany({ where: { status: { not: 'RESOLVED' } }, select: { source: true, siteId: true, severity: true } }),
+      // The policy decision depends only on (source, Site, severity), so one counted row per combination is enough.
+      this.prisma.operationalAlert.groupBy({ by: ['source', 'siteId', 'severity'], where: { status: { not: 'RESOLVED' } }, _count: { _all: true } }),
       this.prisma.maintenanceWindow.findMany({ where: { startsAt: { lte: now }, endsAt: { gt: now } }, select: { siteId: true } }),
     ]);
-    return { rules: rules.map((rule) => ({ ...rule, activeAlerts: ruleAlertCounts(rule, rules, activeWindows, openAlerts) })), windows };
+    const alertGroups = openAlerts.map((group) => ({ source: group.source, siteId: group.siteId, severity: group.severity, count: group._count._all }));
+    return { rules: rules.map((rule) => ({ ...rule, activeAlerts: ruleAlertCounts(rule, rules, activeWindows, alertGroups) })), windows };
   }
 
   /** Partial update: only the fields sent change (e.g. { enabled: false } to switch a rule off). */
@@ -94,16 +96,18 @@ export function ruleAlertCounts(
   rule: { id: string; source: string; siteId: string | null; minSeverity: string; enabled: boolean },
   rules: Array<{ id: string; source: string; siteId: string | null; minSeverity: string; enabled: boolean }>,
   activeWindows: Array<{ siteId: string | null }>,
-  alerts: Array<{ source: string; siteId: string | null; severity: string }>,
+  /** One entry per alert, or per (source, Site, severity) group with its `count`. */
+  alerts: Array<{ source: string; siteId: string | null; severity: string; count?: number }>,
 ) {
   const counts = { matching: 0, governed: 0, shown: 0, belowThreshold: 0, inMaintenance: 0 };
   for (const alert of alerts) {
     if (alert.source !== rule.source || (rule.siteId !== null && rule.siteId !== alert.siteId)) continue;
-    counts.matching += 1;
+    const weight = alert.count ?? 1;
+    counts.matching += weight;
     if (!rule.enabled || effectiveAlertRule(rules, alert)?.id !== rule.id) continue;
-    counts.governed += 1;
+    counts.governed += weight;
     const decision = alertPolicyDecision(rules, activeWindows, alert);
-    if (decision === 'SHOWN') counts.shown += 1; else if (decision === 'MAINTENANCE') counts.inMaintenance += 1; else counts.belowThreshold += 1;
+    if (decision === 'SHOWN') counts.shown += weight; else if (decision === 'MAINTENANCE') counts.inMaintenance += weight; else counts.belowThreshold += weight;
   }
   return counts;
 }

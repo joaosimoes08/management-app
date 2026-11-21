@@ -33,7 +33,7 @@ export class ApplicationLinksController {
 
   @Post('check-all')
   @Roles('ADMIN')
-  checkAll(@Req() request: { user: AuthenticatedUser }, @Query('all') all?: string) { return this.service.checkAll(request.user, all === 'true'); }
+  checkAll(@Req() request: { user: AuthenticatedUser }, @Query('all') all?: string, @Query('offset') offset?: string) { return this.service.checkAll(request.user, all === 'true', offset); }
 
   @Post()
   @Roles('ADMIN')
