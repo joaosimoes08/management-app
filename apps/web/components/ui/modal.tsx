@@ -1,5 +1,6 @@
 'use client';
 
+import { useEscapeClose } from '@/components/ui/use-escape-close';
 import { X } from 'lucide-react';
 import { useEffect, type ReactNode } from 'react';
 
@@ -13,6 +14,7 @@ export interface ModalProps {
 }
 
 export function Modal({ title, children, close, entryMotion = false, className = '' }: ModalProps) {
+  useEscapeClose(close);
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';

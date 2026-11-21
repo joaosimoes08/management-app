@@ -96,13 +96,13 @@ describe('legacy DOM translation updates', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Reservar 10.254.251.2' }));
 
     await waitFor(() => {
-      expect(screen.getByText('RESERVED / —')).toBeInTheDocument();
+      expect(screen.getByText('Reservado / —')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Libertar reserva de 10.254.251.2' })).toHaveTextContent('Libertar');
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'Libertar reserva de 10.254.251.2' }));
     await waitFor(() => {
-      expect(screen.getByText('FREE / —')).toBeInTheDocument();
+      expect(screen.getByText('Livre / —')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Reservar 10.254.251.2' })).toHaveTextContent('Reservar');
     });
   });
@@ -117,6 +117,21 @@ describe('Phase E portal and settings messages', () => {
     ['Rejeitar o pedido de roles de Ana Silva?', 'Reject the role request from Ana Silva?'],
     ['4 pedidos por decidir', '4 requests awaiting decision'],
     ['Limiares: aviso 80% · crítico 90%', 'Thresholds: warning 80% · critical 90%'],
+  ])('translates %s', (pt, en) => {
+    expect(translateLegacyText('en-US', pt)).toBe(en);
+  });
+});
+
+describe('Step 35 labels', () => {
+  it.each([
+    ['Hora (24 h)', 'Time (24 h)'],
+    ['Reservado', 'Reserved'],
+    ['O endereço de destino pertence a uma rede restrita.', 'The destination address belongs to a restricted network.'],
+    ['Disponibilidade e tráfego', 'Availability and traffic'],
+    ['Débito de entrada e saída calculado entre leituras SNMP consecutivas, em megabits por segundo.', 'Inbound and outbound rates calculated between consecutive SNMP samples, in megabits per second.'],
+    ['2 execuções · 4 leituras', '2 runs · 4 samples'],
+    ['· todos os Sites', '· all Sites'],
+    ['Remover filtro de configuração em falta', 'Remove missing-configuration filter'],
   ])('translates %s', (pt, en) => {
     expect(translateLegacyText('en-US', pt)).toBe(en);
   });

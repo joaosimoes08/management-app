@@ -62,11 +62,11 @@ describe('IP reservation cache updates', () => {
 
     render(createElement(QueryClientProvider, { client: queryClient }, createElement(CacheDrivenRows)));
     fireEvent.click(await screen.findByRole('button', { name: 'Reservar 192.0.2.18' }));
-    expect(await screen.findByText('RESERVED / UNKNOWN')).toBeInTheDocument();
+    expect(await screen.findByText('Reservado / Desconhecido')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Libertar reserva de 192.0.2.18' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Libertar reserva de 192.0.2.18' }));
-    expect(await screen.findByText('FREE / UNKNOWN')).toBeInTheDocument();
+    expect(await screen.findByText('Livre / Desconhecido')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Reservar 192.0.2.18' })).toBeInTheDocument();
     finishRefreshes.forEach((finish) => finish());
   });
@@ -190,13 +190,13 @@ describe('IP reservation cache updates', () => {
     fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: 'Maintenance window' } });
     fireEvent.click(screen.getByRole('button', { name: 'Reservar IP' }));
 
-    expect(await screen.findByText('RESERVED / UNKNOWN')).toBeInTheDocument();
+    expect(await screen.findByText('Reservado / Desconhecido')).toBeInTheDocument();
     expect(persistedState).toBe('RESERVED');
     expect(screen.getByRole('button', { name: 'Libertar reserva de 192.0.2.18' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Reservar 192.0.2.18' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Libertar reserva de 192.0.2.18' }));
-    expect(await screen.findByText('FREE / UNKNOWN')).toBeInTheDocument();
+    expect(await screen.findByText('Livre / Desconhecido')).toBeInTheDocument();
     expect(persistedState).toBe('FREE');
     expect(screen.getByRole('button', { name: 'Reservar 192.0.2.18' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Libertar reserva de 192.0.2.18' })).not.toBeInTheDocument();
