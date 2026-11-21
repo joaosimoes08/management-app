@@ -1,5 +1,6 @@
 'use client';
 
+import { useEscapeClose } from '@/components/ui/use-escape-close';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { PageToolbarPortal } from '@/components/layout/app-shell';
 import { Archive, Check, ChevronDown, Edit3, Plus, Server, X } from 'lucide-react';
@@ -110,13 +111,11 @@ export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire,
     restoreSelectionFocus.current = false;
   }, [selectionMenuPhase, bulkPopoverPhase]);
   useEffect(() => () => { if (selectionMenuCloseTimer.current !== null) window.clearTimeout(selectionMenuCloseTimer.current); }, []);
+  useEscapeClose(() => {
+    if (selectionMenuOpen) closeSelectionMenu(true);
+    if (bulkPopoverOpen) closeBulkPopover(true);
+  }, selectionMenuOpen || bulkPopoverOpen);
   const handleSelectionMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Escape' && (selectionMenuOpen || bulkPopoverOpen)) {
-      event.preventDefault();
-      if (selectionMenuOpen) closeSelectionMenu(true);
-      if (bulkPopoverOpen) closeBulkPopover(true);
-      return;
-    }
     if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key) || !selectionMenuOpen) return;
     const items = Array.from(selectionMenuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []);
     if (!items.length) return;

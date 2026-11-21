@@ -100,6 +100,7 @@ const noDisplayName = { id: 'user-b', username: 'bruno.ops', displayName: null }
 function confirmService(row: Record<string, unknown>, options: { raceLost?: boolean } = {}) {
   let stored: Record<string, unknown> = { ...row };
   const audit: unknown[] = [];
+  const corrections: unknown[] = [];
   const users = [reviewer, noDisplayName];
   const attestationApi = {
     findUnique: async () => ({ ...stored, device: { type: 'ROUTER' } }),
@@ -119,19 +120,21 @@ function confirmService(row: Record<string, unknown>, options: { raceLost?: bool
           return { count: 1 };
         },
       },
+      criticalAssetCorrection: { create: async ({ data }: any) => { corrections.push(data); return data; } },
       auditLog: { create: async (entry: unknown) => { audit.push(entry); } },
     }),
   };
   const access: any = { assertSite: async () => undefined };
-  return { service: new CriticalAssetsService(prisma, access), audit, stored: () => stored };
+  return { service: new CriticalAssetsService(prisma, access), audit, corrections, stored: () => stored };
 }
 
 const pendingRow = { id: 'att-1', deviceId: 'device-a', siteId: 'site-a', weekStart: day('2026-11-09'), outcome: null, notes: null, confirmedAt: null, confirmedBy: null, createdAt: day('2026-11-09') };
 
 test('confirm records a pending cycle and returns the reviewer name', async () => {
-  const { service, audit } = confirmService(pendingRow);
-  const result: any = await service.confirm('att-1', 'CORRECTION_NEEDED', 'Serial number is wrong', { id: 'user-b', roles: ['ADMIN'] } as any);
-  assert.equal(result.outcome, 'CORRECTION_NEEDED');
+  const { service, audit, corrections } = confirmService(pendingRow);
+  const result: any = await service.confirm('att-1', 'NEEDS_CORRECTION', 'Serial number is wrong', { id: 'user-b', roles: ['ADMIN'] } as any);
+  assert.equal(corrections.length, 1, 'a correction request is opened with the review');
+  assert.equal(result.outcome, 'NEEDS_CORRECTION');
   assert.equal(result.notes, 'Serial number is wrong');
   assert.equal(result.confirmedBy, 'user-b');
   assert.equal(result.confirmedByName, 'bruno.ops', 'falls back to username without a display name');
@@ -143,7 +146,7 @@ test('confirm records a pending cycle and returns the reviewer name', async () =
 test('confirming an already recorded cycle returns 409 and does not overwrite it', async () => {
   const done = { ...pendingRow, outcome: 'CONFIRMED', confirmedBy: 'user-a', confirmedAt: new Date('2026-11-10T10:00:00.000Z') };
   const { service, audit, stored } = confirmService(done);
-  await assert.rejects(service.confirm('att-1', 'CORRECTION_NEEDED', 'late', { id: 'user-b', roles: ['ADMIN'] } as any), (error: unknown) => {
+  await assert.rejects(service.confirm('att-1', 'NEEDS_CORRECTION', 'late', { id: 'user-b', roles: ['ADMIN'] } as any), (error: unknown) => {
     assert.ok(error instanceof ConflictException);
     assert.equal(error.getStatus(), 409);
     const body = error.getResponse() as Record<string, unknown>;

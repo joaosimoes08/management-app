@@ -92,7 +92,10 @@ describe('PortalPage favourites', () => {
 
 describe('PortalPage check-all', () => {
   it('pages through every batch and shows per-link results, including BLOCKED and unknown codes', async () => {
-    mocks.listApplicationLinks.mockResolvedValue([link]);
+    const intranet = { ...link, id: 'b', name: 'Intranet', checkAvailability: true };
+    mocks.listApplicationLinks.mockResolvedValueOnce([link, intranet]).mockResolvedValue([
+      link, { ...intranet, isAvailable: false, lastCheckedAt: '2026-11-20T10:00:00.000Z' },
+    ]);
     mocks.checkAllApplicationLinks
       .mockResolvedValueOnce({ checked: 2, total: 3, offset: 0, nextOffset: 2, items: [
         { id: 'a', name: 'Zabbix', available: true, httpStatus: 200, responseMs: 42, checkedAt: '2026-11-20T10:00:00.000Z' },
@@ -113,6 +116,9 @@ describe('PortalPage check-all', () => {
     expect(mocks.checkAllApplicationLinks).toHaveBeenCalledTimes(2);
     const table = within(panel).getByRole('region', { name: 'Resultados da verificação' });
     expect(within(table).getByText('Bloqueado')).toHaveAttribute('data-code', 'BLOCKED');
+    expect(within(table).getByText('O endereço de destino pertence a uma rede restrita.')).toBeInTheDocument();
+    const card = screen.getByRole('heading', { name: 'Intranet' }).closest('article')!;
+    await waitFor(() => expect(within(card).getByText('Bloqueado')).toBeInTheDocument());
     expect(within(table).getByText('TEAPOT_LIMIT')).toBeInTheDocument();
     expect(within(table).getByText('Disponível')).toBeInTheDocument();
     expect(within(panel).getByTestId('portal-check-all-counts')).toHaveTextContent('Bloqueado: 1');

@@ -45,8 +45,8 @@ export function removeApplicationLink(id: string): Promise<unknown> {
   return apiFetch(`/api/v1/application-links/${id}`, { method: 'DELETE' });
 }
 
-export function checkApplicationLink(id: string): Promise<ApplicationLink> {
-  return apiFetch<ApplicationLink>(`/api/v1/application-links/${id}/check`, { method: 'POST' });
+export function checkApplicationLink(id: string): Promise<ApplicationLink & Pick<CheckAllItem, 'code'>> {
+  return apiFetch<ApplicationLink & Pick<CheckAllItem, 'code'>>(`/api/v1/application-links/${id}/check`, { method: 'POST' });
 }
 
 // ── Favourites (UserApplicationFavorite, #85) ──────────────────────────────
