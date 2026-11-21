@@ -4,9 +4,10 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { CalendarClock, Clock3, Pause, Play, Save } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getDiscoverySchedule, updateDiscoverySchedule, type DiscoveryScheduleInput, type DiscoverySubnet } from './api';
+import { formatDateTime } from '@/lib/format/date';
 
 const freshForm = (): DiscoveryScheduleInput => ({ enabled: false, intervalHours: 12, methods: ['ICMP', 'TCP'], tcpPorts: [22, 80, 443, 3389], reverseDns: true });
-const dateTime = (value: string | null, timeZone: string) => value ? new Intl.DateTimeFormat('pt-PT', { dateStyle: 'medium', timeStyle: 'short', timeZone }).format(new Date(value)) : '—';
+const dateTime = (value: string | null, timeZone: string) => value ? formatDateTime(value, { dateStyle: 'medium', timeStyle: 'short', timeZone }) : '—';
 
 export function DiscoverySchedulePanel({ subnets, canEdit, onError }: { subnets: DiscoverySubnet[]; canEdit: boolean; onError: (message: string) => void }) {
   const [subnetId, setSubnetId] = useState('');

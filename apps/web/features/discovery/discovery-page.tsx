@@ -16,6 +16,7 @@ import {
 } from './api';
 import { DiscoverySchedulePanel } from './discovery-schedule-panel';
 import { useConfirm } from '@/components/ui/confirm-dialog';
+import { formatDateTime } from '@/lib/format/date';
 
 const emptyEnrollment: SnmpPreRegistrationInput = { sourceAddress: '', siteId: '', version: 'V3', username: '', community: '', authKey: '', privKey: '', authProtocol: 'SHA256', privProtocol: 'AES128', compatibilitySha1: false };
 
@@ -99,7 +100,7 @@ function SnmpDiscovery({ devices, siteId, waiting, discovered, admin, canEdit, r
 }
 
 function EnrollmentSection({ title, kicker, items, empty, admin, canEdit, renew, cancel, accept }: { title: string; kicker: string; items: SnmpPreRegistration[]; empty: string; admin: boolean; canEdit: boolean; renew: (id: string) => Promise<void>; cancel: (id: string) => Promise<void>; accept: (item: SnmpPreRegistration) => void }) {
-  return <section className="ipam-card"><div className="panel-heading"><div><span className="section-kicker">{kicker}</span><h2>{title}</h2></div></div>{items.map((item) => <div className="result-row" key={item.id}><span><strong>{item.sourceAddress}</strong><small>{item.version}{item.username ? ` · ${item.username}` : ''} · {item.trapCount} traps{item.latestTrapOid ? ` · ${item.latestTrapOid}` : ''} · expira {new Date(item.expiresAt).toLocaleString('pt-PT')}</small></span><span className="result-actions">{canEdit && <button className="primary-button" onClick={() => accept(item)}><Check size={13} /> Adicionar equipamento</button>}{admin && <button className="secondary-button" onClick={() => void renew(item.id)}><RefreshCw size={13} /> Renovar</button>}{admin && <button className="danger-button" aria-label="Cancelar pré-registo" onClick={() => void cancel(item.id)}><Trash2 size={13} /></button>}</span></div>)}{!items.length && <div className="no-data">{empty}</div>}</section>;
+  return <section className="ipam-card"><div className="panel-heading"><div><span className="section-kicker">{kicker}</span><h2>{title}</h2></div></div>{items.map((item) => <div className="result-row" key={item.id}><span><strong>{item.sourceAddress}</strong><small>{item.version}{item.username ? ` · ${item.username}` : ''} · {item.trapCount} traps{item.latestTrapOid ? ` · ${item.latestTrapOid}` : ''} · expira {formatDateTime(item.expiresAt)}</small></span><span className="result-actions">{canEdit && <button className="primary-button" onClick={() => accept(item)}><Check size={13} /> Adicionar equipamento</button>}{admin && <button className="secondary-button" onClick={() => void renew(item.id)}><RefreshCw size={13} /> Renovar</button>}{admin && <button className="danger-button" aria-label="Cancelar pré-registo" onClick={() => void cancel(item.id)}><Trash2 size={13} /></button>}</span></div>)}{!items.length && <div className="no-data">{empty}</div>}</section>;
 }
 
 function NetworkModal({ form, setForm, subnets, profiles, close, submit }: { form: { name: string; subnetId: string; profileId: string; methods: string[]; tcpPorts: string; reverseDns: boolean }; setForm: (value: typeof form) => void; subnets: Array<{ id: string; cidr: string }>; profiles: NonNullable<DiscoveryDefaults['profiles']>; close: () => void; submit: (event: FormEvent) => Promise<void> }) {

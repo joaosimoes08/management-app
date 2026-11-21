@@ -8,6 +8,7 @@ import { getRipeImport, importRipe, listRipeImports, listVrfs, previewRipe } fro
 import type { NetworkMapVlan, RipeDiffItem, RipeOverlap, RipeDiffReason, RipeDiffStatus, RipeImportRecord, RipeImportResult, RipePreview, RipePreviewInput, RipeQueryType, RipeSubnetRef, Vrf } from '../types';
 import { Empty, IpamModal } from './ipam-modal';
 import { useConfirm } from '@/components/ui/confirm-dialog';
+import { formatDateTime } from '@/lib/format/date';
 
 const statusLabel: Record<RipeDiffStatus, string> = { new: 'Novo', changed: 'Alterado', exists: 'Já existe', conflict: 'Conflito' };
 const statusBadge: Record<RipeDiffStatus, string> = { new: 'free', changed: 'reserved', exists: 'occupied', conflict: 'excluded' };
@@ -35,7 +36,7 @@ export interface RipeViewProps {
 }
 
 const message = (cause: unknown) => (cause instanceof Error ? cause.message : 'Operação falhou.');
-const formatDate = (value: string) => new Date(value).toLocaleString('pt-PT');
+const formatDate = (value: string) => formatDateTime(value);
 /** The server diff is tied to the target Site + VRF; changing either makes it stale. */
 const targetKey = (siteId: string, vrfId: string) => `${siteId}|${vrfId}`;
 

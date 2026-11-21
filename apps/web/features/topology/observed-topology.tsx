@@ -7,8 +7,9 @@ import { listAllDevices } from '@/features/infrastructure/api';
 import { useAuth } from '@/lib/auth';
 import { useSiteContext } from '@/lib/site-context';
 import { applyTopologyProposal, getSnmpDeviceOverview, listDeviceLldpObservations, listDeviceTopologyProposals, rejectTopologyProposal, undoTopologyProposal, type LldpObservation, type SnmpInterfaceObservation, type TopologyProposal } from './observed-api';
+import { formatDateTime } from '@/lib/format/date';
 
-const dateTime = (value: string) => new Intl.DateTimeFormat('pt-PT', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
+const dateTime = (value: string) => formatDateTime(value, { dateStyle: 'medium', timeStyle: 'short' });
 const confidence = (value: number) => `${Math.round(Math.max(0, Math.min(100, value)))}%`;
 const actionLabel = (action: TopologyProposal['action']) => ({ ADD: 'Adicionar interface', UPDATE: 'Atualizar interface', REMOVAL_CANDIDATE: 'Candidato a remoção · bloqueado', CONNECTION_ADD: 'Proposta de ligação', CONNECTION_UPDATE: 'Proposta de atualização de ligação' })[action];
 const interfaceName = (item: SnmpInterfaceObservation) => item.name || item.description || `ifIndex ${item.ifIndex}`;

@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Activity, Edit3, LoaderCircle, RefreshCw, X } from 'lucide-react';
 import { checkIpAddress, getIpCheckHistory, updateIpAddress, type IpCheckHistoryEntry } from '../api';
 import type { IpAddressRow } from '../types';
+import { formatDateTime } from '@/lib/format/date';
 
 interface IpAddressPanelProps {
   ip: IpAddressRow;
@@ -80,7 +81,7 @@ export function IpAddressPanel({ ip, canUpdate, canCheck, close, updated, saved,
         <label>Descrição<textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
         <div className="form-actions"><button type="button" className="secondary-button" onClick={() => setEditing(false)}>Cancelar</button><button className="primary-button" disabled={busy}>{busy && <LoaderCircle size={14} className="spin" />} Guardar</button></div>
       </form> : <>
-        <div className="host-detail-grid"><div><span>MAC</span><strong>{ip.macAddress || '—'}</strong></div><div><span>Última verificação</span><strong>{ip.lastCheckAt ? new Date(ip.lastCheckAt).toLocaleString('pt-PT') : 'Nunca'}</strong></div><div className="wide"><span>Descrição</span><strong>{ip.notes || '—'}</strong></div><div className="wide"><span>Associado a</span><strong>{ip.host?.name || ip.interface?.device?.name || 'Sem host ou equipamento associado'}</strong></div></div>
+        <div className="host-detail-grid"><div><span>MAC</span><strong>{ip.macAddress || '—'}</strong></div><div><span>Última verificação</span><strong>{ip.lastCheckAt ? formatDateTime(ip.lastCheckAt) : 'Nunca'}</strong></div><div className="wide"><span>Descrição</span><strong>{ip.notes || '—'}</strong></div><div className="wide"><span>Associado a</span><strong>{ip.host?.name || ip.interface?.device?.name || 'Sem host ou equipamento associado'}</strong></div></div>
         <div className="form-actions ip-panel-actions">{canUpdate && <button className="secondary-button" onClick={() => setEditing(true)}><Edit3 size={14} /> Editar IP</button>}{canCheck && <button className="primary-button" disabled={busy} onClick={() => void check()}>{busy ? <LoaderCircle size={14} className="spin" /> : <Activity size={14} />} Verificar IP</button>}</div>
       </>}
       <section className="ip-check-history" aria-labelledby="ip-history-title" aria-busy={!history && !historyError}>
@@ -89,7 +90,7 @@ export function IpAddressPanel({ ip, canUpdate, canCheck, close, updated, saved,
         {!history && !historyError && <div className="ip-history-skeletons" aria-label="A carregar histórico de verificações">{[0, 1, 2].map((item) => <div className="ip-history-skeleton" key={item}><i className="content-skeleton"/><span><i className="content-skeleton"/><i className="content-skeleton"/></span><i className="content-skeleton"/></div>)}</div>}
         {history?.length === 0 && <p className="ip-history-muted">Ainda não existem verificações registadas.</p>}
         {history && history.length > 0 && <>
-          <ol className="ip-check-list">{history.map((entry) => <li key={entry.id}><span className={`ip-check-dot ${entry.metadata?.reachable ? 'reachable' : 'unreachable'}`} /><span><strong>{entry.metadata?.reachable ? 'Acessível' : 'Sem resposta'}</strong><small>{entry.user?.displayName || entry.user?.username || 'Sistema'}</small></span><time dateTime={entry.createdAt}>{new Date(entry.createdAt).toLocaleString('pt-PT')}</time></li>)}</ol>
+          <ol className="ip-check-list">{history.map((entry) => <li key={entry.id}><span className={`ip-check-dot ${entry.metadata?.reachable ? 'reachable' : 'unreachable'}`} /><span><strong>{entry.metadata?.reachable ? 'Acessível' : 'Sem resposta'}</strong><small>{entry.user?.displayName || entry.user?.username || 'Sistema'}</small></span><time dateTime={entry.createdAt}>{formatDateTime(entry.createdAt)}</time></li>)}</ol>
           {totalPages > 1 && <div className="ip-history-pagination"><button className="secondary-button" disabled={page <= 1} onClick={() => void loadHistory(page - 1)}>Anterior</button><span>{page} / {totalPages}</span><button className="secondary-button" disabled={page >= totalPages} onClick={() => void loadHistory(page + 1)}>Seguinte</button></div>}
         </>}
       </section>

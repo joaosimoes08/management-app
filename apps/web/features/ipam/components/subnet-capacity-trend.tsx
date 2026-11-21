@@ -1,8 +1,9 @@
 'use client';
 
 import type { SubnetCapacityHistory } from '../types';
+import { formatDateTime } from '@/lib/format/date';
 
-const dateLabel = (value: string) => new Intl.DateTimeFormat('pt-PT', { day: '2-digit', month: 'short', timeZone: 'UTC' }).format(new Date(value));
+const dateLabel = (value: string) => formatDateTime(value, { day: '2-digit', month: 'short', timeZone: 'UTC' });
 
 export function SubnetCapacityTrend({ history, loading = false }: { history: SubnetCapacityHistory | null; loading?: boolean }) {
   if (loading) return <section className="subnet-capacity-trend ipam-card subnet-capacity-loading" aria-label="A carregar tendência da capacidade da subnet" aria-busy="true"><div className="panel-heading"><div><span className="content-skeleton settings-loading-label"/><span className="content-skeleton settings-loading-title"/></div></div><div className="content-skeleton subnet-capacity-chart-skeleton"/><div className="content-skeleton subnet-capacity-copy-skeleton"/></section>;
