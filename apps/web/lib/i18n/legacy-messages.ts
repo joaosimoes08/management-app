@@ -746,6 +746,8 @@ const substitutions: Array<[RegExp, string]> = [
   [/^Finalidade: (.+)$/g, 'Purpose: $1'],
   [/^Ambiente: (.+)$/g, 'Environment: $1'],
   [/^Bom dia,\s*(.+?)\s*👋$/g, 'Good morning, $1 👋'],
+  [/^1 dia$/g, '1 day'],
+  [/^(\d+) dias$/g, '$1 days'],
   [/^Boa tarde,\s*(.+?)\s*👋$/g, 'Good afternoon, $1 👋'],
   [/^Boa noite,\s*(.+?)\s*👋$/g, 'Good evening, $1 👋'],
   [/Última verificação há (.+)/g, 'Last checked $1 ago'],
