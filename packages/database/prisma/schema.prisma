@@ -310,6 +310,7 @@ model Site {
   inventoryFindings    InventoryFinding[]
   criticalAssetMappings    CriticalAssetGroupMapping[]
   criticalAssetAttestations CriticalAssetAttestation[]
+  criticalAssetCorrections  CriticalAssetCorrection[]
   changePlans               ChangePlan[]
   netAppIntegration    NetAppIntegration?
   createdAt            DateTime                  @default(now())
@@ -485,6 +486,7 @@ model Device {
   snmpWriteRequests SnmpWriteRequest[]
   topologyNodes     TopologyMapNode[]
   criticalAssetAttestations CriticalAssetAttestation[]
+  criticalAssetCorrections  CriticalAssetCorrection[]
   pduOutlets        PduOutletAssignment[]
   sourceConnections DeviceConnection[] @relation("ConnectionSourceDevice")
   targetConnections DeviceConnection[] @relation("ConnectionTargetDevice")
@@ -1447,21 +1449,58 @@ model CriticalAssetGroupMapping {
   @@index([groupId])
 }
 
+enum CriticalAssetOutcome {
+  CONFIRMED
+  NEEDS_CORRECTION
+  NOT_FOUND
+}
+
+enum CriticalAssetCorrectionStatus {
+  OPEN
+  RESOLVED
+  REJECTED
+}
+
 model CriticalAssetAttestation {
-  id          String   @id @default(uuid()) @db.Uuid
-  deviceId    String   @db.Uuid
-  siteId      String   @db.Uuid
-  weekStart   DateTime @db.Date
-  outcome     String?
+  id          String                @id @default(uuid()) @db.Uuid
+  deviceId    String                @db.Uuid
+  siteId      String                @db.Uuid
+  weekStart   DateTime              @db.Date
+  outcome     CriticalAssetOutcome?
   notes       String?
   confirmedAt DateTime?
-  confirmedBy String?  @db.Uuid
-  createdAt   DateTime @default(now())
-  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  site        Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  confirmedBy String?               @db.Uuid
+  createdAt   DateTime              @default(now())
+  device      Device                @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  site        Site                  @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  corrections CriticalAssetCorrection[]
 
   @@unique([deviceId, weekStart])
   @@index([siteId, weekStart])
+}
+
+/// A correction request raised by NEEDS_CORRECTION, owned by the group that reviews the asset type.
+/// It is kept after it is resolved or rejected, so the history stays.
+model CriticalAssetCorrection {
+  id              String                        @id @default(uuid()) @db.Uuid
+  attestationId   String                        @db.Uuid
+  deviceId        String                        @db.Uuid
+  siteId          String                        @db.Uuid
+  groupId         String?                       @db.Uuid
+  status          CriticalAssetCorrectionStatus @default(OPEN)
+  description     String
+  requestedBy     String?                       @db.Uuid
+  requestedAt     DateTime                      @default(now())
+  closedBy        String?                       @db.Uuid
+  closedAt        DateTime?
+  closeNote       String?
+  changeReference String?
+  attestation     CriticalAssetAttestation      @relation(fields: [attestationId], references: [id], onDelete: Cascade)
+  device          Device                        @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  site            Site                          @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@index([siteId, status])
+  @@index([attestationId])
 }
 
 model AccessGroupMember {
