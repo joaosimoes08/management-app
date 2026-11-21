@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BulkFindingResponse, FindingFacets, InventoryFinding } from './api';
-import { ALL, bulkOutcome, emptyQualityFilters, findingQueryFrom, groupByRule, hasQualityFilters, snoozeOptions, statusCount, visibleSelection } from './quality-workspace';
+import { ALL, bulkOutcome, findingDeviceId, emptyQualityFilters, findingQueryFrom, groupByRule, hasQualityFilters, snoozeOptions, statusCount, visibleSelection } from './quality-workspace';
 
 const finding = (id: string, rule: string, status: InventoryFinding['status'] = 'OPEN') => ({ id, rule, status, title: `T ${id}` }) as InventoryFinding;
 
@@ -45,5 +45,15 @@ describe('quality workspace helpers', () => {
       { id: 'zz', title: 'zz', ok: false, message: 'Não encontrado ou sem acesso' },
     ]);
     expect(outcome.snoozedUntil).toBe('2026-11-22T10:00:00.000Z');
+  });
+});
+
+describe('findingDeviceId', () => {
+  it('uses the device itself, else the deviceId in the fix link', () => {
+    expect(findingDeviceId({ entityType: 'Device', entityId: 'd1', actionHref: null })).toBe('d1');
+    expect(findingDeviceId({ entityType: 'DeviceInterface', entityId: 'if1', actionHref: '/infraestrutura?siteId=s1&tab=interfaces&deviceId=d2&interfaceId=if1' })).toBe('d2');
+    expect(findingDeviceId({ entityType: 'SnmpDrift', entityId: 'x', actionHref: '/snmp?siteId=s1&deviceId=d3' })).toBe('d3');
+    expect(findingDeviceId({ entityType: 'IpAddress', entityId: 'ip1', actionHref: '/ipam?siteId=s1&subnetId=n1&ipId=ip1' })).toBeNull();
+    expect(findingDeviceId({ entityType: 'IpAddress', entityId: 'ip1', actionHref: null })).toBeNull();
   });
 });

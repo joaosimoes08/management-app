@@ -2221,3 +2221,63 @@ test('Step 31 email: a CRITICAL operational alert is e-mailed to the group recip
     ['EMAIL', '[CRITICAL] Core router down', 'SENT'], ['TEAMS', '[CRITICAL] Core router down', 'SENT'], ['TEAMS', '[HIGH] Uplink degraded', 'SENT'],
   ]);
 });
+
+test('Step 34 topology impact: core switch, loops, depth bound, PDU feeds, path view and the 2 s budget on a large site', async () => {
+  const uid = (n: number) => `34000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  const site = uid(1), building = uid(2), room = uid(3), rack = uid(4), pduA = uid(5), pduB = uid(6);
+  await prisma.site.create({ data: { id: site, name: 'HTTP Impact Site', code: 'HTTP-IMPACT' } });
+  await prisma.building.create({ data: { id: building, name: 'Impact Building', siteId: site } });
+  await prisma.room.create({ data: { id: room, name: 'Impact Room', buildingId: building } });
+  await prisma.rack.create({ data: { id: rack, name: 'Impact Rack', roomId: room } });
+  const named = ['fw', 'core1', 'core2', 'dist1', 'dist2', 'acc1', 'acc2', 'acc3', 'srv1', 'srv2', 'srv3'];
+  const dev = new Map(named.map((name, index) => [name, uid(100 + index)]));
+  for (let ring = 0; ring < 30; ring += 1) dev.set(`ring${ring}`, uid(200 + ring));
+  for (let server = 0; server < 3000; server += 1) dev.set(`bulk${server}`, uid(1000 + server));
+  const typeOf = (name: string) => name === 'fw' ? 'FIREWALL' : /^(srv|bulk)/.test(name) ? 'SERVER' : 'SWITCH';
+  await prisma.device.createMany({ data: [...dev.entries()].map(([name, id]) => ({ id, name: `IMPACT ${name}`, type: typeOf(name), siteId: site, rackId: named.includes(name) ? rack : null, hostname: name === 'srv1' ? 'impact-srv1.corp.local' : null, criticalityTier: name === 'srv1' ? 'T1' as const : null })) });
+  const pairs: [string, string][] = [
+    ['fw', 'core1'], ['core1', 'dist1'], ['dist1', 'acc1'], ['acc1', 'srv1'], ['dist1', 'acc2'], ['acc2', 'srv2'], ['acc1', 'acc2'],
+    ['core1', 'dist2'], ['dist2', 'acc3'], ['acc3', 'srv3'], ['core2', 'dist2'], ['core2', 'fw'],
+  ];
+  for (let ring = 0; ring < 30; ring += 1) pairs.push([ring === 0 ? 'acc3' : `ring${ring - 1}`, `ring${ring}`]);
+  pairs.push(['ring29', 'acc3']);
+  for (let server = 0; server < 3000; server += 1) pairs.push([`ring${server % 30}`, `bulk${server}`]);
+  await prisma.deviceConnection.createMany({ data: pairs.map(([a, b], index) => ({ id: uid(10_000 + index), siteId: site, type: 'PHYSICAL' as const, sourceDeviceId: index % 2 ? dev.get(b)! : dev.get(a)!, targetDeviceId: index % 2 ? dev.get(a)! : dev.get(b)! })) });
+  await prisma.rackPdu.createMany({ data: [{ id: pduA, rackId: rack, source: 'SUPPLIER' }, { id: pduB, rackId: rack, source: 'UPS' }] });
+  await prisma.pduOutletAssignment.createMany({ data: [
+    { pduId: pduA, outletIndex: 1, deviceId: dev.get('srv1')!, plugIndex: 1 }, { pduId: pduB, outletIndex: 1, deviceId: dev.get('srv1')!, plugIndex: 2 },
+    { pduId: pduA, outletIndex: 2, deviceId: dev.get('srv2')!, plugIndex: 1 },
+  ] });
+  await prisma.host.create({ data: { name: 'impact-srv1', hostname: 'impact-srv1.corp.local', deviceId: dev.get('srv1')!, services: { create: [{ name: 'https', protocol: 'tcp', port: 443 }] } } });
+  await prisma.applicationLink.create({ data: { name: 'Impact ERP', url: 'https://impact-srv1.corp.local/erp' } });
+
+  const timed = async (path: string) => { const started = performance.now(); const response = await request('GET', path, 'qa-admin'); const elapsed = performance.now() - started; assert.equal(response.statusCode, 200, response.body); return { body: json(response), elapsed }; };
+  const core = await timed(`/api/v1/topology/impact?deviceId=${dev.get('core1')}`);
+  assert.deepEqual(core.body.affected.map((item: { name: string }) => item.name).sort(), ['IMPACT acc1', 'IMPACT acc2', 'IMPACT dist1', 'IMPACT srv1', 'IMPACT srv2']);
+  assert.equal(core.body.anchorMode, 'gateway-devices');
+  assert.deepEqual(core.body.critical.T1, [dev.get('srv1')]);
+  assert.deepEqual(core.body.hosts.map((item: { name: string }) => item.name), ['impact-srv1']);
+  assert.deepEqual(core.body.applications.map((item: { name: string }) => item.name), ['Impact ERP']);
+  assert.ok(core.elapsed < 2000, `core impact took ${core.elapsed} ms`);
+
+  const wide = await timed(`/api/v1/topology/impact?deviceId=${dev.get('dist2')}&maxDepth=32`);
+  assert.equal(wide.body.affected.length, 3032, 'acc3, srv3, the 30-switch ring and its 3,000 servers');
+  assert.equal(wide.body.truncated, false);
+  assert.ok(wide.elapsed < 2000, `wide impact took ${wide.elapsed} ms`);
+  const bounded = await timed(`/api/v1/topology/impact?deviceId=${dev.get('dist2')}&maxDepth=3`);
+  assert.equal(bounded.body.truncated, true);
+  assert.ok(bounded.body.affected.every((item: { hops: number }) => item.hops <= 3));
+
+  const power = await timed(`/api/v1/topology/impact?pduId=${pduA}`);
+  assert.deepEqual(power.body.down.map((item: { name: string; reason: string }) => [item.name, item.reason]), [['IMPACT srv2', 'POWER']]);
+  assert.deepEqual(power.body.powerDegraded.map((item: { name: string }) => item.name), ['IMPACT srv1']);
+
+  const path = await timed(`/api/v1/topology/path?fromDeviceId=${dev.get('srv1')}&toDeviceId=${dev.get('bulk2999')}`);
+  assert.equal(path.body.found, true);
+  assert.deepEqual(path.body.steps.slice(0, 6).map((item: { name: string }) => item.name), ['IMPACT srv1', 'IMPACT acc1', 'IMPACT dist1', 'IMPACT core1', 'IMPACT dist2', 'IMPACT acc3']);
+  assert.ok(path.elapsed < 2000, `path took ${path.elapsed} ms`);
+
+  for (const bad of ['', `deviceId=${dev.get('fw')}&rackId=${rack}`, 'deviceId=not-a-uuid']) assert.equal((await request('GET', `/api/v1/topology/impact?${bad}`, 'qa-admin')).statusCode, 400, bad);
+  assert.equal((await request('GET', `/api/v1/topology/impact?deviceId=${dev.get('core1')}`, 'qa-systems-scoped')).statusCode, 404, 'out-of-scope devices are not revealed');
+  console.log(`[step34] core ${core.elapsed.toFixed(0)} ms (server ${core.body.elapsedMs} ms), wide ${wide.elapsed.toFixed(0)} ms (server ${wide.body.elapsedMs} ms), path ${path.elapsed.toFixed(0)} ms`);
+});

@@ -7,7 +7,7 @@ import { Device360Page } from './device-360-page';
 
 vi.mock('@/components/layout/app-shell', () => ({ AppShell: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 const roles = vi.hoisted(() => ({ current: ['ADMIN'] as string[] }));
-vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: (role: string) => roles.current.includes(role) }) }));
+vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: (role: string) => roles.current.includes(role), user: { id: 'u1' } }) }));
 vi.mock('@/lib/api/client', () => ({ apiFetch: vi.fn() }));
 vi.mock('@/lib/runtime-config', () => ({ getPublicRuntimeConfig: () => ({ apiUrl: '' }) }));
 
@@ -30,6 +30,15 @@ beforeEach(() => { roles.current = ['ADMIN']; vi.mocked(apiFetch).mockReset(); }
 afterEach(cleanup);
 
 describe('Device360Page', () => {
+  it('remembers the device page in recently viewed items', async () => {
+    window.localStorage.clear();
+    routeApi();
+    renderPage();
+    await screen.findByRole('heading', { level: 1, name: 'core-sw-01' });
+    const recent = JSON.parse(window.localStorage.getItem('management-app:recent-items:u1') ?? '[]');
+    expect(recent[0]).toMatchObject({ id: 'device:d1', kind: 'Equipamento', label: 'core-sw-01', href: '/infraestrutura/equipamentos/d1?siteId=s1' });
+  });
+
   it('shows an explicit empty state in every section, never a blank', async () => {
     routeApi();
     renderPage();
