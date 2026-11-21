@@ -6,7 +6,7 @@ import { useEscapeClose } from '@/components/ui/use-escape-close';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, List, X } from 'lucide-react';
 import { AppShell, PageToolbarPortal } from '@/components/layout/app-shell';
-import { CsvExportButton, DataTable, EntityLink, HistoryBlock, sortByColumns, useTableUrlState, type CsvColumn, type DataTableColumn } from '@/components/data-table';
+import { CsvExportButton, DataTable, EntityLink, HistoryBlock, SavedViews, sortByColumns, useTableUrlState, type CsvColumn, type DataTableColumn } from '@/components/data-table';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useAuth } from '@/lib/auth';
 import { useSiteContext } from '@/lib/site-context';
@@ -335,6 +335,7 @@ export function ChangePlansPage() {
         {filtering && <button className="secondary-button" onClick={clearFilters}><X size={14} /> Limpar filtros</button>}
         <button className="secondary-button" aria-pressed={view === 'calendar'} onClick={() => setFilter('view', view === 'calendar' ? '' : 'calendar')}>{view === 'calendar' ? <><List size={14} /> Lista</> : <><CalendarDays size={14} /> Calendário</>}</button>
         {view === 'list' && <CsvExportButton rows={sorted} columns={csvColumns} fileName="alteracoes" />}
+        <SavedViews pageId="changes" config={changeTableConfig} table={table} />
       </div>}
       <button className="secondary-button" disabled={!siteId || busy} onClick={() => void load()}>Atualizar</button>{canDraft && <button className="primary-button" disabled={!siteId || busy} onClick={openNew}>＋ Criar alteração</button>}</div></PageToolbarPortal>
     {error && <div className="ipam-alert error" role="alert">{error}</div>}{notice && <div className="ipam-alert change-success" role="status">{notice}</div>}

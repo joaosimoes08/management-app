@@ -1916,6 +1916,7 @@ body { color:var(--ink); background:#e9eef5; }
 .context-toolbar-contribution .interface-toolbar-controls label { display:flex; align-items:center; gap:6px; color:#586982; font-size:11px; font-weight:650; white-space:nowrap; }
 .context-toolbar-contribution .interface-toolbar-controls select,.interface-toolbar-controls input[type="date"] { box-sizing:border-box; width:auto; min-width:90px; max-width:clamp(130px, 12vw, 178px); min-height:35px; height:35px; padding:0 12px; color:#20334f; border:1px solid #dce4ef; border-radius:8px; background:#fff; font-size:11px; }
 @media (max-width:780px) { .context-toolbar-contribution .interface-toolbar-controls select { width:100%; min-width:0; max-width:100%; } }
+.context-toolbar-contribution .saved-views input { box-sizing:border-box; width:150px; min-height:35px; height:35px; padding:0 12px; color:#20334f; border:1px solid #dce4ef; border-radius:8px; background:#fff; font-size:11px; }
 @media (max-width:780px) {
   .context-toolbar-contribution { width:100%; }
   .context-toolbar-contribution .observed-device-select { flex:1 1 100%; min-width:0; }
@@ -2000,6 +2001,7 @@ body { color:var(--ink); background:#e9eef5; }
 .context-toolbar-title { display:flex; flex:0 0 auto; align-items:baseline; gap:9px; min-width:130px; color:#192a43; }
 .context-toolbar-title strong { font-size:14px; font-weight:700; letter-spacing:-.02em; }
 .context-toolbar-title > span { overflow:hidden; max-width:220px; color:#738198; font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
+.context-toolbar-title > .icon-button { align-self:center; width:24px; height:24px; min-width:24px; min-height:24px; }
 .app-shell .contextual-search { display:flex; flex:0 1 270px; align-items:center; min-width:160px; min-height:36px; padding:0 10px; border:1px solid #dce2ea; border-radius:8px; background:#f8f9fb; }
 .app-shell .contextual-search input { width:100%; min-width:0; border:0; outline:0; background:transparent; color:#243650; font-size:12px; }
 .app-shell .contextual-search input:focus-visible { outline:0; }
