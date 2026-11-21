@@ -152,6 +152,21 @@ test('bulk confirm rejects an empty batch and a batch over the limit', async () 
   await assert.rejects(db.service.confirmBulk(tooMany, reviewer), BadRequestException);
 });
 
+test('review notes: 2000 characters at most, and one oversized bulk note rejects the whole batch before any write', async () => {
+  const tooLong = 'x'.repeat(2001);
+  assert.equal(validateReview('NEEDS_CORRECTION', 'x'.repeat(2000)).notes?.length, 2000);
+  assert.throws(() => validateReview('NEEDS_CORRECTION', tooLong), BadRequestException);
+  assert.throws(() => validateReview('CONFIRMED', tooLong), BadRequestException);
+  const db = reviewDb();
+  await assert.rejects(
+    db.service.confirmBulk([{ id: 'att-1', outcome: 'CONFIRMED' }, { id: 'att-2', outcome: 'NEEDS_CORRECTION', notes: tooLong }], reviewer),
+    (error: unknown) => error instanceof BadRequestException,
+  );
+  assert.deepEqual(db.attestations.filter((row) => ['att-1', 'att-2'].includes(row.id)).map((row) => row.outcome), [null, null]);
+  assert.equal(db.transactionCount(), 0);
+  assert.equal(db.corrections.length, 0);
+});
+
 test('a correction can only be resolved by its owning group (403 for others)', async () => {
   const db = reviewDb();
   await db.service.confirm('att-2', 'NEEDS_CORRECTION', 'Wrong serial', reviewer);
