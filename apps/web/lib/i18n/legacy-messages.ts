@@ -460,7 +460,6 @@ const enUS: LegacyDictionary = {
   'Adiar…': 'Snooze…',
   'Atribuir': 'Assign',
   'Adiar': 'Snooze',
-  'Abrir registo': 'Open record',
   'Não foi possível reconhecer o finding.': 'Could not acknowledge the finding.',
   'Problemas detetados automaticamente. Age em cada finding na sua linha, ou seleciona findings visíveis para os reconhecer, atribuir ou adiar em conjunto.': 'Automatically detected problems. Act on a finding from its row, or select visible findings to acknowledge, assign or snooze them together.',
   'livres': 'free',
