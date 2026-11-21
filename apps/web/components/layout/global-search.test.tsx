@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { GlobalSearchPalette, filterRackSearchItems, type RackSearchItem } from './global-search';
+import { GlobalSearchPalette, expandSearchResults, filterRackSearchItems, type RackSearchItem } from './global-search';
 
 const { push, apiFetch } = vi.hoisted(() => ({
   push: vi.fn(),
@@ -90,5 +90,17 @@ describe('platform search with extended types (Phase D)', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Pesquisa global' }), { target: { value: 'main' } });
     expect(await screen.findByText('Não foi possível pesquisar.', undefined, { timeout: 1000 })).toBeInTheDocument();
     expect(apiFetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('device results', () => {
+  it('open the Device 360 page in the device Site', () => {
+    const [device, iface] = expandSearchResults([
+      { id: 'dev-1', type: 'DEVICE', title: 'sw-core', detail: 'Equipamento · Main', href: '/infraestrutura?siteId=site-1&tab=devices' },
+      { id: 'if-1', type: 'INTERFACE', title: 'Gi1/0/1', detail: 'Interface', href: '/infraestrutura?siteId=site-1&tab=interfaces&deviceId=dev-1' },
+    ]);
+    expect(device.href).toBe('/infraestrutura/equipamentos/dev-1?siteId=site-1');
+    expect(iface.href).toBe('/infraestrutura?siteId=site-1&tab=interfaces&deviceId=dev-1');
+    expect(expandSearchResults([{ id: 'dev-2', type: 'DEVICE', title: 'x', detail: 'Equipamento', href: '/infraestrutura' }])[0].href).toBe('/infraestrutura/equipamentos/dev-2');
   });
 });

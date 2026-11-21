@@ -1396,6 +1396,7 @@ const substitutions: Array<[RegExp, string]> = [
   [/^Findings da regra (.+)$/g, 'Findings for rule $1'],
   [/^Selecionar findings visíveis da regra (.+)$/g, 'Select visible findings for rule $1'],
   [/^Abrir registo de (.+)$/g, 'Open record of $1'],
+  [/^Abrir equipamento de (.+)$/g, 'Open device of $1'],
   [/^Finding: (.+)$/g, 'Finding: $1'],
   [/^Reconhecer (.+)$/g, 'Acknowledge $1'],
   [/^Atribuir (.+)$/g, 'Assign $1'],

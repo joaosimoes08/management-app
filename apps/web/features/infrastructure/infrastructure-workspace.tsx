@@ -11,6 +11,7 @@ import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
 import { useSiteContext } from '@/lib/site-context';
 import { rememberRecentItem } from '@/lib/recent-items';
+import { entityHref } from '@/components/data-table/entity-link';
 import { apiFetch } from '@/lib/api/client';
 import { ApiRequestError } from '@/lib/api/errors';
 import type { Device, DeviceInterface, DeviceModel, IpAddress, Rack, RackFace, RackPlacementPlan, RoomWithBuilding } from './types';
@@ -399,7 +400,7 @@ export function InfrastructureWorkspace() {
     }
   };
   const openDevice = useCallback((selected: Device) => {
-    rememberRecentItem(user?.id, { id: `device:${selected.id}`, kind: 'Equipamento', label: selected.name, href: `/infraestrutura?siteId=${encodeURIComponent(siteId)}&deviceId=${encodeURIComponent(selected.id)}` });
+    rememberRecentItem(user?.id, { id: `device:${selected.id}`, kind: 'Equipamento', label: selected.name, href: entityHref({ kind: 'device', id: selected.id, siteId }) });
     setDevice(selected);
     setTab(canUseInterfaces ? 'interfaces' : 'devices');
     setSelectedInterface(null);
