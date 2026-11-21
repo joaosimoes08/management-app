@@ -21,7 +21,8 @@ export type SmtpSettings = { host: string; port: number; security: SmtpSecurity;
 /** Decrypted, resolved destination for one send. Built by the service at send time; never logged or returned. */
 export type DeliveryDestination =
   | { kind: 'TEAMS'; webhookUrl: string }
-  | { kind: 'EMAIL'; smtp: SmtpSettings; password: string | null; to: string[] };
+  /** `bcc`: group alerts go To the sender address with the list in Bcc, so recipients never see each other. */
+  | { kind: 'EMAIL'; smtp: SmtpSettings; password: string | null; to: string[]; bcc?: boolean };
 
 /** Failure with a short, secret-free code (HTTP_500, TIMEOUT, SMTP_EAUTH, ...). */
 export class DeliveryError extends Error {

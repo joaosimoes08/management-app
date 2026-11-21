@@ -1,4 +1,5 @@
-import { isIP } from 'node:net';
+import { lookup } from 'node:dns/promises';
+import { BlockList, isIP, isIPv6 } from 'node:net';
 import { createTransport } from 'nodemailer';
 import { DeliveryChannelSender, DeliveryDestination, DeliveryError, DeliveryMessage, SmtpSecurity, SmtpSettings } from './channel';
 
@@ -11,6 +12,21 @@ export const SMTP_SECURITIES: readonly SmtpSecurity[] = ['TLS', 'STARTTLS', 'NON
 const EMAIL_PATTERN = /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$/;
 const HOST_PATTERN = /^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/;
 
+/**
+ * Addresses the SMTP host may never be: loopback, link-local (incl. the 169.254.169.254 metadata service) and
+ * unspecified, also in IPv4-mapped IPv6 form. Private RFC 1918 ranges stay allowed: on-prem relays are normal.
+ */
+const BLOCKED = new BlockList();
+BLOCKED.addSubnet('127.0.0.0', 8); BLOCKED.addSubnet('0.0.0.0', 8); BLOCKED.addSubnet('169.254.0.0', 16);
+BLOCKED.addAddress('::', 'ipv6'); BLOCKED.addAddress('::1', 'ipv6'); BLOCKED.addSubnet('fe80::', 10, 'ipv6');
+
+export function isBlockedAddress(address: string) {
+  const family = isIP(address);
+  return !family || BLOCKED.check(address, isIPv6(address) ? 'ipv6' : 'ipv4');
+}
+
+const isLocalName = (host: string) => host === 'localhost' || host.endsWith('.localhost') || host === 'localhost.localdomain';
+
 export function isEmailAddress(value: string) {
   return value.length <= 254 && EMAIL_PATTERN.test(value);
 }
@@ -19,6 +35,7 @@ export function isEmailAddress(value: string) {
 export function validateSmtpSettings(input: { host: string; port: number; security: string; username?: string | null; from: string }, hasPassword: boolean): SmtpSettings {
   const host = input.host.trim();
   if (!(HOST_PATTERN.test(host) || isIP(host))) throw new DeliveryError('SMTP_HOST_INVALID', false);
+  if ((isIP(host) && isBlockedAddress(host)) || isLocalName(host.toLowerCase())) throw new DeliveryError('SMTP_HOST_NOT_ALLOWED', false);
   if (!Number.isInteger(input.port) || input.port < 1 || input.port > 65535) throw new DeliveryError('SMTP_PORT_INVALID', false);
   if (!(SMTP_SECURITIES as readonly string[]).includes(input.security)) throw new DeliveryError('SMTP_SECURITY_INVALID', false);
   const username = input.username?.trim() || null;
@@ -52,7 +69,11 @@ export function emailContent(message: DeliveryMessage) {
   return { subject, text, html };
 }
 
-/** Maps a nodemailer failure to a short code. Never uses the error message or response: they can hold the username or addresses. */
+/**
+ * Maps a nodemailer failure to a short code. Never uses the error message or response: they can hold the username
+ * or addresses. Every failure before an SMTP reply (refused, timed out, reset, TLS, not SMTP) is one generic code, so
+ * the test button cannot tell a closed port from a filtered one or a non-SMTP service: it is no port scanner.
+ */
 export function smtpFailure(error: unknown) {
   const { code, responseCode, permanent } = (error ?? {}) as { code?: unknown; responseCode?: unknown; permanent?: unknown };
   if (typeof responseCode === 'number' && responseCode >= 200 && responseCode < 600) {
@@ -62,8 +83,10 @@ export function smtpFailure(error: unknown) {
   }
   switch (code) {
     case 'ECONNECTION': case 'ETIMEDOUT': case 'ESOCKET': case 'EDNS': case 'EPROTOCOL': case 'EMAXLIMIT':
-      return new DeliveryError(`SMTP_${code}`, true);
-    case 'EAUTH': case 'ENOAUTH': case 'ETLS': case 'EREQUIRETLS': case 'EENVELOPE': case 'ECONFIG':
+      return new DeliveryError('SMTP_CONNECTION_FAILED', true);
+    case 'ETLS': case 'EREQUIRETLS':
+      return new DeliveryError('SMTP_CONNECTION_FAILED', false);
+    case 'EAUTH': case 'ENOAUTH': case 'EENVELOPE': case 'ECONFIG':
       return new DeliveryError(`SMTP_${code}`, false);
     default:
       return new DeliveryError('SMTP_ERROR', true);
@@ -72,14 +95,32 @@ export function smtpFailure(error: unknown) {
 
 type MailTransport = { sendMail(mail: Record<string, unknown>): Promise<unknown>; close?(): void };
 export type TransportFactory = (options: Record<string, unknown>) => MailTransport;
+/** Resolves a host name to every address it has. */
+export type HostResolver = (host: string) => Promise<string[]>;
+const systemResolver: HostResolver = async (host) => (await lookup(host, { all: true, verbatim: true })).map((entry) => entry.address);
 
-export function transportOptions(smtp: SmtpSettings, password: string | null) {
+/**
+ * Resolves the SMTP host and checks every address against the block list. The connection then goes to the checked
+ * address (TLS still verifies the certificate against the host name), so DNS cannot change it between check and use.
+ */
+export async function resolveSmtpHost(host: string, resolver: HostResolver = systemResolver) {
+  if (isIP(host)) { if (isBlockedAddress(host)) throw new DeliveryError('SMTP_HOST_NOT_ALLOWED', false); return host; }
+  if (isLocalName(host)) throw new DeliveryError('SMTP_HOST_NOT_ALLOWED', false);
+  let addresses: string[];
+  try { addresses = await resolver(host); }
+  catch { throw new DeliveryError('SMTP_CONNECTION_FAILED', true); }
+  if (!addresses.length) throw new DeliveryError('SMTP_CONNECTION_FAILED', true);
+  if (addresses.some(isBlockedAddress)) throw new DeliveryError('SMTP_HOST_NOT_ALLOWED', false);
+  return addresses[0];
+}
+
+export function transportOptions(smtp: SmtpSettings, password: string | null, address: string = smtp.host) {
   return {
-    host: smtp.host, port: smtp.port,
+    host: address, port: smtp.port, ...(address !== smtp.host ? { servername: smtp.host } : {}),
     secure: smtp.security === 'TLS', requireTLS: smtp.security === 'STARTTLS', ignoreTLS: smtp.security === 'NONE',
     ...(smtp.username ? { auth: { user: smtp.username, pass: password ?? '' } } : {}),
     // Certificate checks stay on; timeouts keep a stuck server from holding the dispatcher.
-    tls: { rejectUnauthorized: true, minVersion: 'TLSv1.2' },
+    tls: { rejectUnauthorized: true, minVersion: 'TLSv1.2', ...(address !== smtp.host ? { servername: smtp.host } : {}) },
     connectionTimeout: TIMEOUT_MS, greetingTimeout: TIMEOUT_MS, socketTimeout: TIMEOUT_MS,
     logger: false, debug: false, disableFileAccess: true, disableUrlAccess: true,
   };
@@ -87,16 +128,21 @@ export function transportOptions(smtp: SmtpSettings, password: string | null) {
 
 export class EmailSender implements DeliveryChannelSender {
   readonly kind = 'EMAIL' as const;
-  constructor(private readonly factory: TransportFactory = (options) => createTransport(options as never) as unknown as MailTransport) {}
+  constructor(
+    private readonly factory: TransportFactory = (options) => createTransport(options as never) as unknown as MailTransport,
+    private readonly resolver: HostResolver = systemResolver,
+  ) {}
 
   async send(destination: DeliveryDestination, message: DeliveryMessage) {
     if (destination.kind !== 'EMAIL') throw new DeliveryError('CHANNEL_MISMATCH', false);
     if (!destination.to.length) throw new DeliveryError('RECIPIENT_NO_EMAIL', false);
+    const address = await resolveSmtpHost(destination.smtp.host, this.resolver);
     let transport: MailTransport;
-    try { transport = this.factory(transportOptions(destination.smtp, destination.password)); }
+    try { transport = this.factory(transportOptions(destination.smtp, destination.password, address)); }
     catch { throw new DeliveryError('SMTP_ECONFIG', false); }
     try {
-      await transport.sendMail({ from: destination.smtp.from, to: destination.to, ...emailContent(message) });
+      const recipients = destination.bcc ? { to: destination.smtp.from, bcc: destination.to } : { to: destination.to };
+      await transport.sendMail({ from: destination.smtp.from, ...recipients, ...emailContent(message) });
     } catch (error) {
       throw smtpFailure(error);
     } finally {

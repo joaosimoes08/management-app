@@ -125,4 +125,20 @@ describe('NotificationChannelsSettings', () => {
     expect(failureLabel('SMTP_ECONNECTION')).toBe('Ligação ao servidor SMTP falhou');
     expect(failureLabel('RECIPIENT_NO_EMAIL')).toBe('Destinatário sem email definido');
   });
+
+  it('asks for the password again when the SMTP server or account changes, and labels the new codes', async () => {
+    const emailServer: ChannelStatus = { kind: 'EMAIL', target: 'USER_NOTIFICATIONS', enabled: true, configured: true, minSeverity: null, updatedAt: null, smtp: { host: 'smtp.empresa.pt', port: 587, security: 'STARTTLS', username: 'u', from: 'a@empresa.pt', passwordSet: true } };
+    api([channel('USER_NOTIFICATIONS'), channel('GROUP_ALERTS'), emailServer]);
+    render(<NotificationChannelsSettings />);
+    const server = await screen.findByRole('group', { name: 'Servidor SMTP e emails pessoais' });
+    await waitFor(() => expect((within(server).getByLabelText('Servidor') as HTMLInputElement).value).toBe('smtp.empresa.pt'));
+    expect(within(server).queryByText(/não é reutilizada/)).not.toBeInTheDocument();
+    fireEvent.change(within(server).getByLabelText('Remetente'), { target: { value: 'b@empresa.pt' } });
+    expect(within(server).queryByText(/não é reutilizada/)).not.toBeInTheDocument();
+    fireEvent.change(within(server).getByLabelText('Servidor'), { target: { value: 'smtp2.empresa.pt' } });
+    expect(within(server).getByText(/não é reutilizada/)).toBeInTheDocument();
+    expect((within(server).getByLabelText('Palavra-passe') as HTMLInputElement).placeholder).toBe('Introduz de novo a palavra-passe');
+    expect(failureLabel('SMTP_CONNECTION_FAILED')).toMatch(/Não foi possível ligar/);
+    expect(failureLabel('SMTP_HOST_NOT_ALLOWED')).toMatch(/não permitido/);
+  });
 });

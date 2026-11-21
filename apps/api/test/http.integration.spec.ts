@@ -1882,7 +1882,19 @@ test('Step 31: the test button sends one message, logs success or the failure re
   assert.equal(retried.statusCode, 201, retried.body);
   await service.kick();
   const row = await prisma.notificationDelivery.findUniqueOrThrow({ where: { id: failedId } });
-  assert.deepEqual([row.status, row.attempts, row.failureReason], ['SENT', 1, null]);
+  assert.deepEqual([row.status, row.attempts, row.failureReason], ['SENT', 2, null], 'a manual retry keeps counting attempts');
+
+  // Manual retry never resets the bound: after 5 automatic attempts each press gives one more, up to 10 in total.
+  status = 503;
+  await prisma.notificationDelivery.update({ where: { id: failedId }, data: { status: 'FAILED', attempts: 5, failureReason: 'HTTP_503' } });
+  assert.equal((await request('POST', `/api/v1/settings/notification-deliveries/${failedId}/retry`, 'qa-admin')).statusCode, 201);
+  await service.kick();
+  const once = await prisma.notificationDelivery.findUniqueOrThrow({ where: { id: failedId } });
+  assert.deepEqual([once.status, once.attempts, once.failureReason], ['FAILED', 6, 'HTTP_503'], 'one attempt per manual retry once the automatic ones are used');
+  await prisma.notificationDelivery.update({ where: { id: failedId }, data: { attempts: 10 } });
+  const capped = await request('POST', `/api/v1/settings/notification-deliveries/${failedId}/retry`, 'qa-admin');
+  assert.deepEqual([capped.statusCode, json(capped).code], [409, 'NOTIFICATION_DELIVERY_RETRY_LIMIT']);
+  assert.equal((await prisma.notificationDelivery.findUniqueOrThrow({ where: { id: failedId } })).status, 'FAILED');
 });
 
 test('Step 31: per-user Teams opt-in queues a copy without blocking the request, retries on failure and logs the reason', async (context) => {
@@ -2033,6 +2045,7 @@ function mockSmtp(outcome: (call: SmtpCall) => 'ok' | Record<string, unknown>) {
   const calls: SmtpCall[] = [];
   const senders = (app.get(NotificationDeliveryService) as any).senders as Map<string, unknown>;
   const original = senders.get('EMAIL');
+  // The resolver stands in for DNS: smtp.example.pt resolves to a private (RFC 1918) relay address, which is allowed.
   senders.set('EMAIL', new EmailSender((options) => ({
     sendMail: async (mail) => {
       const call = { options, mail, at: Date.now() };
@@ -2041,7 +2054,7 @@ function mockSmtp(outcome: (call: SmtpCall) => 'ok' | Record<string, unknown>) {
       if (result !== 'ok') throw Object.assign(new Error(`SMTP said no to ${String((mail as any).to)} using ${SMTP_PASSWORD}`), result);
       return { messageId: 'x' };
     },
-  })));
+  }), async () => ['10.20.30.40']));
   return { calls, restore: () => { senders.set('EMAIL', original); } };
 }
 const assertNoSmtpSecret = (label: string, text: string) => assert.ok(!text.includes(SMTP_PASSWORD), `${label} leaked the SMTP password`);
@@ -2060,15 +2073,37 @@ test('Step 31 email: ADMIN SMTP settings start off, keep the password encrypted 
   assert.equal((await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: false, webhookUrl: TEAMS_URL })).statusCode, 400, 'Teams fields do not apply to e-mail');
   assert.equal((await request('PUT', `${root}/EMAIL/GROUP_ALERTS`, 'qa-admin', { enabled: true, recipients: ['noc@example.pt'] })).statusCode, 409, 'group alerts need the SMTP server first');
 
+  // Loopback, link-local (cloud metadata) and unspecified hosts are refused; private on-prem relays are allowed.
+  for (const host of ['127.0.0.1', '169.254.169.254', '::1', '0.0.0.0', '::ffff:127.0.0.1', 'localhost']) {
+    const refused = await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: false, smtp: { ...SMTP_BODY, host } });
+    assert.deepEqual([refused.statusCode, json(refused).code], [400, 'SMTP_HOST_NOT_ALLOWED'], host);
+  }
+  const relay = await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: false, smtp: { ...SMTP_BODY, host: '10.0.0.25' } });
+  assert.equal(relay.statusCode, 200, relay.body);
+
   const saved = await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true, smtp: SMTP_BODY });
   assert.equal(saved.statusCode, 200, saved.body);
   assert.deepEqual([json(saved).enabled, json(saved).configured], [true, true]);
   assert.deepEqual(json(saved).smtp, { host: 'smtp.example.pt', port: 587, security: 'STARTTLS', username: 'mgmt-alerts@example.pt', from: 'mgmt-alerts@example.pt', passwordSet: true });
   assertNoSmtpSecret('save response', saved.body);
-  // Re-saving without a password keeps the stored one.
+  // Re-saving the same server and account without a password keeps the stored one (here only the sender changes).
   const { password: _omit, ...withoutPassword } = SMTP_BODY;
-  const kept = json(await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true, smtp: { ...withoutPassword, port: 465, security: 'TLS' } }));
-  assert.deepEqual([kept.smtp.port, kept.smtp.security, kept.smtp.passwordSet], [465, 'TLS', true]);
+  const kept = json(await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true, smtp: { ...withoutPassword, from: 'noc-mail@example.pt' } }));
+  assert.deepEqual([kept.smtp.from, kept.smtp.passwordSet], ['noc-mail@example.pt', true]);
+  // Changing host, port, security or username never carries the password over: it must be entered again.
+  for (const change of [{ host: 'smtp2.example.pt' }, { port: 465, security: 'TLS' }, { port: 2525 }, { username: 'other@example.pt' }]) {
+    const refused = await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true, smtp: { ...withoutPassword, ...change } });
+    assert.deepEqual([refused.statusCode, json(refused).code], [400, 'SMTP_PASSWORD_REENTRY_REQUIRED'], JSON.stringify(change));
+  }
+  const unchanged = json(await request('GET', root, 'qa-admin')).channels.find((item: any) => item.kind === 'EMAIL' && item.target === 'USER_NOTIFICATIONS');
+  assert.deepEqual([unchanged.smtp.port, unchanged.smtp.security, unchanged.smtp.passwordSet], [587, 'STARTTLS', true], 'a refused change keeps the old server and its password');
+  const moved = json(await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true, smtp: { ...SMTP_BODY, port: 465, security: 'TLS' } }));
+  assert.deepEqual([moved.smtp.port, moved.smtp.security, moved.smtp.passwordSet], [465, 'TLS', true]);
+  // Dropping the username clears the password.
+  const anonymous = json(await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true, smtp: { ...withoutPassword, port: 465, security: 'TLS', username: null } }));
+  assert.deepEqual([anonymous.smtp.username, anonymous.smtp.passwordSet], [null, false]);
+  assert.equal((await prisma.deliveryChannelConfig.findUniqueOrThrow({ where: { kind_target: { kind: 'EMAIL', target: 'USER_NOTIFICATIONS' } } })).ciphertext, null);
+  assert.equal(json(await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true, smtp: SMTP_BODY })).smtp.passwordSet, true);
 
   assert.equal(json(await request('PUT', `${root}/EMAIL/GROUP_ALERTS`, 'qa-admin', { enabled: true, recipients: ['bad'] })).code, 'EMAIL_RECIPIENTS_INVALID');
   const group = await request('PUT', `${root}/EMAIL/GROUP_ALERTS`, 'qa-admin', { enabled: true, minSeverity: 'CRITICAL', recipients: [' NOC@example.pt ', 'oncall@example.pt'] });
@@ -2111,7 +2146,9 @@ test('Step 31 email: test email to the ADMIN, per-user opt-in to the own address
   assert.equal(ok.statusCode, 201, ok.body);
   assert.deepEqual([json(ok).status, json(ok).failureReason], ['SENT', null]);
   assert.deepEqual([smtp.calls[0].mail.to, smtp.calls[0].mail.from, smtp.calls[0].mail.subject], [['admin@example.pt'], 'mgmt-alerts@example.pt', 'Email de teste']);
-  assert.deepEqual([smtp.calls[0].options.host, smtp.calls[0].options.requireTLS, smtp.calls[0].options.auth.pass], ['smtp.example.pt', true, SMTP_PASSWORD]);
+  assert.equal(smtp.calls[0].mail.bcc, undefined, 'personal e-mail has no Bcc');
+  // Connects to the checked address; TLS still presents and verifies the configured host name.
+  assert.deepEqual([smtp.calls[0].options.host, smtp.calls[0].options.servername, smtp.calls[0].options.tls.servername, smtp.calls[0].options.requireTLS, smtp.calls[0].options.auth.pass], ['10.20.30.40', 'smtp.example.pt', 'smtp.example.pt', true, SMTP_PASSWORD]);
 
   result = { code: 'EAUTH', responseCode: 535 };
   const failed = await request('POST', `${root}/test`, 'qa-admin');
@@ -2151,7 +2188,7 @@ test('Step 31 email: test email to the ADMIN, per-user opt-in to the own address
   try {
     await service.kick();
     let row = await prisma.notificationDelivery.findUniqueOrThrow({ where: { id: queued[0].id } });
-    assert.deepEqual([row.status, row.attempts, row.failureReason], ['PENDING', 1, 'SMTP_ECONNECTION']);
+    assert.deepEqual([row.status, row.attempts, row.failureReason], ['PENDING', 1, 'SMTP_CONNECTION_FAILED']);
     assert.ok(row.nextAttemptAt.getTime() - Date.now() > 20_000, 'first retry waits about 30 s');
     assert.deepEqual(smtp.calls.at(-1)!.mail.to, ['readonly@example.pt'], 'personal e-mail goes to the user\'s own address');
 
@@ -2171,7 +2208,7 @@ test('Step 31 email: test email to the ADMIN, per-user opt-in to the own address
   } finally {
     levels.forEach((level, index) => { Logger.prototype[level] = originalLogger[index] as never; });
   }
-  assert.ok(output.join(' ').includes('SMTP_ECONNECTION'), 'the failure is logged');
+  assert.ok(output.join(' ').includes('SMTP_CONNECTION_FAILED'), 'the failure is logged');
   assertNoSmtpSecret('process logs', output.join(' '));
   const log = await request('GET', '/api/v1/settings/notification-deliveries?channel=EMAIL', 'qa-admin');
   assert.ok(json(log).items.every((item: any) => item.channel === 'EMAIL'));
@@ -2203,7 +2240,8 @@ test('Step 31 email: a CRITICAL operational alert is e-mailed to the group recip
   await waitFor(() => smtp.calls.length >= 1 && teams.calls.length >= 1, 60_000);
   assert.equal(smtp.calls.length, 1, 'CRITICAL alert e-mail was not sent within 1 minute');
   assert.ok(smtp.calls[0].at - raisedAt < 60_000);
-  assert.deepEqual(smtp.calls[0].mail.to, ['noc@example.pt', 'oncall@example.pt']);
+  // Recipients go in Bcc (To is the sender address), so they never see each other.
+  assert.deepEqual([smtp.calls[0].mail.to, smtp.calls[0].mail.bcc], ['mgmt-alerts@example.pt', ['noc@example.pt', 'oncall@example.pt']]);
   assert.equal(smtp.calls[0].mail.subject, '[CRITICAL] Core router down');
   assert.match(smtp.calls[0].mail.text, /HTTP Site A · No response to SNMP/);
   assert.equal(teams.calls.length, 1, 'the Teams group channel gets its own copy');

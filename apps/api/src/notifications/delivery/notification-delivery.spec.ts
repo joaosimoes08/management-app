@@ -4,7 +4,7 @@ import { DeliveryError } from './channel';
 import { DEFAULT_POLL_MS, failureOutcome, MAX_ATTEMPTS, pollIntervalMs, publicLink, RETRY_BACKOFF_MS } from './notification-delivery.service';
 import { teamsPayload, TeamsSender, validateTeamsWebhookUrl } from './teams-sender';
 import { createTransport } from 'nodemailer';
-import { emailContent, EmailSender, normaliseRecipients, smtpFailure, transportOptions, validateSmtpSettings } from './email-sender';
+import { emailContent, EmailSender, isBlockedAddress, normaliseRecipients, resolveSmtpHost, smtpFailure, transportOptions, validateSmtpSettings } from './email-sender';
 
 const SECRET_URL = 'https://contoso.webhook.office.com/webhookb2/secret-token-123/IncomingWebhook/abc/def';
 const TEAMS = { kind: 'TEAMS' as const, webhookUrl: SECRET_URL };
@@ -121,9 +121,12 @@ test('maps SMTP failures to secret-free codes and marks which ones retry', () =>
   const cases: [Record<string, unknown>, string, boolean][] = [
     [{ code: 'EAUTH', responseCode: 535, response: leak }, 'SMTP_EAUTH_535', false],
     [{ code: 'EAUTH' }, 'SMTP_EAUTH', false],
-    [{ code: 'ECONNECTION' }, 'SMTP_ECONNECTION', true],
-    [{ code: 'ETIMEDOUT' }, 'SMTP_ETIMEDOUT', true],
-    [{ code: 'ETLS' }, 'SMTP_ETLS', false],
+    // Everything before an SMTP reply is one generic code: no closed/filtered/not-SMTP oracle.
+    [{ code: 'ECONNECTION' }, 'SMTP_CONNECTION_FAILED', true],
+    [{ code: 'ETIMEDOUT' }, 'SMTP_CONNECTION_FAILED', true],
+    [{ code: 'ESOCKET' }, 'SMTP_CONNECTION_FAILED', true],
+    [{ code: 'EPROTOCOL' }, 'SMTP_CONNECTION_FAILED', true],
+    [{ code: 'ETLS' }, 'SMTP_CONNECTION_FAILED', false],
     [{ code: 'EENVELOPE', responseCode: 550, permanent: true }, 'SMTP_550', false],
     [{ code: 'EENVELOPE', responseCode: 451, permanent: false }, 'SMTP_451', true],
     [{ code: 'EMESSAGE', responseCode: 503 }, 'SMTP_503', true],
@@ -138,7 +141,10 @@ test('maps SMTP failures to secret-free codes and marks which ones retry', () =>
 
 test('sends through nodemailer with TLS checks, timeouts and auth, and closes the transport', async () => {
   let options: any; let mail: any; let closed = false;
-  await new EmailSender((value) => { options = value; return { sendMail: async (m) => { mail = m; return {}; }, close: () => { closed = true; } }; }).send(EMAIL, { title: 'T', message: 'M' });
+  await new EmailSender((value) => { options = value; return { sendMail: async (m) => { mail = m; return {}; }, close: () => { closed = true; } }; }, async () => ['192.168.10.5']).send(EMAIL, { title: 'T', message: 'M' });
+  // Pinned to the checked address; TLS verifies the configured name.
+  assert.deepEqual([options.host, options.servername, options.tls.servername], ['192.168.10.5', SMTP.host, SMTP.host]);
+  assert.equal(mail.bcc, undefined);
   assert.equal(options.secure, false);
   assert.equal(options.requireTLS, true);
   assert.deepEqual(options.auth, { user: SMTP.username, pass: SMTP_PASSWORD });
@@ -156,7 +162,7 @@ test('renders a real message with nodemailer (JSON transport) without the passwo
   await new EmailSender(() => {
     const transport = createTransport({ jsonTransport: true });
     return { sendMail: async (m) => { rendered = String(((await transport.sendMail(m as never)) as { message: string }).message); return {}; } };
-  }).send(EMAIL, { title: '[HIGH] Uplink', message: 'Site A', severity: 'HIGH' });
+  }, async () => ['10.0.0.25']).send(EMAIL, { title: '[HIGH] Uplink', message: 'Site A', severity: 'HIGH' });
   const parsed = JSON.parse(rendered);
   assert.equal(parsed.subject, '[HIGH] Uplink');
   assert.deepEqual(parsed.to.map((a: { address: string }) => a.address), ['ana@example.pt']);
@@ -164,8 +170,42 @@ test('renders a real message with nodemailer (JSON transport) without the passwo
 });
 
 test('e-mail failures from the transport keep only the code', async () => {
-  const sender = new EmailSender(() => ({ sendMail: async () => { throw Object.assign(new Error(`Invalid login: ${SMTP_PASSWORD}`), { code: 'EAUTH', responseCode: 535 }); } }));
+  const sender = new EmailSender(() => ({ sendMail: async () => { throw Object.assign(new Error(`Invalid login: ${SMTP_PASSWORD}`), { code: 'EAUTH', responseCode: 535 }); } }), async () => ['10.0.0.25']);
   await assert.rejects(sender.send(EMAIL, { title: 't', message: 'm' }), (error: unknown) => error instanceof DeliveryError && error.code === 'SMTP_EAUTH_535' && !error.retryable && !String(error.stack).includes(SMTP_PASSWORD));
   await assert.rejects(new EmailSender(() => ({ sendMail: async () => ({}) })).send({ ...EMAIL, to: [] }, { title: 't', message: 'm' }), (error: unknown) => (error as DeliveryError).code === 'RECIPIENT_NO_EMAIL');
   await assert.rejects(new EmailSender().send(TEAMS, { title: 't', message: 'm' }), (error: unknown) => (error as DeliveryError).code === 'CHANNEL_MISMATCH');
+});
+
+test('refuses loopback, link-local and unspecified SMTP hosts by literal and after DNS, and allows private relays', async () => {
+  for (const address of ['127.0.0.1', '127.8.9.10', '169.254.169.254', '0.0.0.0', '::', '::1', 'fe80::1', '::ffff:127.0.0.1', '::ffff:169.254.169.254']) assert.ok(isBlockedAddress(address), address);
+  for (const address of ['10.0.0.25', '172.16.4.4', '192.168.1.10', '192.0.2.10', '2001:db8::25', 'fd00::25']) assert.equal(isBlockedAddress(address), false, address);
+  const code = (fn: () => unknown) => { try { fn(); } catch (error) { return (error as DeliveryError).code; } return 'OK'; };
+  for (const host of ['127.0.0.1', '169.254.169.254', '::1', '0.0.0.0', 'localhost', 'mail.localhost']) assert.equal(code(() => validateSmtpSettings({ ...SMTP, host }, true)), 'SMTP_HOST_NOT_ALLOWED', host);
+  assert.equal(code(() => validateSmtpSettings({ ...SMTP, host: '10.0.0.25' }, true)), 'OK');
+
+  // A name that resolves to a blocked address (here also a decimal-encoded 127.0.0.1) is refused before any connection.
+  for (const answer of [['127.0.0.1'], ['10.0.0.25', '169.254.169.254'], ['::1']]) {
+    await assert.rejects(resolveSmtpHost('smtp.example.pt', async () => answer), (error: unknown) => (error as DeliveryError).code === 'SMTP_HOST_NOT_ALLOWED' && !(error as DeliveryError).retryable, answer.join());
+  }
+  await assert.rejects(resolveSmtpHost('2130706433', async () => ['127.0.0.1']), (error: unknown) => (error as DeliveryError).code === 'SMTP_HOST_NOT_ALLOWED');
+  await assert.rejects(resolveSmtpHost('nx.example.pt', async () => { throw Object.assign(new Error('ENOTFOUND nx.example.pt'), { code: 'ENOTFOUND' }); }), (error: unknown) => (error as DeliveryError).code === 'SMTP_CONNECTION_FAILED');
+  assert.equal(await resolveSmtpHost('smtp.example.pt', async () => ['10.0.0.25']), '10.0.0.25');
+  let factoryCalls = 0;
+  await assert.rejects(new EmailSender(() => { factoryCalls += 1; return { sendMail: async () => ({}) }; }, async () => ['127.0.0.1']).send(EMAIL, { title: 't', message: 'm' }), (error: unknown) => (error as DeliveryError).code === 'SMTP_HOST_NOT_ALLOWED');
+  assert.equal(factoryCalls, 0, 'no connection is attempted to a blocked address');
+});
+
+test('group e-mail puts the recipients in Bcc so they never see each other', async () => {
+  let mail: any;
+  await new EmailSender(() => ({ sendMail: async (m) => { mail = m; return {}; } }), async () => ['10.0.0.25'])
+    .send({ ...EMAIL, to: ['noc@example.pt', 'oncall@example.pt'], bcc: true }, { title: 't', message: 'm' });
+  assert.deepEqual([mail.to, mail.bcc], [SMTP.from, ['noc@example.pt', 'oncall@example.pt']]);
+  let rendered = '';
+  await new EmailSender(() => {
+    const transport = createTransport({ jsonTransport: true });
+    return { sendMail: async (m) => { const info = (await transport.sendMail(m as never)) as { message: string; envelope: { to: string[] } }; rendered = String(info.message); assert.deepEqual(info.envelope.to.sort(), ['alerts@example.pt', 'noc@example.pt', 'oncall@example.pt']); return {}; } };
+  }, async () => ['10.0.0.25']).send({ ...EMAIL, to: ['noc@example.pt', 'oncall@example.pt'], bcc: true }, { title: 't', message: 'm' });
+  const parsed = JSON.parse(rendered);
+  assert.deepEqual(parsed.to.map((a: { address: string }) => a.address), ['alerts@example.pt']);
+  assert.ok(!/oncall@example\.pt/.test(JSON.stringify(parsed.headers ?? {})), 'Bcc addresses are not in the message headers');
 });

@@ -20,7 +20,7 @@ export type ChannelStatus = {
   /** EMAIL/GROUP_ALERTS only. */
   recipients?: string[]; serverConfigured?: boolean;
 };
-type ChannelsResponse = { channels: ChannelStatus[]; keyringAvailable: boolean; publicLinks: boolean; maxAttempts: number };
+type ChannelsResponse = { channels: ChannelStatus[]; keyringAvailable: boolean; publicLinks: boolean; maxAttempts: number; maxTotalAttempts?: number };
 type DeliveryStatus = 'PENDING' | 'SENDING' | 'SENT' | 'FAILED';
 export type DeliveryItem = {
   id: string; channel?: ChannelKind; target: DeliveryTarget; status: DeliveryStatus; topic: string; title: string; attempts: number;
@@ -60,6 +60,7 @@ export function failureLabel(code: string | null): string {
   const smtp = /^SMTP_(\d{3})$/.exec(code);
   if (smtp) return `O servidor SMTP respondeu ${smtp[1]}`;
   return ({
+    SMTP_CONNECTION_FAILED: 'Não foi possível ligar ao servidor SMTP (sem resposta, recusado ou falha TLS)', SMTP_HOST_NOT_ALLOWED: 'Servidor SMTP não permitido (loopback, link-local ou não especificado)',
     SMTP_ECONNECTION: 'Ligação ao servidor SMTP falhou', SMTP_ETIMEDOUT: 'Servidor SMTP sem resposta em 10 s', SMTP_ESOCKET: 'Erro de ligação ao servidor SMTP',
     SMTP_EDNS: 'Servidor SMTP não encontrado (DNS)', SMTP_ETLS: 'Falha na negociação TLS com o servidor SMTP', SMTP_ENOAUTH: 'Servidor SMTP exige autenticação',
     SMTP_EENVELOPE: 'Remetente ou destinatário recusado', SMTP_EPROTOCOL: 'Resposta SMTP inválida', SMTP_ECONFIG: 'Configuração SMTP inválida', SMTP_ERROR: 'Erro ao enviar email',
@@ -127,6 +128,10 @@ export function NotificationChannelsSettings() {
   const channel = (target: DeliveryTarget) => channelOf('TEAMS', target);
   const emailServer = channelOf('EMAIL', 'USER_NOTIFICATIONS');
   const emailGroup = channelOf('EMAIL', 'GROUP_ALERTS');
+  const maxTotal = state?.maxTotalAttempts ?? 10;
+  // The API never carries a stored password over to another server or account.
+  const saved = emailServer?.smtp;
+  const passwordReentry = Boolean(saved?.passwordSet && smtpDraft.username.trim() && (smtpDraft.host.trim().toLowerCase() !== saved.host || Number(smtpDraft.port) !== saved.port || smtpDraft.security !== saved.security || smtpDraft.username.trim() !== (saved.username ?? '')));
   const setDraft = (target: DeliveryTarget, change: Partial<Draft>) => setDrafts((current) => ({ ...current, [target]: { ...current[target], ...change } }));
 
   const save = async (event: FormEvent) => {
@@ -191,9 +196,9 @@ export function NotificationChannelsSettings() {
     { id: 'topic', header: 'Tipo', cell: (item) => <><strong>{TOPICS[item.topic] ?? item.topic}</strong><br /><small>{item.title}</small></> },
     { id: 'target', header: 'Canal', cell: (item) => <><strong>{item.channel === 'EMAIL' ? 'Email' : 'Teams'}</strong><br /><small>{item.target === 'GROUP_ALERTS' ? 'Alertas operacionais' : item.topic === 'TEST' ? 'Teste' : `Pessoal · ${item.recipient?.displayName?.trim() || item.recipient?.username || '—'}`}</small></> },
     { id: 'status', header: 'Estado', cell: (item) => <span className={`state-badge ${STATUS[item.status]?.badge ?? ''}`.trim()} data-status={item.status}><i />{STATUS[item.status]?.label ?? item.status}</span> },
-    { id: 'attempts', header: 'Tentativas', cell: (item) => `${item.attempts}/${state?.maxAttempts ?? 5}` },
+    { id: 'attempts', header: 'Tentativas', cell: (item) => `${item.attempts}/${item.attempts > (state?.maxAttempts ?? 5) ? maxTotal : state?.maxAttempts ?? 5}` },
     { id: 'failure', header: 'Motivo', cell: (item) => item.failureReason ? <span title={item.failureReason}>{failureLabel(item.failureReason)}{item.status === 'PENDING' && item.nextAttemptAt ? ` · nova tentativa ${formatDateTime(item.nextAttemptAt)}` : ''}</span> : '—' },
-    { id: 'actions', header: 'Ações', cell: (item) => item.status === 'FAILED' ? <button type="button" className="secondary-button" disabled={Boolean(busy)} onClick={() => void retry(item)}><RotateCcw size={14} />Repetir</button> : null },
+    { id: 'actions', header: 'Ações', cell: (item) => item.status === 'FAILED' && item.attempts >= maxTotal ? <small>Limite de {maxTotal} tentativas</small> : item.status === 'FAILED' ? <button type="button" className="secondary-button" disabled={Boolean(busy)} onClick={() => void retry(item)}><RotateCcw size={14} />Repetir</button> : null },
   ];
 
   return <section className="ipam-card settings-panel">
@@ -229,8 +234,9 @@ export function NotificationChannelsSettings() {
           <label>Porta<input type="number" inputMode="numeric" min={1} max={65535} value={smtpDraft.port} onChange={(event) => setSmtpDraft({ ...smtpDraft, port: event.target.value })} /></label>
           <label>Remetente<input type="email" autoComplete="off" maxLength={254} placeholder="alertas@empresa.pt" value={smtpDraft.from} onChange={(event) => setSmtpDraft({ ...smtpDraft, from: event.target.value })} /></label>
           <label>Utilizador<input autoComplete="off" spellCheck={false} maxLength={254} placeholder="Opcional" value={smtpDraft.username} onChange={(event) => setSmtpDraft({ ...smtpDraft, username: event.target.value })} /></label>
-          <label>Palavra-passe<input type="password" autoComplete="new-password" maxLength={512} placeholder={emailServer?.smtp?.passwordSet ? 'Guardada — introduz uma nova para substituir' : 'Opcional'} value={smtpDraft.password} onChange={(event) => setSmtpDraft({ ...smtpDraft, password: event.target.value })} /></label>
+          <label>Palavra-passe<input type="password" autoComplete="new-password" maxLength={512} placeholder={emailServer?.smtp?.passwordSet ? (passwordReentry ? 'Introduz de novo a palavra-passe' : 'Guardada — introduz uma nova para substituir') : 'Opcional'} aria-describedby={passwordReentry ? 'smtp-password-reentry' : undefined} value={smtpDraft.password} onChange={(event) => setSmtpDraft({ ...smtpDraft, password: event.target.value })} /></label>
         </div>
+        {passwordReentry && !smtpDraft.password && <small id="smtp-password-reentry" className="ipam-alert error">Alteraste o servidor, a porta, a segurança ou o utilizador: a palavra-passe guardada não é reutilizada. Introduz-a de novo para guardar.</small>}
         <small className="panel-description">A palavra-passe é cifrada e nunca é mostrada depois de guardada. Com utilizador ou palavra-passe, a ligação tem de usar TLS ou STARTTLS; o certificado do servidor é sempre verificado.</small>
         <label className="settings-check"><input type="checkbox" checked={smtpDraft.enabled} onChange={(event) => setSmtpDraft({ ...smtpDraft, enabled: event.target.checked })} /> Ativar emails pessoais</label>
         <div className="modal-actions">

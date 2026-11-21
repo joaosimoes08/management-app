@@ -11,6 +11,11 @@ import { TeamsSender, validateTeamsWebhookUrl } from './teams-sender';
 export const DELIVERY_SENDERS = Symbol('DELIVERY_SENDERS');
 
 export const MAX_ATTEMPTS = 5;
+/**
+ * Hard cap over a delivery's whole life, manual retries included. A manual retry keeps the attempt count: it gives
+ * the automatic attempts that are left (none once 5 have run, so one attempt per press) and is refused at this cap.
+ */
+export const MAX_TOTAL_ATTEMPTS = 10;
 /** Wait after attempt N fails (index N-1). Attempt 5 is the last. */
 export const RETRY_BACKOFF_MS = [30_000, 120_000, 600_000, 1_800_000];
 /** Poll interval: well under a minute so a queued CRITICAL alert is posted within 1 min even if the immediate kick is missed. */
@@ -38,6 +43,7 @@ const SMTP_ERRORS: Record<string, string> = {
   SMTP_USERNAME_INVALID: 'O utilizador SMTP não é válido.',
   SMTP_AUTH_NEEDS_TLS: 'Com utilizador ou palavra-passe, a ligação tem de usar TLS ou STARTTLS.',
   SMTP_FROM_INVALID: 'Indica um endereço de remetente válido (por exemplo alertas@empresa.pt).',
+  SMTP_HOST_NOT_ALLOWED: 'Este servidor SMTP não é permitido (loopback, link-local ou endereço não especificado).',
 };
 
 const deliverySelect = {
@@ -169,7 +175,7 @@ export class NotificationDeliveryService implements OnModuleInit, OnModuleDestro
       to = email && isEmailAddress(email) ? [email] : [];
       if (!to.length) throw new DeliveryError('RECIPIENT_NO_EMAIL', false);
     }
-    return { kind: 'EMAIL', smtp: channel.smtp, password: channel.password, to };
+    return { kind: 'EMAIL', smtp: channel.smtp, password: channel.password, to, bcc: row.target === 'GROUP_ALERTS' };
   }
 
   private async attempt(id: string, cache: Map<string, ResolvedChannel | DeliveryError>, now: () => Date) {
@@ -250,7 +256,7 @@ export class NotificationDeliveryService implements OnModuleInit, OnModuleDestro
     const pairs: [DeliveryChannelKind, DeliveryTarget][] = [['TEAMS', 'USER_NOTIFICATIONS'], ['TEAMS', 'GROUP_ALERTS'], ['EMAIL', 'USER_NOTIFICATIONS'], ['EMAIL', 'GROUP_ALERTS']];
     return {
       channels: pairs.map(([kind, target]) => this.presentFrom(rows, kind, target)),
-      keyringAvailable, publicLinks: Boolean(publicLink('/', process.env.APP_PUBLIC_URL)), maxAttempts: MAX_ATTEMPTS,
+      keyringAvailable, publicLinks: Boolean(publicLink('/', process.env.APP_PUBLIC_URL)), maxAttempts: MAX_ATTEMPTS, maxTotalAttempts: MAX_TOTAL_ATTEMPTS,
     };
   }
 
@@ -283,17 +289,23 @@ export class NotificationDeliveryService implements OnModuleInit, OnModuleDestro
     }
     if (input.smtp) {
       const newPassword = input.smtp.password !== undefined && input.smtp.password !== '' ? input.smtp.password : null;
-      const keepsPassword = !newPassword && Boolean(existing?.keyId) && Boolean(input.smtp.username?.trim());
       let smtp: SmtpSettings;
-      try { smtp = validateSmtpSettings(input.smtp, Boolean(newPassword) || keepsPassword); }
+      try { smtp = validateSmtpSettings(input.smtp, Boolean(newPassword)); }
       catch (error) {
         const code = error instanceof DeliveryError ? error.code : 'SMTP_SETTINGS_INVALID';
         throw new BadRequestException({ code, message: SMTP_ERRORS[code] ?? 'Definições SMTP inválidas.' });
       }
       if (newPassword && !smtp.username) throw new BadRequestException({ code: 'SMTP_USERNAME_REQUIRED', message: 'Indica o utilizador SMTP para usar uma palavra-passe.' });
+      // The stored password belongs to one server and account: it is never carried over to another host, port,
+      // security mode or username. Such a change needs the password again; removing the username clears it.
+      const previous = (existing?.settings ?? null) as Partial<SmtpSettings> | null;
+      const connectionChanged = !previous || previous.host !== smtp.host || previous.port !== smtp.port || previous.security !== smtp.security || (previous.username ?? null) !== smtp.username;
+      if (!newPassword && smtp.username && existing?.keyId && connectionChanged) {
+        throw new BadRequestException({ code: 'SMTP_PASSWORD_REENTRY_REQUIRED', message: 'Alteraste o servidor, a porta, a segurança ou o utilizador: introduz de novo a palavra-passe SMTP.' });
+      }
       data.settings = smtp as unknown as Prisma.InputJsonValue;
       if (newPassword) { Object.assign(data, this.encrypt({ password: newPassword })); changes.passwordChanged = true; }
-      else if (!smtp.username) Object.assign(data, { ciphertext: null, iv: null, authTag: null, wrappedDek: null, wrapIv: null, wrapAuthTag: null, keyId: null });
+      else if (!smtp.username || connectionChanged) Object.assign(data, { ciphertext: null, iv: null, authTag: null, wrappedDek: null, wrapIv: null, wrapAuthTag: null, keyId: null });
       changes.smtp = { host: smtp.host, port: smtp.port, security: smtp.security, username: smtp.username, from: smtp.from };
     }
     if (input.recipients) {
@@ -377,9 +389,12 @@ export class NotificationDeliveryService implements OnModuleInit, OnModuleDestro
   }
 
   async retry(id: string, user: AuthenticatedUser) {
-    const updated = await this.prisma.notificationDelivery.updateMany({ where: { id, status: 'FAILED' }, data: { status: 'PENDING', attempts: 0, nextAttemptAt: new Date() } });
+    // The attempt count is kept (see MAX_TOTAL_ATTEMPTS), so manual retries cannot loop a delivery forever.
+    const updated = await this.prisma.notificationDelivery.updateMany({ where: { id, status: 'FAILED', attempts: { lt: MAX_TOTAL_ATTEMPTS } }, data: { status: 'PENDING', nextAttemptAt: new Date() } });
     if (!updated.count) {
-      if (!(await this.prisma.notificationDelivery.findUnique({ where: { id }, select: { id: true } }))) throw new NotFoundException({ code: 'NOTIFICATION_DELIVERY_NOT_FOUND', message: 'Entrega não encontrada.' });
+      const row = await this.prisma.notificationDelivery.findUnique({ where: { id }, select: { status: true, attempts: true } });
+      if (!row) throw new NotFoundException({ code: 'NOTIFICATION_DELIVERY_NOT_FOUND', message: 'Entrega não encontrada.' });
+      if (row.status === 'FAILED') throw new ConflictException({ code: 'NOTIFICATION_DELIVERY_RETRY_LIMIT', message: `Esta entrega já teve ${MAX_TOTAL_ATTEMPTS} tentativas e não pode ser repetida.` });
       throw new ConflictException({ code: 'NOTIFICATION_DELIVERY_NOT_FAILED', message: 'Só é possível repetir entregas falhadas.' });
     }
     await this.audit.record({ userId: user.id, action: 'NOTIFICATION_DELIVERY_RETRIED', entityType: 'NotificationDelivery', entityId: id });
