@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { InfrastructureWorkspace } from './infrastructure-workspace';
 
 const queryKeys: unknown[][] = [];
+const auth = vi.hoisted(() => ({ hasRole: vi.fn<(role: string) => boolean>(() => false) }));
 const registry = { tabs: [], configs: [{ key: 'power', kind: 'FEATURE', tab: 'energia', fields: ['power', 'powerPlugCount'], label: 'Tomadas de energia', missingMessage: '…' }] };
 vi.mock('@tanstack/react-query', () => ({
   useQuery: ({ queryKey }: { queryKey: string[] }) => (queryKeys.push(queryKey), {
@@ -16,11 +17,11 @@ vi.mock('@tanstack/react-query', () => ({
   }),
   useQueryClient: () => ({ invalidateQueries: vi.fn(), setQueryData: vi.fn() }),
 }));
-vi.mock('@/lib/auth', () => ({ useAuth: () => ({ user: { id: 'user-1' }, hasRole: () => false }) }));
+vi.mock('@/lib/auth', () => ({ useAuth: () => ({ user: { id: 'user-1' }, hasRole: auth.hasRole }) }));
 vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }));
 vi.mock('@/lib/site-context', () => ({ useSiteContext: () => ({ siteId: 'site-1' }) }));
 vi.mock('@/components/layout/app-shell', () => ({
-  AppShell: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  AppShell: ({ children, moduleTabs }: { children: React.ReactNode; moduleTabs?: React.ReactNode }) => <div>{moduleTabs}{children}</div>,
 }));
 vi.mock('./components/rack/rack-workspace', () => ({ RackWorkspace: () => <div /> }));
 vi.mock('./components/devices/deep-link-device-loader', () => ({ DeepLinkDeviceLoader: ({ deviceId }: { deviceId: string | null }) => (deviceId ? <span data-testid="deep-link">{deviceId}</span> : null) }));
@@ -38,15 +39,31 @@ vi.mock('./components/sites/building-modal', () => ({ BuildingModal: () => null 
 vi.mock('./components/sites/room-modal', () => ({ RoomModal: () => null }));
 vi.mock('./components/infrastructure-permissions', () => ({ InfrastructurePermissions: () => null }));
 vi.mock('./components/lifecycle-dates', () => ({ LifecycleDates: () => null }));
+vi.mock('./components/linux-hosts', () => ({ LinuxHosts: ({ canManage }: { canManage: boolean }) => <div data-testid="server-inventory">{canManage ? 'admin' : 'read-only'}</div> }));
 
 afterEach(() => {
   cleanup();
   window.localStorage.clear();
   queryKeys.length = 0;
+  auth.hasRole.mockImplementation(() => false);
   window.history.replaceState({}, '', '/');
 });
 
 describe('InfrastructureWorkspace', () => {
+  it('opens Servidores inside Infraestrutura and restores a shared link for read-only users', () => {
+    auth.hasRole.mockImplementation((role) => role === 'READ_ONLY');
+    window.history.replaceState({}, '', '/infraestrutura?siteId=site-1&tab=hosts&hosts-state=STALE');
+    render(<InfrastructureWorkspace />);
+    expect(screen.getByTestId('server-inventory')).toHaveTextContent('read-only');
+    expect(screen.getByRole('button', { name: 'linuxHosts.title' })).toHaveAttribute('aria-current', 'page');
+    fireEvent.click(screen.getByRole('button', { name: 'Equipamentos' }));
+    expect(screen.queryByTestId('server-inventory')).toBeNull();
+    expect(window.location.search).toBe('?siteId=site-1&tab=devices');
+    fireEvent.click(screen.getByRole('button', { name: 'linuxHosts.title' }));
+    expect(screen.getByTestId('server-inventory')).toBeInTheDocument();
+    expect(window.location.search).toBe('?siteId=site-1&tab=hosts');
+  });
+
   it('does not add a recent items panel to the regular workspace view', () => {
     render(<InfrastructureWorkspace />);
     expect(screen.queryByRole('heading', { name: 'Vistos recentemente' })).not.toBeInTheDocument();
