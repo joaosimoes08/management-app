@@ -516,6 +516,66 @@ test('enforces scoped operations, dashboard, topology and quality workflows', as
   assert.equal((await request('PATCH', `/api/v1/inventory-quality/findings/${findingId}/assign`, 'qa-network-scoped', { userId: ids.scoped })).statusCode, 200);
 });
 
+test('critical asset attestation: 409 on a second review of the same cycle, reviewer names and due state over HTTP', async () => {
+  await prisma.user.update({ where: { id: ids.admin }, data: { displayName: 'QA Admin Person' } });
+  await prisma.device.updateMany({ where: { id: { in: [ids.deviceA, ids.deviceA2] } }, data: { isCritical: true } });
+  await prisma.criticalAssetGroupMapping.create({ data: { siteId: ids.siteA, assetType: 'SWITCH', groupId: ids.groupRead } });
+  const pending = await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA, weekStart: new Date('2026-11-09T00:00:00.000Z') } });
+  for (const week of ['2026-11-02', '2026-10-26', '2026-10-19', '2026-10-12', '2026-10-05']) {
+    await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA, weekStart: new Date(`${week}T00:00:00.000Z`), outcome: 'CONFIRMED', confirmedAt: new Date(`${week}T10:00:00.000Z`), confirmedBy: ids.scoped, notes: week === '2026-10-26' ? 'checked tag' : null } });
+  }
+  const first = await request('POST', `/api/v1/critical-assets/${pending.id}/confirm`, 'qa-admin', { outcome: 'CORRECTION_NEEDED', notes: 'Wrong serial' });
+  assert.equal(first.statusCode, 201);
+  assert.equal(json(first).confirmedByName, 'QA Admin Person');
+  assert.equal(json(first).confirmedBy, ids.admin);
+  const second = await request('POST', `/api/v1/critical-assets/${pending.id}/confirm`, 'qa-admin', { outcome: 'CONFIRMED' });
+  assert.equal(second.statusCode, 409);
+  const conflict = json(second);
+  assert.equal(conflict.code, 'CRITICAL_ASSET_ATTESTATION_ALREADY_RECORDED');
+  assert.match(conflict.message, /já foi registada por QA Admin Person/);
+  assert.equal(conflict.details.outcome, 'CORRECTION_NEEDED');
+  assert.equal(conflict.details.weekStart, '2026-11-09');
+  const stored = await prisma.criticalAssetAttestation.findUniqueOrThrow({ where: { id: pending.id } });
+  assert.equal(stored.outcome, 'CORRECTION_NEEDED');
+  assert.equal(stored.notes, 'Wrong serial');
+  assert.equal(await prisma.auditLog.count({ where: { action: 'CRITICAL_ASSET_ATTESTATION_RECORDED', entityId: ids.deviceA } }), 1);
+
+  const list = await request('GET', `/api/v1/critical-assets?siteId=${ids.siteA}`, 'qa-admin');
+  assert.equal(list.statusCode, 200);
+  const body = json(list);
+  const switchA = body.assets.find((asset: { id: string }) => asset.id === ids.deviceA);
+  assert.equal(switchA.attestations.length, 6);
+  assert.equal(switchA.owner.id, ids.groupRead);
+  assert.equal(switchA.latestOutcome, 'CORRECTION_NEEDED');
+  assert.equal(switchA.dueState, 'up_to_date');
+  assert.equal(switchA.attestations[0].confirmedByName, 'QA Admin Person');
+  assert.equal(switchA.attestations[1].confirmedByName, 'qa-network-scoped');
+  assert.equal(switchA.attestations.find((row: { notes: string | null }) => row.notes === 'checked tag')?.weekStart.slice(0, 10), '2026-10-26');
+  const switchA2 = body.assets.find((asset: { id: string }) => asset.id === ids.deviceA2);
+  assert.equal(switchA2.dueState, 'unscheduled');
+  assert.equal(typeof switchA2.dueDate, 'string');
+});
+
+test('critical asset attestation: two simultaneous reviews of one cycle give exactly one 201 and one 409', async () => {
+  await prisma.device.update({ where: { id: ids.deviceA2 }, data: { isCritical: true } });
+  await prisma.criticalAssetGroupMapping.upsert({ where: { siteId_assetType: { siteId: ids.siteA, assetType: 'SWITCH' } }, create: { siteId: ids.siteA, assetType: 'SWITCH', groupId: ids.groupRead }, update: {} });
+  for (let round = 0; round < 5; round += 1) {
+    const row = await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA2, weekStart: new Date(Date.UTC(2026, 5, 1 + round * 7)) } });
+    const responses = await Promise.all([
+      request('POST', `/api/v1/critical-assets/${row.id}/confirm`, 'qa-admin', { outcome: 'CONFIRMED', notes: 'first' }),
+      request('POST', `/api/v1/critical-assets/${row.id}/confirm`, 'qa-admin', { outcome: 'CORRECTION_NEEDED', notes: 'second' }),
+    ]);
+    assert.deepEqual(responses.map((response) => response.statusCode).sort(), [201, 409]);
+    const winner = json(responses.find((response) => response.statusCode === 201)!);
+    const loser = json(responses.find((response) => response.statusCode === 409)!);
+    assert.equal(loser.code, 'CRITICAL_ASSET_ATTESTATION_ALREADY_RECORDED');
+    const stored = await prisma.criticalAssetAttestation.findUniqueOrThrow({ where: { id: row.id } });
+    assert.equal(stored.outcome, winner.outcome);
+    assert.equal(stored.notes, winner.notes);
+    assert.equal(await prisma.auditLog.count({ where: { action: 'CRITICAL_ASSET_ATTESTATION_RECORDED', metadata: { path: ['attestationId'], equals: row.id } } }), 1);
+  }
+});
+
 test('rack PDU power: defaults, allocation, 409s, cascades, audit, RBAC and wattage over HTTP', async () => {
   await resetDatabase();
   const admin = 'qa-admin';
