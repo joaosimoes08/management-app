@@ -4,6 +4,8 @@ export type DueState = 'overdue' | 'due_this_week' | 'up_to_date' | 'unscheduled
 export type Attestation = {
   id: string;
   weekStart: string;
+  /** When this cycle is due: Monday 09:00 Site-local plus the tier's cadence (computed by the API). */
+  dueAt: string;
   outcome?: string | null;
   notes?: string | null;
   confirmedAt?: string | null;
@@ -61,31 +63,40 @@ export const outcomeLabel = (outcome?: string | null) => (outcome === 'CONFIRMED
 export const outcomeTone = (outcome?: string | null) => (outcome === 'CONFIRMED' ? 'occupied' : outcome === 'NEEDS_CORRECTION' || outcome === 'NOT_FOUND' ? 'excluded' : 'pending');
 export const dueOrder: Record<DueState, number> = { overdue: 0, due_this_week: 1, unscheduled: 2, up_to_date: 3 };
 
+/** One table row from one API asset: derived fields are filled in, so older payloads still render. */
+export function toRow(asset: ApiAsset, mappings: Mapping[]): AssetRow {
+  const owner = asset.owner !== undefined ? asset.owner : asset.assignedGroup ?? mappings.find((mapping) => mapping.assetType === asset.type)?.group ?? null;
+  const history = [...asset.attestations].sort((a, b) => b.weekStart.localeCompare(a.weekStart));
+  const latest = history.find((row) => row.outcome) ?? null;
+  const pending = history.filter((row) => !row.outcome).reverse();
+  return {
+    ...asset,
+    attestations: history,
+    owner,
+    // Without an owner nobody is due: the API reports 'unscheduled' and keeps the pending counts.
+    dueState: asset.dueState ?? (!owner ? 'unscheduled' : pending.length ? 'due_this_week' : history.length ? 'up_to_date' : 'unscheduled'),
+    dueDate: asset.dueDate ?? null,
+    pendingCount: asset.pendingCount ?? pending.length,
+    latestOutcome: asset.latestOutcome !== undefined ? asset.latestOutcome : latest?.outcome ?? null,
+    latestConfirmedAt: asset.latestConfirmedAt !== undefined ? asset.latestConfirmedAt : latest?.confirmedAt ?? null,
+    latestReviewer: latest?.confirmedByName ?? null,
+    pending,
+  };
+}
+
 /** Admins get every asset in `assets` and the unowned ones again in `unassigned`: merge once by id. */
 export function buildRows(data: CriticalAssetsResult | undefined): AssetRow[] {
   if (!data) return [];
   const byId = new Map<string, ApiAsset>();
   for (const asset of [...data.assets, ...data.unassigned]) if (!byId.has(asset.id)) byId.set(asset.id, asset);
-  return [...byId.values()].map((asset) => {
-    const owner = asset.owner !== undefined ? asset.owner : asset.assignedGroup ?? data.mappings.find((mapping) => mapping.assetType === asset.type)?.group ?? null;
-    const history = [...asset.attestations].sort((a, b) => b.weekStart.localeCompare(a.weekStart));
-    const latest = history.find((row) => row.outcome) ?? null;
-    const pending = history.filter((row) => !row.outcome).reverse();
-    return {
-      ...asset,
-      attestations: history,
-      owner,
-      // Without an owner nobody is due: the API reports 'unscheduled' and keeps the pending counts.
-      dueState: asset.dueState ?? (!owner ? 'unscheduled' : pending.length ? 'due_this_week' : history.length ? 'up_to_date' : 'unscheduled'),
-      dueDate: asset.dueDate ?? null,
-      pendingCount: asset.pendingCount ?? pending.length,
-      latestOutcome: asset.latestOutcome !== undefined ? asset.latestOutcome : latest?.outcome ?? null,
-      latestConfirmedAt: asset.latestConfirmedAt !== undefined ? asset.latestConfirmedAt : latest?.confirmedAt ?? null,
-      latestReviewer: latest?.confirmedByName ?? null,
-      pending,
-    };
-  }).sort((a, b) => dueOrder[a.dueState] - dueOrder[b.dueState] || a.name.localeCompare(b.name));
+  return [...byId.values()].map((asset) => toRow(asset, data.mappings)).sort((a, b) => dueOrder[a.dueState] - dueOrder[b.dueState] || a.name.localeCompare(b.name));
 }
+
+/** One page of the paged endpoint (`/critical-assets/assets`), filtered and ordered on the server. */
+export type AssetPage = { timezone: string; generatedAt?: string; total: number; page: number; pageSize: number; items: ApiAsset[] };
+export const PAGE_SIZE = 50;
+/** The server caps a page at 200 rows; "select all matching" walks the pages at that size. */
+export const MAX_SERVER_PAGE = 200;
 
 export function countRows(rows: AssetRow[]) {
   return {
@@ -134,4 +145,42 @@ export function withRecordedAttestation(current: CriticalAssetsResult | undefine
     };
   };
   return { ...current, assets: current.assets.map(update), unassigned: current.unassigned.map(update) };
+}
+
+export type Correction = {
+  id: string;
+  status: 'OPEN' | 'RESOLVED' | 'REJECTED';
+  description: string;
+  requestedAt: string;
+  closedAt?: string | null;
+  closeNote?: string | null;
+  changeReference?: string | null;
+  groupName?: string | null;
+  device?: { id: string; name: string; type: string } | null;
+};
+
+/** One line of the compliance view: a group's reviews for one weekly cycle. */
+export type ComplianceCell = { group: string; weekStart: string; expected: number; onTime: number; percent: number | null };
+
+/** How many weekly cycles the compliance view shows, newest first. */
+export const COMPLIANCE_PERIODS = 12;
+
+/**
+ * Share of each group's reviews recorded on time, per cycle (last 12 cycles that exist).
+ * A review is on time when its outcome was recorded before its cycle's due time (`dueAt`, from the API:
+ * Monday 09:00 Site-local, one tier cadence after the cycle opens). Only cycles that opened are counted:
+ * an asset with no attestation for a cycle is not expected for it.
+ */
+export function complianceCells(rows: AssetRow[]): { weeks: string[]; groups: string[]; cells: ComplianceCell[] } {
+  const weeks = [...new Set(rows.flatMap((row) => row.attestations.map((item) => item.weekStart.slice(0, 10))))].sort().reverse().slice(0, COMPLIANCE_PERIODS);
+  const groups = [...new Set(rows.map((row) => row.owner?.name).filter((name): name is string => Boolean(name)))].sort((a, b) => a.localeCompare(b));
+  const cells: ComplianceCell[] = [];
+  for (const group of groups) {
+    for (const week of weeks) {
+      const items = rows.filter((row) => row.owner?.name === group).flatMap((row) => row.attestations.filter((item) => item.weekStart.slice(0, 10) === week));
+      const onTime = items.filter((item) => item.outcome && item.confirmedAt && new Date(item.confirmedAt).getTime() < new Date(item.dueAt).getTime()).length;
+      cells.push({ group, weekStart: week, expected: items.length, onTime, percent: items.length ? Math.round((onTime / items.length) * 100) : null });
+    }
+  }
+  return { weeks, groups, cells };
 }
