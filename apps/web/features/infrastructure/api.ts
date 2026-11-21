@@ -1,4 +1,5 @@
 import { apiFetch } from '@/lib/api/client';
+import { deviceFilterQuery, type DeviceUrlFilters } from './device-filters';
 import type {
   AssetFile,
   BuildingWithRooms,
@@ -187,8 +188,9 @@ export function deleteAsset(id: string): Promise<unknown> {
 
 // ── Devices ────────────────────────────────────────────────────────────────
 
-export function listDevices(siteId: string, search: string, page = 1): Promise<DeviceListResponse> {
-  return apiFetch<DeviceListResponse>(`/api/v1/devices?siteId=${siteId}&search=${encodeURIComponent(search)}&page=${page}&pageSize=100`);
+/** `filters` are the optional drill-through filters (status, critical, lifecycle, lifecycleKind). */
+export function listDevices(siteId: string, search: string, page = 1, filters?: Partial<DeviceUrlFilters>): Promise<DeviceListResponse> {
+  return apiFetch<DeviceListResponse>(`/api/v1/devices?siteId=${siteId}&search=${encodeURIComponent(search)}&page=${page}&pageSize=100${deviceFilterQuery(filters)}`);
 }
 
 export async function listAllDevices(siteId: string, search: string): Promise<DeviceListResponse> {
