@@ -15,6 +15,13 @@ describe('apiErrorMessage', () => {
     expect(apiErrorMessage({ code: 'ASSET_NOT_IMAGE', message: 'x' }, 'en-US')).toBe(localizedApiErrors['en-US'].ASSET_NOT_IMAGE);
     expect(apiErrorMessage({ code: 'PORT_LAYOUT_CONFLICT' }, 'pt-PT')).toBe('Alterado por outra pessoa — recarrega.');
   });
+
+  it('explains an already recorded critical asset review in both languages', () => {
+    const payload = { code: 'CRITICAL_ASSET_ATTESTATION_ALREADY_RECORDED', message: 'A revisão da semana de 2026-11-16 já foi registada por Ana. Não é possível registar outra para o mesmo ciclo.', details: { weekStart: '2026-11-16', confirmedByName: 'Ana' } };
+    expect(apiErrorMessage(payload, 'pt-PT')).toBe(payload.message);
+    expect(apiErrorMessage(payload, 'en-US')).toBe('The review for the week of Nov 16, 2026 was already recorded by Ana. Another one cannot be recorded for the same cycle.');
+    expect(apiErrorMessage({ code: 'CRITICAL_ASSET_ATTESTATION_ALREADY_RECORDED' }, 'en-US')).toBe(localizedApiErrors['en-US'].CRITICAL_ASSET_ATTESTATION_ALREADY_RECORDED);
+  });
 });
 
 describe('apiFetch errors', () => {
