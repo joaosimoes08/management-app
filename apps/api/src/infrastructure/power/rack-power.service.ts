@@ -4,6 +4,8 @@ import { AuditService } from '../../audit/audit.service';
 import { AuthenticatedUser } from '../../auth/auth.service';
 import { InfrastructureAccessService } from '../infrastructure-access.service';
 import { DevicePowerDto, RackPowerDto } from './dto';
+import { updateViolations } from '../required-config/device-required-config';
+import { RequiredConfigException } from '../required-config/device-required-config.service';
 import { allocatePlugs, defaultPlugRequests, planPduSettings, resolvePlugCount, summarizeRackPower, type AllocationPdu, type PduInput, type PlugRequest, type PowerDeviceInput, type RackPowerSummary } from './rack-power';
 
 /** Prisma include that loads everything summarizeRackPower needs for a rack. */
@@ -27,6 +29,37 @@ function isUniqueViolation(error: unknown) {
 }
 function isSerializationFailure(error: unknown) {
   return !!error && typeof error === 'object' && 'code' in error && (error as { code?: string }).code === 'P2034';
+}
+
+/** Device fields applyDevicePowerInTransaction reads. */
+export interface PowerTargetDevice { id: string; rackId: string | null; status?: string | null; powerPlugCount?: number | null; estimatedWatts?: number | null; model?: { powerPlugCount?: number | null; typicalWatts?: number | null; maxWatts?: number | null } | null }
+
+function powerConfigState(device: PowerTargetDevice, connectedPlugs: number) {
+  return { rackId: device.rackId, status: device.status, powerPlugCount: device.powerPlugCount, modelPowerPlugCount: device.model?.powerPlugCount ?? null, connectedPlugs };
+}
+
+/**
+ * Replaces every outlet assignment of a racked device inside the caller's transaction (PUT devices/:id/power,
+ * and POST/PATCH devices with a `power` block). The caller must hold the device row lock (or have just created it);
+ * this locks the rack's PDUs. Same semantics as DevicePowerDto: plugs omitted = default distribution.
+ */
+export async function applyDevicePowerInTransaction(tx: any, device: PowerTargetDevice, dto: DevicePowerDto) {
+  if (!device.rackId) throw new ConflictException({ code: 'DEVICE_NOT_IN_RACK', message: 'O equipamento não está num bastidor: não pode ser ligado a uma PDU.' });
+  await tx.$queryRaw`SELECT "id" FROM "RackPdu" WHERE "rackId"::text = ${device.rackId} FOR UPDATE`;
+  const fieldChanges: { powerPlugCount?: number | null; estimatedWatts?: number | null } = {};
+  if (dto.powerPlugCount !== undefined) fieldChanges.powerPlugCount = dto.powerPlugCount;
+  if (dto.estimatedWatts !== undefined) fieldChanges.estimatedWatts = dto.estimatedWatts;
+  const plugCount = resolvePlugCount({ ...device, ...fieldChanges }).count;
+  const pdus = await tx.rackPdu.findMany({ where: { rackId: device.rackId }, include: { outlets: { where: { deviceId: { not: device.id } }, select: { outletIndex: true } } } });
+  const allocationPdus: AllocationPdu[] = pdus.map((pdu: any) => ({ id: pdu.id, source: pdu.source, outletCount: pdu.outletCount, taken: new Set(pdu.outlets.map((outlet: any) => outlet.outletIndex)) }));
+  const requests: PlugRequest[] = dto.plugs === undefined
+    ? defaultPlugRequests(plugCount, allocationPdus)
+    : dto.plugs.map((plug) => ({ plugIndex: plug.plugIndex, pduId: plug.pduId ?? null, outletIndex: plug.outletIndex ?? null }));
+  const allocation = allocatePlugs(plugCount, requests, allocationPdus);
+  if (Object.keys(fieldChanges).length) await tx.device.update({ where: { id: device.id }, data: fieldChanges });
+  const removed = (await tx.pduOutletAssignment.deleteMany({ where: { deviceId: device.id } })).count as number;
+  if (allocation.assignments.length) await tx.pduOutletAssignment.createMany({ data: allocation.assignments.map((item) => ({ ...item, deviceId: device.id })) });
+  return { fieldChanges, plugCount, allocation, removed };
 }
 
 @Injectable()
@@ -70,29 +103,16 @@ export class RackPowerService {
     await this.access.assertDevice(user, 'UPDATE', deviceId);
     const result = await this.prisma.$transaction(async (tx: any) => {
       await tx.$queryRaw`SELECT "id" FROM "Device" WHERE "id"::text = ${deviceId} FOR UPDATE`;
-      const device = await tx.device.findUnique({ where: { id: deviceId }, select: { id: true, name: true, type: true, rackId: true, powerPlugCount: true, estimatedWatts: true, model: { select: { powerPlugCount: true, typicalWatts: true, maxWatts: true } } } });
+      const device = await tx.device.findUnique({ where: { id: deviceId }, select: { id: true, name: true, type: true, rackId: true, status: true, powerPlugCount: true, estimatedWatts: true, model: { select: { powerPlugCount: true, typicalWatts: true, maxWatts: true } } } });
       if (!device) throw new NotFoundException('Equipamento não encontrado');
       if (!device.rackId) throw new ConflictException({ code: 'DEVICE_NOT_IN_RACK', message: 'O equipamento não está num bastidor: não pode ser ligado a uma PDU.' });
       await this.access.assertRack(user, 'UPDATE', device.rackId, 'DEVICE', device.type);
-      await this.lockRackPdus(tx, device.rackId);
-
-      const fieldChanges: { powerPlugCount?: number | null; estimatedWatts?: number | null } = {};
-      if (dto.powerPlugCount !== undefined) fieldChanges.powerPlugCount = dto.powerPlugCount;
-      if (dto.estimatedWatts !== undefined) fieldChanges.estimatedWatts = dto.estimatedWatts;
-      const effective = { ...device, ...fieldChanges };
-      const plugCount = resolvePlugCount(effective).count;
-
-      const pdus = await tx.rackPdu.findMany({ where: { rackId: device.rackId }, include: { outlets: { where: { deviceId: { not: deviceId } }, select: { outletIndex: true } } } });
-      const allocationPdus: AllocationPdu[] = pdus.map((pdu: any) => ({ id: pdu.id, source: pdu.source, outletCount: pdu.outletCount, taken: new Set(pdu.outlets.map((outlet: any) => outlet.outletIndex)) }));
-      const requests: PlugRequest[] = dto.plugs === undefined
-        ? defaultPlugRequests(plugCount, allocationPdus)
-        : dto.plugs.map((plug) => ({ plugIndex: plug.plugIndex, pduId: plug.pduId ?? null, outletIndex: plug.outletIndex ?? null }));
-      const allocation = allocatePlugs(plugCount, requests, allocationPdus);
-
-      if (Object.keys(fieldChanges).length) await tx.device.update({ where: { id: deviceId }, data: fieldChanges });
-      const removed = await tx.pduOutletAssignment.deleteMany({ where: { deviceId } });
-      if (allocation.assignments.length) await tx.pduOutletAssignment.createMany({ data: allocation.assignments.map((item) => ({ ...item, deviceId })) });
-      await this.audit.recordInTransaction(tx, { userId: user.id, action: 'DEVICE_POWER_UPDATED', entityType: 'Device', entityId: deviceId, metadata: { rackId: device.rackId, ...fieldChanges, plugCount, removedAssignments: removed.count, assignments: allocation.assignments, unplugged: allocation.unplugged } });
+      const connectedBefore = await tx.pduOutletAssignment.count({ where: { deviceId } });
+      const { fieldChanges, plugCount, allocation, removed } = await applyDevicePowerInTransaction(tx, device, dto);
+      // A device whose outlets were configured must not be left with none (unless it now has 0 plugs).
+      const violations = updateViolations(powerConfigState(device, connectedBefore), powerConfigState({ ...device, ...fieldChanges }, allocation.assignments.length), ['power']);
+      if (violations.length) throw new RequiredConfigException(violations);
+      await this.audit.recordInTransaction(tx, { userId: user.id, action: 'DEVICE_POWER_UPDATED', entityType: 'Device', entityId: deviceId, metadata: { rackId: device.rackId, ...fieldChanges, plugCount, removedAssignments: removed, assignments: allocation.assignments, unplugged: allocation.unplugged } });
       return { rackId: device.rackId as string, plugCount, allocation, power: await this.rackPower(device.rackId, tx) };
     }).catch((error: unknown) => {
       if (isUniqueViolation(error) || isSerializationFailure(error)) throw new ConflictException({ code: 'PDU_OUTLET_TAKEN', message: 'Uma das tomadas foi ocupada entretanto. Atualiza o bastidor e tenta novamente.' });

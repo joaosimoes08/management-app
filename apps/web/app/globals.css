@@ -2950,3 +2950,56 @@ body { color:var(--ink); background:#e9eef5; }
 .power-step-notes { display:grid; gap:6px; }
 .power-step-notes p { margin:0; }
 @media (max-width:560px) { .power-step-row { grid-template-columns:1fr 1fr; } .power-step-row > strong { grid-column:1 / -1; padding:0; } }
+
+/* Device editor: tabbed, fixed-height card in the device / PDU hover card style. The body scrolls inside the active tab; the footer stays visible. */
+.modal-card.device-editor-modal { display:flex; flex-direction:column; width:min(720px,calc(100vw - 32px)); height:min(620px,calc(100vh - 48px)); padding:0; overflow:hidden; color:#242124; border:1px solid var(--line); border-radius:10px; box-shadow:0 10px 28px rgba(35,31,34,.18); font:500 12px/1.35 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+.device-editor-modal .modal-heading { position:relative; justify-content:center; margin:0; padding:14px 44px 4px; }
+.device-editor-modal .modal-heading h2 { margin:0; color:#222; font:700 14px/1.25 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; text-align:center; }
+.device-editor-modal .modal-heading > button { position:absolute; top:9px; right:10px; }
+.device-editor-form.modal-form { display:flex; flex:1; flex-direction:column; gap:0; min-height:0; }
+.device-editor-subtitle { margin:0; padding:0 16px; overflow:hidden; color:#6b6870; font-weight:600; font-size:11px; text-align:center; text-overflow:ellipsis; white-space:nowrap; }
+.device-editor-tabs { display:flex; gap:2px; margin-top:8px; padding:0 12px; overflow-x:auto; border-bottom:1px solid #ece9e9; scrollbar-width:none; }
+.device-editor-tab { display:inline-flex; align-items:center; gap:6px; margin-bottom:-1px; padding:9px 10px; color:#6b6870; border:0; border-bottom:2px solid transparent; background:transparent; font:600 12px/1.25 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; white-space:nowrap; cursor:pointer; }
+.device-editor-tab:hover { color:#242124; }
+.device-editor-tab[aria-selected="true"] { color:#222; border-bottom-color:#222; }
+.device-editor-tab:focus-visible { outline:2px solid #2c6bed; outline-offset:-2px; border-radius:6px 6px 0 0; }
+.device-editor-tab-badge, .device-editor-tab-hint { display:inline-grid; place-items:center; min-width:16px; height:16px; padding:0 4px; border-radius:8px; font:700 10px/1 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+.device-editor-tab-badge { color:#fff; background:#b3261e; }
+.device-editor-tab-hint { color:#8a5300; background:#fff1d6; }
+.device-editor-body { flex:1; min-height:0; padding:14px 16px 16px; overflow:auto; overscroll-behavior:contain; }
+.device-editor-panel { display:grid; align-content:start; gap:10px; }
+.device-editor-panel[hidden] { display:none; }
+.device-editor-panel:focus-visible { outline:2px solid #2c6bed; outline-offset:4px; border-radius:4px; }
+.device-editor-modal .modal-form label { color:#6b6870; font:600 11px/1.3 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+.device-editor-modal .modal-form .checkbox-label { display:flex; align-items:center; gap:8px; color:#242124; font-weight:500; }
+.device-editor-modal .modal-form .checkbox-label input { flex:none; width:14px; height:14px; margin:0; }
+.device-editor-modal .modal-form input:not([type='checkbox']):not([type='radio']):not([type='file']), .device-editor-modal .modal-form select { font-size:12px; }
+.device-editor-modal .modal-form [aria-invalid="true"] { border-color:#b3261e; box-shadow:0 0 0 1px #b3261e inset; }
+.device-editor-required { color:#b3261e; }
+.device-editor-modal .field-error { margin-top:-4px; color:#b3261e; font:600 11px/1.35 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+.device-editor-modal .form-warning, .device-editor-modal .form-help { font-size:11px; }
+.device-editor-modal .device-power-fields small { display:block; margin-top:4px; }
+.device-editor-images { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.device-editor-image { display:grid; align-content:start; gap:8px; }
+.device-editor-image-preview { display:grid; place-items:center; height:76px; overflow:hidden; color:#8b888e; border:1px dashed #dcd8d8; border-radius:8px; background:#faf9f9; font-weight:600; font-size:11px; }
+.device-editor-image-preview img { max-width:100%; max-height:100%; object-fit:contain; }
+.device-editor-footer { display:grid; gap:8px; padding:10px 16px 12px; border-top:1px solid #ece9e9; background:#fff; }
+.device-editor-footer .modal-actions { align-items:center; margin-top:0; }
+.device-editor-missing { margin-right:auto; color:#b3261e; font-weight:600; font-size:11px; }
+.device-editor-footer .primary-button[aria-disabled="true"] { opacity:.5; cursor:not-allowed; }
+@media (max-width:780px) { .device-editor-images { grid-template-columns:1fr; } .modal-card.device-editor-modal { height:calc(100vh - 32px); } }
+
+/* Bell: grouped "configuração em falta" alert (persistent until the devices are fixed). */
+.alert-list a.missing-config { background:#fffaf0; }
+.alert-list a.missing-config:hover { background:#fff3dc; }
+
+/* Device list: removable "configuração em falta" filter chip (?missingConfig=…). */
+.device-filter-chips { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 8px; }
+.device-filter-chip { display:inline-flex; align-items:center; gap:6px; padding:3px 4px 3px 10px; border:1px solid #f0d9a8; border-radius:999px; background:#fff8e8; color:#8a5300; font-size:11px; font-weight:600; }
+.device-filter-chip button { display:inline-grid; place-items:center; width:18px; height:18px; padding:0; border:0; border-radius:50%; background:transparent; color:inherit; cursor:pointer; }
+.device-filter-chip button:hover { background:#f6e3bb; }
+.device-filter-chip button:focus-visible { outline:2px solid #2c6bed; outline-offset:1px; }
+.cross-site-missing-config-row { color:inherit; text-decoration:none; cursor:pointer; }
+.cross-site-missing-config-row:focus-visible { outline:2px solid #2c6bed; outline-offset:-2px; }
+.cross-site-missing-config-site { flex:none; padding:2px 8px; border-radius:999px; background:#eef2f7; color:#41526b; font-size:11px; font-weight:600; white-space:nowrap; }
+.device-power-auto { display:block; margin-top:6px; }

@@ -84,6 +84,10 @@ export interface DeviceForm {
   estimatedWatts?: string;
   /** Power overrides stored when an existing device was opened; absent for a new device. */
   savedPower?: { plugs: string; watts: string };
+  /** Rack when an existing device was opened (a save into another rack sends `power`); absent for a new device. */
+  savedRackId?: string;
+  /** API `requiredConfig.missing` of the device as opened (legacy gaps, e.g. power with no outlets). */
+  requiredMissing?: string[];
   notes?: string;
   snmpEnabled?: boolean;
   snmpVersion?: 'V2C' | 'V3';

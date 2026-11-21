@@ -1,6 +1,6 @@
 import { Type } from 'class-transformer';
 import { ArrayMinSize, ArrayMaxSize, IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsObject, IsOptional, IsString, IsUUID, Matches, Max, Min, MinLength, ValidateNested } from 'class-validator';
-import { PduSettingsDto } from './power/dto';
+import { DevicePowerDto, PduSettingsDto } from './power/dto';
 import { MAX_POWER_PLUG_COUNT, MAX_WATTS, MIN_POWER_PLUG_COUNT } from './power/power-defaults';
 import { RACK_POWER_MODES, type RackPowerMode } from './power/rack-power';
 
@@ -47,6 +47,12 @@ export class CreateDeviceDto {
   /** Power overrides. null = fall back to the model, then to the type default. Outlets are set via PUT devices/:id/power. */
   @IsOptional() @IsInt() @Min(MIN_POWER_PLUG_COUNT) @Max(MAX_POWER_PLUG_COUNT) powerPlugCount?: number | null;
   @IsOptional() @IsInt() @Min(0) @Max(MAX_WATTS) estimatedWatts?: number | null;
+  /**
+   * Outlet assignments saved in the same transaction as the device (same body as PUT devices/:id/power; `{}` =
+   * default distribution). Required on create for a racked device with at least 1 plug; on update, required when the
+   * device moves to another rack and had outlets configured. See docs/device-required-config.md.
+   */
+  @IsOptional() @IsObject() @ValidateNested() @Type(() => DevicePowerDto) power?: DevicePowerDto;
 }
 export class UpdateDeviceDto extends CreateDeviceDto {}
 

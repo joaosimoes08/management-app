@@ -10,6 +10,7 @@ function serviceWith(prisma: Record<string, unknown>, queue: Record<string, unkn
     ipamAccess: { whereFor: async (_user: unknown, _action: unknown, resource: string) => ({ resource }) },
     infrastructureAccess: { visibleRoomIds: async () => [], visibleUnplacedSiteIds: async () => [] },
     operations,
+    requiredConfig: { topbarAlerts: async () => [] },
   });
   return service;
 }
@@ -88,4 +89,38 @@ test('topbar state degrades when Redis is unavailable and adapts persisted alert
   assert.equal(result.environment.services.find((item) => item.key === 'redis')?.state, 'UNAVAILABLE');
   assert.ok(result.alerts.some((item) => item.id === 'alert-1'));
   assert.deepEqual(result.processes[0], { id: 'running-1', label: 'Discovery core', detail: '10.1.0.0/24', state: 'RUNNING', href: '/descoberta?jobId=running-1' });
+});
+
+test('topbar state appends the persistent missing-config alerts after the capped operational alerts', async () => {
+  const now = new Date();
+  const many = Array.from({ length: 10 }, (_, index) => ({ id: `alert-${index}`, severity: 'WARNING', title: 'x', detail: 'y', actionHref: '/', lastOccurredAt: now }));
+  const service = serviceWith({
+    discoveryJob: { findMany: async () => [] },
+    systemSettings: { findFirst: async () => ({ setupCompleted: true, setupCompletedAt: now }) },
+    roleRequest: { count: async () => 0 }, notification: { findMany: async () => [] },
+  }, { getJobCounts: async () => ({}) }, { list: async () => ({ items: many }) });
+  (service as any).requiredConfig = { topbarAlerts: async () => [{ id: 'device-missing-config-power', severity: 'WARNING', title: '3 dispositivos sem tomadas de energia configuradas', detail: 'd', href: '/infraestrutura?tab=devices&missingConfig=power', occurredAt: now.toISOString(), persistent: true, kind: 'DEVICE_MISSING_CONFIG', config: 'power', count: 3 }] };
+  const result = await service.topbarState({ id: 'user', externalId: 'external', username: 'admin', roles: ['ADMIN'] });
+  const last = result.alerts[result.alerts.length - 1] as any;
+  assert.equal(last.id, 'device-missing-config-power');
+  assert.equal(last.persistent, true);
+  assert.equal(result.alerts.filter((item) => item.id === 'device-missing-config-power').length, 1);
+});
+
+test('topbar state stays up when the missing-config source fails, and the failure is logged', async () => {
+  const now = new Date();
+  const service = serviceWith({
+    discoveryJob: { findMany: async () => [] },
+    systemSettings: { findFirst: async () => ({ setupCompleted: true, setupCompletedAt: now }) },
+    roleRequest: { count: async () => 0 }, notification: { findMany: async () => [] },
+  }, { getJobCounts: async () => ({}) });
+  (service as any).requiredConfig = { topbarAlerts: async () => { throw new Error('db down'); } };
+  const { Logger } = await import('@nestjs/common');
+  const original = Logger.prototype.warn; const warnings: string[] = [];
+  Logger.prototype.warn = function (message: unknown) { warnings.push(String(message)); } as any;
+  try {
+    const result = await service.topbarState({ id: 'user', externalId: 'external', username: 'admin', roles: ['ADMIN'] });
+    assert.deepEqual(result.alerts, []);
+  } finally { Logger.prototype.warn = original; }
+  assert.ok(warnings.some((message) => message.includes('db down')), warnings.join('|'));
 });
