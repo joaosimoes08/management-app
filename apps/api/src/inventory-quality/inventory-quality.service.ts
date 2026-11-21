@@ -1,5 +1,5 @@
 import { portLayoutIncompleteMessage, portMappingStatus } from '../infrastructure/port-layout';
-import { BadRequestException, ForbiddenException, HttpException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, HttpException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@simoes/database';
 import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../auth/auth.service';
@@ -8,6 +8,8 @@ import { IpamAccessService } from '../ipam/ipam-access.service';
 import { AlertSeverityDto } from '../operations/dto';
 import { OperationsService } from '../operations/operations.service';
 import { AssignFindingDto, BulkFindingActionDto, FindingFacetsQueryDto, ListFindingsQueryDto, SNOOZE_MAX_HOURS, SNOOZE_MIN_HOURS, SnoozeFindingDto } from './dto';
+/** Upper bound on findings scanned for the work-queue facets. */
+export const FACET_SCAN_LIMIT = 20_000;
 
 const HOUR = 60 * 60 * 1000;
 const SNOOZE_CLOCK_GRACE_MS = 60 * 1000;
@@ -30,12 +32,15 @@ export function resolveSnoozeUntil(input: { until?: string; durationHours?: numb
 }
 
 export type BulkItemResult = { id: string; ok: boolean; code?: 'NOT_FOUND' | 'FORBIDDEN' | 'INVALID' | 'ERROR'; message?: string; status?: string };
-function bulkFailure(id: string, error: unknown): BulkItemResult {
+const bulkLogger = new Logger('InventoryQualityBulk');
+/** Maps one item's failure to a per-item result. Unexpected errors are logged here and reported generically, so the rest of the batch still runs. */
+export function bulkFailure(id: string, error: unknown): BulkItemResult {
   if (error instanceof NotFoundException) return { id, ok: false, code: 'NOT_FOUND', message: 'Finding não encontrado' };
   if (error instanceof ForbiddenException) return { id, ok: false, code: 'FORBIDDEN', message: error.message };
   if (error instanceof BadRequestException) return { id, ok: false, code: 'INVALID', message: error.message };
   if (error instanceof HttpException) return { id, ok: false, code: 'ERROR', message: error.message };
-  throw error;
+  bulkLogger.error(`Bulk action failed for finding ${id}`, error instanceof Error ? error.stack : String(error));
+  return { id, ok: false, code: 'ERROR', message: 'Erro inesperado ao processar este finding.' };
 }
 
 type Candidate = {
@@ -121,7 +126,9 @@ export class InventoryQualityService {
     if (query.siteId && !siteIds.includes(query.siteId)) throw new NotFoundException('Site não encontrado');
     const scope = query.siteId ? { siteId: query.siteId } : user.roles.includes('ADMIN') ? { OR: [{ siteId: null }, { siteId: { in: siteIds } }] } : { siteId: { in: siteIds } };
     const search = query.search ? [{ OR: [{ title: { contains: query.search, mode: 'insensitive' as const } }, { detail: { contains: query.search, mode: 'insensitive' as const } }] }] : [];
-    const candidates = await this.prisma.inventoryFinding.findMany({ where: { AND: [scope, ...search] }, select: { id: true, siteId: true, entityType: true, entityId: true, status: true, severity: true, rule: true, assignedToId: true } });
+    // Bounded: per-finding visibility has to be checked in memory, so at most FACET_SCAN_LIMIT findings (most recent first) are counted.
+    const scanned = await this.prisma.inventoryFinding.findMany({ where: { AND: [scope, ...search] }, orderBy: [{ lastDetectedAt: 'desc' }, { id: 'desc' }], take: FACET_SCAN_LIMIT + 1, select: { id: true, siteId: true, entityType: true, entityId: true, status: true, severity: true, rule: true, assignedToId: true } });
+    const candidates = scanned.slice(0, FACET_SCAN_LIMIT);
     const visible = await this.filterVisibleFindings(user, candidates);
     const assigneeId = query.assignee === 'me' ? user.id : query.assignee;
     this.assigneeWhere(user, query.assignee); // validates the assignee value
@@ -143,6 +150,7 @@ export class InventoryQualityService {
       byStatus: Object.fromEntries(['OPEN', 'ACKNOWLEDGED', 'SNOOZED', 'RESOLVED'].map((status) => [status, count('status', (item) => item.status).get(status as never) ?? 0])),
       bySeverity: Object.fromEntries(['CRITICAL', 'HIGH', 'WARNING', 'INFO'].map((severity) => [severity, count('severity', (item) => item.severity).get(severity as never) ?? 0])),
       byRule: [...count('rule', (item) => item.rule).entries()].map(([rule, total]) => ({ rule, total, byStatus: byRuleStatus.get(rule) ?? {} })).sort((a, b) => b.total - a.total || a.rule.localeCompare(b.rule)),
+      truncated: scanned.length > FACET_SCAN_LIMIT,
       byAssignee: [...assigneeCounts.entries()].map(([id, total]) => id === 'unassigned' ? { userId: null, username: null, displayName: null, total } : { userId: id, username: userById.get(id)?.username ?? null, displayName: userById.get(id)?.displayName ?? null, total }).sort((a, b) => b.total - a.total),
     };
   }
