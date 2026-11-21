@@ -8,9 +8,11 @@ export interface ModalProps {
   children: ReactNode;
   close: () => void;
   entryMotion?: boolean;
+  /** Extra class on the card (e.g. a fixed-height tabbed editor). */
+  className?: string;
 }
 
-export function Modal({ title, children, close, entryMotion = false }: ModalProps) {
+export function Modal({ title, children, close, entryMotion = false, className = '' }: ModalProps) {
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -21,10 +23,10 @@ export function Modal({ title, children, close, entryMotion = false }: ModalProp
 
   return (
     <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && close()}>
-      <section className={`modal-card wide-modal${entryMotion ? ' entry-motion' : ''}`}>
+      <section className={`modal-card wide-modal${entryMotion ? ' entry-motion' : ''}${className ? ` ${className}` : ''}`} role="dialog" aria-modal="true" aria-label={title}>
         <div className="modal-heading">
           <h2>{title}</h2>
-          <button className="icon-button subtle" onClick={close}>
+          <button type="button" className="icon-button subtle" onClick={close} aria-label="Fechar">
             <X size={16} />
           </button>
         </div>

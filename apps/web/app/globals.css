@@ -976,12 +976,12 @@ button { cursor:pointer; }
 .rack-stage .rack-overlay strong,.rack-stage .rack-overlay small { position:absolute; left:4px; right:4px; display:none; padding:2px 4px; color:#fff; border-radius:2px; background:rgba(15,23,42,.82); font-size:8px; }
 .rack-stage .rack-overlay strong { bottom:3px; }.rack-stage .rack-overlay small { bottom:18px; }
 .rack-stage .rack-overlay:hover strong,.rack-stage .rack-overlay:hover small { display:block; }
-.rack-stage .rack-overlay .rack-equipment-tooltip { position:absolute; z-index:10; top:50%; left:calc(100% + 14px); display:none; width:250px; height:auto; min-height:0; padding:14px; color:#242124; border:1px solid var(--line); border-radius:10px; background:#fff; box-shadow:0 10px 28px rgba(35,31,34,.18); transform:translateY(-50%); text-align:left; pointer-events:none; }
-.rack-stage .rack-overlay:hover .rack-equipment-tooltip,.rack-stage .rack-overlay:focus-visible .rack-equipment-tooltip { display:grid; gap:9px; }
-.rack-stage .rack-overlay .rack-equipment-tooltip > strong { position:static; display:block; padding:0 0 8px; color:#222; border-bottom:1px solid #ece9e9; background:transparent; font:700 14px/1.25 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; text-align:center; text-shadow:none; }
-.rack-stage .rack-overlay .rack-equipment-tooltip > span { position:static; display:flex; align-items:baseline; justify-content:flex-start; gap:8px; width:100%; height:auto; padding:0; color:inherit; background:transparent; font:inherit; text-align:left; }
-.rack-stage .rack-overlay .rack-equipment-tooltip small { position:static; display:block; flex:0 0 128px; padding:0; color:#6b6870; background:transparent; font:600 11px/1.25 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; text-align:left; text-shadow:none; }
-.rack-stage .rack-overlay .rack-equipment-tooltip b { display:block; flex:1 1 auto; justify-self:start; overflow:hidden; color:#242124; font:500 11px/1.25 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; text-align:left; text-overflow:ellipsis; white-space:nowrap; text-shadow:none; }
+/* Device card: portalled to <body> with fixed coordinates (rack-device-hover-card.tsx), so the stage cannot clip it. */
+.rack-equipment-tooltip, .rack-pdu-card { position:fixed; z-index:1100; display:grid; grid-template-columns:minmax(0,1fr); gap:9px; box-sizing:border-box; width:250px; max-width:calc(100vw - 16px); height:auto; min-height:0; padding:14px; color:#242124; border:1px solid var(--line); border-radius:10px; background:#fff; box-shadow:0 10px 28px rgba(35,31,34,.18); text-align:left; pointer-events:none; }
+.rack-equipment-tooltip > strong, .rack-pdu-card-head > strong { position:static; display:block; padding:0 0 8px; color:#222; border-bottom:1px solid #ece9e9; background:transparent; font:700 14px/1.25 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; text-align:center; text-shadow:none; }
+.rack-equipment-tooltip > span, .rack-pdu-card-totals > div { position:static; display:flex; align-items:baseline; justify-content:flex-start; gap:8px; width:100%; height:auto; padding:0; color:inherit; background:transparent; font:inherit; text-align:left; }
+.rack-equipment-tooltip small, .rack-pdu-card-totals dt { position:static; display:block; flex:0 0 128px; padding:0; color:#6b6870; background:transparent; font:600 11px/1.25 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; text-align:left; text-shadow:none; }
+.rack-equipment-tooltip b, .rack-pdu-card-totals dd { display:block; flex:1 1 auto; justify-self:start; overflow:hidden; color:#242124; font:500 11px/1.25 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; text-align:left; text-overflow:ellipsis; white-space:nowrap; text-shadow:none; }
 .rack-stage .rack-overlay .rack-device-fallback { position:static; display:grid; width:100%; height:100%; min-height:8px; color:#fff; border-radius:2px; background:#334155; font:9px 'DM Mono'; }
 .rack-stage .rack-overlay .rack-device-label,.rack-stage .rack-overlay .rack-device-status { pointer-events:none; }
 .rack-stage .rack-overlay { overflow:visible; }
@@ -2856,3 +2856,153 @@ body { color:var(--ink); background:#e9eef5; }
   .app-shell.sidebar-collapsed .app-sidebar:hover .sidebar-copyright-full,.app-shell.sidebar-collapsed .app-sidebar.keyboard-focus-expanded .sidebar-copyright-full { position:static; width:auto; height:auto; clip:auto; }
   .app-shell.sidebar-collapsed .app-sidebar:hover .sidebar-copyright-short,.app-shell.sidebar-collapsed .app-sidebar.keyboard-focus-expanded .sidebar-copyright-short { display:none; }
 }
+
+/* Utility-bar action buttons: the bar is white, so give secondary and destructive actions a fill to read as buttons. */
+.app-shell .context-toolbar :is(.secondary-button,.danger-button):not(.context-toolbar-more-menu *) { color:#20334f; border:1px solid #cdd8e8; background:#eaf0f8; transition:background-color .15s ease, border-color .15s ease; }
+.app-shell .context-toolbar :is(.secondary-button,.danger-button):not(.context-toolbar-more-menu *):hover:not(:disabled) { background:#dce6f4; border-color:#b4c4dc; }
+.app-shell .context-toolbar .danger-button:not(.context-toolbar-more-menu *) { color:#9a2f22; border-color:#efc4bd; background:#fdecea; }
+.app-shell .context-toolbar .danger-button:not(.context-toolbar-more-menu *):hover:not(:disabled) { color:#7f2419; border-color:#e3a197; background:#f9d9d4; }
+.app-shell .context-toolbar :is(.secondary-button,.danger-button):not(.context-toolbar-more-menu *):disabled { cursor:not-allowed; opacity:.5; }
+
+/* ── Rack power: PDU strips, badge, PDU card, power forms ─────────────────── */
+.rack-pdu-column { position:relative; flex:none; display:flex; align-self:flex-start; }
+.rack-stage:not(.rack-stage-both) .rack-pdu-column { align-self:center; }
+.rack-pdu { position:relative; display:block; flex:none; padding:0; overflow:visible; border:0; border-radius:4px; background:#1b1c1f; cursor:pointer; box-shadow:0 2px 8px rgba(17,17,17,.18); }
+.rack-pdu > .rack-pdu-art { display:block; width:100%; height:100%; background:no-repeat center / 100% 100%; border-radius:inherit; pointer-events:none; user-select:none; }
+.rack-pdu:focus-visible { outline:2px solid #2c6bed; outline-offset:3px; }
+.rack-pdu:hover, .rack-pdu[aria-expanded="true"] { box-shadow:0 0 0 2px rgba(44,107,237,.45), 0 2px 8px rgba(17,17,17,.18); }
+/* One marker per outlet in the strip's right rail, outlet 1 at the top: lit when used, dim when free. */
+.rack-pdu-leds { position:absolute; top:8.5%; bottom:4.5%; right:6%; display:flex; flex-direction:column; justify-content:space-between; width:14%; pointer-events:none; }
+.rack-pdu-leds i { display:block; width:100%; aspect-ratio:1; max-width:5px; margin-left:auto; border-radius:50%; background:#3d3f44; }
+.rack-pdu-leds i[data-used] { background:#4fd17f; box-shadow:0 0 4px rgba(79,209,127,.8); }
+.rack-pdu[data-level="warn"] .rack-pdu-leds i[data-used] { background:#f2b33d; box-shadow:0 0 4px rgba(242,179,61,.8); }
+.rack-pdu[data-level="over"] .rack-pdu-leds i[data-used] { background:#f0614f; box-shadow:0 0 4px rgba(240,97,79,.8); }
+.rack-pdu-badge { position:absolute; top:-2px; left:50%; z-index:1; display:grid; justify-items:center; gap:1px; min-width:calc(100% + 14px); padding:3px 4px; transform:translate(-50%, -100%); color:#22402e; border:1px solid #bfe3cc; border-radius:6px; background:#ecf8f0; font:600 9px/1.15 'DM Sans',Arial,sans-serif; font-variant-numeric:tabular-nums; white-space:nowrap; pointer-events:none; }
+.rack-pdu-badge b { font-weight:700; font-size:10px; }
+.rack-pdu-badge small { font-size:8.5px; font-weight:500; }
+.rack-pdu-badge[data-level="warn"] { color:#7a4a05; border-color:#f3d496; background:#fff4dc; }
+.rack-pdu-badge[data-level="over"] { color:#8f2318; border-color:#f2b8ae; background:#ffebe7; }
+/* Badge sits inside the top of the strip so it never collides with the Ambas captions or the stage edge. */
+.rack-pdu:not(.rack-pdu-compact) .rack-pdu-badge { top:1.2%; transform:translateX(-50%); min-width:calc(100% + 10px); }
+/* Zoomed out / small screens: a thin bar with only the badge. */
+.rack-pdu-compact { border-radius:5px; background:#2a2c31; }
+.rack-pdu-thin { position:absolute; inset:2px; display:flex; align-items:flex-start; overflow:hidden; border-radius:3px; background:#45484f; }
+.rack-pdu-thin-fill { display:block; width:100%; background:#4fd17f; }
+.rack-pdu-compact[data-level="warn"] .rack-pdu-thin-fill { background:#f2b33d; }
+.rack-pdu-compact[data-level="over"] .rack-pdu-thin-fill { background:#f0614f; }
+.rack-pdu-badge-compact { top:0; padding:2px 3px; min-width:0; transform:translate(-50%, calc(-100% - 2px)); font-size:8px; }
+.rack-pdu-badge-compact b { font-size:8.5px; }
+.rack-power-summary { margin-top:3px !important; color:#45556b !important; font:600 12px/1.3 'DM Sans',Arial,sans-serif !important; font-variant-numeric:tabular-nums; }
+
+/* PDU card: shares the device card's surface, title, label/value rows and type (see .rack-equipment-tooltip above); only what the PDU card adds lives here. */
+.rack-pdu-card { z-index:1101; max-height:calc(100vh - 16px); overflow:auto; pointer-events:auto; font:500 11px/1.25 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+.rack-pdu-card :where(button) { font:inherit; }
+.rack-pdu-card-head { position:relative; display:block; }
+.rack-pdu-card-head > strong { padding-inline:24px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.rack-pdu-card-close { position:absolute; top:-3px; right:-4px; display:grid; place-items:center; width:22px; height:22px; padding:0; color:#6b6870; border:0; border-radius:6px; background:transparent; cursor:pointer; }
+.rack-pdu-card-close:hover { color:#242124; background:#f2f1f1; }
+.rack-pdu-card-totals { display:grid; gap:9px; margin:0; }
+.rack-pdu-card-totals dd { margin:0; white-space:normal; }
+.rack-pdu-card-source { display:inline-block; padding:1px 6px; color:#2f6f4d; border-radius:5px; background:#e4f4ea; font:700 10px/1.3 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; letter-spacing:.04em; text-transform:uppercase; vertical-align:baseline; }
+.rack-pdu-card-source[data-source="UPS"] { color:#3a4fa8; background:#eef1ff; }
+.rack-pdu-card [data-level="warn"] { color:#8a5300; }
+.rack-pdu-card [data-level="over"] { color:#b3261e; }
+.rack-pdu-card-failover { margin:0; color:#242124; font-weight:600; }
+.rack-pdu-card h3 { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:0; padding:9px 0 0; color:#222; border-top:1px solid #ece9e9; font:700 12px/1.25 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+.rack-pdu-card-readonly { padding:1px 5px; color:#6b6870; border:1px solid var(--line); border-radius:5px; font:600 10px/1.25 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+.rack-pdu-card-empty { margin:0; color:#6b6870; font-weight:600; }
+.rack-pdu-card-list { display:grid; gap:0; margin:0; padding:0; list-style:none; }
+.rack-pdu-card-list li { padding:6px 0; border-bottom:1px solid #f2f0f0; }
+.rack-pdu-card-list li:first-child { padding-top:0; }
+.rack-pdu-card-list li:last-child { padding-bottom:0; border-bottom:0; }
+.rack-pdu-card-row { display:flex; align-items:center; gap:6px; min-width:0; }
+.rack-pdu-card-row svg { flex:none; color:#8b888e; }
+.rack-pdu-card-who { display:grid; flex:1; gap:1px; min-width:0; }
+.rack-pdu-card-device { min-width:0; overflow:hidden; color:#242124; font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
+.rack-pdu-card-meta { color:#6b6870; font-weight:600; }
+.rack-pdu-card-watts { flex:none; min-width:40px; color:#242124; font-weight:500; font-variant-numeric:tabular-nums; text-align:right; }
+.rack-pdu-card-disconnect { flex:none; padding:3px 7px; color:#a14c41; border:1px solid #f0d1cc; border-radius:6px; background:#fff; font-weight:600; cursor:pointer; }
+.rack-pdu-card-disconnect:hover { background:#fff1ef; }
+.rack-pdu-card-disconnect:focus-visible, .rack-pdu-card button:focus-visible { outline:2px solid #2c6bed; outline-offset:1px; }
+.rack-pdu-card-confirm { display:grid; gap:6px; margin-top:6px; padding:7px 8px; color:#7d2d24; border:1px solid #f3d8d3; border-radius:7px; background:#fff6f4; }
+.rack-pdu-card-confirm > div { display:flex; justify-content:flex-end; gap:6px; }
+.rack-pdu-card-confirm .secondary-button { padding:5px 9px; }
+.rack-pdu-card-note { color:#6b6870; font-weight:600; }
+.rack-pdu-card .form-error { margin:0; color:#b3261e; }
+
+.power-mode { display:grid; gap:8px; margin:0; padding:10px 12px; border:1px solid var(--line); border-radius:9px; }
+.power-mode legend { padding:0 5px; color:#514d52; font-size:11px; font-weight:600; }
+.power-mode-options { display:flex; flex-wrap:wrap; gap:6px; }
+.power-mode-options label { display:flex; align-items:center; gap:6px; padding:7px 10px; border:1px solid var(--line); border-radius:8px; background:#fff; font-size:11px; cursor:pointer; }
+.power-mode-options label:has(input:checked) { border-color:#111; box-shadow:inset 0 0 0 1px #111; }
+.power-mode-options label { flex:1 1 auto; white-space:nowrap; color:#111; }
+.power-mode-options input { display:inline-block; width:auto; margin:0; padding:0; accent-color:#111; }
+.power-pdu-settings { border:1px solid #efedee; border-radius:8px; background:#fbfafb; }
+.power-pdu-settings > summary { padding:7px 10px; color:#514d52; font-size:11px; font-weight:600; cursor:pointer; }
+.power-pdu-settings > div { display:grid; gap:8px; padding:0 10px 10px; }
+.power-blocked { display:grid; gap:6px; padding:9px 10px; color:#8f2318; border:1px solid #f2b8ae; border-radius:8px; background:#fff3f0; font-size:11px; }
+.power-blocked ul { margin:0; padding-left:18px; }
+.power-blocked .secondary-button { justify-self:start; }
+.power-source-chip { display:inline-block; margin-left:6px; padding:1px 6px; color:#45556b; border-radius:9px; background:#eef1f6; font:600 9px 'DM Mono',monospace; letter-spacing:.04em; text-transform:uppercase; vertical-align:1px; }
+.power-source-chip[data-source="manual"] { color:#7a4a05; background:#fff4dc; }
+.power-source-chip[data-source="model"] { color:#3a4fa8; background:#eef1ff; }
+.power-watts-reset { margin-left:6px; padding:0; color:#3a4fa8; border:0; background:none; font-size:10px; text-decoration:underline; cursor:pointer; }
+.power-step-rows { display:grid; gap:8px; margin:0; padding:0; list-style:none; }
+.power-step-row { display:grid; grid-template-columns:72px minmax(0,1fr) 110px; align-items:end; gap:8px; }
+.power-step-row > strong { padding-bottom:9px; font-size:11px; }
+.power-step-notes { display:grid; gap:6px; }
+.power-step-notes p { margin:0; }
+@media (max-width:560px) { .power-step-row { grid-template-columns:1fr 1fr; } .power-step-row > strong { grid-column:1 / -1; padding:0; } }
+
+/* Device editor: tabbed, fixed-height card in the device / PDU hover card style. The body scrolls inside the active tab; the footer stays visible. */
+.modal-card.device-editor-modal { display:flex; flex-direction:column; width:min(720px,calc(100vw - 32px)); height:min(620px,calc(100vh - 48px)); padding:0; overflow:hidden; color:#242124; border:1px solid var(--line); border-radius:10px; box-shadow:0 10px 28px rgba(35,31,34,.18); font:500 12px/1.35 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+.device-editor-modal .modal-heading { position:relative; justify-content:center; margin:0; padding:14px 44px 4px; }
+.device-editor-modal .modal-heading h2 { margin:0; color:#222; font:700 14px/1.25 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; text-align:center; }
+.device-editor-modal .modal-heading > button { position:absolute; top:9px; right:10px; }
+.device-editor-form.modal-form { display:flex; flex:1; flex-direction:column; gap:0; min-height:0; }
+.device-editor-subtitle { margin:0; padding:0 16px; overflow:hidden; color:#6b6870; font-weight:600; font-size:11px; text-align:center; text-overflow:ellipsis; white-space:nowrap; }
+.device-editor-tabs { display:flex; gap:2px; margin-top:8px; padding:0 12px; overflow-x:auto; border-bottom:1px solid #ece9e9; scrollbar-width:none; }
+.device-editor-tab { display:inline-flex; align-items:center; gap:6px; margin-bottom:-1px; padding:9px 10px; color:#6b6870; border:0; border-bottom:2px solid transparent; background:transparent; font:600 12px/1.25 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; white-space:nowrap; cursor:pointer; }
+.device-editor-tab:hover { color:#242124; }
+.device-editor-tab[aria-selected="true"] { color:#222; border-bottom-color:#222; }
+.device-editor-tab:focus-visible { outline:2px solid #2c6bed; outline-offset:-2px; border-radius:6px 6px 0 0; }
+.device-editor-tab-badge, .device-editor-tab-hint { display:inline-grid; place-items:center; min-width:16px; height:16px; padding:0 4px; border-radius:8px; font:700 10px/1 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+.device-editor-tab-badge { color:#fff; background:#b3261e; }
+.device-editor-tab-hint { color:#8a5300; background:#fff1d6; }
+.device-editor-body { flex:1; min-height:0; padding:14px 16px 16px; overflow:auto; overscroll-behavior:contain; }
+.device-editor-panel { display:grid; align-content:start; gap:10px; }
+.device-editor-panel[hidden] { display:none; }
+.device-editor-panel:focus-visible { outline:2px solid #2c6bed; outline-offset:4px; border-radius:4px; }
+.device-editor-modal .modal-form label { color:#6b6870; font:600 11px/1.3 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+.device-editor-modal .modal-form .checkbox-label { display:flex; align-items:center; gap:8px; color:#242124; font-weight:500; }
+.device-editor-modal .modal-form .checkbox-label input { flex:none; width:14px; height:14px; margin:0; }
+.device-editor-modal .modal-form input:not([type='checkbox']):not([type='radio']):not([type='file']), .device-editor-modal .modal-form select { font-size:12px; }
+.device-editor-modal .modal-form [aria-invalid="true"] { border-color:#b3261e; box-shadow:0 0 0 1px #b3261e inset; }
+.device-editor-required { color:#b3261e; }
+.device-editor-modal .field-error { margin-top:-4px; color:#b3261e; font:600 11px/1.35 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+.device-editor-modal .form-warning, .device-editor-modal .form-help { font-size:11px; }
+.device-editor-modal .device-power-fields small { display:block; margin-top:4px; }
+.device-editor-images { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.device-editor-image { display:grid; align-content:start; gap:8px; }
+.device-editor-image-preview { display:grid; place-items:center; height:76px; overflow:hidden; color:#8b888e; border:1px dashed #dcd8d8; border-radius:8px; background:#faf9f9; font-weight:600; font-size:11px; }
+.device-editor-image-preview img { max-width:100%; max-height:100%; object-fit:contain; }
+.device-editor-footer { display:grid; gap:8px; padding:10px 16px 12px; border-top:1px solid #ece9e9; background:#fff; }
+.device-editor-footer .modal-actions { align-items:center; margin-top:0; }
+.device-editor-missing { margin-right:auto; color:#b3261e; font-weight:600; font-size:11px; }
+.device-editor-footer .primary-button[aria-disabled="true"] { opacity:.5; cursor:not-allowed; }
+@media (max-width:780px) { .device-editor-images { grid-template-columns:1fr; } .modal-card.device-editor-modal { height:calc(100vh - 32px); } }
+
+/* Bell: grouped "configuração em falta" alert (persistent until the devices are fixed). */
+.alert-list a.missing-config { background:#fffaf0; }
+.alert-list a.missing-config:hover { background:#fff3dc; }
+
+/* Device list: removable "configuração em falta" filter chip (?missingConfig=…). */
+.device-filter-chips { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 8px; }
+.device-filter-chip { display:inline-flex; align-items:center; gap:6px; padding:3px 4px 3px 10px; border:1px solid #f0d9a8; border-radius:999px; background:#fff8e8; color:#8a5300; font-size:11px; font-weight:600; }
+.device-filter-chip button { display:inline-grid; place-items:center; width:18px; height:18px; padding:0; border:0; border-radius:50%; background:transparent; color:inherit; cursor:pointer; }
+.device-filter-chip button:hover { background:#f6e3bb; }
+.device-filter-chip button:focus-visible { outline:2px solid #2c6bed; outline-offset:1px; }
+.cross-site-missing-config-row { color:inherit; text-decoration:none; cursor:pointer; }
+.cross-site-missing-config-row:focus-visible { outline:2px solid #2c6bed; outline-offset:-2px; }
+.cross-site-missing-config-site { flex:none; padding:2px 8px; border-radius:999px; background:#eef2f7; color:#41526b; font-size:11px; font-weight:600; white-space:nowrap; }
+.device-power-auto { display:block; margin-top:6px; }
