@@ -29,6 +29,17 @@ export const ruleLabels: Record<string, string> = {
 };
 export const ruleLabel = (rule: string) => ruleLabels[rule] ?? rule;
 
+/**
+ * The device a finding is about, for the Device 360 link: the entity itself for
+ * Device findings, otherwise the `deviceId` the fix link already carries
+ * (interfaces, SNMP drifts). Null when the finding has no device.
+ */
+export function findingDeviceId(finding: Pick<InventoryFinding, 'entityType' | 'entityId' | 'actionHref'>): string | null {
+  if (finding.entityType === 'Device') return finding.entityId;
+  if (!finding.actionHref) return null;
+  try { return new URL(finding.actionHref, 'http://local').searchParams.get('deviceId') || null; } catch { return null; }
+}
+
 /** Snooze lengths offered in bulk; the API accepts 1–720 hours. */
 export const snoozeOptions: Array<{ hours: number; label: string }> = [
   { hours: 1, label: '1 hora' }, { hours: 4, label: '4 horas' }, { hours: 24, label: '24 horas' },

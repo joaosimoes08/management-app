@@ -3,8 +3,9 @@ import { test } from 'node:test';
 import { BadRequestException } from '@nestjs/common';
 import { CriticalAssetsService } from './critical-assets.service';
 
-const site = { id: 'site-a', name: 'Site A', timezone: 'Europe/Lisbon' };
-const device = { id: 'device-a', name: 'Router A', type: 'ROUTER' };
+const site = { id: 'site-a', name: 'Site A', timezone: 'Europe/Lisbon', criticalCadenceT1Weeks: 1, criticalCadenceT2Weeks: 2, criticalCadenceT3Weeks: 4 };
+// T1 is reviewed every week, so these scheduler checks run on every Monday.
+const device = { id: 'device-a', name: 'Router A', type: 'ROUTER', criticalityTier: 'T1' };
 
 function schedulerService(options: { failFirstNotification?: boolean } = {}) {
   let attestationExists = false;
@@ -22,7 +23,7 @@ function schedulerService(options: { failFirstNotification?: boolean } = {}) {
           transactionState.attestationExists = true;
           return { count: 1 };
         } },
-        notification: { createMany: async () => {
+        notificationMute: { findMany: async () => [] }, notification: { createMany: async () => {
           notificationAttempts += 1;
           if (options.failFirstNotification && notificationAttempts === 1) throw new Error('injected notification failure');
           transactionState.notificationWrites += 1;

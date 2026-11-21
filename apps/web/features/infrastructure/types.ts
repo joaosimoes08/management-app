@@ -1,3 +1,4 @@
+export type CriticalityTier = 'T1' | 'T2' | 'T3';
 import type { PaginatedResponse } from '@/lib/api/types';
 
 // ── Shared enumerations (mirror Prisma enums / API DTOs) ──────────────────
@@ -221,6 +222,8 @@ export interface Device {
   managementIp?: string | null;
   notes?: string | null;
   isCritical?: boolean;
+  /** Criticality tier (T1 vital, T2 important, T3 standard); null when the device is not critical. */
+  criticalityTier?: CriticalityTier | null;
   source?: string;
   status: AssetStatus | string;
   modelId?: string | null;
@@ -381,7 +384,9 @@ export interface InterfaceInput {
 
 export type SiteListResponse = PaginatedResponse<Site>;
 
-export type DeviceListResponse = PaginatedResponse<Device>;
+/** Devices per criticality tier in the current scope (ignores the tier filter); `none` = not critical. */
+export type TierCounts = { T1: number; T2: number; T3: number; none: number };
+export type DeviceListResponse = PaginatedResponse<Device> & { tierCounts?: TierCounts };
 export type VlanListResponse = PaginatedResponse<Vlan>;
 
 /** Draft passed to the rack editor modal, either an existing rack or a blank "new rack" seed. */
