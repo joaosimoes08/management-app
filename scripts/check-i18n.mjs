@@ -25,6 +25,8 @@ const operationalFiles = [
   'apps/web/features/ipam/components/next-free-ip-modal.tsx',
   'apps/web/features/ipam/components/subnets-view.tsx',
   'apps/web/features/ipam/utilization.ts',
+  'apps/web/features/topology/filters.ts',
+  'apps/web/features/topology/topology-filters-menu.tsx',
 ];
 
 function sourceFile(relative, kind = ts.ScriptKind.TSX) {
