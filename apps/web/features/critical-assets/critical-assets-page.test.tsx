@@ -464,7 +464,7 @@ describe('CriticalAssetsPage', () => {
     renderPage();
     fireEvent.click(await screen.findByRole('button', { name: 'Abrir histórico de Core switch' }));
     const panel = screen.getByRole('complementary', { name: 'Histórico de Core switch' });
-    expect(within(panel).getByRole('link', { name: /Abrir equipamento/ })).toHaveAttribute('href', '/infraestrutura?siteId=site-1&tab=devices&deviceId=device-1&focus=device');
+    expect(within(panel).getByRole('link', { name: /Abrir equipamento/ })).toHaveAttribute('href', '/infraestrutura/equipamentos/device-1?siteId=site-1');
     expect(panel.querySelectorAll('.host-relation time')).toHaveLength(4);
     expect(within(panel).queryByRole('button', { name: 'Confirmar' })).not.toBeInTheDocument();
   });
