@@ -1,10 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import { configure } from '@testing-library/react';
 import { vi } from 'vitest';
-
-// findBy*/waitFor default to 1 s, which a loaded machine (parallel suites, full disk) can exceed while React Query
-// settles. Give async queries more room; the per-test timeout is raised to match in vitest.config.mts.
-configure({ asyncUtilTimeout: 4000 });
 
 // Node's native localStorage getter can shadow jsdom's storage on newer Node versions.
 Object.defineProperty(globalThis, 'localStorage', {

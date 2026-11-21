@@ -7,7 +7,6 @@ export default defineConfig({
     environment: 'jsdom',
     environmentOptions: { jsdom: { url: 'http://localhost' } },
     setupFiles: ['./vitest.setup.ts'],
-    testTimeout: 15000,
   },
   resolve: { alias: { '@': path.resolve(import.meta.dirname, '.') } },
 });
