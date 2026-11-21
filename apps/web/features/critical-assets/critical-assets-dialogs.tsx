@@ -108,3 +108,32 @@ export function OwnerDialog({ initialType, mappings, groups, timezone, close, sa
     <div className="modal-actions"><button type="button" className="secondary-button" onClick={close}>Cancelar</button><button className="primary-button" disabled={!groupId || saving}>{saving ? 'A guardar…' : 'Guardar responsável'}</button></div>
   </form></IpamModal>;
 }
+
+/** Closes an open correction: resolved needs the change made, rejected needs the reason. Replaces free-text notes for these outcomes. */
+export function CorrectionCloseDialog({ assetName, description, outcome, close, submit }: {
+  assetName: string;
+  description: string;
+  outcome: 'RESOLVED' | 'REJECTED';
+  close: () => void;
+  submit: (value: string) => Promise<string | null>;
+}) {
+  const [value, setValue] = useState('');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const resolved = outcome === 'RESOLVED';
+  const onSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!value.trim()) { setError(resolved ? 'Indica a alteração feita (ligação ou referência).' : 'Indica o motivo da rejeição.'); return; }
+    setSaving(true);
+    setError('');
+    const failure = await submit(value.trim());
+    setSaving(false);
+    if (failure) setError(failure);
+  };
+  return <IpamModal title={`${resolved ? 'Resolver' : 'Rejeitar'} correção de ${assetName}`} close={close}><form className="modal-form" onSubmit={(event) => void onSubmit(event)}>
+    <p className="panel-description">{`Pedido: ${description}`}</p>
+    {error && <div className="ipam-alert error" role="alert"><X size={15} />{error}</div>}
+    <label>{resolved ? 'Alteração feita (ligação ou referência, obrigatório)' : 'Motivo da rejeição (obrigatório)'}<textarea autoFocus rows={3} maxLength={1000} required value={value} onChange={(event) => setValue(event.target.value)} /></label>
+    <div className="modal-actions"><button type="button" className="secondary-button" onClick={close}>Cancelar</button><button className="primary-button" disabled={saving}>{saving ? 'A guardar…' : resolved ? 'Marcar como resolvida' : 'Rejeitar correção'}</button></div>
+  </form></IpamModal>;
+}
