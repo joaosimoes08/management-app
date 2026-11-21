@@ -6,12 +6,17 @@ import { AuthenticatedUser } from '../auth/auth.service';
 import { InfrastructureAccessService } from '../infrastructure/infrastructure-access.service';
 import { IpamAccessService } from '../ipam/ipam-access.service';
 import { computeOverlaps } from './change-windows';
-import { ChangePlanItemDto, CreateChangePlanDto, ReviewChangePlanDto, UpdateChangePlanDto } from './dto';
+import { ChangePlanItemDto, CloseChangePlanDto, CreateChangePlanDto, ReviewChangePlanDto, StartChangePlanDto, UpdateChangePlanDto } from './dto';
+import { checkItem, closingNoteError, ConflictWarning, detectTierField, isTierOne, summarizeCheck, transitionError, uncoveredIntervals } from './change-execution';
 
 const IMPACT_LIMIT = 400;
 const CREATORS = ['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR'];
 const VIEWERS = ['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'AUDITOR', 'READ_ONLY'];
-const ACTIVE_CONFLICT_STATUSES = [ChangePlanStatus.SUBMITTED, ChangePlanStatus.APPROVED];
+const ACTIVE_CONFLICT_STATUSES = [ChangePlanStatus.SUBMITTED, ChangePlanStatus.APPROVED, ChangePlanStatus.IN_PROGRESS];
+/** Statuses whose window is committed: used for the "overlaps another approved change" warning. */
+const COMMITTED_STATUSES = [ChangePlanStatus.APPROVED, ChangePlanStatus.IN_PROGRESS];
+const USER_SELECT = { select: { id: true, username: true, displayName: true } } as const;
+const CHECKLIST_LIMIT = 200;
 const CALENDAR_MAX_DAYS = 120;
 const CALENDAR_LIMIT = 500;
 const LIST_LIMIT = 500;
@@ -241,7 +246,7 @@ export class ChangePlansService {
     const statuses = this.parseStatuses(filters.status); const { start, end } = this.parseRange(filters.from, filters.to);
     const q = filters.q?.trim().slice(0, 120) || undefined;
     const where: Prisma.ChangePlanWhereInput = { siteId, ...(statuses ? { status: { in: statuses } } : {}), ...this.windowWhere(start, end), ...(q ? { OR: [{ title: { contains: q, mode: 'insensitive' } }, { reason: { contains: q, mode: 'insensitive' } }, { items: { some: { operationSummary: { contains: q, mode: 'insensitive' } } } }] } : {}) };
-    const plans = await this.prisma.changePlan.findMany({ where, include: { items: true, creator: { select: { id: true, username: true, displayName: true } }, reviewer: { select: { id: true, username: true, displayName: true } } }, orderBy: [{ plannedStartAt: 'desc' }, { createdAt: 'desc' }], take: LIST_LIMIT });
+    const plans = await this.prisma.changePlan.findMany({ where, include: { items: true, creator: USER_SELECT, reviewer: USER_SELECT, startedBy: USER_SELECT, closedBy: USER_SELECT }, orderBy: [{ plannedStartAt: 'desc' }, { createdAt: 'desc' }], take: LIST_LIMIT });
     const readable = await this.readableTargetKeys(user, siteId, plans.flatMap((plan) => this.planTargets(plan)));
     return plans.map((plan) => this.shapePlan(plan, readable));
   }
@@ -250,13 +255,14 @@ export class ChangePlansService {
   async summary(user: AuthenticatedUser, siteId: string) {
     this.requireRole(user, VIEWERS); await this.assertSite(user, siteId, 'READ');
     const now = new Date();
-    const [groups, inProgress, upcoming] = await Promise.all([
+    const [groups, inProgress, approvedInWindow, upcoming] = await Promise.all([
       this.prisma.changePlan.groupBy({ by: ['status'], where: { siteId }, _count: { _all: true } }),
+      this.prisma.changePlan.count({ where: { siteId, status: ChangePlanStatus.IN_PROGRESS } }),
       this.prisma.changePlan.count({ where: { siteId, status: ChangePlanStatus.APPROVED, plannedStartAt: { lte: now }, plannedEndAt: { gt: now } } }),
       this.prisma.changePlan.count({ where: { siteId, status: { in: ACTIVE_CONFLICT_STATUSES }, plannedStartAt: { gt: now } } }),
     ]);
     const byStatus = Object.fromEntries((Object.values(ChangePlanStatus) as string[]).map((status) => [status, groups.find((item) => item.status === status)?._count._all ?? 0]));
-    return { siteId, total: Object.values(byStatus).reduce((sum, value) => sum + value, 0), byStatus, inProgress, upcoming, generatedAt: now.toISOString() };
+    return { siteId, total: Object.values(byStatus).reduce((sum, value) => sum + value, 0), byStatus, inProgress, approvedInWindow, upcoming, generatedAt: now.toISOString() };
   }
 
   /**
@@ -310,10 +316,14 @@ export class ChangePlansService {
 
   async get(user: AuthenticatedUser, id: string) {
     this.requireRole(user, VIEWERS);
-    const plan = await this.prisma.changePlan.findUnique({ where: { id }, include: { items: true, creator: { select: { id: true, username: true, displayName: true } }, reviewer: { select: { id: true, username: true, displayName: true } } } });
+    const plan = await this.prisma.changePlan.findUnique({ where: { id }, include: { items: true, creator: USER_SELECT, reviewer: USER_SELECT, startedBy: USER_SELECT, closedBy: USER_SELECT, checklist: { orderBy: [{ position: 'asc' }, { createdAt: 'asc' }], include: { doneBy: USER_SELECT } }, snmpWrites: { select: { id: true, deviceId: true, operation: true, status: true, requestedAt: true, completedAt: true }, orderBy: { requestedAt: 'asc' } } } });
     if (!plan) throw new NotFoundException({ code: 'CHANGE_PLAN_NOT_FOUND', message: 'Alteração não encontrada.' });
     await this.assertSite(user, plan.siteId, 'READ');
-    return this.shapePlan(plan, await this.readableTargetKeys(user, plan.siteId, this.planTargets(plan)));
+    const readable = await this.readableTargetKeys(user, plan.siteId, this.planTargets(plan));
+    // SNMP writes are shown only for devices the user may read.
+    const snmpDevices = await this.readableTargetKeys(user, plan.siteId, plan.snmpWrites.map((write) => ({ entityType: ChangeEntityType.DEVICE, entityId: write.deviceId })));
+    const snmpWrites = plan.snmpWrites.filter((write) => snmpDevices.has(`DEVICE:${write.deviceId}`));
+    return { ...this.shapePlan(plan, readable), snmpWrites };
   }
 
   private async graph(siteId: string, roots: { entityType: ChangeEntityType; entityId: string }[]) {
@@ -499,8 +509,212 @@ export class ChangePlansService {
     this.requireRole(user, CREATORS);
     const plan = await this.prisma.changePlan.findUnique({ where: { id } }); if (!plan) throw new NotFoundException('Alteração não encontrada.');
     await this.assertSite(user, plan.siteId, 'UPDATE');
-    if (!this.isStatus(plan.status, ChangePlanStatus.DRAFT, ChangePlanStatus.SUBMITTED, ChangePlanStatus.REJECTED)) throw new ConflictException({ code: 'CHANGE_PLAN_NOT_CANCELLABLE', message: 'Uma alteração aprovada ou cancelada não pode ser cancelada.' });
+    if (!this.isStatus(plan.status, ChangePlanStatus.DRAFT, ChangePlanStatus.SUBMITTED, ChangePlanStatus.REJECTED)) throw new ConflictException({ code: 'CHANGE_PLAN_NOT_CANCELLABLE', message: 'Só podes cancelar alterações em rascunho, submetidas ou devolvidas.' });
     const result = await this.prisma.changePlan.update({ where: { id, status: plan.status }, data: { status: ChangePlanStatus.CANCELLED } });
     await this.audit.record({ userId: user.id, action: 'CHANGE_PLAN_CANCELLED', entityType: 'ChangePlan', entityId: id, metadata: { siteId: plan.siteId, revision: plan.revision } }); return result;
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // Step 30 — implementation and close-out.
+
+  private async loadForExecution(user: AuthenticatedUser, id: string, action: 'READ' | 'UPDATE') {
+    const plan = await this.prisma.changePlan.findUnique({ where: { id }, include: { items: true } });
+    if (!plan) throw new NotFoundException({ code: 'CHANGE_PLAN_NOT_FOUND', message: 'Alteração não encontrada.' });
+    await this.assertSite(user, plan.siteId, action);
+    return plan;
+  }
+  private assertTransition(status: ChangePlanStatus, action: Parameters<typeof transitionError>[1]) {
+    const error = transitionError(status, action);
+    if (error) throw new ConflictException(error);
+  }
+
+  /** APPROVED → IN_PROGRESS. Returns the plan and the conflict warnings at the moment of starting (warnings never block). */
+  async start(user: AuthenticatedUser, id: string, dto: StartChangePlanDto) {
+    this.requireRole(user, CREATORS);
+    const plan = await this.loadForExecution(user, id, 'UPDATE');
+    this.assertTransition(plan.status, 'START');
+    if (dto.expectedRevision !== undefined && dto.expectedRevision !== plan.revision) throw new ConflictException({ code: 'CHANGE_PLAN_REVISION_CONFLICT', message: 'A alteração foi atualizada noutro local. Atualiza a página.' });
+    const now = new Date();
+    const changed = await this.prisma.changePlan.updateMany({ where: { id, status: ChangePlanStatus.APPROVED, revision: plan.revision }, data: { status: ChangePlanStatus.IN_PROGRESS, startedAt: now, startedById: user.id } });
+    if (changed.count !== 1) throw new ConflictException({ code: 'CHANGE_PLAN_REVISION_CONFLICT', message: 'A alteração mudou entretanto. Atualiza a página.' });
+    const warnings = await this.conflictWarnings(user, plan);
+    await this.audit.record({ userId: user.id, action: 'CHANGE_PLAN_STARTED', entityType: 'ChangePlan', entityId: id, metadata: { siteId: plan.siteId, revision: plan.revision, note: dto.note?.trim() || undefined, warningCodes: warnings.map((w) => w.code) } });
+    return { plan: await this.get(user, id), warnings };
+  }
+
+  /** IN_PROGRESS → COMPLETED / FAILED / ROLLED_BACK, with who/when/closing note and the post-change check at closing time. */
+  async close(user: AuthenticatedUser, id: string, dto: CloseChangePlanDto) {
+    this.requireRole(user, CREATORS);
+    const plan = await this.loadForExecution(user, id, 'UPDATE');
+    this.assertTransition(plan.status, 'CLOSE');
+    const noteError = closingNoteError(dto.status, dto.closingNote);
+    if (noteError) throw new BadRequestException(noteError);
+    const check = await this.runPostChangeCheck(user, plan);
+    const status = ChangePlanStatus[dto.status];
+    const changed = await this.prisma.changePlan.updateMany({ where: { id, status: ChangePlanStatus.IN_PROGRESS }, data: { status, closedAt: new Date(), closedById: user.id, closingNote: dto.closingNote?.trim() || null } });
+    if (changed.count !== 1) throw new ConflictException({ code: 'CHANGE_PLAN_NOT_CLOSABLE', message: 'A alteração já foi encerrada noutro local.' });
+    const checklist = await this.prisma.changePlanChecklistItem.findMany({ where: { changePlanId: id }, select: { doneAt: true } });
+    await this.audit.record({ userId: user.id, action: `CHANGE_PLAN_${dto.status}`, entityType: 'ChangePlan', entityId: id, metadata: { siteId: plan.siteId, revision: plan.revision, note: dto.closingNote?.trim() || undefined, postChangeCheck: check.result, checklistDone: checklist.filter((c) => c.doneAt).length, checklistTotal: checklist.length } });
+    return { plan: await this.get(user, id), postChangeCheck: check };
+  }
+
+  // Checklist ---------------------------------------------------------------------------------
+
+  async checklist(user: AuthenticatedUser, id: string) {
+    this.requireRole(user, VIEWERS);
+    await this.loadForExecution(user, id, 'READ');
+    return this.prisma.changePlanChecklistItem.findMany({ where: { changePlanId: id }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }], include: { doneBy: USER_SELECT, createdBy: USER_SELECT } });
+  }
+
+  async addChecklistItems(user: AuthenticatedUser, id: string, labels: string[]) {
+    this.requireRole(user, CREATORS);
+    const plan = await this.loadForExecution(user, id, 'UPDATE');
+    this.assertTransition(plan.status, 'CHECKLIST_EDIT');
+    const clean = labels.map((label) => label.trim()).filter((label) => label.length >= 2);
+    if (!clean.length) throw new BadRequestException({ code: 'CHANGE_CHECKLIST_EMPTY', message: 'Indica pelo menos um passo.' });
+    await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.changePlanChecklistItem.findMany({ where: { changePlanId: id }, select: { position: true } });
+      if (existing.length + clean.length > CHECKLIST_LIMIT) throw new BadRequestException({ code: 'CHANGE_CHECKLIST_TOO_LONG', message: `A lista não pode ter mais de ${CHECKLIST_LIMIT} passos.` });
+      const next = existing.reduce((max, item) => Math.max(max, item.position), 0) + 1;
+      await tx.changePlanChecklistItem.createMany({ data: clean.map((label, index) => ({ changePlanId: id, position: next + index, label, createdById: user.id })) });
+    });
+    await this.audit.record({ userId: user.id, action: 'CHANGE_PLAN_CHECKLIST_ADDED', entityType: 'ChangePlan', entityId: id, metadata: { siteId: plan.siteId, revision: plan.revision, itemCount: clean.length } });
+    return this.checklist(user, id);
+  }
+
+  async tickChecklistItem(user: AuthenticatedUser, id: string, itemId: string, done: boolean) {
+    this.requireRole(user, CREATORS);
+    const plan = await this.loadForExecution(user, id, 'UPDATE');
+    this.assertTransition(plan.status, 'CHECKLIST_TICK');
+    const item = await this.prisma.changePlanChecklistItem.findFirst({ where: { id: itemId, changePlanId: id } });
+    if (!item) throw new NotFoundException({ code: 'CHANGE_CHECKLIST_ITEM_NOT_FOUND', message: 'Passo não encontrado.' });
+    const updated = await this.prisma.changePlanChecklistItem.update({ where: { id: itemId }, data: done ? { doneAt: new Date(), doneById: user.id } : { doneAt: null, doneById: null }, include: { doneBy: USER_SELECT } });
+    await this.audit.record({ userId: user.id, action: done ? 'CHANGE_PLAN_CHECKLIST_TICKED' : 'CHANGE_PLAN_CHECKLIST_UNTICKED', entityType: 'ChangePlan', entityId: id, metadata: { siteId: plan.siteId, revision: plan.revision, checklistItemId: itemId, note: item.label } });
+    return updated;
+  }
+
+  async removeChecklistItem(user: AuthenticatedUser, id: string, itemId: string) {
+    this.requireRole(user, CREATORS);
+    const plan = await this.loadForExecution(user, id, 'UPDATE');
+    this.assertTransition(plan.status, 'CHECKLIST_EDIT');
+    const item = await this.prisma.changePlanChecklistItem.findFirst({ where: { id: itemId, changePlanId: id } });
+    if (!item) throw new NotFoundException({ code: 'CHANGE_CHECKLIST_ITEM_NOT_FOUND', message: 'Passo não encontrado.' });
+    if (item.doneAt) throw new ConflictException({ code: 'CHANGE_CHECKLIST_ITEM_DONE', message: 'Desmarca o passo antes de o remover.' });
+    await this.prisma.changePlanChecklistItem.delete({ where: { id: itemId } });
+    await this.audit.record({ userId: user.id, action: 'CHANGE_PLAN_CHECKLIST_REMOVED', entityType: 'ChangePlan', entityId: id, metadata: { siteId: plan.siteId, revision: plan.revision, checklistItemId: itemId, note: item.label } });
+    return { removed: itemId };
+  }
+
+  // Post-change check -------------------------------------------------------------------------
+
+  /** Current scalar fields of each target, keyed `${entityType}:${entityId}`. */
+  private async currentRecords(items: { entityType: ChangeEntityType; entityId: string }[]) {
+    const idsOf = (type: ChangeEntityType) => [...new Set(items.filter((item) => item.entityType === type).map((item) => item.entityId))];
+    const load = async (type: ChangeEntityType, find: (ids: string[]) => Promise<{ id: string }[]>) => { const ids = idsOf(type); return ids.length ? (await find(ids)).map((row) => [`${type}:${row.id}`, row as Record<string, unknown>] as const) : []; };
+    const rows = (await Promise.all([
+      load(ChangeEntityType.DEVICE, (ids) => this.prisma.device.findMany({ where: { id: { in: ids } } })),
+      load(ChangeEntityType.INTERFACE, (ids) => this.prisma.deviceInterface.findMany({ where: { id: { in: ids } } })),
+      load(ChangeEntityType.VLAN, (ids) => this.prisma.vlan.findMany({ where: { id: { in: ids } } })),
+      load(ChangeEntityType.SUBNET, (ids) => this.prisma.subnet.findMany({ where: { id: { in: ids } } })),
+      load(ChangeEntityType.IP_ADDRESS, (ids) => this.prisma.ipAddress.findMany({ where: { id: { in: ids } } })),
+      load(ChangeEntityType.HOST, (ids) => this.prisma.host.findMany({ where: { id: { in: ids } } })),
+      load(ChangeEntityType.SERVICE, (ids) => this.prisma.service.findMany({ where: { id: { in: ids } } })),
+    ])).flat();
+    return new Map<string, Record<string, unknown>>(rows);
+  }
+
+  private async runPostChangeCheck(user: AuthenticatedUser, plan: { id: string; siteId: string; items: { entityType: ChangeEntityType; entityId: string; operationSummary: string; currentValue: unknown; proposedValue: unknown }[] }) {
+    const readable = await this.readableTargetKeys(user, plan.siteId, plan.items);
+    const visible = plan.items.filter((item) => readable.has(`${item.entityType}:${item.entityId}`));
+    const current = await this.currentRecords(visible);
+    const summary = summarizeCheck(visible.map((item) => checkItem(item, current.get(`${item.entityType}:${item.entityId}`) ?? null)));
+    return { ...summary, hiddenItemCount: plan.items.length - visible.length, checkedAt: new Date().toISOString() };
+  }
+
+  /** "Como planeado / diferente": each item's proposedValue vs the inventory now. Read-only; any status. */
+  async postChangeCheck(user: AuthenticatedUser, id: string) {
+    this.requireRole(user, VIEWERS);
+    const plan = await this.loadForExecution(user, id, 'READ');
+    return { changePlanId: id, status: plan.status, ...(await this.runPostChangeCheck(user, plan)) };
+  }
+
+  // Conflict warnings -------------------------------------------------------------------------
+
+  private async conflictWarnings(user: AuthenticatedUser, plan: { id: string; siteId: string; plannedStartAt: Date; plannedEndAt: Date; items: { entityType: ChangeEntityType; entityId: string }[] }): Promise<ConflictWarning[]> {
+    const warnings: ConflictWarning[] = [];
+    const readable = await this.readableTargetKeys(user, plan.siteId, plan.items);
+    const keys = new Set(plan.items.map((item) => `${item.entityType}:${item.entityId}`).filter((key) => readable.has(key)));
+
+    const windows = await this.prisma.maintenanceWindow.findMany({ where: { OR: [{ siteId: plan.siteId }, { siteId: null }], startsAt: { lt: plan.plannedEndAt }, endsAt: { gt: plan.plannedStartAt } }, select: { startsAt: true, endsAt: true }, take: 200 });
+    const uncovered = uncoveredIntervals(plan.plannedStartAt, plan.plannedEndAt, windows);
+    if (uncovered.length) warnings.push({ code: 'OUTSIDE_MAINTENANCE_WINDOW', message: windows.length ? 'Parte da janela planeada fica fora das janelas de manutenção do Site.' : 'A janela planeada não coincide com nenhuma janela de manutenção do Site.', uncovered, maintenanceWindowCount: windows.length });
+
+    // Devices touched: device targets plus the devices that own interface targets.
+    const deviceIds = new Set(plan.items.filter((item) => item.entityType === ChangeEntityType.DEVICE && keys.has(`DEVICE:${item.entityId}`)).map((item) => item.entityId));
+    const interfaceIds = plan.items.filter((item) => item.entityType === ChangeEntityType.INTERFACE && keys.has(`INTERFACE:${item.entityId}`)).map((item) => item.entityId);
+    if (interfaceIds.length) for (const intf of await this.prisma.deviceInterface.findMany({ where: { id: { in: interfaceIds } }, select: { deviceId: true } })) deviceIds.add(intf.deviceId);
+    if (deviceIds.size) {
+      const tierField = detectTierField(Object.keys(Prisma.DeviceScalarFieldEnum));
+      const devices = await this.prisma.device.findMany({ where: { id: { in: [...deviceIds] } } }) as unknown as Record<string, unknown>[];
+      if (tierField) {
+        const tierOne = devices.filter((device) => isTierOne(device[tierField])).map((device) => ({ id: String(device.id), name: String(device.name) }));
+        if (tierOne.length) warnings.push({ code: 'TIER1_CRITICAL_ASSET', message: 'A alteração toca em ativos críticos de Tier 1.', devices: tierOne });
+      } else {
+        // Before Step 28b tiers exist, isCritical is the only signal; 28b maps it to Tier 2, so it is reported as a softer warning.
+        const critical = devices.filter((device) => device.isCritical === true).map((device) => ({ id: String(device.id), name: String(device.name) }));
+        if (critical.length) warnings.push({ code: 'CRITICAL_ASSET', message: 'A alteração toca em ativos marcados como críticos.', devices: critical });
+      }
+    }
+
+    if (keys.size) {
+      const others = await this.prisma.changePlan.findMany({ where: { siteId: plan.siteId, id: { not: plan.id }, status: { in: COMMITTED_STATUSES }, plannedStartAt: { lt: plan.plannedEndAt }, plannedEndAt: { gt: plan.plannedStartAt }, items: { some: { OR: [...keys].map((key) => { const [entityType, entityId] = key.split(':'); return { entityType: entityType as ChangeEntityType, entityId }; }) } } }, select: { id: true, title: true, status: true, plannedStartAt: true, plannedEndAt: true, items: { select: { entityType: true, entityId: true } } }, take: 50 });
+      const plans = others.map((other) => ({ id: other.id, title: other.title, status: other.status, plannedStartAt: other.plannedStartAt.toISOString(), plannedEndAt: other.plannedEndAt.toISOString(), sharedTargetCount: other.items.filter((item) => keys.has(`${item.entityType}:${item.entityId}`)).length })).filter((other) => other.sharedTargetCount > 0);
+      if (plans.length) warnings.push({ code: 'OVERLAPS_APPROVED_CHANGE', message: 'Outra alteração aprovada ou em curso toca nos mesmos alvos na mesma janela.', plans });
+    }
+    return warnings;
+  }
+
+  async conflicts(user: AuthenticatedUser, id: string) {
+    this.requireRole(user, VIEWERS);
+    const plan = await this.loadForExecution(user, id, 'READ');
+    return { changePlanId: id, tierSource: detectTierField(Object.keys(Prisma.DeviceScalarFieldEnum)) ? 'TIER' : 'IS_CRITICAL', warnings: await this.conflictWarnings(user, plan), generatedAt: new Date().toISOString() };
+  }
+
+  // SNMP write link ---------------------------------------------------------------------------
+
+  /** Approved or in-progress plans whose window contains `at` (default now) and that target the device or one of its interfaces. */
+  async attachablePlans(user: AuthenticatedUser, deviceId: string, rawAt?: string) {
+    this.requireRole(user, VIEWERS);
+    const at = rawAt ? new Date(rawAt) : new Date();
+    if (!Number.isFinite(at.getTime())) throw new BadRequestException({ code: 'CHANGE_FILTER_INVALID', message: 'Data inválida em at.' });
+    const device = await this.prisma.device.findUnique({ where: { id: deviceId }, select: { siteId: true, interfaces: { select: { id: true } } } });
+    if (!device?.siteId) return [];
+    await this.infrastructure.assertDevice(user, 'READ', deviceId);
+    await this.assertSite(user, device.siteId, 'READ');
+    const targets = [{ entityType: ChangeEntityType.DEVICE, entityId: deviceId }, ...device.interfaces.map((intf) => ({ entityType: ChangeEntityType.INTERFACE, entityId: intf.id }))];
+    return this.prisma.changePlan.findMany({ where: { siteId: device.siteId, status: { in: COMMITTED_STATUSES }, plannedStartAt: { lte: at }, plannedEndAt: { gt: at }, items: { some: { OR: targets } } }, select: { id: true, title: true, status: true, plannedStartAt: true, plannedEndAt: true }, orderBy: { plannedStartAt: 'asc' }, take: 20 });
+  }
+
+  async linkSnmpWrite(user: AuthenticatedUser, id: string, snmpWriteRequestId: string) {
+    this.requireRole(user, CREATORS);
+    const plan = await this.loadForExecution(user, id, 'UPDATE');
+    this.assertTransition(plan.status, 'LINK_SNMP');
+    const write = await this.prisma.snmpWriteRequest.findUnique({ where: { id: snmpWriteRequestId }, select: { id: true, deviceId: true, changePlanId: true, device: { select: { siteId: true } } } });
+    if (!write || write.device.siteId !== plan.siteId) throw new NotFoundException({ code: 'SNMP_WRITE_NOT_FOUND', message: 'Escrita SNMP não encontrada neste Site.' });
+    await this.infrastructure.assertDevice(user, 'READ', write.deviceId);
+    if (write.changePlanId && write.changePlanId !== id) throw new ConflictException({ code: 'SNMP_WRITE_ALREADY_LINKED', message: 'Esta escrita SNMP já está associada a outra alteração.' });
+    await this.prisma.snmpWriteRequest.update({ where: { id: snmpWriteRequestId }, data: { changePlanId: id } });
+    await this.audit.record({ userId: user.id, action: 'CHANGE_PLAN_SNMP_WRITE_LINKED', entityType: 'ChangePlan', entityId: id, metadata: { siteId: plan.siteId, revision: plan.revision, snmpWriteRequestId, deviceId: write.deviceId } });
+    return { changePlanId: id, snmpWriteRequestId };
+  }
+
+  async unlinkSnmpWrite(user: AuthenticatedUser, id: string, snmpWriteRequestId: string) {
+    this.requireRole(user, CREATORS);
+    const plan = await this.loadForExecution(user, id, 'UPDATE');
+    this.assertTransition(plan.status, 'LINK_SNMP');
+    const changed = await this.prisma.snmpWriteRequest.updateMany({ where: { id: snmpWriteRequestId, changePlanId: id }, data: { changePlanId: null } });
+    if (changed.count !== 1) throw new NotFoundException({ code: 'SNMP_WRITE_NOT_FOUND', message: 'Esta escrita SNMP não está associada a esta alteração.' });
+    await this.audit.record({ userId: user.id, action: 'CHANGE_PLAN_SNMP_WRITE_UNLINKED', entityType: 'ChangePlan', entityId: id, metadata: { siteId: plan.siteId, revision: plan.revision, snmpWriteRequestId } });
+    return { changePlanId: id, snmpWriteRequestId, unlinked: true };
   }
 }
