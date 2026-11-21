@@ -6,7 +6,7 @@ export function resolveActiveSite(sites: SelectableSite[], querySiteId: string |
   return sites.length === 1 ? sites[0].id : '';
 }
 
-export const DESCENDANT_SITE_PARAMS = ['buildingId', 'roomId', 'rackId', 'deviceId', 'interfaceId', 'vlanId', 'subnetId', 'hostId'] as const;
+export const DESCENDANT_SITE_PARAMS = ['buildingId', 'roomId', 'rackId', 'deviceId', 'interfaceId', 'vlanId', 'subnetId', 'hostId', 'pduId', 'trendKind', 'trendKey'] as const;
 
 export function siteUrl(pathname: string, search: string, siteId: string) {
   const params = new URLSearchParams(search);
