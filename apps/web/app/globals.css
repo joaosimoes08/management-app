@@ -1916,6 +1916,8 @@ body { color:var(--ink); background:#e9eef5; }
 .context-toolbar-contribution .interface-toolbar-controls label { display:flex; align-items:center; gap:6px; color:#586982; font-size:11px; font-weight:650; white-space:nowrap; }
 .context-toolbar-contribution .interface-toolbar-controls select,.interface-toolbar-controls input[type="date"] { box-sizing:border-box; width:auto; min-width:90px; max-width:clamp(130px, 12vw, 178px); min-height:35px; height:35px; padding:0 12px; color:#20334f; border:1px solid #dce4ef; border-radius:8px; background:#fff; font-size:11px; }
 @media (max-width:780px) { .context-toolbar-contribution .interface-toolbar-controls select { width:100%; min-width:0; max-width:100%; } }
+/* Alterações: the filters, export and saved-view controls wrap inside their own column instead of pushing "Vista" past the right edge; Atualizar and Criar stay beside them. */
+.context-toolbar-contribution .change-page-actions > .interface-toolbar-controls { flex:1 1 320px; flex-wrap:wrap; justify-content:flex-end; min-width:0; row-gap:8px; }
 .context-toolbar-contribution .saved-views input { box-sizing:border-box; width:150px; min-height:35px; height:35px; padding:0 12px; color:#20334f; border:1px solid #dce4ef; border-radius:8px; background:#fff; font-size:11px; }
 @media (max-width:780px) {
   .context-toolbar-contribution { width:100%; }
@@ -2278,7 +2280,8 @@ body { color:var(--ink); background:#e9eef5; }
 .responsive-overflow-measure-item { display:inline-flex; width:max-content; flex:none; }
 .responsive-overflow-measure-item > * { width:max-content !important; }
 .responsive-toolbar-actions { justify-content:flex-end; gap:6px; }
-.responsive-toolbar-actions-visible { display:flex; align-items:center; justify-content:flex-end; flex:1 1 auto; min-width:0; gap:6px; }
+/* safe: a primary action that cannot move to the overflow menu overflows to the right (reachable), never off the left edge. */
+.responsive-toolbar-actions-visible { display:flex; align-items:center; justify-content:safe flex-end; flex:1 1 auto; min-width:0; gap:6px; }
 .responsive-toolbar-actions-visible > * { flex:none; }
 .responsive-toolbar-actions .responsive-overflow-trigger { color:#344761; border-color:#d5deeb; background:#fff; }
 .responsive-toolbar-actions .responsive-overflow-trigger:hover,.responsive-toolbar-actions .responsive-overflow-trigger[aria-expanded="true"] { background:#edf3fb; }
@@ -2538,7 +2541,17 @@ body { color:var(--ink); background:#e9eef5; }
 .critical-assets-counts button:hover,.critical-assets-counts button.active { background:var(--soft-blue); }
 .critical-assets-counts button.active { border-color:var(--blue); }
 .critical-assets-counts button:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
-.context-toolbar-contribution .critical-assets-filters { flex-wrap:wrap; }
+/* Five filters do not fit beside the title and actions: they take their own full-width row under the actions (flex and grid toolbars alike). */
+.app-shell .context-toolbar-actions:has(> .context-toolbar-contribution .critical-assets-filters) { flex-wrap:wrap; row-gap:8px; }
+.context-toolbar-actions > .context-toolbar-contribution:has(.critical-assets-filters) { flex:1 1 100%; grid-column:1 / -1; min-width:0; }
+.context-toolbar-contribution .critical-assets-filters { flex:1 1 auto; flex-wrap:wrap; justify-content:flex-end; min-width:0; }
+/* Zero basis: the filters share the row and wrap only once each is down to its label plus the 90px select minimum. */
+@media (min-width:781px) {
+  .context-toolbar-contribution .critical-assets-filters > label { flex:1 1 0; min-width:min-content; }
+  .context-toolbar-contribution .critical-assets-filters > label > select { flex:1 1 auto; width:0; max-width:none; }
+}
+/* On the phone grid the actions get the whole row too, so the primary button is never squeezed into one 130px column. */
+.context-toolbar-actions:has(> .context-toolbar-contribution .critical-assets-filters) > .responsive-toolbar-actions { grid-column:1 / -1; }
 .critical-assets-card .table-actions .secondary-button,.critical-assets-panel .table-actions .secondary-button { padding:7px 9px; font-size:10px; }
 .critical-assets-views { display:flex; flex-wrap:wrap; gap:8px; margin:8px 0 12px; }
 .critical-assets-views button { padding:6px 12px; border:1px solid var(--line); border-radius:999px; background:var(--surface); color:inherit; font:inherit; font-size:12px; cursor:pointer; }
@@ -3072,7 +3085,8 @@ a.dashboard-kpi:focus-visible { box-shadow:0 9px 24px rgba(35,55,87,.09); outlin
 
 .topology-topbar-actions { flex-wrap:wrap; }
 .topology-legend-menu .topology-topbar-form { grid-template-columns:minmax(0,1fr); white-space:normal; overflow-wrap:anywhere; }
-.topology-toolbar-row .topology-toolbar-summary { min-width:min(180px, 100%); white-space:normal; overflow-wrap:anywhere; }
+/* One line: the full summary is in the tooltip, so it never grows the toolbar to three lines. */
+.topology-toolbar-row .topology-toolbar-summary { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .rack-power-threshold-note { color:#45556b; font-size:11px; font-weight:600; }
 .role-request-status-filter { display:inline-flex; align-items:center; gap:6px; color:#586982; font-size:11px; font-weight:650; }
 .quality-bulk-results .ip-table td:last-child { width:35%; }

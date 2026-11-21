@@ -204,7 +204,7 @@ export function NotificationChannelsSettings() {
   return <section className="ipam-card settings-panel">
     <div className="panel-heading"><div><h2>Notificações externas</h2><p className="panel-description">Envia notificações e alertas para o Microsoft Teams e por email. Todos os canais começam desativados. O envio é feito em segundo plano, com novas tentativas automáticas, e nunca atrasa a aplicação.</p></div><Bell size={19} /></div>
     {state && !state.keyringAvailable && <div className="ipam-alert error">A chave de cifra (SNMP_KEYRING_FILE) não está disponível; não é possível guardar nem usar webhooks ou palavras-passe SMTP.</div>}
-    {state && !state.publicLinks && <div className="ipam-alert">APP_PUBLIC_URL não está definido: as mensagens são enviadas sem botão “Abrir na aplicação”.</div>}
+    {state && !state.publicLinks && <div className="ipam-alert warning" role="status">APP_PUBLIC_URL não está definido: as mensagens são enviadas sem botão “Abrir na aplicação”.</div>}
     {feedback && <div className="ipam-alert">{feedback}</div>}
     <form className="settings-form" id="settings-notifications-form" onSubmit={(event) => void save(event)} aria-busy={loading}>
       <h3 className="notification-channel-heading">Microsoft Teams</h3>

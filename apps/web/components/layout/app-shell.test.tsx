@@ -79,3 +79,17 @@ describe('AppShell help link', () => {
     expect(screen.getByRole('link', { name: 'Ajuda: Servidores Linux' })).toHaveAttribute('href', '/ajuda/servidores');
   });
 });
+
+describe('AppShell breadcrumb', () => {
+  it('omits a breadcrumb that only repeats the section title', () => {
+    render(<AppShell section="Perfil" context={['Perfil']}><p>Content</p></AppShell>);
+    const title = document.querySelector('.context-toolbar-title') as HTMLElement;
+    expect(title.querySelector('strong')).toHaveTextContent('Perfil');
+    expect(title.querySelector('span')).toBeNull();
+  });
+
+  it('keeps a breadcrumb that names the active tab', () => {
+    render(<AppShell section="Perfil" context={['Notificações']}><p>Content</p></AppShell>);
+    expect((document.querySelector('.context-toolbar-title') as HTMLElement).querySelector('span')).toHaveTextContent('Notificações');
+  });
+});
