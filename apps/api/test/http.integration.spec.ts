@@ -699,3 +699,276 @@ test('imports by the stored diff, not by the order the client sends the prefixes
   const stored = await prisma.ripeImport.findUniqueOrThrow({ where: { id: result.id } });
   assert.equal(stored.status, 'PARTIAL');
 });
+
+test('critical asset attestation: 409 on a second review of the same cycle, reviewer names and due state over HTTP', async () => {
+  await prisma.user.update({ where: { id: ids.admin }, data: { displayName: 'QA Admin Person' } });
+  await prisma.device.updateMany({ where: { id: { in: [ids.deviceA, ids.deviceA2] } }, data: { isCritical: true } });
+  await prisma.criticalAssetGroupMapping.create({ data: { siteId: ids.siteA, assetType: 'SWITCH', groupId: ids.groupRead } });
+  const pending = await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA, weekStart: new Date('2026-11-09T00:00:00.000Z') } });
+  for (const week of ['2026-11-02', '2026-10-26', '2026-10-19', '2026-10-12', '2026-10-05']) {
+    await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA, weekStart: new Date(`${week}T00:00:00.000Z`), outcome: 'CONFIRMED', confirmedAt: new Date(`${week}T10:00:00.000Z`), confirmedBy: ids.scoped, notes: week === '2026-10-26' ? 'checked tag' : null } });
+  }
+  const first = await request('POST', `/api/v1/critical-assets/${pending.id}/confirm`, 'qa-admin', { outcome: 'CORRECTION_NEEDED', notes: 'Wrong serial' });
+  assert.equal(first.statusCode, 201);
+  assert.equal(json(first).confirmedByName, 'QA Admin Person');
+  assert.equal(json(first).confirmedBy, ids.admin);
+  const second = await request('POST', `/api/v1/critical-assets/${pending.id}/confirm`, 'qa-admin', { outcome: 'CONFIRMED' });
+  assert.equal(second.statusCode, 409);
+  const conflict = json(second);
+  assert.equal(conflict.code, 'CRITICAL_ASSET_ATTESTATION_ALREADY_RECORDED');
+  assert.match(conflict.message, /já foi registada por QA Admin Person/);
+  assert.equal(conflict.details.outcome, 'CORRECTION_NEEDED');
+  assert.equal(conflict.details.weekStart, '2026-11-09');
+  const stored = await prisma.criticalAssetAttestation.findUniqueOrThrow({ where: { id: pending.id } });
+  assert.equal(stored.outcome, 'CORRECTION_NEEDED');
+  assert.equal(stored.notes, 'Wrong serial');
+  assert.equal(await prisma.auditLog.count({ where: { action: 'CRITICAL_ASSET_ATTESTATION_RECORDED', entityId: ids.deviceA } }), 1);
+
+  const list = await request('GET', `/api/v1/critical-assets?siteId=${ids.siteA}`, 'qa-admin');
+  assert.equal(list.statusCode, 200);
+  const body = json(list);
+  const switchA = body.assets.find((asset: { id: string }) => asset.id === ids.deviceA);
+  assert.equal(switchA.attestations.length, 6);
+  assert.equal(switchA.owner.id, ids.groupRead);
+  assert.equal(switchA.latestOutcome, 'CORRECTION_NEEDED');
+  assert.equal(switchA.dueState, 'up_to_date');
+  assert.equal(switchA.attestations[0].confirmedByName, 'QA Admin Person');
+  assert.equal(switchA.attestations[1].confirmedByName, 'qa-network-scoped');
+  assert.equal(switchA.attestations.find((row: { notes: string | null }) => row.notes === 'checked tag')?.weekStart.slice(0, 10), '2026-10-26');
+  const switchA2 = body.assets.find((asset: { id: string }) => asset.id === ids.deviceA2);
+  assert.equal(switchA2.dueState, 'unscheduled');
+  assert.equal(typeof switchA2.dueDate, 'string');
+});
+
+test('critical asset attestation: two simultaneous reviews of one cycle give exactly one 201 and one 409', async () => {
+  await prisma.device.update({ where: { id: ids.deviceA2 }, data: { isCritical: true } });
+  await prisma.criticalAssetGroupMapping.upsert({ where: { siteId_assetType: { siteId: ids.siteA, assetType: 'SWITCH' } }, create: { siteId: ids.siteA, assetType: 'SWITCH', groupId: ids.groupRead }, update: {} });
+  for (let round = 0; round < 5; round += 1) {
+    const row = await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA2, weekStart: new Date(Date.UTC(2026, 5, 1 + round * 7)) } });
+    const responses = await Promise.all([
+      request('POST', `/api/v1/critical-assets/${row.id}/confirm`, 'qa-admin', { outcome: 'CONFIRMED', notes: 'first' }),
+      request('POST', `/api/v1/critical-assets/${row.id}/confirm`, 'qa-admin', { outcome: 'CORRECTION_NEEDED', notes: 'second' }),
+    ]);
+    assert.deepEqual(responses.map((response) => response.statusCode).sort(), [201, 409]);
+    const winner = json(responses.find((response) => response.statusCode === 201)!);
+    const loser = json(responses.find((response) => response.statusCode === 409)!);
+    assert.equal(loser.code, 'CRITICAL_ASSET_ATTESTATION_ALREADY_RECORDED');
+    const stored = await prisma.criticalAssetAttestation.findUniqueOrThrow({ where: { id: row.id } });
+    assert.equal(stored.outcome, winner.outcome);
+    assert.equal(stored.notes, winner.notes);
+    assert.equal(await prisma.auditLog.count({ where: { action: 'CRITICAL_ASSET_ATTESTATION_RECORDED', metadata: { path: ['attestationId'], equals: row.id } } }), 1);
+  }
+});
+
+test('rack PDU power: defaults, allocation, 409s, cascades, audit, RBAC and wattage over HTTP', async () => {
+  await resetDatabase();
+  const admin = 'qa-admin';
+  const conflict = (response: { statusCode: number; body: string }, code: string) => { assert.equal(response.statusCode, 409, response.body); assert.equal(json(response).code, code); return json(response); };
+
+  // Defaults endpoint
+  const defaults = await request('GET', '/api/v1/power/defaults', admin);
+  assert.equal(defaults.statusCode, 200);
+  assert.deepEqual([json(defaults).pduOutletCount, json(defaults).pduBudgetWatts, json(defaults).powerPlugCount, json(defaults).wattsByDeviceType.SERVER], [32, 3680, 2, 350]);
+
+  // New rack: Só rede by default (one 32-outlet SUPPLIER PDU), Rede + UPS adds a UPS PDU
+  const plain = await request('POST', '/api/v1/racks', admin, { name: 'Power Plain', roomId: ids.roomA });
+  assert.equal(plain.statusCode, 201, plain.body);
+  const plainRack = json(await request('GET', `/api/v1/racks/${json(plain).id}`, admin));
+  assert.equal(plainRack.powerMode, 'SUPPLIER_ONLY');
+  assert.deepEqual(plainRack.pdus.map((p: any) => [p.source, p.outletCount, p.budgetWatts]), [['SUPPLIER', 32, 3680]]);
+  const dual = await request('POST', '/api/v1/racks', admin, { name: 'Power Dual', roomId: ids.roomA, powerMode: 'SUPPLIER_AND_UPS' });
+  assert.equal(dual.statusCode, 201, dual.body);
+  const rackId = json(dual).id;
+  let rack = json(await request('GET', `/api/v1/racks/${rackId}`, admin));
+  assert.equal(rack.powerMode, 'SUPPLIER_AND_UPS');
+  assert.deepEqual(rack.pdus.map((p: any) => p.source), ['SUPPLIER', 'UPS']);
+  const [supplierId, upsId] = rack.pdus.map((p: any) => p.id);
+
+  // Devices: manual watts, model watts, type default
+  const model = await prisma.deviceModel.create({ data: { manufacturer: 'QA', model: 'SW-120', type: 'SWITCH', typicalWatts: 120 } });
+  const dev = { srv: '94000000-0000-4000-8000-000000000001', sw: '94000000-0000-4000-8000-000000000002', fw: '94000000-0000-4000-8000-000000000003' };
+  await prisma.device.createMany({ data: [
+    { id: dev.srv, name: 'PWR Server', type: 'SERVER', siteId: ids.siteA, rackId, estimatedWatts: 400 },
+    { id: dev.sw, name: 'PWR Switch', type: 'SWITCH', siteId: ids.siteA, rackId, modelId: model.id },
+    { id: dev.fw, name: 'PWR Firewall', type: 'FIREWALL', siteId: ids.siteA, rackId },
+  ] });
+  for (const id of [dev.srv, dev.sw, dev.fw]) {
+    const response = await request('PUT', `/api/v1/devices/${id}/power`, admin, {});
+    assert.equal(response.statusCode, 200, response.body);
+    const body = json(response);
+    assert.equal(body.device.plugCount, 2);
+    assert.deepEqual(body.device.assignments.map((a: any) => a.source), ['SUPPLIER', 'UPS']);
+    assert.equal(body.device.redundant, true);
+  }
+  rack = json(await request('GET', `/api/v1/racks/${rackId}`, admin));
+  const supplier = rack.pdus.find((p: any) => p.source === 'SUPPLIER');
+  assert.deepEqual(Object.fromEntries(supplier.connections.map((c: any) => [c.deviceName, [c.wattsSource, c.deviceEstimatedWatts, c.estimatedWattsShare, c.outlets.map((o: any) => o.outletIndex)]])), {
+    'PWR Server': ['manual', 400, 200, [1]], 'PWR Switch': ['modelo', 120, 60, [2]], 'PWR Firewall': ['padrão', 200, 100, [3]],
+  });
+  assert.deepEqual([supplier.usedOutlets, supplier.estimatedWatts, supplier.failoverWatts], [3, 360, 720]);
+  assert.deepEqual(rack.power.totals.bySource, { SUPPLIER: 360, UPS: 360 });
+  assert.equal(rack.power.totals.estimatedWatts, 720);
+
+  // Double-booked outlet → 409, nothing changed
+  conflict(await request('PUT', `/api/v1/devices/${dev.fw}/power`, admin, { plugs: [{ plugIndex: 1, pduId: supplierId, outletIndex: 1 }] }), 'PDU_OUTLET_TAKEN');
+  assert.equal(await prisma.pduOutletAssignment.count({ where: { deviceId: dev.fw } }), 2);
+
+  // Shrinking below used outlets / removing a connected UPS → 409 with the device list
+  const shrink = conflict(await request('PUT', `/api/v1/racks/${rackId}/pdus`, admin, { mode: 'SUPPLIER_AND_UPS', supplier: { outletCount: 2 } }), 'PDU_OUTLETS_IN_USE');
+  assert.deepEqual(shrink.details.devices.map((d: any) => [d.deviceName, d.outlets]), [['PWR Firewall', [3]]]);
+  const removeUps = conflict(await request('PUT', `/api/v1/racks/${rackId}/pdus`, admin, { mode: 'SUPPLIER_ONLY' }), 'PDU_HAS_CONNECTIONS');
+  assert.deepEqual(removeUps.details.devices.map((d: any) => d.deviceName).sort(), ['PWR Firewall', 'PWR Server', 'PWR Switch']);
+  assert.equal(await prisma.rackPdu.count({ where: { rackId } }), 2);
+
+  // Read-only and scope-limited users get 403 on every write; network operator is blocked by role even for a SWITCH
+  for (const persona of ['qa-readonly', 'qa-auditor', 'qa-systems-scoped', 'qa-network-scoped']) {
+    assert.equal((await request('PUT', `/api/v1/devices/${dev.sw}/power`, persona, {})).statusCode, 403, persona);
+    assert.equal((await request('PUT', `/api/v1/racks/${rackId}/pdus`, persona, { mode: 'SUPPLIER_AND_UPS' })).statusCode, 403, persona);
+    assert.equal((await request('DELETE', `/api/v1/racks/${rackId}/pdus/${upsId}/devices/${dev.srv}`, persona)).statusCode, 403, persona);
+    assert.equal((await request('DELETE', `/api/v1/racks/${rackId}/pdus/${upsId}/devices/${dev.sw}`, persona)).statusCode, 403, persona);
+  }
+  assert.equal(await prisma.pduOutletAssignment.count({ where: { pduId: upsId } }), 3);
+
+  // Desligar frees only that PDU's outlets
+  const off = await request('DELETE', `/api/v1/racks/${rackId}/pdus/${upsId}/devices/${dev.srv}`, admin);
+  assert.equal(off.statusCode, 200, off.body);
+  assert.equal(json(off).removed, 1);
+  assert.equal(json(off).pdus.find((p: any) => p.source === 'UPS').usedOutlets, 2);
+  assert.deepEqual((await prisma.pduOutletAssignment.findMany({ where: { deviceId: dev.srv } })).map((a) => a.pduId), [supplierId]);
+
+  // Moving a powered device to another rack without outlets would clear its power config → 400, nothing changed
+  const moveBody = { name: 'PWR Switch', type: 'SWITCH', siteId: ids.siteA, rackId: json(plain).id, rackUnitStart: 1, rackUnitSize: 1 };
+  const refused = await request('PATCH', `/api/v1/devices/${dev.sw}`, admin, moveBody);
+  assert.equal(refused.statusCode, 400, refused.body);
+  assert.equal(json(refused).code, 'REQUIRED_CONFIG_MISSING');
+  // A move re-places the device: its (legacy) missing rear image is now required too, and filled power can't be dropped
+  assert.deepEqual(json(refused).details.errors.map((e: any) => [e.config, e.reason, e.tab]), [['rearImage', 'MISSING', 'imagens'], ['power', 'CLEARED', 'energia']]);
+  assert.equal((await prisma.device.findUnique({ where: { id: dev.sw } }))?.rackId, rackId);
+  assert.equal(await prisma.pduOutletAssignment.count({ where: { deviceId: dev.sw } }), 2);
+  // With the model's rear image and `power`, the move frees the old outlets and plugs into the new rack in one transaction
+  const swRear = await prisma.assetFile.create({ data: { filename: 'pwr-sw-rear.png', storageKey: 'pwr-sw-rear.png', mimeType: 'image/png', sizeBytes: 1, kind: 'DEVICE_BACK' } });
+  await prisma.deviceModel.update({ where: { id: model.id }, data: { backAssetId: swRear.id } });
+  const moved = await request('PATCH', `/api/v1/devices/${dev.sw}`, admin, { ...moveBody, power: {} });
+  assert.equal(moved.statusCode, 200, moved.body);
+  assert.deepEqual(json(moved).requiredConfig.missing, []);
+  const plainPduIds = (await prisma.rackPdu.findMany({ where: { rackId: json(plain).id } })).map((p) => p.id);
+  const swOutlets = await prisma.pduOutletAssignment.findMany({ where: { deviceId: dev.sw } });
+  assert.ok(swOutlets.length > 0 && swOutlets.every((a) => plainPduIds.includes(a.pduId)));
+  // HTTP delete is gated by the retirement checklist (409); the hard delete itself cascades in the database
+  assert.equal((await request('DELETE', `/api/v1/devices/${dev.fw}`, admin)).statusCode, 409);
+  assert.equal(await prisma.pduOutletAssignment.count({ where: { deviceId: dev.fw } }), 2);
+  await prisma.device.delete({ where: { id: dev.fw } });
+  assert.equal(await prisma.pduOutletAssignment.count({ where: { deviceId: dev.fw } }), 0);
+
+  // With the UPS empty it can now be removed
+  for (const device of [dev.srv]) await request('DELETE', `/api/v1/racks/${rackId}/pdus/${upsId}/devices/${device}`, admin);
+  const removed = await request('PUT', `/api/v1/racks/${rackId}/pdus`, admin, { mode: 'SUPPLIER_ONLY' });
+  assert.equal(removed.statusCode, 200, removed.body);
+  assert.equal(json(removed).mode, 'SUPPLIER_ONLY');
+
+  // Every write is audited
+  const actions = (await prisma.auditLog.findMany({ where: { userId: ids.admin, action: { in: ['DEVICE_POWER_UPDATED', 'DEVICE_POWER_DISCONNECTED', 'RACK_POWER_UPDATED'] } }, select: { action: true } })).map((a) => a.action);
+  assert.equal(actions.filter((a) => a === 'DEVICE_POWER_UPDATED').length, 3);
+  assert.equal(actions.filter((a) => a === 'DEVICE_POWER_DISCONNECTED').length, 1);
+  assert.equal(actions.filter((a) => a === 'RACK_POWER_UPDATED').length, 1);
+  const moveAudit = await prisma.auditLog.findFirst({ where: { entityId: dev.sw, action: { contains: 'UPDATED' }, NOT: { action: 'DEVICE_POWER_UPDATED' } }, orderBy: { createdAt: 'desc' } });
+  assert.equal((moveAudit?.metadata as any)?.powerAssignmentsRemoved, 2);
+});
+
+test('required device configs: registry, create validation, legacy updates, grouped bell alerts and affected devices', async () => {
+  const admin = 'qa-admin';
+  const registry = json(await request('GET', '/api/v1/devices/required-configs', 'qa-readonly'));
+  assert.equal(registry.configs.some((c: any) => 'introducedAt' in c), false);
+  assert.deepEqual(registry.configs.map((c: any) => [c.key, c.kind, c.tab]), [['name', 'CORE', 'geral'], ['type', 'CORE', 'geral'], ['placement', 'CORE', 'localizacao'], ['rearImage', 'FEATURE', 'imagens'], ['power', 'FEATURE', 'energia']]);
+
+  const rack = json(await request('POST', '/api/v1/racks', admin, { name: 'Required Config Rack', roomId: ids.roomA }));
+  const base = { name: 'RC Server', type: 'SERVER', siteId: ids.siteA, rackId: rack.id, rackUnitStart: 10, rackUnitSize: 1 };
+
+  // Create: every missing config comes back with field-level details; nothing is written
+  const rejected = await request('POST', '/api/v1/devices', admin, base);
+  assert.equal(rejected.statusCode, 400, rejected.body);
+  assert.equal(json(rejected).code, 'REQUIRED_CONFIG_MISSING');
+  assert.deepEqual(json(rejected).details.errors.map((e: any) => [e.config, e.reason, e.tab, e.fields]), [['rearImage', 'MISSING', 'imagens', ['backAssetId']], ['power', 'MISSING', 'energia', ['power', 'powerPlugCount']]]);
+  const noName = await request('POST', '/api/v1/devices', admin, { ...base, name: '', powerPlugCount: 0 });
+  assert.equal(noName.statusCode, 400);
+  assert.equal(await prisma.device.count({ where: { name: 'RC Server' } }), 0);
+
+  // A device with no power (0 plugs) only needs the rear image; with `power: {}` it is plugged in on create
+  const unpowered = await request('POST', '/api/v1/devices', admin, { ...base, name: 'RC Patch', type: 'OTHER', powerPlugCount: 0, rackUnitStart: 11 });
+  assert.equal(unpowered.statusCode, 400);
+  assert.deepEqual(json(unpowered).details.errors.map((e: any) => e.config), ['rearImage']);
+
+  // The model's rear image counts, and `power: {}` plugs the device in during create (default distribution)
+  const rear = await prisma.assetFile.create({ data: { filename: 'rc-rear.png', storageKey: 'rc-rear.png', mimeType: 'image/png', sizeBytes: 1, kind: 'DEVICE_BACK' } });
+  const rcModel = await prisma.deviceModel.create({ data: { manufacturer: 'QA', model: 'RC-1U', type: 'SERVER', backAssetId: rear.id } });
+  const created = await request('POST', '/api/v1/devices', admin, { ...base, modelId: rcModel.id, power: {} });
+  assert.equal(created.statusCode, 201, created.body);
+  assert.deepEqual(json(created).requiredConfig, { missing: [], missingTabs: [], complete: true });
+  assert.ok(await prisma.pduOutletAssignment.count({ where: { deviceId: json(created).id } }) > 0);
+
+  // Site → rack: placing an unracked device is like creating it in the rack (rear image + power required)
+  const unracked = await request('POST', '/api/v1/devices', admin, { name: 'RC Site Only', type: 'SERVER', siteId: ids.siteA });
+  assert.equal(unracked.statusCode, 201, unracked.body);
+  assert.equal(json(unracked).requiredConfig.complete, true);
+  const placeBody = { name: 'RC Site Only', type: 'SERVER', siteId: ids.siteA, rackId: rack.id, rackUnitStart: 14, rackUnitSize: 1 };
+  const placeRefused = await request('PATCH', `/api/v1/devices/${json(unracked).id}`, admin, placeBody);
+  assert.equal(placeRefused.statusCode, 400, placeRefused.body);
+  assert.deepEqual(json(placeRefused).details.errors.map((e: any) => [e.config, e.reason]), [['rearImage', 'MISSING'], ['power', 'MISSING']]);
+  const placeNoPower = await request('PATCH', `/api/v1/devices/${json(unracked).id}`, admin, { ...placeBody, modelId: rcModel.id });
+  assert.equal(placeNoPower.statusCode, 400, placeNoPower.body);
+  assert.deepEqual(json(placeNoPower).details.errors.map((e: any) => [e.config, e.reason, e.tab]), [['power', 'MISSING', 'energia']]);
+  assert.equal((await prisma.device.findUnique({ where: { id: json(unracked).id } }))?.rackId, null);
+  const placed = await request('PATCH', `/api/v1/devices/${json(unracked).id}`, admin, { ...placeBody, modelId: rcModel.id, power: {} });
+  assert.equal(placed.statusCode, 200, placed.body);
+  assert.equal(json(placed).requiredConfig.complete, true);
+  const placedZero = await request('POST', '/api/v1/devices', admin, { name: 'RC Site Only 2', type: 'OTHER', siteId: ids.siteA });
+  const zero = await request('PATCH', `/api/v1/devices/${json(placedZero).id}`, admin, { name: 'RC Site Only 2', type: 'OTHER', siteId: ids.siteA, rackId: rack.id, rackUnitStart: 15, rackUnitSize: 1, modelId: rcModel.id, powerPlugCount: 0 });
+  assert.equal(zero.statusCode, 200, zero.body);
+
+  // Legacy device (written before the rule): may be saved while still missing configs, and shows in the bell
+  const legacy = await prisma.device.create({ data: { name: 'RC Legacy', type: 'SERVER', siteId: ids.siteA, rackId: rack.id, rackUnitStart: 20, rackUnitSize: 1 } });
+  const legacyDetail = json(await request('GET', `/api/v1/devices/${legacy.id}`, admin));
+  assert.deepEqual(legacyDetail.requiredConfig, { missing: ['rearImage', 'power'], missingTabs: ['imagens', 'energia'], complete: false });
+  const legacyUpdate = await request('PATCH', `/api/v1/devices/${legacy.id}`, admin, { name: 'RC Legacy 2', type: 'SERVER', siteId: ids.siteA, rackId: rack.id, rackUnitStart: 20, rackUnitSize: 1 });
+  assert.equal(legacyUpdate.statusCode, 200, legacyUpdate.body);
+
+  const listed = json(await request('GET', `/api/v1/devices/missing-config?config=power&siteId=${ids.siteA}&pageSize=100`, admin));
+  const row = listed.items.find((d: any) => d.id === legacy.id);
+  assert.equal(row.href, `/infraestrutura?siteId=${ids.siteA}&tab=devices&deviceId=${legacy.id}&settingsTab=energia`);
+  assert.equal((await request('GET', '/api/v1/devices/missing-config?config=frontImage', admin)).statusCode, 400);
+  const filtered = json(await request('GET', `/api/v1/devices?missingConfig=power&pageSize=100`, admin));
+  assert.ok(filtered.items.some((d: any) => d.id === legacy.id));
+  assert.ok(filtered.items.every((d: any) => d.requiredConfig.missing.includes('power')));
+
+  const bell = async () => json(await request('GET', '/api/v1/dashboard/topbar-state', admin)).alerts.filter((a: any) => String(a.id).startsWith('device-missing-config-'));
+  let alerts = await bell();
+  const powerAlert = alerts.find((a: any) => a.id === 'device-missing-config-power');
+  assert.equal(powerAlert.persistent, true);
+  assert.equal(powerAlert.title.endsWith('sem tomadas de energia configuradas'), true);
+  assert.equal(alerts.filter((a: any) => a.id === 'device-missing-config-power').length, 1);
+  const powerCount = json(await request('GET', '/api/v1/devices/missing-config?config=power', admin)).total;
+  assert.equal(powerAlert.count, powerCount);
+  assert.ok(powerAlert.siteCount >= 1);
+  if (powerAlert.count > 1 && powerAlert.siteCount > 1) {
+    assert.equal(powerAlert.href, '/infraestrutura?tab=devices&missingConfig=power&allSites=1');
+    assert.ok(powerAlert.detail.endsWith(` — em ${powerAlert.siteCount} Sites.`), powerAlert.detail);
+  } else assert.equal(powerAlert.href.includes('allSites'), false);
+
+  // Plugging the legacy device in auto-clears it from the group; clearing it again is refused
+  const plugged = await request('PUT', `/api/v1/devices/${legacy.id}/power`, admin, {});
+  assert.equal(plugged.statusCode, 200, plugged.body);
+  const after = json(await request('GET', '/api/v1/devices/missing-config?config=power&pageSize=100', admin));
+  assert.equal(after.total, powerCount - 1);
+  assert.equal(after.items.some((d: any) => d.id === legacy.id), false);
+  alerts = await bell();
+  const afterAlert = alerts.find((a: any) => a.id === 'device-missing-config-power');
+  if (powerCount - 1 === 0) assert.equal(afterAlert, undefined);
+  else assert.ok(afterAlert.title.startsWith(`${powerCount - 1} dispositivo`), afterAlert.title);
+  const cleared = await request('PUT', `/api/v1/devices/${legacy.id}/power`, admin, { plugs: [] });
+  assert.equal(cleared.statusCode, 400, cleared.body);
+  assert.deepEqual(json(cleared).details.errors.map((e: any) => [e.config, e.reason]), [['power', 'CLEARED']]);
+  assert.ok(await prisma.pduOutletAssignment.count({ where: { deviceId: legacy.id } }) > 0);
+
+  // Read-only users see no fix-it alerts
+  assert.deepEqual(json(await request('GET', '/api/v1/dashboard/topbar-state', 'qa-readonly')).alerts.filter((a: any) => String(a.id).startsWith('device-missing-config-')), []);
+});

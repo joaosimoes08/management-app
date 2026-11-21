@@ -10,6 +10,9 @@ const operationalFiles = [
   'apps/web/features/audit/audit-page.tsx',
   'apps/web/features/infrastructure/infrastructure-workspace.tsx',
   'apps/web/features/ipam/ipam-page.tsx',
+  'apps/web/features/critical-assets/critical-assets-page.tsx',
+  'apps/web/features/critical-assets/critical-assets-dialogs.tsx',
+  'apps/web/features/critical-assets/workbench.ts',
   'apps/web/app/ajuda/page.tsx',
   'apps/web/app/ajuda/[topic]/page.tsx',
 ];
