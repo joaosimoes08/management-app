@@ -5,8 +5,8 @@
  */
 import { hasTableFilters, parseTableState, serializeTableState, type TableStateConfig } from '@/components/data-table';
 
-export type DeviceUrlFilters = { status: string; critical: string; lifecycle: string; lifecycleKind: string };
-export const emptyDeviceUrlFilters: DeviceUrlFilters = { status: '', critical: '', lifecycle: '', lifecycleKind: '' };
+export type DeviceUrlFilters = { status: string; critical: string; lifecycle: string; lifecycleKind: string; tier: string };
+export const emptyDeviceUrlFilters: DeviceUrlFilters = { status: '', critical: '', lifecycle: '', lifecycleKind: '', tier: '' };
 /** Search stays in the page's own box (`search` key unused in the URL), so only the filters are read here. */
 export const deviceUrlConfig: TableStateConfig<DeviceUrlFilters> = { filters: emptyDeviceUrlFilters, sortable: [], searchKey: 'deviceSearch' };
 
@@ -37,5 +37,6 @@ export function deviceFilterLabels(filters: DeviceUrlFilters): string[] {
   else if (due) labels.push(`Ciclo de vida nos próximos ${due[1]} dias`);
   else if (filters.lifecycle) labels.push(`Ciclo de vida: ${filters.lifecycle}`);
   if (filters.lifecycleKind) labels.push(`Tipo de data: ${filters.lifecycleKind}`);
+  if (filters.tier) labels.push(`Criticidade: ${filters.tier}`);
   return labels;
 }

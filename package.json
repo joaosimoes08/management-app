@@ -24,7 +24,8 @@
     "snmp:keyring": "node scripts/generate-snmp-keyring.mjs",
     "snmp:host-agent": "dotenv -e .env -o -- npm run host-agent --workspace=@simoes/snmp",
     "snmp:test-trap": "docker compose --profile snmp exec -T snmp node apps/snmp/dist/send-test-trap.js",
-    "snmp:test-trap:host": "dotenv -e .env -o -- node apps/snmp/dist/send-test-trap.js --external"
+    "snmp:test-trap:host": "dotenv -e .env -o -- node apps/snmp/dist/send-test-trap.js --external",
+    "perf:baseline": "node scripts/performance/baseline.mjs"
   },
   "devDependencies": {
     "dotenv-cli": "^8.0.0"

@@ -1,5 +1,6 @@
 'use client';
 
+import { useEscapeClose } from '@/components/ui/use-escape-close';
 import { useState } from 'react';
 import { EquipmentTypeIcon } from './equipment-type-icon';
 import type { Device, DeviceInterface, PortLayout, RackFace } from '../types';
@@ -31,6 +32,7 @@ export function DeviceImageFrame({ device, interfaces, face: requestedFace }: De
   const noteBelow = !image && shortFace && ports.length > 0;
   const byPort = (port: { portKey: string }) => interfaces.find((item) => item.portKey === port.portKey || item.name === port.portKey);
   const activeLayoutPort = ports.find((port) => port.portKey === activePort);
+  useEscapeClose(() => setActivePort(''), Boolean(activeLayoutPort));
   const activeInterface = activeLayoutPort ? byPort(activeLayoutPort) : null;
   const activeVlans = getInterfaceVlans(activeInterface);
 

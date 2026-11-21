@@ -31,14 +31,14 @@ const asset = (id: string, name: string, extra: Record<string, unknown> = {}) =>
 
 const history = [
   attestation('a-core-5', '2026-11-16T00:00:00.000Z'),
-  attestation('a-core-4', '2026-11-09T00:00:00.000Z', { outcome: 'CORRECTION_NEEDED', notes: 'Serial number is wrong', confirmedAt: '2026-11-10T10:00:00.000Z', confirmedBy: 'u-1', confirmedByName: 'Ana Reviewer' }),
+  attestation('a-core-4', '2026-11-09T00:00:00.000Z', { outcome: 'NEEDS_CORRECTION', notes: 'Serial number is wrong', confirmedAt: '2026-11-10T10:00:00.000Z', confirmedBy: 'u-1', confirmedByName: 'Ana Reviewer' }),
   attestation('a-core-3', '2026-11-02T00:00:00.000Z', { outcome: 'CONFIRMED', confirmedAt: '2026-11-03T10:00:00.000Z', confirmedBy: 'u-2', confirmedByName: 'Bruno' }),
   attestation('a-core-2', '2026-10-26T00:00:00.000Z', { outcome: 'CONFIRMED', confirmedAt: '2026-10-27T10:00:00.000Z', confirmedByName: 'Bruno' }),
   attestation('a-core-1', '2026-10-19T00:00:00.000Z', { outcome: 'CONFIRMED', confirmedAt: '2026-10-20T10:00:00.000Z', confirmedByName: 'Bruno' }),
 ];
 
 const pageData = (): CriticalAssetsResult => {
-  const core = asset('device-1', 'Core switch', { dueState: 'overdue', pendingCount: 1, overdueCount: 1, dueDate: '2026-11-23T09:00:00.000Z', latestOutcome: 'CORRECTION_NEEDED', latestConfirmedAt: '2026-11-10T10:00:00.000Z', attestations: history });
+  const core = asset('device-1', 'Core switch', { dueState: 'overdue', pendingCount: 1, overdueCount: 1, dueDate: '2026-11-23T09:00:00.000Z', latestOutcome: 'NEEDS_CORRECTION', latestConfirmedAt: '2026-11-10T10:00:00.000Z', attestations: history });
   const edge = asset('device-2', 'Edge router', { type: 'ROUTER', owner: systems, assignedGroup: systems, dueState: 'due_this_week', pendingCount: 1, latestOutcome: 'CONFIRMED', latestConfirmedAt: '2026-11-10T10:00:00.000Z', attestations: [attestation('a-edge-2', '2026-11-16T00:00:00.000Z'), attestation('a-edge-1', '2026-11-09T00:00:00.000Z', { outcome: 'CONFIRMED', confirmedAt: '2026-11-10T10:00:00.000Z', confirmedByName: 'Carla' })] });
   const storage = asset('device-3', 'Backup array', { type: 'STORAGE', owner: systems, assignedGroup: systems, dueState: 'up_to_date', latestOutcome: 'CONFIRMED', latestConfirmedAt: '2026-11-17T10:00:00.000Z', attestations: [attestation('a-st-1', '2026-11-16T00:00:00.000Z', { outcome: 'CONFIRMED', confirmedAt: '2026-11-17T10:00:00.000Z', confirmedByName: 'Carla' })] });
   // No owner: the API always reports 'unscheduled' with no due date, but keeps the pending counts.
@@ -103,6 +103,14 @@ describe('critical assets workbench helpers', () => {
 });
 
 describe('CriticalAssetsPage', () => {
+  it('opens the asset and identifies the week linked from a notification', async () => {
+    window.history.replaceState(null, '', '/attestacao-ativos?siteId=site-1&assetId=device-1&week=2026-11-09');
+    renderPage();
+    const panel = await screen.findByRole('complementary', { name: 'Histórico de Core switch' });
+    expect(within(panel).getByText(/09\/11\/26.*Revisão ligada à notificação/)).toBeInTheDocument();
+    expect(within(panel).getAllByText(/Revisão ligada à notificação/)).toHaveLength(1);
+  });
+
   it('shows a dense table with group, latest result, due state as text and an explicit no-owner label', async () => {
     renderPage();
     const core = await rowFor('Core switch');
@@ -199,7 +207,7 @@ describe('CriticalAssetsPage', () => {
     expect(apiFetch).not.toHaveBeenCalledWith(expect.stringContaining('/confirm'), expect.anything());
     fireEvent.change(within(dialog).getByLabelText('Dados a corrigir (obrigatório)'), { target: { value: 'Tag AT-1 is now AT-9' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Registar pedido de correção' }));
-    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith('/api/v1/critical-assets/a-core-5/confirm', expect.objectContaining({ method: 'POST', body: JSON.stringify({ outcome: 'CORRECTION_NEEDED', notes: 'Tag AT-1 is now AT-9' }) })));
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith('/api/v1/critical-assets/a-core-5/confirm', expect.objectContaining({ method: 'POST', body: JSON.stringify({ outcome: 'NEEDS_CORRECTION', notes: 'Tag AT-1 is now AT-9' }) })));
     expect(await screen.findByText('Core switch: pedido de correção registado.')).toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(prompt).not.toHaveBeenCalled();
@@ -238,13 +246,13 @@ describe('CriticalAssetsPage', () => {
     core.pendingCount = 2;
     const posted: string[] = [];
     let calls = 0;
-    vi.mocked(apiFetch).mockImplementation(async (url: string) => {
+    vi.mocked(apiFetch).mockImplementation(async (url: string, init?: RequestInit) => {
       if (url.includes('/settings/access-groups')) return [network, systems] as never;
-      if (url.endsWith('/confirm')) {
+      if (url.endsWith('/confirm-bulk')) {
         calls += 1;
         posted.push(url);
-        if (url.includes('a-core-5')) throw alreadyRecorded();
-        return savedReview('a-edge-2', 'CONFIRMED') as never;
+        expect(JSON.parse(String(init?.body))).toEqual({ items: [{ id: 'a-core-5', outcome: 'CONFIRMED' }, { id: 'a-edge-2', outcome: 'CONFIRMED' }] });
+        return { results: [{ id: 'a-core-5', ok: false, code: 'ALREADY_RECORDED', message: 'Esta revisão já foi registada.' }, { id: 'a-edge-2', ok: true, outcome: 'CONFIRMED' }], recorded: 1, failed: 1 } as never;
       }
       return data as never;
     });
@@ -262,8 +270,8 @@ describe('CriticalAssetsPage', () => {
     expect(calls).toBe(0);
     fireEvent.click(within(dialog).getByRole('button', { name: 'Confirmar 2 revisões' }));
     expect(await within(dialog).findByText('1 de 2 registadas.')).toBeInTheDocument();
-    expect(calls).toBe(2);
-    expect(posted).toEqual(['/api/v1/critical-assets/a-core-5/confirm', '/api/v1/critical-assets/a-edge-2/confirm']);
+    expect(calls).toBe(1);
+    expect(posted).toEqual(['/api/v1/critical-assets/confirm-bulk']);
     const results = within(within(dialog).getByRole('region', { name: 'Revisões a confirmar' }));
     expect(results.getByText('Já registado').closest('tr')).toHaveTextContent('Core switch');
     expect(results.getByText('Registado').closest('tr')).toHaveTextContent('Edge router');
@@ -273,9 +281,9 @@ describe('CriticalAssetsPage', () => {
 
   it('bulk confirms only rows on screen: a selection hidden by a filter is dropped and the count follows', async () => {
     const posted: string[] = [];
-    vi.mocked(apiFetch).mockImplementation(async (url: string) => {
+    vi.mocked(apiFetch).mockImplementation(async (url: string, init?: RequestInit) => {
       if (url.includes('/settings/access-groups')) return [network, systems] as never;
-      if (url.endsWith('/confirm')) { posted.push(url); return savedReview(url.split('/').at(-2) as string, 'CONFIRMED') as never; }
+      if (url.endsWith('/confirm-bulk')) { posted.push(url); const body = JSON.parse(String(init?.body ?? '{}')); return { results: body.items.map((item: { id: string }) => ({ id: item.id, ok: true, outcome: 'CONFIRMED' })), recorded: body.items.length, failed: 0 } as never; }
       return data as never;
     });
     renderPage();
@@ -294,7 +302,7 @@ describe('CriticalAssetsPage', () => {
     const dialog = screen.getByRole('dialog', { name: 'Confirmar selecionados' });
     expect(within(dialog).queryByText('Core switch')).not.toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: /Confirmar 1 revis/ }));
-    await waitFor(() => expect(posted).toEqual(['/api/v1/critical-assets/a-edge-2/confirm']));
+    await waitFor(() => expect(posted).toEqual(['/api/v1/critical-assets/confirm-bulk']));
   });
 
   it('clears an owner filter from the previous Site after a Site switch, without a history entry', async () => {
@@ -346,8 +354,7 @@ describe('CriticalAssetsPage', () => {
   it('reports a failed bulk item without stopping the others', async () => {
     vi.mocked(apiFetch).mockImplementation(async (url: string) => {
       if (url.includes('/settings/access-groups')) return [network, systems] as never;
-      if (url.includes('a-core-5/confirm')) throw new ApiRequestError('Não tens acesso a esta revisão', 403, { message: 'Não tens acesso a esta revisão' });
-      if (url.endsWith('/confirm')) return savedReview('a-edge-2', 'CONFIRMED') as never;
+      if (url.endsWith('/confirm-bulk')) return { results: [{ id: 'a-core-5', ok: false, code: 'FORBIDDEN', message: 'Não tens acesso a esta revisão' }, { id: 'a-edge-2', ok: true, outcome: 'CONFIRMED' }], recorded: 1, failed: 1 } as never;
       return data as never;
     });
     renderPage();
@@ -477,10 +484,12 @@ describe('CriticalAssetsPage', () => {
     renderPage();
     fireEvent.click(within(await rowFor('Perimeter firewall')).getByRole('button', { name: 'Confirmar revisão de Perimeter firewall' }));
     await waitFor(() => expect(apiFetch).toHaveBeenCalledWith('/api/v1/critical-assets/a-fw-old/confirm', expect.anything()));
+    const bulkCallsBefore = vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).endsWith('/confirm-bulk')).length;
+    expect(bulkCallsBefore).toBe(0);
     fireEvent.click(within(await rowFor('Perimeter firewall')).getByRole('checkbox', { name: 'Selecionar ativo Perimeter firewall' }));
     fireEvent.click(within(screen.getByTestId('toolbar-actions')).getByRole('button', { name: /Confirmar selecionados \(1\)/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar 1 revisões' }));
-    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith('/api/v1/critical-assets/a-fw-new/confirm', expect.anything()));
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith('/api/v1/critical-assets/confirm-bulk', expect.objectContaining({ body: JSON.stringify({ items: [{ id: 'a-fw-new', outcome: 'CONFIRMED' }] }) })));
   });
 
   it('hydrates server markup without a mismatch', async () => {

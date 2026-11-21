@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChangePlansPage } from './change-plans-page';
 import type { CalendarChangePlan, ChangePlan, ImpactPreview } from './api';
@@ -12,6 +12,13 @@ const mocks = vi.hoisted(() => ({
   getChangeCandidates: vi.fn(),
   getChangePlan: vi.fn(),
   previewChangePlan: vi.fn(),
+  getChangeConflicts: vi.fn(),
+  startChangePlan: vi.fn(),
+  closeChangePlan: vi.fn(),
+  tickChecklistItem: vi.fn(),
+  addChecklistItems: vi.fn(),
+  removeChecklistItem: vi.fn(),
+  getPostChangeCheck: vi.fn(),
   detail: null as ChangePlan | null,
 }));
 
@@ -20,6 +27,8 @@ vi.mock('./api', () => ({
   getChangePlan: mocks.getChangePlan, listChangePlans: mocks.listChangePlans, previewChangePlan: mocks.previewChangePlan,
   reviewChangePlan: vi.fn(), submitChangePlan: vi.fn(), updateChangePlan: vi.fn(), getChangeActivity: mocks.getChangeActivity,
   getChangeSummary: mocks.getChangeSummary, getChangeCalendar: mocks.getChangeCalendar,
+  getChangeConflicts: mocks.getChangeConflicts, startChangePlan: mocks.startChangePlan, closeChangePlan: mocks.closeChangePlan,
+  tickChecklistItem: mocks.tickChecklistItem, addChecklistItems: mocks.addChecklistItems, removeChecklistItem: mocks.removeChecklistItem, getPostChangeCheck: mocks.getPostChangeCheck,
 }));
 vi.mock('@/components/layout/app-shell', async (importOriginal) => ({ ...await importOriginal<typeof import('@/components/layout/app-shell')>(), AppShell: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: () => true }) }));
@@ -29,6 +38,7 @@ const emptySummary = { siteId: 'site-1', total: 0, byStatus: { DRAFT: 0, SUBMITT
 beforeEach(() => {
   mocks.getChangeSummary.mockResolvedValue(emptySummary);
   mocks.getChangeCalendar.mockResolvedValue({ siteId: 'site-1', from: '', to: '', changePlans: [], maintenanceWindows: [], truncated: false });
+  mocks.getChangeConflicts.mockResolvedValue({ changePlanId: '', tierSource: 'IS_CRITICAL', warnings: [], generatedAt: '' });
 });
 afterEach(() => { cleanup(); vi.clearAllMocks(); mocks.detail = null; });
 
@@ -64,8 +74,12 @@ describe('ChangePlansPage impact preview transition', () => {
     expect(screen.getByRole('dialog', { name: 'Criar alteração' })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Título'), { target: { value: created.title } });
     fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: created.reason } });
-    fireEvent.change(screen.getByLabelText('Início planeado'), { target: { value: '2026-11-20T10:00' } });
-    fireEvent.change(screen.getByLabelText('Fim planeado'), { target: { value: '2026-11-20T11:00' } });
+    const starts = within(screen.getByRole('group', { name: 'Início planeado' }));
+    fireEvent.change(starts.getByLabelText('Início planeado'), { target: { value: '2026-11-20' } });
+    fireEvent.change(starts.getByLabelText('Hora (24 h)'), { target: { value: '10:00' } });
+    const ends = within(screen.getByRole('group', { name: 'Fim planeado' }));
+    fireEvent.change(ends.getByLabelText('Fim planeado'), { target: { value: '2026-11-20' } });
+    fireEvent.change(ends.getByLabelText('Hora (24 h)'), { target: { value: '11:00' } });
     fireEvent.change(screen.getByLabelText('Alvo'), { target: { value: 'device-1' } });
     fireEvent.change(screen.getByLabelText('Operação proposta'), { target: { value: 'Replace switch' } });
     fireEvent.click(screen.getByRole('button', { name: 'Adicionar alvo' }));
@@ -294,5 +308,106 @@ describe('ChangePlansPage workspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Manter' }));
     await vi.waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
     expect(cancelSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('ChangePlansPage implementation and close-out (Step 30)', () => {
+  const plan = (extra: Partial<ChangePlan> = {}): ChangePlan => ({
+    id: 'run-1', siteId: 'site-1', title: 'Firmware core', reason: 'Segurança', plannedStartAt: '2026-11-22T22:00:00.000Z', plannedEndAt: '2026-11-22T23:00:00.000Z',
+    status: 'APPROVED', revision: 3, previewRevision: null, previewSnapshot: null, previewedAt: null, submittedAt: null,
+    items: [{ entityType: 'DEVICE', entityId: 'device-1', operationSummary: 'Atualizar firmware', proposedValue: { firmware: '9.4.2' } }], checklist: [], ...extra,
+  });
+  const setup = (current: ChangePlan) => {
+    window.history.replaceState(null, '', `/alteracoes?changeId=${current.id}`);
+    mocks.listChangePlans.mockResolvedValue([current]);
+    mocks.getChangeCandidates.mockResolvedValue({ groups: [[{ entityType: 'DEVICE', entityId: 'device-1', label: 'Core-SW-01' }]], truncated: false });
+    mocks.getChangePlan.mockImplementation(async () => mocks.detail ?? current);
+  };
+  afterEach(() => { window.history.replaceState(null, '', '/'); });
+
+  it('shows non-blocking conflict warnings and starts an approved plan after confirmation', async () => {
+    const approved = plan();
+    setup(approved);
+    mocks.getChangeConflicts.mockResolvedValue({ changePlanId: 'run-1', tierSource: 'IS_CRITICAL', generatedAt: '', warnings: [
+      { code: 'OUTSIDE_MAINTENANCE_WINDOW', message: '', maintenanceWindowCount: 0, uncovered: [] },
+      { code: 'CRITICAL_ASSET', message: '', devices: [{ id: 'device-1', name: 'Core-SW-01' }] },
+    ] });
+    const started = plan({ status: 'IN_PROGRESS', startedAt: '2026-11-22T22:01:00.000Z', startedBy: { username: 'ana', displayName: 'Ana Ops' } });
+    mocks.startChangePlan.mockImplementation(async () => { mocks.detail = started; return { plan: started, warnings: [{ code: 'CRITICAL_ASSET', message: '', devices: [] }] }; });
+    render(<ChangePlansPage />);
+    const warnings = await screen.findByLabelText('Avisos de conflito');
+    expect(warnings).toHaveTextContent('Fora das janelas de manutenção do Site');
+    expect(warnings).toHaveTextContent('Afeta ativos críticos');
+    expect(warnings).toHaveTextContent('Não bloqueiam a alteração.');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Iniciar implementação' }));
+    const dialog = await screen.findByRole('alertdialog', { name: 'Iniciar implementação' });
+    expect(dialog).toHaveTextContent('2 avisos de conflito');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Iniciar implementação' }));
+    await vi.waitFor(() => expect(mocks.startChangePlan).toHaveBeenCalledWith('run-1', 3));
+    expect(await screen.findByText(/Implementação iniciada com 1 aviso/)).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Encerrar alteração' })).toBeInTheDocument();
+    expect(screen.getByText(/Ana Ops/)).toBeInTheDocument();
+  });
+
+  it('ticks checklist steps only while in progress and records who ticked them', async () => {
+    const step = { id: 'step-1', position: 1, label: 'Guardar configuração', doneAt: null, doneBy: null };
+    setup(plan({ status: 'IN_PROGRESS', checklist: [step] }));
+    mocks.tickChecklistItem.mockResolvedValue({ ...step, doneAt: '2026-11-22T22:10:00.000Z', doneBy: { username: 'rui', displayName: 'Rui' } });
+    render(<ChangePlansPage />);
+    const checkbox = await screen.findByRole('checkbox', { name: /Guardar configuração/ });
+    expect(screen.getByLabelText('0 de 1 passos concluídos')).toBeInTheDocument();
+    fireEvent.click(checkbox);
+    await vi.waitFor(() => expect(mocks.tickChecklistItem).toHaveBeenCalledWith('run-1', 'step-1', true));
+    expect(await screen.findByText(/Concluído por Rui/)).toBeInTheDocument();
+    expect(screen.getByLabelText('1 de 1 passos concluídos')).toBeInTheDocument();
+  });
+
+  it('keeps checklist ticks disabled before the plan starts but lets steps be added', async () => {
+    setup(plan({ checklist: [{ id: 'step-1', position: 1, label: 'Guardar configuração', doneAt: null }] }));
+    mocks.addChecklistItems.mockResolvedValue([{ id: 'step-1', position: 1, label: 'Guardar configuração', doneAt: null }, { id: 'step-2', position: 2, label: 'Reiniciar', doneAt: null }]);
+    render(<ChangePlansPage />);
+    expect(await screen.findByRole('checkbox', { name: /Guardar configuração/ })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Novos passos (um por linha)'), { target: { value: 'Reiniciar\n\nreiniciar\n' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Adicionar passos' }));
+    await vi.waitFor(() => expect(mocks.addChecklistItems).toHaveBeenCalledWith('run-1', ['Reiniciar']));
+    expect(await screen.findByRole('checkbox', { name: /Reiniciar/ })).toBeInTheDocument();
+  });
+
+  it('requires a closing note for a failed change and shows the post-change check', async () => {
+    setup(plan({ status: 'IN_PROGRESS', startedAt: '2026-11-22T22:01:00.000Z' }));
+    const closed = plan({ status: 'FAILED', startedAt: '2026-11-22T22:01:00.000Z', closedAt: '2026-11-22T22:40:00.000Z', closingNote: 'Firmware recusado' });
+    const check = { result: 'DIFFERENT', counts: { AS_PLANNED: 0, DIFFERENT: 1, NOT_COMPARABLE: 0, TARGET_MISSING: 0 }, hiddenItemCount: 0, checkedAt: '2026-11-22T22:40:00.000Z',
+      items: [{ entityType: 'DEVICE', entityId: 'device-1', operationSummary: 'Atualizar firmware', result: 'DIFFERENT', fields: [{ field: 'firmware', planned: '9.4.2', current: '9.3.7', before: '9.3.7', matches: false }] }] };
+    mocks.closeChangePlan.mockImplementation(async () => { mocks.detail = closed; return { plan: closed, postChangeCheck: check }; });
+    mocks.getPostChangeCheck.mockResolvedValue(check);
+    render(<ChangePlansPage />);
+    fireEvent.change(await screen.findByLabelText('Resultado'), { target: { value: 'FAILED' } });
+    const closeButton = screen.getByRole('button', { name: 'Encerrar alteração' });
+    expect(closeButton).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/Nota de encerramento/), { target: { value: 'Firmware recusado' } });
+    expect(closeButton).not.toBeDisabled();
+    fireEvent.click(closeButton);
+    const dialog = await screen.findByRole('alertdialog', { name: 'Encerrar alteração' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Encerrar alteração' }));
+    await vi.waitFor(() => expect(mocks.closeChangePlan).toHaveBeenCalledWith('run-1', 'FAILED', 'Firmware recusado'));
+    expect(await screen.findByText(/Verificação pós-alteração: Diferente/)).toBeInTheDocument();
+    const checkSection = (await screen.findByRole('heading', { name: 'Verificação pós-alteração' })).closest('section')!;
+    expect(checkSection).toHaveTextContent('firmware');
+    expect(checkSection).toHaveTextContent('9.4.2');
+    expect(checkSection.querySelector('.change-check-mismatch')).toBeInTheDocument();
+    expect(screen.getByText('Firmware recusado')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Encerrar alteração' })).not.toBeInTheDocument();
+  });
+
+  it('shows the calendar legend with the new states and asks for cancelled plans only on the Canceladas tab', async () => {
+    window.history.replaceState(null, '', '/alteracoes?view=calendar&month=2026-11&status=CANCELLED');
+    mocks.listChangePlans.mockResolvedValue([]);
+    mocks.getChangeCandidates.mockResolvedValue({ groups: [[]], truncated: false });
+    render(<ChangePlansPage />);
+    const legend = await screen.findByRole('list', { name: 'Legenda do calendário' });
+    for (const label of ['Em curso', 'Concluída', 'Falhou', 'Revertida', 'Cancelada']) expect(legend).toHaveTextContent(label);
+    await vi.waitFor(() => expect(mocks.getChangeCalendar).toHaveBeenCalledWith('site-1', expect.any(String), expect.any(String), true));
+    expect(screen.getByRole('button', { name: /Falhadas/ })).toBeInTheDocument();
   });
 });

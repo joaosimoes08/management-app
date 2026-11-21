@@ -3,7 +3,7 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatDate, formatDateTime } from '@/lib/format/date';
 import type { CalendarChangePlan, CalendarMaintenanceWindow } from './api';
-import { calendarWeeks, isToday, monthKey, overlapsFor, shiftMonth, statusLabels, type OverlapData } from './workspace';
+import { calendarWeeks, changeStatuses, isToday, monthKey, overlapsFor, shiftMonth, statusLabels, type OverlapData } from './workspace';
 
 /** 1 Jan 2024 was a Monday: short weekday names in the app language, Monday first. */
 const weekdays = () => Array.from({ length: 7 }, (_, index) => formatDate(new Date(2024, 0, 1 + index), { weekday: 'short' }));
@@ -39,6 +39,11 @@ export function ChangeCalendar({ month, plans, windows, overlaps, overlapError, 
         <button type="button" className="secondary-button" aria-label="Mês seguinte" onClick={() => onMonthChange(monthKey(shiftMonth(month, 1)))}><ChevronRight size={14} /></button>
       </div>
     </div>
+    <ul className="change-calendar-legend" aria-label="Legenda do calendário">
+      {changeStatuses.map((status) => <li key={status}><span className={`change-status status-${status.toLowerCase()}`}>{statusLabels[status]}</span></li>)}
+      <li><span className="state-badge reserved"><i />Manutenção</span></li>
+      <li className="muted-cell">As canceladas aparecem no separador Canceladas.</li>
+    </ul>
     <div className="ip-table-wrap" role="region" aria-label="Calendário de alterações" tabIndex={0}>
       <table className="ip-table change-calendar">
         <thead><tr>{weekdays().map((day) => <th key={day} scope="col">{day}</th>)}</tr></thead>
