@@ -289,7 +289,10 @@ test('enforces SNMP roles, Site isolation and disabled SET over HTTP', async () 
   assert.equal(mars.statusCode, 400, mars.body);
   assert.match(mars.body, /valid IANA time zone/);
   assert.equal((await request('PATCH', '/api/v1/settings/organization', 'qa-admin', { timezone: 'europe/lisbon' })).statusCode, 400);
+  assert.equal((await request('PATCH', '/api/v1/settings/organization', 'qa-admin', { timezone: 'EUROPE/LISBON' })).statusCode, 400);
   assert.equal((await prisma.systemSettings.findFirstOrThrow()).timezone, 'America/New_York');
+  assert.equal((await request('PATCH', '/api/v1/settings/organization', 'qa-admin', { timezone: 'Asia/Kolkata' })).statusCode, 200);
+  assert.equal((await prisma.systemSettings.findFirstOrThrow()).timezone, 'Asia/Kolkata');
   assert.equal((await request('PATCH', '/api/v1/settings/organization', 'qa-admin', { timezone: 'Europe/Lisbon' })).statusCode, 200);
   assert.equal((await request('GET', '/api/v1/settings/snmp-listeners', 'qa-network-scoped')).statusCode, 403);
   assert.equal((await request('GET', '/api/v1/settings/snmp-listeners', 'qa-admin')).statusCode, 200);
