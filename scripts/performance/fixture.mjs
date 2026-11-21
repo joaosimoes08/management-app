@@ -26,7 +26,7 @@ export function getFixture() {
     SELECT json_build_object(
       'site', (SELECT id FROM site), 'subnet', (SELECT row_to_json(network) FROM network),
       'rack', (SELECT row_to_json(rack) FROM rack), 'map', (SELECT row_to_json(topology) FROM topology),
-      'device', (SELECT id FROM "Device" WHERE "siteId" = (SELECT id FROM site) ORDER BY id LIMIT 1),
+      'device', (SELECT id FROM "Device" ORDER BY (type IN ('SWITCH', 'FIREWALL', 'ROUTER')) DESC, ("siteId" = (SELECT id FROM site)) DESC, id LIMIT 1),
       'change', (SELECT id FROM "ChangePlan" WHERE "siteId" = (SELECT id FROM site) ORDER BY id LIMIT 1),
       'auditFrom', ((SELECT MAX("createdAt") FROM "AuditLog") - interval '1 day')
     );
