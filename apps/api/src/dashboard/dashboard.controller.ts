@@ -15,8 +15,8 @@ export class DashboardController {
   summary(@Req() request: { user: AuthenticatedUser }) { return this.service.summary(request.user); }
 
   @Get('search')
-  search(@Query('q') query: string | undefined, @Query('limit') limit: string | undefined, @Req() request: { user: AuthenticatedUser }) {
-    return this.service.search(query, limit, request.user);
+  search(@Query('q') query: string | undefined, @Query('limit') limit: string | undefined, @Req() request: { user: AuthenticatedUser }, @Query('types') types?: string) {
+    return this.service.search(query, limit, request.user, types);
   }
 
   @Get('topbar-state')

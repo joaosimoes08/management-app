@@ -10,6 +10,7 @@ export class OperationsController {
   constructor(private readonly service: OperationsService) {}
   @Get('alerts') list(@Req() req: { user: AuthenticatedUser }, @Query() query: ListAlertsQueryDto) { return this.service.list(req.user, query); }
   @Get('alerts/summary') summary(@Req() req: { user: AuthenticatedUser }, @Query('siteId') siteId?: string) { return this.service.summary(req.user, siteId); }
+  @Get('maintenance/summary') maintenanceSummary(@Req() req: { user: AuthenticatedUser }, @Query('siteId') siteId?: string, @Query('days') days?: string) { return this.service.maintenanceSummary(req.user, siteId, days); }
   @Sse('events') events(@Req() req: { user: AuthenticatedUser }) { return this.service.stream(req.user); }
   @Patch('alerts/:id/acknowledge') @Roles('ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR') acknowledge(@Req() req: { user: AuthenticatedUser }, @Param('id') id: string) { return this.service.acknowledge(req.user, id); }
   @Patch('alerts/:id/snooze') @Roles('ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR') snooze(@Req() req: { user: AuthenticatedUser }, @Param('id') id: string, @Body() dto: SnoozeAlertDto) { return this.service.snooze(req.user, id, dto); }

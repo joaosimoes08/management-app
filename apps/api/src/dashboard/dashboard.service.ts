@@ -7,6 +7,7 @@ import { IpamAccessService } from '../ipam/ipam-access.service';
 import { DashboardRoleDto, SaveDashboardLayoutDto, SaveDashboardPreferenceDto } from './dto';
 import { OperationsService } from '../operations/operations.service';
 import { InventoryQualityService } from '../inventory-quality/inventory-quality.service';
+import { ChangePlansService } from '../change-plans/change-plans.service';
 
 export type TopbarAlert = {
   id: string;
@@ -17,12 +18,38 @@ export type TopbarAlert = {
   occurredAt: string;
 };
 
+export const LEGACY_SEARCH_TYPES = ['SITE', 'DEVICE', 'INTERFACE', 'HOST', 'SERVICE', 'VLAN', 'SUBNET', 'IP', 'APPLICATION'] as const;
+export const EXTENDED_SEARCH_TYPES = ['CHANGE_PLAN', 'AUDIT_EVENT', 'QUALITY_FINDING'] as const;
+export const SEARCH_TYPES = [...LEGACY_SEARCH_TYPES, ...EXTENDED_SEARCH_TYPES] as const;
+export type GlobalSearchType = (typeof SEARCH_TYPES)[number];
+
+/** `types` absent: the original nine types (unchanged palette). `all` or a comma list: exactly those types. */
+export function parseSearchTypes(value?: string): { types: GlobalSearchType[]; explicit: boolean } {
+  if (value === undefined || value.trim() === '') return { types: [...LEGACY_SEARCH_TYPES], explicit: false };
+  if (value.trim().toLowerCase() === 'all') return { types: [...SEARCH_TYPES], explicit: true };
+  const types = [...new Set(value.split(',').map((item) => item.trim().toUpperCase()).filter(Boolean))];
+  if (!types.length || types.some((item) => !(SEARCH_TYPES as readonly string[]).includes(item))) throw new BadRequestException({ code: 'SEARCH_TYPES_INVALID', message: `types deve ser all ou uma lista de ${SEARCH_TYPES.join(', ')}.` });
+  return { types: types as GlobalSearchType[], explicit: true };
+}
+
+/** Round-robin across types so one busy type cannot crowd the others out of a small palette. */
+export function interleaveByType<T extends { type: string }>(items: T[], order: readonly string[], limit: number) {
+  const buckets = order.map((type) => items.filter((item) => item.type === type));
+  const result: T[] = [];
+  for (let index = 0; result.length < limit && buckets.some((bucket) => index < bucket.length); index++) {
+    for (const bucket of buckets) { if (index < bucket.length && result.length < limit) result.push(bucket[index]); }
+  }
+  return result;
+}
+
 export type GlobalSearchResult = {
   id: string;
-  type: 'SITE' | 'DEVICE' | 'INTERFACE' | 'HOST' | 'SERVICE' | 'VLAN' | 'SUBNET' | 'IP' | 'APPLICATION';
+  type: GlobalSearchType;
   title: string;
   detail: string;
   href: string;
+  /** Only on QUALITY_FINDING: the page where the finding can be fixed. */
+  actionHref?: string;
 };
 
 @Injectable()
@@ -34,6 +61,7 @@ export class DashboardService implements OnModuleDestroy {
     private readonly infrastructureAccess: InfrastructureAccessService,
     private readonly operations: OperationsService,
     private readonly quality: InventoryQualityService,
+    private readonly changePlans: ChangePlansService,
   ) {}
   async onModuleDestroy() { await this.discoveryQueue.disconnect(); }
 
@@ -83,10 +111,17 @@ export class DashboardService implements OnModuleDestroy {
     };
   }
 
-  async search(queryText: string | undefined, limitText: string | undefined, user: AuthenticatedUser) {
+  async search(queryText: string | undefined, limitText: string | undefined, user: AuthenticatedUser, typesText?: string): Promise<{ items: GlobalSearchResult[] }> {
+    const { types, explicit } = parseSearchTypes(typesText);
     const query = queryText?.trim() ?? '';
     if (query.length < 2) return { items: [] as GlobalSearchResult[] };
     const limit = Math.min(Math.max(Number(limitText) || 8, 1), 20);
+    if (explicit) return this.searchTypes(query, limit, user, types);
+    return { items: (await this.legacySearchItems(query, limit, user)).slice(0, limit) };
+  }
+
+  /** The original nine result types, up to `limit` per type, in the original order. */
+  private async legacySearchItems(query: string, limit: number, user: AuthenticatedUser): Promise<GlobalSearchResult[]> {
     const contains = { contains: query, mode: 'insensitive' as const };
     const [siteWhere, vlanWhere, subnetWhere, ipWhere, hostWhere, roomIds, unplacedSiteIds] = await Promise.all([
       this.ipamAccess.whereFor(user, 'READ', 'site'),
@@ -121,7 +156,29 @@ export class DashboardService implements OnModuleDestroy {
       ...ips.map((ip) => ({ id: ip.id, type: 'IP' as const, title: ip.address, detail: `IP · ${ip.hostname ?? ip.subnet.cidr}`, href: `/ipam?${new URLSearchParams({ ...(ip.subnet.siteId ? { siteId: ip.subnet.siteId } : {}), subnetId: ip.subnetId, tab: 'subnets' }).toString()}` })),
       ...applications.map((application) => ({ id: application.id, type: 'APPLICATION' as const, title: application.name, detail: `Aplicação · ${application.category}`, href: application.url })),
     ];
-    return { items: items.slice(0, limit) };
+    return items;
+  }
+
+  private async searchTypes(query: string, limit: number, user: AuthenticatedUser, types: GlobalSearchType[]): Promise<{ items: GlobalSearchResult[] }> {
+    const wanted = new Set(types);
+    const contains = { contains: query, mode: 'insensitive' as const };
+    const legacy: GlobalSearchResult[] = types.some((type) => (LEGACY_SEARCH_TYPES as readonly string[]).includes(type))
+      ? (await this.legacySearchItems(query, limit, user)).filter((item) => wanted.has(item.type))
+      : [];
+    const canAudit = user.roles.includes('ADMIN') || user.roles.includes('AUDITOR');
+    const [plans, auditEvents, findings] = await Promise.all([
+      wanted.has('CHANGE_PLAN') ? this.changePlans.searchPlans(user, query, limit) : Promise.resolve([]),
+      wanted.has('AUDIT_EVENT') && canAudit
+        ? this.prisma.auditLog.findMany({ where: { action: { not: 'HTTP_REQUEST' }, OR: [{ action: contains }, { entityType: contains }, { entityId: query }] }, select: { id: true, action: true, entityType: true, entityId: true, createdAt: true, user: { select: { username: true, displayName: true } } }, orderBy: { createdAt: 'desc' }, take: limit })
+        : Promise.resolve([]),
+      wanted.has('QUALITY_FINDING') ? this.quality.list(user, { search: query, pageSize: limit } as never).then((result) => result.items) : Promise.resolve([]),
+    ]);
+    const extended: GlobalSearchResult[] = [
+      ...plans.map((plan) => ({ id: plan.id, type: 'CHANGE_PLAN' as const, title: plan.title, detail: `Alteração · ${plan.status} · ${plan.site?.name ?? ''}`.trim(), href: `/alteracoes?${new URLSearchParams({ siteId: plan.siteId, planId: plan.id }).toString()}` })),
+      ...auditEvents.map((event) => ({ id: event.id, type: 'AUDIT_EVENT' as const, title: event.action, detail: `Auditoria · ${[event.entityType, event.user?.displayName ?? event.user?.username, event.createdAt.toISOString().slice(0, 16).replace('T', ' ')].filter(Boolean).join(' · ')}`, href: event.entityType && event.entityId ? `/auditoria?${new URLSearchParams({ entityType: event.entityType, entityId: event.entityId }).toString()}` : `/auditoria?${new URLSearchParams({ action: event.action }).toString()}` })),
+      ...findings.map((finding: { id: string; title: string; severity: string; status: string; siteId: string | null; actionHref?: string | null; site?: { name: string } | null }) => ({ id: finding.id, type: 'QUALITY_FINDING' as const, title: finding.title, detail: `Qualidade · ${finding.severity} · ${finding.status}${finding.site?.name ? ` · ${finding.site.name}` : ''}`, href: `/qualidade-inventario?${new URLSearchParams({ ...(finding.siteId ? { siteId: finding.siteId } : {}), findingId: finding.id }).toString()}`, ...(finding.actionHref ? { actionHref: finding.actionHref } : {}) })),
+    ];
+    return { items: interleaveByType([...legacy, ...extended], types, limit) };
   }
 
   async topbarState(user?: AuthenticatedUser) {

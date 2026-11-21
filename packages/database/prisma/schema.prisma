@@ -224,6 +224,7 @@ model User {
   reviewedChangePlans    ChangePlan[]                @relation("ChangePlanReviewer")
   createdAt              DateTime                    @default(now())
   updatedAt              DateTime                    @updatedAt
+  applicationFavorites   UserApplicationFavorite[]
 }
 
 model RoleRequest {
@@ -1527,10 +1528,23 @@ model ApplicationLink {
   lastCheckedAt     DateTime?
   isAvailable       Boolean?
   roles             ApplicationLinkRole[]
+  favorites         UserApplicationFavorite[]
   createdAt         DateTime              @default(now())
   updatedAt         DateTime              @updatedAt
 
   @@index([isActive, category, sortOrder])
+}
+
+model UserApplicationFavorite {
+  userId    String          @db.Uuid
+  linkId    String          @db.Uuid
+  sortOrder Int             @default(0)
+  createdAt DateTime        @default(now())
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  link      ApplicationLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
+
+  @@id([userId, linkId])
+  @@index([linkId])
 }
 
 model ApplicationLinkRole {
