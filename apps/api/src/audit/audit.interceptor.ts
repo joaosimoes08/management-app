@@ -12,6 +12,9 @@ export class AuditInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     if (this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [context.getHandler(), context.getClass()])) return next.handle();
     const request = context.switchToHttp().getRequest<{ method: string; url: string; ip?: string; user?: AuthenticatedUser }>();
+    // Reads (GET/HEAD) are not audited: they were 99 % of AuditLog rows and made every audit query scan them.
+    // Mutations keep their HTTP_REQUEST rows. Recorded in docs/performance/step-20-audit-writes.md.
+    if (request.method === 'GET' || request.method === 'HEAD') return next.handle();
     const response = context.switchToHttp().getResponse<{ statusCode: number }>();
     return next.handle().pipe(
       tap(() => {

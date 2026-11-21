@@ -1,6 +1,6 @@
 import { notificationHref } from '../notifications/notification-preferences';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy } from '@nestjs/common';
-import { PrismaClient } from '@simoes/database';
+import { Prisma, PrismaClient } from '@simoes/database';
 import { Queue } from 'bullmq';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { InfrastructureAccessService } from '../infrastructure/infrastructure-access.service';
@@ -172,6 +172,23 @@ export class DashboardService implements OnModuleDestroy {
     return items;
   }
 
+  /**
+   * Audit events matching a search term, newest first. HTTP_REQUEST rows are excluded with a literal predicate so the
+   * partial index AuditLog_nonhttp_createdAt_id_idx serves both the plan and any cached plan (a bound parameter
+   * would let Postgres choose a full createdAt scan for generic plans).
+   */
+  private async auditEventMatches(query: string, limit: number) {
+    const pattern = `%${query}%`;
+    const rows = await this.prisma.$queryRaw<Array<{ id: string; action: string; entityType: string | null; entityId: string | null; createdAt: Date; username: string | null; displayName: string | null }>>(Prisma.sql`
+      SELECT a."id", a."action", a."entityType", a."entityId", a."createdAt", u."username", u."displayName"
+      FROM "AuditLog" a LEFT JOIN "User" u ON u."id" = a."userId"
+      WHERE (a."entityType" IS NULL OR a."entityType" <> 'HTTP_REQUEST')
+        AND (a."action" ILIKE ${pattern} OR a."entityType" ILIKE ${pattern} OR a."entityId" = ${query})
+      ORDER BY a."createdAt" DESC
+      LIMIT ${limit}`);
+    return rows.map((row) => ({ id: row.id, action: row.action, entityType: row.entityType, entityId: row.entityId, createdAt: row.createdAt, user: row.username || row.displayName ? { username: row.username ?? '', displayName: row.displayName } : null }));
+  }
+
   private async searchTypes(query: string, limit: number, user: AuthenticatedUser, types: GlobalSearchType[]): Promise<{ items: GlobalSearchResult[] }> {
     const wanted = new Set(types);
     const contains = { contains: query, mode: 'insensitive' as const };
@@ -181,9 +198,7 @@ export class DashboardService implements OnModuleDestroy {
     const canAudit = user.roles.includes('ADMIN') || user.roles.includes('AUDITOR');
     const [plans, auditEvents, findings] = await Promise.all([
       wanted.has('CHANGE_PLAN') ? this.changePlans.searchPlans(user, query, limit) : Promise.resolve([]),
-      wanted.has('AUDIT_EVENT') && canAudit
-        ? this.prisma.auditLog.findMany({ where: { action: { not: 'HTTP_REQUEST' }, OR: [{ action: contains }, { entityType: contains }, { entityId: query }] }, select: { id: true, action: true, entityType: true, entityId: true, createdAt: true, user: { select: { username: true, displayName: true } } }, orderBy: { createdAt: 'desc' }, take: limit })
-        : Promise.resolve([]),
+      wanted.has('AUDIT_EVENT') && canAudit ? this.auditEventMatches(query, limit) : Promise.resolve([]),
       wanted.has('QUALITY_FINDING') ? this.quality.list(user, { search: query, pageSize: String(limit) }).then((result) => result.items) : Promise.resolve([]),
     ]);
     const extended: GlobalSearchResult[] = [

@@ -1601,6 +1601,22 @@ test('Phase D search: opt-in types, audit only for ADMIN and AUDITOR, change pla
   assert.equal((await request('GET', '/api/v1/dashboard/search?q=Zebrafish&types=PEOPLE', 'qa-admin')).statusCode, 400);
 });
 
+test('Step 20 audit: reads are not audited and search skips HTTP_REQUEST rows', async () => {
+  // A GET is not written to AuditLog, so its URL cannot later match the search that issued it.
+  const term = 'step20probe';
+  const before = await prisma.auditLog.count({ where: { action: { contains: term } } });
+  assert.equal((await request('GET', `/api/v1/dashboard/search?q=${term}&types=AUDIT_EVENT`, 'qa-auditor')).statusCode, 200);
+  assert.equal(await prisma.auditLog.count({ where: { action: { contains: term } } }), before);
+
+  // Rows that are HTTP_REQUEST never appear as AUDIT_EVENT results, even when the term matches their action.
+  await prisma.auditLog.create({ data: { userId: ids.admin, action: 'POST /api/v1/step20probe-http', entityType: 'HTTP_REQUEST', metadata: { statusCode: 201 } } });
+  await prisma.auditLog.create({ data: { userId: ids.admin, action: 'STEP20_PROBE_EVENT', entityType: 'Device', entityId: ids.deviceA } });
+  const hits = json(await request('GET', `/api/v1/dashboard/search?q=${term}&types=AUDIT_EVENT`, 'qa-auditor')).items as Array<{ title: string }>;
+  assert.deepEqual(hits.map((item) => item.title), []);
+  const events = json(await request('GET', '/api/v1/dashboard/search?q=STEP20_PROBE&types=AUDIT_EVENT', 'qa-auditor')).items as Array<{ title: string }>;
+  assert.deepEqual(events.map((item) => item.title), ['STEP20_PROBE_EVENT']);
+});
+
 test('Phase E portal: favourites, check-all link health and the pending role-request queue', async () => {
   const server = createServer((req, res) => { res.statusCode = req.url === '/down' ? 503 : 200; res.end(); });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
