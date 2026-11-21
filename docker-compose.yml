@@ -86,6 +86,7 @@ services:
     environment:
       NODE_ENV: production
       API_PORT: 3001
+      LINUX_AGENT_STALE_MINUTES: ${LINUX_AGENT_STALE_MINUTES:-15}
       DATABASE_URL: postgresql://${POSTGRES_USER:-simoes}:${POSTGRES_PASSWORD:-change-me-local}@postgres:5432/${POSTGRES_DB:-simoes}
       REDIS_URL: redis://redis:6379
       AUTH_DISABLED: ${AUTH_DISABLED:-false}

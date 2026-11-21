@@ -1,5 +1,6 @@
 'use client';
 
+import { useEscapeClose } from '@/components/ui/use-escape-close';
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { Plug, X } from 'lucide-react';
@@ -200,6 +201,11 @@ function RackPduCard({ ref, id, anchor, side, view, source, badge, canDisconnect
   const loadLevel = powerLevel({ used: 0, total: 0, watts: view.watts, budget: view.budget, warningRatio });
   const percent = view.budget ? ` · ${Math.round((view.watts / view.budget) * 100)}%` : '';
 
+  useEscapeClose(() => {
+    if (confirming) setConfirming('');
+    else onClose();
+  });
+
   if (typeof document === 'undefined') return null;
   return createPortal(<div
     ref={ref}
@@ -216,12 +222,6 @@ function RackPduCard({ ref, id, anchor, side, view, source, badge, canDisconnect
     onPointerLeave={onPointerLeave}
     onFocus={onFocusInside}
     onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onBlurOutside(event.relatedTarget); }}
-    onKeyDown={(event) => {
-      if (event.key !== 'Escape') return;
-      event.stopPropagation();
-      if (confirming) { setConfirming(''); return; }
-      onClose();
-    }}
   >
     <header className="rack-pdu-card-head">
       <strong>{view.name}</strong>

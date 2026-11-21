@@ -1,5 +1,6 @@
 'use client';
 
+import { useEscapeClose } from '@/components/ui/use-escape-close';
 import { isValidElement, useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { Activity, AlertTriangle, Bell, CheckCircle2, ChevronRight, Menu, Search, X } from 'lucide-react';
 import { apiFetch } from '@/lib/api/client';
@@ -44,6 +45,7 @@ export function AppHeader({ section, moduleTabs, onOpenSidebar, onOpenGlobalSear
   const alertsRef = useRef<HTMLDivElement>(null);
   const closeAlerts = useCallback(() => setAlertsOpen(false), []);
   useOutsideClose(alertsRef, closeAlerts, alertsOpen);
+  useEscapeClose(closeAlerts, alertsOpen);
 
   const loadTopbarState = useCallback(async () => { try { const state = await apiFetch<TopbarState>('/api/v1/dashboard/topbar-state'); setTopbarState(state); return state; } catch { const state = unavailableTopbarState(); setTopbarState(state); return state; } }, []);
   useOperationalEvents({ fallback: loadTopbarState, onEvent: (event) => { const alertId = (event.data as { alertId?: string } | null)?.alertId; if (alertId) setDismissedAlertIds((current) => { const next = new Set(current); next.delete(alertId); return next; }); void loadTopbarState(); } });

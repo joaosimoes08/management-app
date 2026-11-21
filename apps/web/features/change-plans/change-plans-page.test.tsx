@@ -74,8 +74,12 @@ describe('ChangePlansPage impact preview transition', () => {
     expect(screen.getByRole('dialog', { name: 'Criar alteração' })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Título'), { target: { value: created.title } });
     fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: created.reason } });
-    fireEvent.change(screen.getByLabelText('Início planeado'), { target: { value: '2026-11-20T10:00' } });
-    fireEvent.change(screen.getByLabelText('Fim planeado'), { target: { value: '2026-11-20T11:00' } });
+    const starts = within(screen.getByRole('group', { name: 'Início planeado' }));
+    fireEvent.change(starts.getByLabelText('Início planeado'), { target: { value: '2026-11-20' } });
+    fireEvent.change(starts.getByLabelText('Hora (24 h)'), { target: { value: '10:00' } });
+    const ends = within(screen.getByRole('group', { name: 'Fim planeado' }));
+    fireEvent.change(ends.getByLabelText('Fim planeado'), { target: { value: '2026-11-20' } });
+    fireEvent.change(ends.getByLabelText('Hora (24 h)'), { target: { value: '11:00' } });
     fireEvent.change(screen.getByLabelText('Alvo'), { target: { value: 'device-1' } });
     fireEvent.change(screen.getByLabelText('Operação proposta'), { target: { value: 'Replace switch' } });
     fireEvent.click(screen.getByRole('button', { name: 'Adicionar alvo' }));
@@ -266,7 +270,7 @@ describe('ChangePlansPage workspace', () => {
     expect(mocks.getChangeActivity).toHaveBeenCalledWith('p1');
     expect(await screen.findByText('A janela sobrepõe-se a outras alterações ou manutenções deste Site')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Renomear VLAN' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Core-SW-01' })).toHaveAttribute('href', '/infraestrutura?siteId=site-1&tab=devices&deviceId=device-1&focus=device');
+    expect(screen.getByRole('link', { name: 'Core-SW-01' })).toHaveAttribute('href', '/infraestrutura/equipamentos/device-1?siteId=site-1');
     expect(await screen.findByRole('heading', { name: 'Atividade' })).toBeInTheDocument();
     expect(screen.getByText('Ainda não há atividade registada para esta alteração.')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '← Todas as alterações' }));
