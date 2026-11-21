@@ -24,7 +24,8 @@ export type DiffItem = {
   importable: boolean;
   existing?: SubnetRef;
   changes?: Array<{ field: 'vrfId' | 'purpose' | 'environment'; current: string | null; proposed: string | null }>;
-  overlaps?: Array<{ relation: 'contains' | 'within'; sameScope: boolean; subnet: SubnetRef }>;
+  /** `source: 'existing'` = a subnet already in the inventory; `source: 'paste'` = an earlier prefix of this same paste. */
+  overlaps?: Array<{ source: 'existing'; relation: 'contains' | 'within'; sameScope: boolean; subnet: SubnetRef } | { source: 'paste'; relation: 'contains' | 'within'; sameScope: true; prefix: string }>;
 };
 
 const SPLIT = /[\s,;]+/;
@@ -103,12 +104,21 @@ function ref(subnet: ExistingSubnet): SubnetRef {
 /**
  * Classifies each prefix against the subnets the import would collide with.
  * Mirrors createSubnet's rules: CIDR is globally unique, and overlaps are only
- * refused inside the same Site + VRF.
+ * refused inside the same Site + VRF. Prefixes of the same paste all target
+ * that Site + VRF, so a prefix overlapping an earlier importable prefix of the
+ * paste is also a conflict (the first one in the list wins).
  */
 export function diffPrefixes(prefixes: ParsedPrefix[], subnets: ExistingSubnet[], target: DiffTarget): DiffItem[] {
   const targetVrf = target.vrfId || null;
   const ranges = subnets.map((subnet) => ({ subnet, range: parseCidr(subnet.cidr) })).filter((entry): entry is { subnet: ExistingSubnet; range: NonNullable<ReturnType<typeof parseCidr>> } => Boolean(entry.range));
+  const accepted: ParsedPrefix[] = [];
+  const relation = (outer: { start: bigint; end: bigint }, inner: { start: bigint; end: bigint }) => (outer.start <= inner.start && outer.end >= inner.end ? 'within' : 'contains') as 'within' | 'contains';
   return prefixes.map((item) => {
+    const result = classify(item);
+    if (result.importable) accepted.push(item);
+    return result;
+  });
+  function classify(item: ParsedPrefix): DiffItem {
     const base = { prefix: item.prefix, input: item.input, version: item.version };
     const exact = ranges.find((entry) => entry.range.version === item.version && entry.range.start === item.start && entry.range.end === item.end);
     if (exact) {
@@ -120,18 +130,25 @@ export function diffPrefixes(prefixes: ParsedPrefix[], subnets: ExistingSubnet[]
       if ((subnet.vrfId ?? null) !== targetVrf) changes.push({ field: 'vrfId', current: subnet.vrfId ?? null, proposed: targetVrf });
       if (target.purpose !== undefined && target.purpose !== null && (subnet.purpose ?? null) !== target.purpose) changes.push({ field: 'purpose', current: subnet.purpose ?? null, proposed: target.purpose });
       if (target.environment !== undefined && target.environment !== null && (subnet.environment ?? null) !== target.environment) changes.push({ field: 'environment', current: subnet.environment ?? null, proposed: target.environment });
-      if (changes.length) return { ...base, status: 'changed', reason: 'EXISTS_DIFFERENT_ATTRIBUTES', importable: false, existing: ref(subnet), changes, message: 'O prefixo já existe neste Site com atributos diferentes; a importação não altera subnets existentes.' } satisfies DiffItem;
+      // Like `existing`, the attribute values of a subnet the user cannot read stay hidden.
+      if (changes.length) return { ...base, status: 'changed', reason: 'EXISTS_DIFFERENT_ATTRIBUTES', importable: false, existing: ref(subnet), ...(subnet.visible ? { changes } : {}), message: 'O prefixo já existe neste Site com atributos diferentes; a importação não altera subnets existentes.' } satisfies DiffItem;
       return { ...base, status: 'exists', reason: 'EXISTS_SAME', importable: false, existing: ref(subnet), message: 'O prefixo já existe neste Site com os mesmos atributos.' } satisfies DiffItem;
     }
     const overlaps = ranges
       .filter((entry) => entry.range.version === item.version && entry.range.start <= item.end && item.start <= entry.range.end)
-      .map((entry) => ({ relation: (entry.range.start <= item.start && entry.range.end >= item.end ? 'within' : 'contains') as 'within' | 'contains', sameScope: entry.subnet.siteId === target.siteId && (entry.subnet.vrfId ?? null) === targetVrf, subnet: ref(entry.subnet) }));
+      .map((entry) => ({ source: 'existing' as const, relation: relation(entry.range, item), sameScope: entry.subnet.siteId === target.siteId && (entry.subnet.vrfId ?? null) === targetVrf, subnet: ref(entry.subnet) }));
+    const pasted = accepted
+      .filter((other) => other.version === item.version && other.start <= item.end && item.start <= other.end)
+      .map((other) => ({ source: 'paste' as const, relation: relation(other, item), sameScope: true as const, prefix: other.prefix }));
     if (overlaps.some((overlap) => overlap.sameScope)) {
-      return { ...base, status: 'conflict', reason: 'OVERLAP', importable: false, overlaps, message: 'Sobrepõe uma subnet existente no mesmo Site/VRF.' } satisfies DiffItem;
+      return { ...base, status: 'conflict', reason: 'OVERLAP', importable: false, overlaps: [...overlaps, ...pasted], message: 'Sobrepõe uma subnet existente no mesmo Site/VRF.' } satisfies DiffItem;
+    }
+    if (pasted.length) {
+      return { ...base, status: 'conflict', reason: 'OVERLAP', importable: false, overlaps: [...overlaps, ...pasted], message: `Sobrepõe ${pasted.map((other) => other.prefix).join(', ')}, que aparece antes nesta lista.` } satisfies DiffItem;
     }
     if (overlaps.length) return { ...base, status: 'new', reason: 'NEW_OVERLAPS_OTHER_SCOPE', importable: true, overlaps, message: 'Novo neste Site/VRF; sobrepõe subnets de outro Site ou VRF (permitido).' } satisfies DiffItem;
     return { ...base, status: 'new', reason: 'NEW', importable: true, message: 'Prefixo novo.' } satisfies DiffItem;
-  });
+  }
 }
 
 export function summarizeDiff(diff: DiffItem[], invalid: number, duplicates: number) {

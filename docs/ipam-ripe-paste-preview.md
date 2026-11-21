@@ -61,7 +61,7 @@ Response `201`:
       "changes": [{ "field": "vrfId", "current": "a1b2…", "proposed": null }] },
     { "prefix": "10.251.9.0/24", "input": "10.251.9.0/24", "version": 4, "status": "conflict", "reason": "OVERLAP", "importable": false,
       "message": "Sobrepõe uma subnet existente no mesmo Site/VRF.",
-      "overlaps": [{ "relation": "within", "sameScope": true, "subnet": { "id": "…", "cidr": "10.251.8.0/22", "siteId": "2000…0001", "vrfId": null, "purpose": null, "environment": null } }] },
+      "overlaps": [{ "source": "existing", "relation": "within", "sameScope": true, "subnet": { "id": "…", "cidr": "10.251.8.0/22", "siteId": "2000…0001", "vrfId": null, "purpose": null, "environment": null } }] },
     { "prefix": "10.250.2.0/24", "input": "10.250.2.0/24", "version": 4, "status": "conflict", "reason": "EXISTS_OUTSIDE_SITE", "importable": false,
       "message": "Este prefixo já existe noutro Site ou sem Site; os CIDR são únicos na aplicação.",
       "existing": { "id": null, "cidr": null, "hidden": true } },
@@ -83,10 +83,23 @@ Response `201`:
 | `new` | `NEW_OVERLAPS_OTHER_SCOPE` | yes | Overlaps subnets of another Site or VRF (allowed); see `overlaps` (`sameScope: false`). |
 | `exists` | `EXISTS_SAME` | no | Same CIDR in this Site, same VRF (and same purpose/environment when sent). |
 | `changed` | `EXISTS_DIFFERENT_ATTRIBUTES` | no | Same CIDR in this Site but different VRF, or different `purpose`/`environment` when those were sent. `changes[]` lists `{ field, current, proposed }`. The import never edits existing subnets. |
-| `conflict` | `OVERLAP` | no | Overlaps a subnet in the same Site + VRF. `overlaps[].relation`: `within` = the pasted prefix sits inside the existing subnet, `contains` = it contains it. |
+| `conflict` | `OVERLAP` | no | Overlaps a subnet in the same Site + VRF, **or an earlier importable prefix of the same paste** (all pasted prefixes target the same Site + VRF, so the first one in the list wins). `overlaps[].relation`: `within` = this prefix sits inside the other one, `contains` = it contains it. |
 | `conflict` | `EXISTS_OUTSIDE_SITE` | no | Same CIDR exists in another Site or with no Site (CIDRs are globally unique). |
 
-Subnets the user cannot read are returned as `{ "id": null, "cidr": null, "hidden": true }`.
+`overlaps[]` entries have a `source`:
+
+- `{ "source": "existing", "relation", "sameScope", "subnet": {…} }`: a subnet already in the inventory.
+- `{ "source": "paste", "relation", "sameScope": true, "prefix": "10.9.0.0/16" }`: an earlier prefix of this paste. Example: pasting `10.9.0.0/16` then `10.9.1.0/24` gives `new` for the first and `conflict`/`OVERLAP` for the second, pointing at `10.9.0.0/16`. A prefix that is itself not importable (e.g. it conflicts with the inventory) does not block later ones.
+
+Subnets the user cannot read are returned as `{ "id": null, "cidr": null, "hidden": true }`, and a
+`changed` item for such a subnet has no `changes` array (the current values stay hidden).
+
+**Known disclosure (accepted):** `EXISTS_OUTSIDE_SITE`, a hidden `OVERLAP`
+entry, or a `changed` status on a hidden subnet still tell the user that a
+subnet they cannot read exists for that range, and how it relates to it. This
+is the same information `createSubnet` already gives through its 409
+("já existe" / "sobrepõe"), so the preview reveals nothing new; ids, Site,
+VRF, purpose and environment stay masked.
 
 ### 2. RIPEstat lookup (unchanged)
 
