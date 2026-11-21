@@ -13,6 +13,7 @@ import {
 } from '../api';
 import type { HostDetail, Service, ServiceInput } from '../types';
 import { useConfirm } from '@/components/ui/confirm-dialog';
+import { formatDateTime } from '@/lib/format/date';
 type ServiceFormState = Omit<ServiceInput, 'port' | 'hostId'> & { port: string | number };
 
 const emptyService: ServiceFormState = { name: '', protocol: 'TCP', port: '', status: 'UNKNOWN', version: '', notes: '' };
@@ -114,7 +115,7 @@ export function HostPanel({ host, canEdit, close, reload, success, toastError }:
 
   return <>{confirmDialog}<aside className="host-panel" aria-label="Ficha do Host">
     <div className="host-panel-head"><div><span className="section-kicker">FICHA OPERACIONAL</span><h2>{host.name}</h2><span>{host.hostname || host.observedHostname || 'Sem hostname'}</span></div><button className="icon-button" onClick={close} aria-label="Fechar"><X size={18} /></button></div>
-    <div className="host-status-line"><span>Manual: <strong>{host.status}</strong></span><span>Observado: <strong>{host.observedStatus || '—'}</strong></span><span>Origem: <strong>{host.source}</strong></span><span>Último avistamento: <strong>{host.lastSeenAt ? new Date(host.lastSeenAt).toLocaleString() : '—'}</strong></span></div>
+    <div className="host-status-line"><span>Manual: <strong>{host.status}</strong></span><span>Observado: <strong>{host.observedStatus || '—'}</strong></span><span>Origem: <strong>{host.source}</strong></span><span>Último avistamento: <strong>{host.lastSeenAt ? formatDateTime(host.lastSeenAt) : '—'}</strong></span></div>
     {editing ? <form className="modal-form host-edit-form" onSubmit={saveHost}>
       <label>Nome<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
       <label>Hostname<input value={form.hostname || ''} onChange={(event) => setForm({ ...form, hostname: event.target.value })} /></label>
