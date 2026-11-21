@@ -1,0 +1,69 @@
+'use client';
+
+import { useQuery } from '@tanstack/react-query';
+import { RadioTower, X } from 'lucide-react';
+import { ApiRequestError } from '@/lib/api/errors';
+import { formatDateTime } from '@/lib/format/date';
+import { getSnmpFleetSummary, type SnmpAttentionReason, type SnmpFleetSummary } from './api';
+
+const reasonBadges: Record<string, { tone: string; label: string }> = {
+  FAILED: { tone: 'excluded', label: 'Polling falhou' },
+  BLOCKED: { tone: 'reserved', label: 'Bloqueado' },
+  STALE: { tone: 'reserved', label: 'Desatualizado' },
+  NEVER_POLLED: { tone: 'pending', label: 'Nunca sincronizado' },
+};
+
+/** Badge for an attention reason; unknown reasons render as a neutral badge with the raw code. */
+export function SnmpAttentionBadge({ reason }: { reason: SnmpAttentionReason }) {
+  const badge = reasonBadges[reason];
+  return <span className={`state-badge ${badge?.tone ?? ''}`.trim()}><i />{badge?.label ?? reason}</span>;
+}
+
+/** Message for a failed fleet summary request: SITE_NOT_FOUND is explained, anything else shows the API message. */
+export function fleetErrorMessage(cause: unknown): string {
+  if (cause instanceof ApiRequestError && cause.code === 'SITE_NOT_FOUND') return 'O Site selecionado não existe ou não tens acesso a ele.';
+  return cause instanceof Error && cause.message ? cause.message : 'Não foi possível carregar o resumo da frota SNMP.';
+}
+
+const count = (value: number | undefined) => value ?? 0;
+
+type Props = { siteId: string; openDevice: (deviceId: string) => void; openDrifts: () => void };
+
+/** Fleet-wide SNMP health for the active Site: configuration, polling state, drift and the devices needing attention. */
+export function SnmpFleetSummaryView({ siteId, openDevice, openDrifts }: Props) {
+  const { data, error, isLoading } = useQuery({ queryKey: ['snmp', 'fleet', siteId], queryFn: () => getSnmpFleetSummary(siteId || undefined), refetchInterval: 60_000, retry: false });
+  if (error) return <div className="ipam-alert error" role="alert"><X size={15} />{fleetErrorMessage(error)}</div>;
+  if (isLoading || !data) return <div className="empty-context" aria-busy="true"><RadioTower size={24} /><strong>A carregar o resumo da frota…</strong></div>;
+  return <FleetSummaryContent data={data} openDevice={openDevice} openDrifts={openDrifts} />;
+}
+
+function FleetSummaryContent({ data, openDevice, openDrifts }: { data: SnmpFleetSummary; openDevice: (deviceId: string) => void; openDrifts: () => void }) {
+  const byStatus = data.polling?.byStatus ?? {};
+  const attention = data.attention ?? [];
+  const attentionTotal = data.attentionTotal ?? attention.length;
+  return <>
+    <div className="summary-stats" role="group" aria-label="Resumo da frota SNMP">
+      <div><strong>{`${count(data.devices?.configured)} / ${count(data.devices?.total)}`}</strong><span>Equipamentos com SNMP configurado</span></div>
+      <div><strong>{count(data.devices?.enabled)}</strong><span>{`Polling ativo · ${count(data.devices?.disabled)} desativados`}</span></div>
+      <div><strong>{count(data.devices?.notConfigured)}</strong><span>Sem configuração SNMP</span></div>
+      <div><strong>{count(byStatus.FAILED)}</strong><span>{`Polling falhou · ${count(byStatus.BLOCKED)} bloqueados`}</span></div>
+      <div><strong>{count(data.polling?.stale)}</strong><span>{`Desatualizados · ${count(byStatus.NEVER_POLLED)} nunca sincronizados`}</span></div>
+      <div><strong>{count(data.drift?.pending)}</strong><span>{`Divergências pendentes em ${count(data.drift?.devicesWithPending)} equipamentos`}</span></div>
+    </div>
+    <p className="ipam-scope-note">{`Último poll: ${data.polling?.lastPollAt ? formatDateTime(data.polling.lastPollAt) : '—'} · Poll mais antigo: ${data.polling?.oldestPollAt ? formatDateTime(data.polling.oldestPollAt) : '—'}`}{data.generatedAt ? ` · Gerado em ${formatDateTime(data.generatedAt)}` : ''}</p>
+    <section className="ipam-card">
+      <div className="panel-heading"><div><h2>Equipamentos que precisam de atenção</h2><p className="panel-description">{attentionTotal > attention.length ? `A mostrar ${attention.length} de ${attentionTotal} equipamentos.` : 'Polling falhado, bloqueado, desatualizado ou nunca executado.'}</p></div>{count(data.drift?.pending) > 0 && <button type="button" className="secondary-button" onClick={openDrifts}>Rever divergências</button>}</div>
+      {attention.length ? <div className="ip-table-wrap" role="region" aria-label="Equipamentos que precisam de atenção" tabIndex={0}><table className="ip-table">
+        <thead><tr><th>Equipamento</th><th>Motivo</th><th>Último poll</th><th>Erro</th><th>Divergências</th><th /></tr></thead>
+        <tbody>{attention.map((item) => <tr key={item.deviceId}>
+          <td><strong>{item.name}</strong>{item.lastStatus ? <small>{item.lastStatus}</small> : null}</td>
+          <td><SnmpAttentionBadge reason={item.reason} /></td>
+          <td>{item.lastPollAt ? formatDateTime(item.lastPollAt) : <span className="muted-cell">Nunca</span>}</td>
+          <td>{item.lastErrorCode ? <span className="mono">{item.lastErrorCode}</span> : <span className="muted-cell">—</span>}</td>
+          <td>{count(item.pendingDrifts)}</td>
+          <td className="table-actions"><button type="button" className="secondary-button" aria-label={`Abrir ${item.name}`} onClick={() => openDevice(item.deviceId)}>Abrir</button></td>
+        </tr>)}</tbody>
+      </table></div> : <div className="no-data">Nenhum equipamento precisa de atenção.</div>}
+    </section>
+  </>;
+}

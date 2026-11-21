@@ -1,3 +1,4 @@
+import { subnetFilterQuery, type SubnetUrlFilters } from './subnet-filters';
 import { apiFetch } from '@/lib/api/client';
 import type { PaginatedResponse } from '@/lib/api/types';
 import { listSites } from '@/features/infrastructure/api';
@@ -11,6 +12,10 @@ import type {
   IpReservation,
   CreateIpReservationInput,
   NetworkMapVlan,
+  NextFreeIpsQuery,
+  NextFreeIpsResult,
+  ReserveNextIpsInput,
+  ReserveNextIpsResult,
   Subnet,
   SubnetCapacityHistory,
   SubnetInput,
@@ -51,8 +56,9 @@ export function getNetworkMap(siteId: string): Promise<{ vlans: NetworkMapVlan[]
 
 /** The API caps pageSize at 100, so every page is fetched and merged: pickers and lookups need the whole Site. */
 export const SUBNET_PAGE_SIZE = 100;
-export async function listSubnets(siteId: string): Promise<PaginatedResponse<Subnet>> {
-  const path = (page: number) => `/api/v1/subnets?siteId=${siteId}&page=${page}&pageSize=${SUBNET_PAGE_SIZE}`;
+/** `filters` are the optional drill-through filters (band, minUtilization, sort). */
+export async function listSubnets(siteId: string, filters?: Partial<SubnetUrlFilters>): Promise<PaginatedResponse<Subnet>> {
+  const path = (page: number) => `/api/v1/subnets?siteId=${siteId}&page=${page}&pageSize=${SUBNET_PAGE_SIZE}${subnetFilterQuery(filters)}`;
   const first = await apiFetch<PaginatedResponse<Subnet>>(path(1));
   const totalPages = Math.max(first.totalPages ?? 1, 1);
   if (totalPages === 1) return first;
@@ -141,6 +147,24 @@ export function createIpReservation(ipAddressId: string, body: CreateIpReservati
 
 export function releaseIpReservation(id: string): Promise<{ success: boolean; released: boolean }> {
   return apiFetch<{ success: boolean; released: boolean }>(`/api/v1/ip-reservations/${id}/release`, { method: 'POST' });
+}
+
+/** Next free addresses of a subnet (read-only; IPv6 answers supported:false). */
+export function getNextFreeIps(subnetId: string, query: NextFreeIpsQuery = {}): Promise<NextFreeIpsResult> {
+  const params = new URLSearchParams();
+  if (query.count) params.set('count', String(query.count));
+  if (query.from) params.set('from', query.from);
+  if (query.to) params.set('to', query.to);
+  const suffix = params.toString();
+  return apiFetch<NextFreeIpsResult>(`/api/v1/subnets/${subnetId}/next-free${suffix ? `?${suffix}` : ''}`);
+}
+
+/** Atomically reserves the next free addresses of a subnet (409 IP_RANGE_EXHAUSTED / IP_RANGE_CHANGED). */
+export function reserveNextIps(subnetId: string, body: ReserveNextIpsInput): Promise<ReserveNextIpsResult> {
+  const payload: ReserveNextIpsInput = { count: body.count ?? 1, durationHours: body.durationHours, reason: body.reason };
+  if (body.from) payload.from = body.from;
+  if (body.to) payload.to = body.to;
+  return apiFetch<ReserveNextIpsResult>(`/api/v1/subnets/${subnetId}/reserve-next`, { method: 'POST', body: JSON.stringify(payload) });
 }
 
 export function createHost(body: HostInput): Promise<HostDetail> {

@@ -13,6 +13,8 @@ import { RackEquipmentOverlay } from './rack-equipment-overlay';
 import { RackViewPicker } from './rack-view-picker';
 import { usePowerDefaults } from '../../use-power-defaults';
 import { RackZoomPicker } from './rack-zoom-picker';
+import { RackPowerSummaryStrip, RackPowerThresholdsModal, readPowerThresholds, summaryDeviceLevels, summaryPduLevels, useRackPowerSummary } from './rack-power-summary';
+import type { RackPowerThresholds } from '../../api';
 
 const RACK_WIDTH = RACK_IMAGE.width;
 const RACK_HEIGHT = RACK_IMAGE.height;
@@ -65,8 +67,18 @@ export interface RackDetailProps {
 export function RackDetail({ rack, onOut, onDevice, onEdit, onDelete, deleting, canEdit, onPreviewPlacement, onPlaceDevice, onEditDevice, canEditPower = false, onDisconnectPdu }: RackDetailProps) {
   const { t, locale } = useI18n();
   const powerDefaults = usePowerDefaults();
-  // Supplier PDU left of the racks, UPS PDU right; each is drawn once, also in Ambas.
-  const pdus = useMemo(() => sortedPdus(rack).map((pdu) => pduView(pdu, rack, powerDefaults)), [rack, powerDefaults]);
+  const [thresholds, setThresholds] = useState<RackPowerThresholds>(readPowerThresholds);
+  const [editingThresholds, setEditingThresholds] = useState(false);
+  const { summary: powerStatus, error: powerStatusError, setSummary: setPowerStatus } = useRackPowerSummary(rack, thresholds);
+  const pduLevels = useMemo(() => summaryPduLevels(powerStatus), [powerStatus]);
+  const devicePowerLevels = useMemo(() => summaryDeviceLevels(powerStatus), [powerStatus]);
+  // Supplier PDU left of the racks, UPS PDU right; each is drawn once, also in Ambas. The summary's levels (with the
+  // chosen thresholds) win over the levels the rack payload carries.
+  const pdus = useMemo(() => sortedPdus(rack).map((pdu) => {
+    const view = pduView(pdu, rack, powerDefaults);
+    const level = pduLevels.get(pdu.id);
+    return level ? { ...view, level } : view;
+  }), [rack, powerDefaults, pduLevels]);
   const supplierPdu = pdus.find((view) => view.pdu.source === 'SUPPLIER');
   const upsPdu = pdus.find((view) => view.pdu.source === 'UPS');
   const pduCount = (supplierPdu ? 1 : 0) + (upsPdu ? 1 : 0);
@@ -213,13 +225,15 @@ export function RackDetail({ rack, onOut, onDevice, onEdit, onDelete, deleting, 
       <RackZoomPicker zoom={zoom} onZoom={setZoom} onFit={fitToStage} />
     </div></PageToolbarPortal><PageToolbarPortal><div className="button-row rack-detail-actions"><button type="button" className="secondary-button" onClick={onOut} aria-label={t('rack.back')} title={t('rack.back')}><ArrowLeft size={14} aria-hidden="true"/><span className="rack-action-label">{t('rack.back')}</span></button>{onEdit && <button type="button" className="secondary-button" onClick={() => onEdit(rack)} aria-label={t('rack.edit')} title={t('rack.edit')}><Edit3 size={14} aria-hidden="true"/><span className="rack-action-label">{t('rack.edit')}</span></button>}{onDelete && <button type="button" className="secondary-button danger-button" disabled={deleting} onClick={() => onDelete(rack)} aria-label={deleteLabel} title={deleteLabel}><Trash2 size={14} aria-hidden="true"/><span className="rack-action-label">{deleteLabel}</span></button>}</div></PageToolbarPortal>
     <div className="panel-heading"><div><span className="section-kicker">BASTIDOR VISUAL</span><h2>{rack.name}</h2><p>{rack.devices?.length ?? 0} equipamentos · Bastidor padrão · 42U{canEdit ? <>{' · '}<span>Arrasta um equipamento para o mover</span></> : null}</p>{powerSummary && <p className="rack-power-summary" data-testid="rack-power-summary">{powerSummary}</p>}</div></div>
+    <RackPowerSummaryStrip summary={powerStatus} error={powerStatusError} onEditThresholds={() => setEditingThresholds(true)} />
+    {editingThresholds && <RackPowerThresholdsModal rackId={rack.id} value={{ warningPercent: thresholds.warningPercent ?? powerStatus?.thresholds.warningPercent ?? 80, criticalPercent: thresholds.criticalPercent ?? powerStatus?.thresholds.criticalPercent ?? 90 }} close={() => setEditingThresholds(false)} onSaved={(next, nextSummary) => { setThresholds(next); setPowerStatus(nextSummary); setEditingThresholds(false); }} />}
     <div className="rack-stage-wrap">
       <div className={`rack-stage${both ? ' rack-stage-both' : ''}`} ref={stageRef} data-view={activeView}>
         <div className="rack-stage-inner" style={{ width: `${innerWidth}px`, height: `${rackHeight + (both ? FACE_CAPTION : 0)}px` }}>
           {pduStrip(supplierPdu, 'left')}
           {faces.map((face, index) => <figure className="rack-face" key={face} data-face={face} style={{ width: `${rackWidth}px`, marginLeft: index > 0 ? `${FACE_GAP}px` : undefined }}>
             {both && <figcaption className="rack-face-caption" style={{ height: `${FACE_CAPTION}px` }}>{FACE_LABEL[face]}</figcaption>}
-            <div className="rack-frame" style={{ width: `${rackWidth}px` }}><img src={FIXED_RACK_IMAGE} alt={`Bastidor ${rack.name}, ${FACE_LABEL[face].toLowerCase()}`} draggable={false} /><RackEquipmentOverlay rack={displayRack} face={face} onSelect={(id) => setZoomDevice({ id, face })} onDropDevice={preview} draggingDeviceId={draggingDeviceId} onDragging={setDraggingDeviceId} canEdit={canEdit && !pending} pendingDeviceId={pending?.target?.id} /></div>
+            <div className="rack-frame" style={{ width: `${rackWidth}px` }}><img src={FIXED_RACK_IMAGE} alt={`Bastidor ${rack.name}, ${FACE_LABEL[face].toLowerCase()}`} draggable={false} /><RackEquipmentOverlay rack={displayRack} face={face} onSelect={(id) => setZoomDevice({ id, face })} onDropDevice={preview} draggingDeviceId={draggingDeviceId} onDragging={setDraggingDeviceId} canEdit={canEdit && !pending} pendingDeviceId={pending?.target?.id} powerLevels={devicePowerLevels} /></div>
           </figure>)}
           {pduStrip(upsPdu, 'right')}
         </div>

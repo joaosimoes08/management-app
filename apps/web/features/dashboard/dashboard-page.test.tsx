@@ -204,3 +204,41 @@ describe('DashboardPage role-gated toolbar action', () => {
     await waitFor(() => expect(mocks.operationsPanelProps.at(-1)?.siteId).toBe('site-1'));
   });
 });
+
+describe('DashboardPage drill-through (Phase D)', () => {
+  it('links the KPI tiles to the matching filtered lists', async () => {
+    mocks.role = 'ADMIN';
+    mocks.operational = {
+      ...baseOperational,
+      inventory: { sites: 1, devices: 42, vlans: 0, subnets: 0, ips: 0 },
+      alerts: { total: 2, groups: [{ status: 'OPEN', severity: 'CRITICAL', _count: { _all: 2 } }] },
+      quality: { total: 3, groups: [{ status: 'OPEN', severity: 'INFO', _count: { _all: 3 } }] },
+    };
+    render(<DashboardPage />);
+    const critical = await screen.findByLabelText('dashboard.severity.critical: 2 — dashboard.severityDetail(2,0)');
+    expect(critical.tagName).toBe('A');
+    await waitFor(() => expect(critical).toHaveAttribute('href', '/alertas?siteId=site-1&severity=CRITICAL'));
+    // Only quality findings have INFO severity, so that tile opens the quality queue.
+    expect(screen.getByLabelText('dashboard.severity.info: 3 — dashboard.severityDetail(0,3)')).toHaveAttribute('href', '/qualidade-inventario?siteId=site-1&severity=INFO');
+    expect(screen.getByRole('link', { name: /Ciclo de vida expirado/ })).toHaveAttribute('href', '/infraestrutura?siteId=site-1&tab=devices&lifecycle=overdue');
+    expect(screen.getByRole('link', { name: /Subnets acima de 80%/ })).toHaveAttribute('href', '/ipam?siteId=site-1&tab=subnets&band=WARNING%2CCRITICAL&sort=utilization');
+    expect(screen.getByRole('link', { name: /Descobertas com falha/ })).toHaveAttribute('href', '/descoberta?status=FAILED');
+  });
+
+  it('hides the discovery drill-through from roles that cannot open Descoberta', async () => {
+    mocks.role = 'READ_ONLY';
+    render(<DashboardPage />);
+    await screen.findByRole('link', { name: /Qualidade do inventário/ });
+    expect(await screen.findByRole('link', { name: /Equipamentos críticos/ })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Descobertas com falha/ })).not.toBeInTheDocument();
+  });
+
+  it('shows readable widget names in the layout editor', async () => {
+    mocks.role = 'ADMIN';
+    mocks.getDashboardLayout.mockResolvedValue({ siteId: 'site-1', role: 'ADMIN', revision: 1, widgets: [{ id: 'snmp-drifts', x: 0, y: 0, w: 6, h: 4, visible: true }, { id: 'future-widget', x: 0, y: 1, w: 6, h: 4, visible: true }] });
+    render(<DashboardPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'dashboard.editLayout' }));
+    expect(await screen.findByText('Divergências SNMP')).toBeInTheDocument();
+    expect(screen.getByText('future-widget')).toBeInTheDocument();
+  });
+});

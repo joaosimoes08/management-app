@@ -1,5 +1,7 @@
 import { apiFetch } from '@/lib/api/client';
+import { deviceFilterQuery, type DeviceUrlFilters } from './device-filters';
 import type {
+  ApiLoadLevel,
   AssetFile,
   BuildingWithRooms,
   Device,
@@ -13,6 +15,7 @@ import type {
   IpAddress,
   PortLayout,
   PortLayoutV2,
+  PowerFeedSource,
   DevicePowerInput,
   RackFace,
   Rack,
@@ -123,6 +126,40 @@ export function setDevicePower(deviceId: string, input: DevicePowerInput): Promi
 /** PDU / power defaults, defined once in the API (`power-defaults.ts`). */
 export function getPowerDefaults(): Promise<PowerDefaults> {
   return apiFetch<PowerDefaults>('/api/v1/power/defaults');
+}
+
+/** Thresholds (percent of budget / outlets) the power summary is computed with; omitted values use the API defaults (80 / 90). */
+export interface RackPowerThresholds { warningPercent?: number; criticalPercent?: number }
+
+/** One rack's power summary (`GET /api/v1/racks/:id/power-summary`, #86). Every field is optional-tolerant: new fields are ignored. */
+export interface RackPowerSummary {
+  rack?: { id: string; name: string; roomId?: string; roomName?: string | null; buildingName?: string | null };
+  mode?: Rack['powerMode'];
+  thresholds: { warningPercent: number; criticalPercent: number };
+  level: ApiLoadLevel;
+  capacity?: { watts: number | null; bySource?: Partial<Record<PowerFeedSource, number | null>>; missingBudgetPduIds?: string[] };
+  draw?: { estimatedWatts: number; bySource?: Partial<Record<PowerFeedSource, number>>; worstFailoverWatts?: number | null };
+  utilisation?: { bySource?: Partial<Record<PowerFeedSource, number | null>>; worstFailoverPercent?: number | null };
+  outlets?: { used: number; total: number; free: number; percent: number | null; level?: ApiLoadLevel };
+  pdus?: {
+    id: string; name?: string | null; source: PowerFeedSource; budgetWatts?: number | null; estimatedWatts?: number; failoverWatts?: number | null;
+    wattsPercent?: number | null; failoverPercent?: number | null; outlets?: { used: number; total: number; free: number; percent: number | null };
+    levels?: { watts?: ApiLoadLevel; failoverWatts?: ApiLoadLevel; outlets?: ApiLoadLevel }; level: ApiLoadLevel;
+  }[];
+  nearLimit?: {
+    pdus?: { id: string; name?: string | null; source: PowerFeedSource; level: ApiLoadLevel; reasons?: string[] }[];
+    devices?: { id: string; name: string; estimatedWatts?: number; pduIds?: string[]; level: ApiLoadLevel }[];
+  };
+  devices?: { total: number; connected: number; unconnected?: { id: string; name: string }[]; partiallyConnected?: { id: string; name: string; connectedPlugs: number; plugCount: number }[]; nonRedundant?: { id: string; name: string }[] };
+}
+
+/** Rack power summary with near-limit PDUs and devices. 400 POWER_THRESHOLD_INVALID when warning >= critical or out of 1–200. */
+export function getRackPowerSummary(rackId: string, thresholds: RackPowerThresholds = {}): Promise<RackPowerSummary> {
+  const params = new URLSearchParams();
+  if (thresholds.warningPercent != null) params.set('warningPercent', String(thresholds.warningPercent));
+  if (thresholds.criticalPercent != null) params.set('criticalPercent', String(thresholds.criticalPercent));
+  const query = params.toString();
+  return apiFetch<RackPowerSummary>(`/api/v1/racks/${encodeURIComponent(rackId)}/power-summary${query ? `?${query}` : ''}`);
 }
 
 /** "Desligar": frees every outlet the device uses on this PDU. */
@@ -236,9 +273,11 @@ export function listMissingConfigDevices(config: string, page = 1, pageSize = 50
   return apiFetch<MissingConfigDeviceList>(`/api/v1/devices/missing-config?config=${encodeURIComponent(config)}&page=${page}&pageSize=${pageSize}`);
 }
 
-/** `missingConfig` (rearImage | power) limits the list to devices missing that required config. */
-export function listDevices(siteId: string, search: string, page = 1, missingConfig = ''): Promise<DeviceListResponse> {
-  return apiFetch<DeviceListResponse>(`/api/v1/devices?siteId=${siteId}&search=${encodeURIComponent(search)}&page=${page}&pageSize=100${missingConfig ? `&missingConfig=${encodeURIComponent(missingConfig)}` : ''}`);
+/** `filters`: the optional drill-through filters (status, critical, lifecycle, lifecycleKind) and
+ * `missingConfig` (rearImage | power), which limits the list to devices missing that required config. */
+export function listDevices(siteId: string, search: string, page = 1, filters?: Partial<DeviceUrlFilters> & { missingConfig?: string }): Promise<DeviceListResponse> {
+  const missingConfig = filters?.missingConfig ?? '';
+  return apiFetch<DeviceListResponse>(`/api/v1/devices?siteId=${siteId}&search=${encodeURIComponent(search)}&page=${page}&pageSize=100${deviceFilterQuery(filters)}${missingConfig ? `&missingConfig=${encodeURIComponent(missingConfig)}` : ''}`);
 }
 
 export async function listAllDevices(siteId: string, search: string): Promise<DeviceListResponse> {

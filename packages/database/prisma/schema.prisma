@@ -224,6 +224,7 @@ model User {
   reviewedChangePlans    ChangePlan[]                @relation("ChangePlanReviewer")
   createdAt              DateTime                    @default(now())
   updatedAt              DateTime                    @updatedAt
+  applicationFavorites   UserApplicationFavorite[]
 }
 
 model RoleRequest {
@@ -907,8 +908,35 @@ model NetAppIntegration {
   site          Site      @relation(fields: [siteId], references: [id], onDelete: Cascade)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+  samples       NetAppCapacitySample[]
 
   @@index([lastSuccessAt])
+}
+
+enum NetAppSampleKind {
+  CLUSTER
+  AGGREGATE
+  VOLUME
+}
+
+/// One capacity reading per cluster total / aggregate / volume per successful ONTAP refresh.
+/// The current snapshot stays on NetAppIntegration.snapshot; this table only keeps history for trends.
+model NetAppCapacitySample {
+  id            String           @id @default(uuid()) @db.Uuid
+  integrationId String           @db.Uuid
+  kind          NetAppSampleKind
+  /// ONTAP uuid when present, otherwise the object name. "cluster" for the CLUSTER total.
+  objectKey     String
+  name          String
+  svm           String?
+  state         String?
+  sizeBytes     BigInt?
+  usedBytes     BigInt?
+  observedAt    DateTime
+  integration   NetAppIntegration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@index([integrationId, kind, objectKey, observedAt])
+  @@index([integrationId, observedAt])
 }
 
 model SnmpListenerConfig {
@@ -1537,10 +1565,23 @@ model ApplicationLink {
   lastCheckedAt     DateTime?
   isAvailable       Boolean?
   roles             ApplicationLinkRole[]
+  favorites         UserApplicationFavorite[]
   createdAt         DateTime              @default(now())
   updatedAt         DateTime              @updatedAt
 
   @@index([isActive, category, sortOrder])
+}
+
+model UserApplicationFavorite {
+  userId    String          @db.Uuid
+  linkId    String          @db.Uuid
+  sortOrder Int             @default(0)
+  createdAt DateTime        @default(now())
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  link      ApplicationLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
+
+  @@id([userId, linkId])
+  @@index([linkId])
 }
 
 model ApplicationLinkRole {

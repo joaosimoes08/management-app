@@ -88,7 +88,7 @@ const request = (method: string, url: string, persona?: string, payload?: unknow
 
 async function resetDatabase() {
   await prisma.$executeRawUnsafe(`TRUNCATE TABLE
-    "Notification", "RoleRequest", "ApplicationLinkRole", "ApplicationLink", "RipeImport", "InfrastructurePermission", "AccessGroupSitePermission", "AccessGroupSite", "AccessGroupMember", "AccessGroup",
+    "Notification", "RoleRequest", "UserApplicationFavorite", "ApplicationLinkRole", "ApplicationLink", "RipeImport", "InfrastructurePermission", "AccessGroupSitePermission", "AccessGroupSite", "AccessGroupMember", "AccessGroup",
     "DiscoveryResult", "DiscoveryJob", "DiscoverySchedule", "Service", "IpAddress", "InterfaceVlan", "DeviceInterface",
     "Host", "Device", "DeviceModel", "AssetFile", "Rack", "RackModel", "Room", "Building", "NatRule", "Subnet", "Vrf",
     "Vlan", "Site", "AuditLog", "UserRole", "User", "SystemSettings" RESTART IDENTITY CASCADE`);
@@ -582,6 +582,43 @@ test('rack PDU power: defaults, allocation, 409s, cascades, audit, RBAC and watt
   assert.deepEqual(rack.power.totals.bySource, { SUPPLIER: 360, UPS: 360 });
   assert.equal(rack.power.totals.estimatedWatts, 720);
 
+  // Step 12: rack power summary (capacity vs estimated draw, near-limit PDUs/devices, thresholds 80/90 by default)
+  const summaryRes = await request('GET', `/api/v1/racks/${rackId}/power-summary`, admin);
+  assert.equal(summaryRes.statusCode, 200, summaryRes.body);
+  const summary = json(summaryRes);
+  assert.deepEqual([summary.rack.id, summary.rack.roomName, summary.mode, summary.level], [rackId, 'HTTP Room A', 'SUPPLIER_AND_UPS', 'ok']);
+  assert.deepEqual(summary.thresholds, { warningPercent: 80, criticalPercent: 90 });
+  assert.deepEqual(summary.capacity, { watts: 7360, bySource: { SUPPLIER: 3680, UPS: 3680 }, missingBudgetPduIds: [] });
+  assert.deepEqual(summary.draw, { estimatedWatts: 720, bySource: { SUPPLIER: 360, UPS: 360 }, worstFailoverWatts: 720 });
+  assert.deepEqual(summary.utilisation, { bySource: { SUPPLIER: 9.8, UPS: 9.8 }, worstFailoverPercent: 19.6 });
+  assert.deepEqual([summary.outlets.used, summary.outlets.total], [6, 64]);
+  assert.deepEqual([summary.devices.total, summary.devices.connected, summary.devices.unconnected, summary.devices.nonRedundant], [3, 3, [], []]);
+  assert.deepEqual(summary.nearLimit, { pdus: [], devices: [] });
+  // Tighter thresholds: failover 19.6 % >= 19 % is critical, watts 9.8 % and outlets 3/32 = 9.4 % are warnings, so every device is near the limit
+  const tight = json(await request('GET', `/api/v1/racks/${rackId}/power-summary?warningPercent=9&criticalPercent=19`, admin));
+  assert.equal(tight.level, 'critical');
+  assert.deepEqual(tight.nearLimit.pdus.map((p: any) => [p.source, p.level, p.reasons]), [['SUPPLIER', 'critical', ['watts', 'failoverWatts', 'outlets']], ['UPS', 'critical', ['watts', 'failoverWatts', 'outlets']]]);
+  assert.deepEqual(tight.nearLimit.devices.map((d: any) => [d.name, d.estimatedWatts]), [['PWR Server', 400], ['PWR Firewall', 200], ['PWR Switch', 120]]);
+  for (const query of ['warningPercent=90&criticalPercent=80', 'warningPercent=abc', 'criticalPercent=500']) {
+    const bad = await request('GET', `/api/v1/racks/${rackId}/power-summary?${query}`, admin);
+    assert.equal(bad.statusCode, 400, query);
+    assert.equal(json(bad).code, 'POWER_THRESHOLD_INVALID');
+  }
+  assert.equal((await request('GET', '/api/v1/racks/99999999-0000-4000-8000-000000000000/power-summary', admin)).statusCode, 404);
+  assert.equal((await request('GET', `/api/v1/racks/${ids.rackSibling}/power-summary`, 'qa-systems-scoped')).statusCode, 404);
+  assert.equal((await request('GET', `/api/v1/racks/${rackId}/power-summary`, 'qa-systems-scoped')).statusCode, 200);
+  // Site roll-up: worst first, only racks the user can read
+  const siteSummary = json(await request('GET', `/api/v1/sites/${ids.siteA}/power-summary?warningPercent=9&criticalPercent=19`, admin));
+  assert.equal(siteSummary.racks[0].rack.id, rackId);
+  assert.ok(siteSummary.racks.some((r: any) => r.rack.id === ids.rackSibling));
+  assert.equal(siteSummary.totals.racks, siteSummary.racks.length);
+  assert.equal(siteSummary.totals.byLevel.critical, 1);
+  assert.equal(siteSummary.truncated, false);
+  const scopedSite = json(await request('GET', `/api/v1/sites/${ids.siteA}/power-summary`, 'qa-systems-scoped'));
+  assert.ok(scopedSite.racks.some((r: any) => r.rack.id === rackId));
+  assert.ok(!scopedSite.racks.some((r: any) => r.rack.id === ids.rackSibling));
+  assert.equal((await request('GET', '/api/v1/sites/99999999-0000-4000-8000-000000000000/power-summary', admin)).statusCode, 404);
+
   // Double-booked outlet → 409, nothing changed
   conflict(await request('PUT', `/api/v1/devices/${dev.fw}/power`, admin, { plugs: [{ plugIndex: 1, pduId: supplierId, outletIndex: 1 }] }), 'PDU_OUTLET_TAKEN');
   assert.equal(await prisma.pduOutletAssignment.count({ where: { deviceId: dev.fw } }), 2);
@@ -746,6 +783,65 @@ test('required device configs: registry, create validation, legacy updates, grou
   assert.deepEqual(json(await request('GET', '/api/v1/dashboard/topbar-state', 'qa-readonly')).alerts.filter((a: any) => String(a.id).startsWith('device-missing-config-')), []);
 });
 
+test('critical asset attestation: 409 on a second review of the same cycle, reviewer names and due state over HTTP', async () => {
+  await prisma.user.update({ where: { id: ids.admin }, data: { displayName: 'QA Admin Person' } });
+  await prisma.device.updateMany({ where: { id: { in: [ids.deviceA, ids.deviceA2] } }, data: { isCritical: true } });
+  await prisma.criticalAssetGroupMapping.create({ data: { siteId: ids.siteA, assetType: 'SWITCH', groupId: ids.groupRead } });
+  const pending = await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA, weekStart: new Date('2026-11-09T00:00:00.000Z') } });
+  for (const week of ['2026-11-02', '2026-10-26', '2026-10-19', '2026-10-12', '2026-10-05']) {
+    await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA, weekStart: new Date(`${week}T00:00:00.000Z`), outcome: 'CONFIRMED', confirmedAt: new Date(`${week}T10:00:00.000Z`), confirmedBy: ids.scoped, notes: week === '2026-10-26' ? 'checked tag' : null } });
+  }
+  const first = await request('POST', `/api/v1/critical-assets/${pending.id}/confirm`, 'qa-admin', { outcome: 'CORRECTION_NEEDED', notes: 'Wrong serial' });
+  assert.equal(first.statusCode, 201);
+  assert.equal(json(first).confirmedByName, 'QA Admin Person');
+  assert.equal(json(first).confirmedBy, ids.admin);
+  const second = await request('POST', `/api/v1/critical-assets/${pending.id}/confirm`, 'qa-admin', { outcome: 'CONFIRMED' });
+  assert.equal(second.statusCode, 409);
+  const conflict = json(second);
+  assert.equal(conflict.code, 'CRITICAL_ASSET_ATTESTATION_ALREADY_RECORDED');
+  assert.match(conflict.message, /já foi registada por QA Admin Person/);
+  assert.equal(conflict.details.outcome, 'CORRECTION_NEEDED');
+  assert.equal(conflict.details.weekStart, '2026-11-09');
+  const stored = await prisma.criticalAssetAttestation.findUniqueOrThrow({ where: { id: pending.id } });
+  assert.equal(stored.outcome, 'CORRECTION_NEEDED');
+  assert.equal(stored.notes, 'Wrong serial');
+  assert.equal(await prisma.auditLog.count({ where: { action: 'CRITICAL_ASSET_ATTESTATION_RECORDED', entityId: ids.deviceA } }), 1);
+
+  const list = await request('GET', `/api/v1/critical-assets?siteId=${ids.siteA}`, 'qa-admin');
+  assert.equal(list.statusCode, 200);
+  const body = json(list);
+  const switchA = body.assets.find((asset: { id: string }) => asset.id === ids.deviceA);
+  assert.equal(switchA.attestations.length, 6);
+  assert.equal(switchA.owner.id, ids.groupRead);
+  assert.equal(switchA.latestOutcome, 'CORRECTION_NEEDED');
+  assert.equal(switchA.dueState, 'up_to_date');
+  assert.equal(switchA.attestations[0].confirmedByName, 'QA Admin Person');
+  assert.equal(switchA.attestations[1].confirmedByName, 'qa-network-scoped');
+  assert.equal(switchA.attestations.find((row: { notes: string | null }) => row.notes === 'checked tag')?.weekStart.slice(0, 10), '2026-10-26');
+  const switchA2 = body.assets.find((asset: { id: string }) => asset.id === ids.deviceA2);
+  assert.equal(switchA2.dueState, 'unscheduled');
+  assert.equal(typeof switchA2.dueDate, 'string');
+});
+
+test('critical asset attestation: two simultaneous reviews of one cycle give exactly one 201 and one 409', async () => {
+  await prisma.device.update({ where: { id: ids.deviceA2 }, data: { isCritical: true } });
+  await prisma.criticalAssetGroupMapping.upsert({ where: { siteId_assetType: { siteId: ids.siteA, assetType: 'SWITCH' } }, create: { siteId: ids.siteA, assetType: 'SWITCH', groupId: ids.groupRead }, update: {} });
+  for (let round = 0; round < 5; round += 1) {
+    const row = await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA2, weekStart: new Date(Date.UTC(2026, 5, 1 + round * 7)) } });
+    const responses = await Promise.all([
+      request('POST', `/api/v1/critical-assets/${row.id}/confirm`, 'qa-admin', { outcome: 'CONFIRMED', notes: 'first' }),
+      request('POST', `/api/v1/critical-assets/${row.id}/confirm`, 'qa-admin', { outcome: 'CORRECTION_NEEDED', notes: 'second' }),
+    ]);
+    assert.deepEqual(responses.map((response) => response.statusCode).sort(), [201, 409]);
+    const winner = json(responses.find((response) => response.statusCode === 201)!);
+    const loser = json(responses.find((response) => response.statusCode === 409)!);
+    assert.equal(loser.code, 'CRITICAL_ASSET_ATTESTATION_ALREADY_RECORDED');
+    const stored = await prisma.criticalAssetAttestation.findUniqueOrThrow({ where: { id: row.id } });
+    assert.equal(stored.outcome, winner.outcome);
+    assert.equal(stored.notes, winner.notes);
+    assert.equal(await prisma.auditLog.count({ where: { action: 'CRITICAL_ASSET_ATTESTATION_RECORDED', metadata: { path: ['attestationId'], equals: row.id } } }), 1);
+  }
+});
 test('enforces the Site permission on every NAT write, whatever links the rule to the Site', async () => {
   const vrfA = await prisma.vrf.create({ data: { name: 'HTTP VRF A', siteId: ids.siteA } });
   const vrfB = await prisma.vrf.create({ data: { name: 'HTTP VRF B', siteId: ids.siteB } });
@@ -927,66 +1023,6 @@ test('imports by the stored diff, not by the order the client sends the prefixes
   assert.equal(stored.status, 'PARTIAL');
 });
 
-test('critical asset attestation: 409 on a second review of the same cycle, reviewer names and due state over HTTP', async () => {
-  await prisma.user.update({ where: { id: ids.admin }, data: { displayName: 'QA Admin Person' } });
-  await prisma.device.updateMany({ where: { id: { in: [ids.deviceA, ids.deviceA2] } }, data: { isCritical: true } });
-  await prisma.criticalAssetGroupMapping.create({ data: { siteId: ids.siteA, assetType: 'SWITCH', groupId: ids.groupRead } });
-  const pending = await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA, weekStart: new Date('2026-11-09T00:00:00.000Z') } });
-  for (const week of ['2026-11-02', '2026-10-26', '2026-10-19', '2026-10-12', '2026-10-05']) {
-    await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA, weekStart: new Date(`${week}T00:00:00.000Z`), outcome: 'CONFIRMED', confirmedAt: new Date(`${week}T10:00:00.000Z`), confirmedBy: ids.scoped, notes: week === '2026-10-26' ? 'checked tag' : null } });
-  }
-  const first = await request('POST', `/api/v1/critical-assets/${pending.id}/confirm`, 'qa-admin', { outcome: 'CORRECTION_NEEDED', notes: 'Wrong serial' });
-  assert.equal(first.statusCode, 201);
-  assert.equal(json(first).confirmedByName, 'QA Admin Person');
-  assert.equal(json(first).confirmedBy, ids.admin);
-  const second = await request('POST', `/api/v1/critical-assets/${pending.id}/confirm`, 'qa-admin', { outcome: 'CONFIRMED' });
-  assert.equal(second.statusCode, 409);
-  const conflict = json(second);
-  assert.equal(conflict.code, 'CRITICAL_ASSET_ATTESTATION_ALREADY_RECORDED');
-  assert.match(conflict.message, /já foi registada por QA Admin Person/);
-  assert.equal(conflict.details.outcome, 'CORRECTION_NEEDED');
-  assert.equal(conflict.details.weekStart, '2026-11-09');
-  const stored = await prisma.criticalAssetAttestation.findUniqueOrThrow({ where: { id: pending.id } });
-  assert.equal(stored.outcome, 'CORRECTION_NEEDED');
-  assert.equal(stored.notes, 'Wrong serial');
-  assert.equal(await prisma.auditLog.count({ where: { action: 'CRITICAL_ASSET_ATTESTATION_RECORDED', entityId: ids.deviceA } }), 1);
-
-  const list = await request('GET', `/api/v1/critical-assets?siteId=${ids.siteA}`, 'qa-admin');
-  assert.equal(list.statusCode, 200);
-  const body = json(list);
-  const switchA = body.assets.find((asset: { id: string }) => asset.id === ids.deviceA);
-  assert.equal(switchA.attestations.length, 6);
-  assert.equal(switchA.owner.id, ids.groupRead);
-  assert.equal(switchA.latestOutcome, 'CORRECTION_NEEDED');
-  assert.equal(switchA.dueState, 'up_to_date');
-  assert.equal(switchA.attestations[0].confirmedByName, 'QA Admin Person');
-  assert.equal(switchA.attestations[1].confirmedByName, 'qa-network-scoped');
-  assert.equal(switchA.attestations.find((row: { notes: string | null }) => row.notes === 'checked tag')?.weekStart.slice(0, 10), '2026-10-26');
-  const switchA2 = body.assets.find((asset: { id: string }) => asset.id === ids.deviceA2);
-  assert.equal(switchA2.dueState, 'unscheduled');
-  assert.equal(typeof switchA2.dueDate, 'string');
-});
-
-test('critical asset attestation: two simultaneous reviews of one cycle give exactly one 201 and one 409', async () => {
-  await prisma.device.update({ where: { id: ids.deviceA2 }, data: { isCritical: true } });
-  await prisma.criticalAssetGroupMapping.upsert({ where: { siteId_assetType: { siteId: ids.siteA, assetType: 'SWITCH' } }, create: { siteId: ids.siteA, assetType: 'SWITCH', groupId: ids.groupRead }, update: {} });
-  for (let round = 0; round < 5; round += 1) {
-    const row = await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA2, weekStart: new Date(Date.UTC(2026, 5, 1 + round * 7)) } });
-    const responses = await Promise.all([
-      request('POST', `/api/v1/critical-assets/${row.id}/confirm`, 'qa-admin', { outcome: 'CONFIRMED', notes: 'first' }),
-      request('POST', `/api/v1/critical-assets/${row.id}/confirm`, 'qa-admin', { outcome: 'CORRECTION_NEEDED', notes: 'second' }),
-    ]);
-    assert.deepEqual(responses.map((response) => response.statusCode).sort(), [201, 409]);
-    const winner = json(responses.find((response) => response.statusCode === 201)!);
-    const loser = json(responses.find((response) => response.statusCode === 409)!);
-    assert.equal(loser.code, 'CRITICAL_ASSET_ATTESTATION_ALREADY_RECORDED');
-    const stored = await prisma.criticalAssetAttestation.findUniqueOrThrow({ where: { id: row.id } });
-    assert.equal(stored.outcome, winner.outcome);
-    assert.equal(stored.notes, winner.notes);
-    assert.equal(await prisma.auditLog.count({ where: { action: 'CRITICAL_ASSET_ATTESTATION_RECORDED', metadata: { path: ['attestationId'], equals: row.id } } }), 1);
-  }
-});
-
 test('Phase C audit: cursor paging past 200, exact filters, facets, diff and CSV export', async () => {
   const at = new Date('2030-01-01T00:00:00.000Z');
   // 205 events sharing one timestamp prove the id tie-breaker gives a stable, gap-free order past the old 200 cap.
@@ -1159,6 +1195,285 @@ test('Phase C changes: list filters, status summary, calendar overlaps, target s
   assert.equal((await request('GET', `/api/v1/change-plans/${createdId}/activity`, 'qa-network-legacy')).statusCode, 404);
 });
 
+test('Phase D alertas: PATCH rule and window, per-rule active counts, scoped maintenance summary', async () => {
+  const rule = await prisma.alertRule.create({ data: { name: 'Phase D rule', source: 'PHASE_D', siteId: null, minSeverity: 'HIGH', enabled: true } });
+  await prisma.operationalAlert.createMany({ data: [
+    { dedupKey: 'phase-d:high', source: 'PHASE_D', severity: 'HIGH', siteId: ids.siteA, title: 'Phase D high', detail: 'shown' },
+    { dedupKey: 'phase-d:warning', source: 'PHASE_D', severity: 'WARNING', siteId: ids.siteA, title: 'Phase D warning', detail: 'below threshold' },
+  ] });
+  const url = '/api/v1/operations/configuration';
+  const listed = json(await request('GET', url, 'qa-admin')).rules.find((item: { id: string }) => item.id === rule.id);
+  assert.deepEqual(listed.activeAlerts, { matching: 2, governed: 2, shown: 1, belowThreshold: 1, inMaintenance: 0 });
+
+  const patched = await request('PATCH', `${url}/rules/${rule.id}`, 'qa-admin', { minSeverity: 'WARNING' });
+  assert.equal(patched.statusCode, 200, patched.body);
+  const stored = await prisma.alertRule.findUniqueOrThrow({ where: { id: rule.id } });
+  assert.equal(stored.minSeverity, 'WARNING'); assert.equal(stored.name, 'Phase D rule'); assert.equal(stored.enabled, true);
+  assert.equal(json(await request('GET', url, 'qa-admin')).rules.find((item: { id: string }) => item.id === rule.id).activeAlerts.shown, 2);
+  assert.equal((await request('PATCH', `${url}/rules/${rule.id}`, 'qa-admin', {})).statusCode, 400);
+  assert.equal((await request('PATCH', `${url}/rules/${rule.id}`, 'qa-admin', { minSeverity: 'LOUD' })).statusCode, 400);
+  assert.equal((await request('PATCH', `${url}/rules/00000000-0000-4000-8000-00000000dead`, 'qa-admin', { enabled: false })).statusCode, 404);
+  assert.equal((await request('PATCH', `${url}/rules/${rule.id}`, 'qa-network-scoped', { enabled: false })).statusCode, 403);
+
+  const now = Date.now();
+  const activeA = await prisma.maintenanceWindow.create({ data: { name: 'Phase D active A', siteId: ids.siteA, startsAt: new Date(now - 3_600_000), endsAt: new Date(now + 3_600_000) } });
+  const upcomingB = await prisma.maintenanceWindow.create({ data: { name: 'Phase D upcoming B', siteId: ids.siteB, startsAt: new Date(now + 86_400_000), endsAt: new Date(now + 90_000_000) } });
+  const far = await prisma.maintenanceWindow.create({ data: { name: 'Phase D far global', siteId: null, startsAt: new Date(now + 20 * 86_400_000), endsAt: new Date(now + 21 * 86_400_000) } });
+  const windowPatch = await request('PATCH', `${url}/maintenance-windows/${far.id}`, 'qa-admin', { startsAt: new Date(now + 2 * 86_400_000).toISOString(), endsAt: new Date(now + 3 * 86_400_000).toISOString(), reason: 'moved' });
+  assert.equal(windowPatch.statusCode, 200, windowPatch.body);
+  assert.equal(await prisma.auditLog.count({ where: { action: 'MAINTENANCE_WINDOW_UPDATED', entityId: far.id } }), 1);
+  assert.equal((await request('PATCH', `${url}/maintenance-windows/${far.id}`, 'qa-admin', { endsAt: new Date(now).toISOString() })).statusCode, 400);
+
+  const summaryResponse = await request('GET', '/api/v1/operations/maintenance/summary', 'qa-network-scoped');
+  assert.equal(summaryResponse.statusCode, 200, summaryResponse.body);
+  const summary = json(summaryResponse);
+  assert.ok(summary.active.some((item: { id: string }) => item.id === activeA.id));
+  assert.ok(summary.upcoming.some((item: { id: string }) => item.id === far.id));
+  assert.equal(summaryResponse.body.includes(upcomingB.id), false);
+  assert.equal(summary.criticalAlertsUnaffected, true);
+  assert.equal(summary.horizonDays, 7);
+  assert.ok(json(await request('GET', '/api/v1/operations/maintenance/summary', 'qa-admin')).upcoming.some((item: { id: string }) => item.id === upcomingB.id));
+  assert.equal((await request('GET', `/api/v1/operations/maintenance/summary?siteId=${ids.siteB}`, 'qa-network-scoped')).statusCode, 404);
+});
+
+test('Phase D drill-through: device status, critical and lifecycle filters keep room isolation', async () => {
+  await prisma.device.updateMany({ where: { siteId: ids.siteA }, data: { isCritical: false, status: 'ACTIVE' } });
+  await prisma.device.update({ where: { id: ids.deviceA2 }, data: { isCritical: true, status: 'MAINTENANCE' } });
+  await prisma.device.update({ where: { id: ids.deviceSibling }, data: { isCritical: true } });
+  const today = new Date(); today.setUTCHours(0, 0, 0, 0);
+  await prisma.lifecycleDate.createMany({ data: [
+    { deviceId: ids.deviceA, kind: 'PHASE_D_SUPPORT', dueDate: new Date(today.getTime() - 86_400_000) },
+    { deviceId: ids.deviceA2, kind: 'PHASE_D_SUPPORT', dueDate: new Date(today.getTime() + 10 * 86_400_000) },
+  ] });
+  const names = async (query: string, persona = 'qa-systems-scoped') => {
+    const response = await request('GET', `/api/v1/devices?siteId=${ids.siteA}&${query}`, persona);
+    assert.equal(response.statusCode, 200, response.body);
+    return json(response).items.map((item: { name: string }) => item.name).sort();
+  };
+  assert.deepEqual(await names('critical=true'), ['HTTP Switch A2']);
+  assert.deepEqual(await names('critical=true', 'qa-admin'), ['HTTP Hidden Switch', 'HTTP Switch A2']);
+  assert.deepEqual(await names('status=MAINTENANCE'), ['HTTP Switch A2']);
+  assert.deepEqual(await names('lifecycle=overdue&lifecycleKind=PHASE_D_SUPPORT'), ['HTTP Switch A']);
+  assert.deepEqual(await names('lifecycle=due:30&lifecycleKind=PHASE_D_SUPPORT'), ['HTTP Switch A2']);
+  assert.deepEqual(await names('lifecycle=due:5&lifecycleKind=PHASE_D_SUPPORT'), []);
+  for (const bad of ['status=BROKEN', 'critical=maybe', 'lifecycle=soon']) {
+    const response = await request('GET', `/api/v1/devices?${bad}`, 'qa-admin');
+    assert.equal(response.statusCode, 400, bad);
+    assert.match(json(response).code, /^DEVICE_/);
+  }
+});
+
+test('Phase D IPAM: utilisation on the subnet list, next free IPs and reserve-next with Site isolation', async () => {
+  await prisma.ipAddress.createMany({ data: [
+    { address: '10.250.1.200', subnetId: ids.subnetA, state: 'OCCUPIED', source: 'MANUAL' },
+    { address: '10.250.1.201', subnetId: ids.subnetA, state: 'FREE', source: 'MANUAL' },
+  ] });
+  const list = await request('GET', '/api/v1/subnets?sort=utilization', 'qa-network-scoped');
+  assert.equal(list.statusCode, 200, list.body);
+  const listed = json(list);
+  assert.equal(list.body.includes(ids.subnetB), false);
+  assert.ok(listed.items.every((item: { utilization: { band: string } }) => typeof item.utilization.band === 'string'));
+  const percents = listed.items.map((item: { utilization: { utilizationPercent: number | null } }) => item.utilization.utilizationPercent).filter((value: number | null) => value !== null);
+  assert.deepEqual(percents, [...percents].sort((a: number, b: number) => b - a));
+  const subnetA = listed.items.find((item: { id: string }) => item.id === ids.subnetA);
+  assert.equal(subnetA.utilization.usableCapacity, 254);
+  assert.equal(subnetA.utilization.band, 'OK');
+  assert.ok(subnetA.utilization.allocated >= 3);
+  assert.equal(json(await request('GET', '/api/v1/subnets?band=CRITICAL', 'qa-admin')).total, 0);
+  assert.equal(json(await request('GET', '/api/v1/subnets', 'qa-admin')).items[0].utilization.band, 'OK');
+  assert.equal((await request('GET', '/api/v1/subnets?band=HOT', 'qa-admin')).statusCode, 400);
+  assert.equal((await request('GET', '/api/v1/subnets?sort=name', 'qa-admin')).statusCode, 400);
+
+  const range = 'from=10.250.1.200&to=10.250.1.205';
+  const next = await request('GET', `/api/v1/subnets/${ids.subnetA}/next-free?count=2&${range}`, 'qa-readonly');
+  assert.equal(next.statusCode, 200, next.body);
+  assert.deepEqual(json(next).items.map((item: { address: string; tracked: boolean }) => [item.address, item.tracked]), [['10.250.1.201', true], ['10.250.1.202', false]]);
+  assert.equal(json(next).exhausted, false);
+  assert.equal((await request('GET', `/api/v1/subnets/${ids.subnetB}/next-free`, 'qa-network-scoped')).statusCode, 404);
+  assert.equal((await request('GET', `/api/v1/subnets/${ids.subnetA}/next-free?count=33`, 'qa-admin')).statusCode, 400);
+  assert.equal((await request('GET', `/api/v1/subnets/${ids.subnetA}/next-free?from=10.250.2.1`, 'qa-admin')).statusCode, 400);
+
+  assert.equal((await request('POST', `/api/v1/subnets/${ids.subnetA}/reserve-next`, 'qa-readonly', { count: 1, reason: 'denied' })).statusCode, 403);
+  assert.equal((await request('POST', `/api/v1/subnets/${ids.subnetB}/reserve-next`, 'qa-network-scoped', { count: 1, reason: 'other site' })).statusCode, 404);
+  const reserved = await request('POST', `/api/v1/subnets/${ids.subnetA}/reserve-next`, 'qa-network-scoped', { count: 2, from: '10.250.1.200', to: '10.250.1.205', durationHours: 4, reason: 'Phase D rollout' });
+  assert.equal(reserved.statusCode, 201, reserved.body);
+  const reservedBody = json(reserved);
+  assert.deepEqual(reservedBody.reservations.map((item: { ipAddress: { address: string }; createdIpAddress: boolean }) => [item.ipAddress.address, item.createdIpAddress]), [['10.250.1.201', false], ['10.250.1.202', true]]);
+  const rows = await prisma.ipAddress.findMany({ where: { address: { in: ['10.250.1.201', '10.250.1.202'] } }, include: { reservations: true }, orderBy: { address: 'asc' } });
+  assert.deepEqual(rows.map((row) => [row.state, row.reservations.length]), [['RESERVED', 1], ['RESERVED', 1]]);
+  assert.equal(await prisma.auditLog.count({ where: { action: 'IP_RESERVATION_CREATED', metadata: { path: ['reserveNext'], equals: true } } }), 2);
+  const exhausted = await request('POST', `/api/v1/subnets/${ids.subnetA}/reserve-next`, 'qa-network-scoped', { count: 2, from: '10.250.1.200', to: '10.250.1.203', reason: 'too many' });
+  assert.equal(exhausted.statusCode, 409, exhausted.body);
+  assert.equal(json(exhausted).code, 'IP_RANGE_EXHAUSTED');
+  assert.equal(json(exhausted).details.available, 1);
+  assert.equal((await request('POST', `/api/v1/subnets/${ids.subnetA}/reserve-next`, 'qa-network-scoped', { count: 1 })).statusCode, 400);
+  // Enum filters are validated (400) instead of reaching Prisma.
+  for (const [path, code] of [['/api/v1/discovery/jobs?status=BOGUS', 'DISCOVERY_STATUS_INVALID'], ['/api/v1/ip-addresses?state=NOPE', 'IP_STATE_INVALID']]) {
+    const response = await request('GET', path, 'qa-admin');
+    assert.equal(response.statusCode, 400, `${path} ${response.body}`);
+    assert.equal(json(response).code, code);
+  }
+  assert.equal((await request('GET', '/api/v1/discovery/jobs?status=completed', 'qa-admin')).statusCode, 200);
+});
+
+test('Phase D discovery: bulk review with per-item results, IPAM state per result and run duration', async () => {
+  const startedAt = new Date(Date.now() - 120_000);
+  const jobA = await prisma.discoveryJob.create({ data: { name: 'Phase D job A', subnetId: ids.subnetA, methods: ['ICMP'], tcpPorts: [], status: 'COMPLETED', startedAt, completedAt: new Date(startedAt.getTime() + 45_000) } });
+  const jobB = await prisma.discoveryJob.create({ data: { name: 'Phase D job B', subnetId: ids.subnetB, methods: ['ICMP'], tcpPorts: [], status: 'COMPLETED' } });
+  const known = await prisma.discoveryResult.create({ data: { jobId: jobA.id, address: '10.250.1.10', icmpReachable: true, openPorts: [] } });
+  const unknown = await prisma.discoveryResult.create({ data: { jobId: jobA.id, address: '10.250.1.240', icmpReachable: true, openPorts: [] } });
+  const otherSite = await prisma.discoveryResult.create({ data: { jobId: jobB.id, address: '10.250.2.240', icmpReachable: true, openPorts: [] } });
+
+  const jobs = json(await request('GET', '/api/v1/discovery/jobs?status=COMPLETED,FAILED', 'qa-network-scoped'));
+  const listedJob = jobs.items.find((item: { id: string }) => item.id === jobA.id);
+  assert.equal(listedJob.durationMs, 45_000);
+  assert.equal(jobs.items.some((item: { id: string }) => item.id === jobB.id), false);
+
+  const results = json(await request('GET', `/api/v1/discovery/jobs/${jobA.id}/results`, 'qa-network-scoped'));
+  const byId = new Map(results.map((item: { id: string }) => [item.id, item]));
+  assert.equal((byId.get(known.id) as { ipam: { state: string; hostName: string } }).ipam.state, 'OCCUPIED');
+  assert.equal((byId.get(known.id) as { ipam: { hostName: string } }).ipam.hostName, 'HTTP Multi Host');
+  assert.equal((byId.get(unknown.id) as { ipam: unknown }).ipam, null);
+
+  const missing = '00000000-0000-4000-8000-00000000beef';
+  const bulk = await request('POST', '/api/v1/discovery/results/bulk-review', 'qa-network-scoped', { ids: [known.id, unknown.id, otherSite.id, missing], status: 'IGNORED' });
+  assert.equal(bulk.statusCode, 201, bulk.body);
+  const body = json(bulk);
+  assert.equal(body.total, 4); assert.equal(body.succeeded, 2); assert.equal(body.failed, 2);
+  assert.deepEqual(body.items.map((item: { ok: boolean; error?: { statusCode: number } }) => item.ok ? 200 : item.error!.statusCode), [200, 200, 404, 404]);
+  assert.equal((await prisma.discoveryResult.findUniqueOrThrow({ where: { id: otherSite.id } })).status, 'PENDING');
+  assert.equal((await request('POST', '/api/v1/discovery/results/bulk-review', 'qa-auditor', { ids: [known.id], status: 'IGNORED' })).statusCode, 403);
+  assert.equal((await request('POST', '/api/v1/discovery/results/bulk-review', 'qa-network-scoped', { ids: [known.id, known.id], status: 'IGNORED' })).statusCode, 400);
+  assert.equal((await request('POST', '/api/v1/discovery/results/bulk-review', 'qa-network-scoped', { ids: [known.id], status: 'PENDING' })).statusCode, 400);
+});
+
+test('Phase D SNMP: fleet summary, drift list and bulk drift review stay inside the visible Sites', async () => {
+  const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000);
+  await prisma.snmpDeviceConfig.upsert({ where: { deviceId: ids.deviceA2 }, create: { deviceId: ids.deviceA2, enabled: true, lastStatus: 'FAILED', lastPollAt: minutesAgo(5), lastErrorCode: 'TIMEOUT' }, update: { enabled: true, lastStatus: 'FAILED', lastPollAt: minutesAgo(5), lastErrorCode: 'TIMEOUT' } });
+  await prisma.snmpDeviceConfig.upsert({ where: { deviceId: ids.deviceB }, create: { deviceId: ids.deviceB, enabled: true, lastStatus: 'FAILED', lastPollAt: minutesAgo(5) }, update: { enabled: true, lastStatus: 'FAILED', lastPollAt: minutesAgo(5) } });
+  const snapshot = async (deviceId: string) => {
+    const job = await prisma.snmpJob.create({ data: { deviceId, type: 'POLL', status: 'COMPLETED' } });
+    return prisma.snmpSnapshot.create({ data: { deviceId, jobId: job.id } });
+  };
+  const snapA2 = await snapshot(ids.deviceA2);
+  const snapB = await snapshot(ids.deviceB);
+  const driftA2 = await prisma.snmpDrift.create({ data: { deviceId: ids.deviceA2, interfaceId: ids.interfaceA2, snapshotId: snapA2.id, field: 'description', documentedValue: 'old', observedValue: 'new' } });
+  const driftB = await prisma.snmpDrift.create({ data: { deviceId: ids.deviceB, snapshotId: snapB.id, field: 'sysName', documentedValue: 'b', observedValue: 'b2' } });
+
+  const summaryResponse = await request('GET', '/api/v1/snmp/fleet/summary', 'qa-network-scoped');
+  assert.equal(summaryResponse.statusCode, 200, summaryResponse.body);
+  const summary = json(summaryResponse);
+  assert.ok(summary.attention.some((item: { deviceId: string; reason: string }) => item.deviceId === ids.deviceA2 && item.reason === 'FAILED'));
+  assert.equal(summaryResponse.body.includes(ids.deviceB), false);
+  assert.ok(summary.drift.pending >= 1);
+  assert.ok(summary.devices.total >= summary.devices.configured);
+  assert.ok(json(await request('GET', '/api/v1/snmp/fleet/summary', 'qa-admin')).attention.some((item: { deviceId: string }) => item.deviceId === ids.deviceB));
+  assert.equal((await request('GET', `/api/v1/snmp/fleet/summary?siteId=${ids.siteB}`, 'qa-network-scoped')).statusCode, 404);
+  assert.equal((await request('GET', '/api/v1/snmp/fleet/summary', 'qa-systems-scoped')).statusCode, 403);
+
+  const drifts = await request('GET', '/api/v1/snmp/drifts', 'qa-network-scoped');
+  assert.equal(drifts.statusCode, 200, drifts.body);
+  assert.ok(json(drifts).items.some((item: { id: string; device: { name: string } }) => item.id === driftA2.id && item.device.name === 'HTTP Switch A2'));
+  assert.equal(drifts.body.includes(driftB.id), false);
+  assert.equal((await request('GET', '/api/v1/snmp/drifts?status=MAYBE', 'qa-network-scoped')).statusCode, 400);
+  assert.equal((await request('GET', `/api/v1/snmp/drifts?siteId=${ids.siteB}`, 'qa-network-scoped')).statusCode, 404);
+
+  const bulk = json(await request('POST', '/api/v1/snmp/drifts/bulk-review', 'qa-network-scoped', { ids: [driftA2.id, driftB.id], status: 'ACCEPTED' }));
+  assert.equal(bulk.succeeded, 1); assert.equal(bulk.failed, 1);
+  assert.equal((await prisma.snmpDrift.findUniqueOrThrow({ where: { id: driftB.id } })).status, 'PENDING');
+  assert.equal((await prisma.snmpDrift.findUniqueOrThrow({ where: { id: driftA2.id } })).status, 'ACCEPTED');
+  assert.equal((await request('POST', '/api/v1/snmp/drifts/bulk-review', 'qa-readonly', { ids: [driftB.id], status: 'ACCEPTED' })).statusCode, 403);
+});
+
+test('Phase D search: opt-in types, audit only for ADMIN and AUDITOR, change plans per Site, legacy response unchanged', async () => {
+  const planA = await prisma.changePlan.create({ data: { siteId: ids.siteA, title: 'Zebrafish core migration', reason: 'Phase D search', plannedStartAt: new Date(Date.UTC(2032, 0, 1)), plannedEndAt: new Date(Date.UTC(2032, 0, 2)), createdById: ids.admin } });
+  const planB = await prisma.changePlan.create({ data: { siteId: ids.siteB, title: 'Zebrafish edge migration', reason: 'Phase D search', plannedStartAt: new Date(Date.UTC(2032, 0, 1)), plannedEndAt: new Date(Date.UTC(2032, 0, 2)), createdById: ids.admin } });
+  await prisma.auditLog.create({ data: { userId: ids.admin, action: 'ZEBRAFISH_TEST_EVENT', entityType: 'Device', entityId: ids.deviceA } });
+
+  const legacy = await request('GET', '/api/v1/dashboard/search?q=Zebrafish', 'qa-admin');
+  assert.equal(legacy.statusCode, 200, legacy.body);
+  assert.equal(json(legacy).items.some((item: { type: string }) => ['CHANGE_PLAN', 'AUDIT_EVENT', 'QUALITY_FINDING'].includes(item.type)), false);
+
+  const scoped = json(await request('GET', '/api/v1/dashboard/search?q=Zebrafish&types=CHANGE_PLAN', 'qa-network-scoped'));
+  assert.deepEqual(scoped.items.map((item: { id: string }) => item.id), [planA.id]);
+  assert.match(scoped.items[0].href, /^\/alteracoes\?/);
+  assert.deepEqual(json(await request('GET', '/api/v1/dashboard/search?q=Zebrafish&types=CHANGE_PLAN', 'qa-admin')).items.map((item: { id: string }) => item.id).sort(), [planA.id, planB.id].sort());
+
+  const auditor = json(await request('GET', '/api/v1/dashboard/search?q=zebrafish_test&types=AUDIT_EVENT', 'qa-auditor'));
+  assert.equal(auditor.items.length, 1);
+  assert.equal(auditor.items[0].type, 'AUDIT_EVENT');
+  assert.deepEqual(json(await request('GET', '/api/v1/dashboard/search?q=zebrafish_test&types=AUDIT_EVENT', 'qa-readonly')).items, []);
+  assert.deepEqual(json(await request('GET', '/api/v1/dashboard/search?q=zebrafish_test&types=AUDIT_EVENT', 'qa-network-scoped')).items, []);
+  assert.ok(json(await request('GET', '/api/v1/dashboard/search?q=Zebrafish&types=all&limit=20', 'qa-admin')).items.length <= 20);
+  assert.equal((await request('GET', '/api/v1/dashboard/search?q=Zebrafish&types=PEOPLE', 'qa-admin')).statusCode, 400);
+});
+
+test('Phase E portal: favourites, check-all link health and the pending role-request queue', async () => {
+  const server = createServer((req, res) => { res.statusCode = req.url === '/down' ? 503 : 200; res.end(); });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const previousAllowed = process.env.APPLICATION_LINK_CHECK_ALLOWED_CIDRS;
+  try {
+    const up = await prisma.applicationLink.create({ data: { name: 'Phase E up', url: `${base}/up`, checkAvailability: true } });
+    const down = await prisma.applicationLink.create({ data: { name: 'Phase E down', url: `${base}/down`, checkAvailability: true } });
+    const adminOnly = await prisma.applicationLink.create({ data: { name: 'Phase E admin only', url: `${base}/admin`, roles: { create: { role: 'ADMIN' } } } });
+
+    assert.equal((await request('PUT', `/api/v1/application-links/${down.id}/favorite`, 'qa-readonly', {})).statusCode, 200);
+    const second = await request('PUT', `/api/v1/application-links/${up.id}/favorite`, 'qa-readonly', { sortOrder: 0 });
+    assert.equal(second.statusCode, 200, second.body);
+    assert.equal(json(await request('PUT', `/api/v1/application-links/${down.id}/favorite`, 'qa-readonly', { sortOrder: 5 })).sortOrder, 5);
+    assert.equal(json(await request('PUT', `/api/v1/application-links/${down.id}/favorite`, 'qa-readonly', {})).sortOrder, 5);
+    assert.equal((await request('PUT', `/api/v1/application-links/${up.id}/favorite`, 'qa-readonly', { sortOrder: 20_000 })).statusCode, 400);
+    assert.equal((await request('PUT', `/api/v1/application-links/${adminOnly.id}/favorite`, 'qa-readonly', {})).statusCode, 404);
+    const favorites = json(await request('GET', '/api/v1/application-links/favorites', 'qa-readonly'));
+    assert.deepEqual(favorites.items.map((item: { id: string }) => item.id), [up.id, down.id]);
+    assert.deepEqual(json(await request('GET', '/api/v1/application-links/favorites', 'qa-auditor')).items, []);
+    const listed = json(await request('GET', '/api/v1/application-links', 'qa-readonly'));
+    const flags = (Array.isArray(listed) ? listed : listed.items).filter((item: { name: string }) => item.name.startsWith('Phase E')).map((item: { name: string; isFavorite: boolean }) => [item.name, item.isFavorite]).sort();
+    assert.deepEqual(flags, [['Phase E down', true], ['Phase E up', true]]);
+    assert.deepEqual(json(await request('DELETE', `/api/v1/application-links/${down.id}/favorite`, 'qa-readonly')), { linkId: down.id, isFavorite: false });
+    assert.equal((await request('DELETE', `/api/v1/application-links/${down.id}/favorite`, 'qa-readonly')).statusCode, 200);
+
+    assert.equal((await request('POST', '/api/v1/application-links/check-all', 'qa-readonly')).statusCode, 403);
+    // Loopback is blocked by default; the stand-in is only reachable once an operator allows it.
+    delete process.env.APPLICATION_LINK_CHECK_ALLOWED_CIDRS;
+    const blockedRun = json(await request('POST', '/api/v1/application-links/check-all', 'qa-admin'));
+    assert.equal(blockedRun.checked, 2); assert.equal(blockedRun.blocked, 2); assert.equal(blockedRun.available, 0);
+    assert.deepEqual(blockedRun.items.map((item: { code: string }) => item.code), ['BLOCKED', 'BLOCKED']);
+    const metadata = await prisma.applicationLink.create({ data: { name: 'Phase E metadata', url: 'http://169.254.169.254/latest/meta-data/', checkAvailability: true } });
+    process.env.APPLICATION_LINK_CHECK_ALLOWED_CIDRS = '127.0.0.1/32';
+    const withMetadata = json(await request('POST', '/api/v1/application-links/check-all', 'qa-admin'));
+    assert.equal(withMetadata.items.find((item: { id: string }) => item.id === metadata.id).code, 'BLOCKED');
+    assert.equal(withMetadata.nextOffset, null);
+    assert.equal((await request('POST', '/api/v1/application-links/check-all?offset=-1', 'qa-admin')).statusCode, 400);
+    await prisma.applicationLink.delete({ where: { id: metadata.id } });
+    const checked = await request('POST', '/api/v1/application-links/check-all', 'qa-admin');
+    assert.equal(checked.statusCode, 201, checked.body);
+    const checkedBody = json(checked);
+    assert.equal(checkedBody.scope, 'CHECK_AVAILABILITY');
+    assert.equal(checkedBody.checked, 2); assert.equal(checkedBody.available, 1); assert.equal(checkedBody.unavailable, 1);
+    assert.equal((await prisma.applicationLink.findUniqueOrThrow({ where: { id: down.id } })).isAvailable, false);
+    assert.equal((await prisma.applicationLink.findUniqueOrThrow({ where: { id: up.id } })).isAvailable, true);
+    assert.equal(json(await request('POST', '/api/v1/application-links/check-all?all=true', 'qa-admin')).checked, 3);
+  } finally {
+    if (previousAllowed === undefined) delete process.env.APPLICATION_LINK_CHECK_ALLOWED_CIDRS; else process.env.APPLICATION_LINK_CHECK_ALLOWED_CIDRS = previousAllowed;
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+
+  await prisma.roleRequest.deleteMany({});
+  const old = await prisma.roleRequest.create({ data: { userId: ids.readonly, roles: ['NETWORK_OPERATOR'], createdAt: new Date(Date.now() - 86_400_000) } });
+  const fresh = await prisma.roleRequest.create({ data: { userId: ids.auditor, roles: ['NETWORK_OPERATOR'], status: 'PROCESSING' } });
+  const decided = await prisma.roleRequest.create({ data: { userId: ids.systems, roles: ['ADMIN'], status: 'REJECTED', decidedAt: new Date() } });
+  const queue = await request('GET', '/api/v1/settings/role-requests', 'qa-admin');
+  assert.equal(queue.statusCode, 200, queue.body);
+  assert.deepEqual(json(queue).items.map((item: { id: string }) => item.id), [old.id, fresh.id]);
+  assert.equal(json(queue).items[0].user.username, 'qa-readonly');
+  assert.equal(json(queue).pendingTotal, 2);
+  assert.deepEqual(json(await request('GET', '/api/v1/settings/role-requests?status=REJECTED', 'qa-admin')).items.map((item: { id: string }) => item.id), [decided.id]);
+  assert.equal((await request('GET', '/api/v1/settings/role-requests?status=LOST', 'qa-admin')).statusCode, 400);
+  assert.equal((await request('GET', '/api/v1/settings/role-requests', 'qa-network-scoped')).statusCode, 403);
+});
+
 test('Phase C review fixes: activity hides plan-wide counts from scoped users, list/get batch visibility, facet bounds, CORS export headers', async () => {
   const day = (offset: number) => new Date(Date.UTC(2031, 1, 1 + offset, 8));
   const created = await request('POST', '/api/v1/change-plans', 'qa-admin', { siteId: ids.siteA, title: 'Phase C hidden-target activity', reason: 'Review fix', plannedStartAt: day(1).toISOString(), plannedEndAt: day(2).toISOString(), items: [{ entityType: 'DEVICE', entityId: ids.deviceA, operationSummary: 'Visible' }, { entityType: 'DEVICE', entityId: ids.deviceSibling, operationSummary: 'Hidden' }] });
@@ -1206,4 +1521,61 @@ test('Phase C review fixes: activity hides plan-wide counts from scoped users, l
   assert.equal(cors.statusCode, 200, cors.body);
   assert.match(String(cors.headers['access-control-expose-headers']), /X-Export-Row-Count/);
   assert.match(String(cors.headers['access-control-expose-headers']), /X-Export-Truncated/);
+});
+
+test('Step 16 NetApp trend: each refresh appends history, trend per aggregate/volume, retention prune, Site isolation', async () => {
+  const integration = await prisma.netAppIntegration.create({ data: { siteId: ids.siteA, endpointUrl: 'https://ontap.http-qa.example', username: 'reader', ...encryptCredential({ password: 'ontap-pw' }, testKeyring) } });
+  const DAY = 86_400_000;
+  // Old samples: one past the 400-day retention (pruned on the next refresh) and two inside the window.
+  const old = await prisma.netAppCapacitySample.create({ data: { integrationId: integration.id, kind: 'AGGREGATE', objectKey: 'aggr-uuid-1', name: 'aggr1', sizeBytes: 1000n, usedBytes: 100n, observedAt: new Date(Date.now() - 401 * DAY) } });
+  await prisma.netAppCapacitySample.createMany({ data: [
+    { integrationId: integration.id, kind: 'AGGREGATE', objectKey: 'aggr-uuid-1', name: 'aggr1', sizeBytes: 1000n, usedBytes: 300n, observedAt: new Date(Date.now() - 2 * DAY) },
+    { integrationId: integration.id, kind: 'AGGREGATE', objectKey: 'aggr-uuid-1', name: 'aggr1', sizeBytes: 1000n, usedBytes: 350n, observedAt: new Date(Date.now() - 1 * DAY) },
+  ] });
+  let used = 400;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: URL | string) => {
+    const url = String(input);
+    const body = url.includes('/api/cluster?') ? { name: 'qa-cluster', uuid: 'c-1' }
+      : url.includes('/cluster/nodes') ? { records: [{ name: 'node1', health: true }] }
+      : url.includes('/storage/aggregates') ? { records: [{ name: 'aggr1', uuid: 'aggr-uuid-1', state: 'online', space: { block_storage: { size: 1000, used } } }] }
+      : { records: [{ name: 'vol1', uuid: 'vol-uuid-1', state: 'online', svm: { name: 'svm1' }, space: { size: 200, used: 20 } }] };
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as typeof fetch;
+  try {
+    const first = await request('POST', `/api/v1/netapp/sites/${ids.siteA}/refresh`, 'qa-admin');
+    assert.equal(first.statusCode, 201, first.body);
+    used = 450;
+    assert.equal((await request('POST', `/api/v1/netapp/sites/${ids.siteA}/refresh`, 'qa-admin')).statusCode, 201);
+  } finally { globalThis.fetch = originalFetch; }
+
+  // Current-snapshot behaviour is unchanged: GET still returns the latest snapshot.
+  const current = json(await request('GET', `/api/v1/netapp/sites/${ids.siteA}`, 'qa-readonly'));
+  assert.equal(current.snapshot.aggregates[0].usedBytes, 450);
+  // Two refreshes × (cluster + aggregate + volume), plus the two in-window seeds; the 401-day-old row is pruned.
+  assert.equal(await prisma.netAppCapacitySample.count({ where: { integrationId: integration.id } }), 8);
+  assert.equal(await prisma.netAppCapacitySample.findUnique({ where: { id: old.id } }), null);
+
+  const trendResponse = await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend?kind=AGGREGATE&key=aggr-uuid-1&days=30`, 'qa-readonly');
+  assert.equal(trendResponse.statusCode, 200, trendResponse.body);
+  const trend = json(trendResponse);
+  // One point per day: today's two refreshes collapse to the later one (450).
+  assert.deepEqual(trend.points.map((point: { usedBytes: number }) => point.usedBytes), [300, 350, 450]);
+  assert.equal(trend.name, 'aggr1');
+  assert.equal(trend.retentionDays, 400);
+  assert.ok(trend.summary.growthBytesPerDay > 0);
+  assert.ok(trend.summary.projectedFullAt);
+  const cluster = json(await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend`, 'qa-readonly'));
+  assert.equal(cluster.kind, 'CLUSTER');
+  assert.equal(cluster.points.at(-1).usedBytes, 450);
+  const volumes = json(await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend/objects?kind=VOLUME`, 'qa-readonly'));
+  assert.deepEqual(volumes.items.map((item: { key: string; svm: string; usedPercent: number }) => [item.key, item.svm, item.usedPercent]), [['vol-uuid-1', 'svm1', 10]]);
+  const aggregates = json(await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend/objects?kind=AGGREGATE&days=30`, 'qa-readonly'));
+  assert.equal(aggregates.items[0].changeBytes, 150);
+
+  assert.equal((await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend?kind=VOLUME`, 'qa-readonly')).statusCode, 400);
+  assert.equal((await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend?kind=DISK&key=x`, 'qa-readonly')).statusCode, 400);
+  assert.equal((await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend?days=401`, 'qa-readonly')).statusCode, 400);
+  assert.equal((await request('GET', `/api/v1/netapp/sites/${ids.siteB}/trend`, 'qa-admin')).statusCode, 404);
+  assert.equal((await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend`, 'qa-network-legacy')).statusCode, 404);
 });

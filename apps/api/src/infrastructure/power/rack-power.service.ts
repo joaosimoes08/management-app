@@ -6,6 +6,7 @@ import { InfrastructureAccessService } from '../infrastructure-access.service';
 import { DevicePowerDto, RackPowerDto } from './dto';
 import { updateViolations } from '../required-config/device-required-config';
 import { RequiredConfigException } from '../required-config/device-required-config.service';
+import { buildRackPowerSummary, buildSitePowerSummary, SITE_SUMMARY_RACK_LIMIT, type SummaryThresholds } from './power-summary';
 import { allocatePlugs, defaultPlugRequests, planPduSettings, resolvePlugCount, summarizeRackPower, type AllocationPdu, type PduInput, type PlugRequest, type PowerDeviceInput, type RackPowerSummary } from './rack-power';
 
 /** Prisma include that loads everything summarizeRackPower needs for a rack. */
@@ -71,6 +72,42 @@ export class RackPowerService {
     const rack = await client.rack.findUnique({ where: { id: rackId }, select: { pdus: { include: RACK_POWER_PDU_INCLUDE }, devices: { select: { id: true, name: true, type: true, powerPlugCount: true, estimatedWatts: true, model: { select: { powerPlugCount: true, typicalWatts: true, maxWatts: true } } } } } });
     if (!rack) throw new NotFoundException('Bastidor não encontrado');
     return summarizeRackPower(rack.pdus, rack.devices);
+  }
+
+  private static readonly SUMMARY_SELECT = {
+    id: true, name: true, roomId: true, room: { select: { name: true, building: { select: { name: true } } } },
+    pdus: { include: RACK_POWER_PDU_INCLUDE },
+    devices: { select: { id: true, name: true, type: true, powerPlugCount: true, estimatedWatts: true, model: { select: { powerPlugCount: true, typicalWatts: true, maxWatts: true } } } },
+  } as const;
+
+  private summaryView(rack: any, thresholds: SummaryThresholds) {
+    return buildRackPowerSummary({
+      rack: { id: rack.id, name: rack.name, roomId: rack.roomId, roomName: rack.room?.name ?? null, buildingName: rack.room?.building?.name ?? null },
+      devices: rack.devices,
+      power: summarizeRackPower(rack.pdus, rack.devices),
+    }, thresholds);
+  }
+
+  /** GET racks/:id/power-summary — capacity vs estimated draw for one rack (rack READ). */
+  async rackPowerSummary(rackId: string, user: AuthenticatedUser, thresholds: SummaryThresholds) {
+    await this.access.assertRack(user, 'READ', rackId);
+    const rack = await this.prisma.rack.findUnique({ where: { id: rackId }, select: RackPowerService.SUMMARY_SELECT });
+    if (!rack) throw new NotFoundException('Bastidor não encontrado');
+    return this.summaryView(rack, thresholds);
+  }
+
+  /** GET sites/:siteId/power-summary — every rack the user can read in the Site, worst first (bounded). */
+  async sitePowerSummary(siteId: string, user: AuthenticatedUser, thresholds: SummaryThresholds) {
+    await this.access.assertSite(user, 'READ', siteId);
+    const roomIds = await this.access.visibleRoomIds(user, siteId);
+    const racks = await this.prisma.rack.findMany({
+      where: { roomId: { in: roomIds }, room: { building: { siteId } } },
+      select: RackPowerService.SUMMARY_SELECT,
+      orderBy: [{ roomId: 'asc' }, { displayOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
+      take: SITE_SUMMARY_RACK_LIMIT + 1,
+    });
+    const truncated = racks.length > SITE_SUMMARY_RACK_LIMIT;
+    return buildSitePowerSummary(siteId, racks.slice(0, SITE_SUMMARY_RACK_LIMIT).map((rack: any) => this.summaryView(rack, thresholds)), thresholds, truncated);
   }
 
   private async lockRackPdus(tx: any, rackId: string) {
