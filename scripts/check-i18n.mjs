@@ -29,6 +29,9 @@ const operationalFiles = [
   'apps/web/features/topology/topology-filters-menu.tsx',
   'apps/web/components/ui/bulk-review-dialog.tsx',
   'apps/web/features/discovery/discovery-results.tsx',
+  'apps/web/features/snmp/snmp-fleet.tsx',
+  'apps/web/features/snmp/snmp-drifts.tsx',
+  'apps/web/features/snmp/snmp-bounds.ts',
 ];
 
 function sourceFile(relative, kind = ts.ScriptKind.TSX) {
