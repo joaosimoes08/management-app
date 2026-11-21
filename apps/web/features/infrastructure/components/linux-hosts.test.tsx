@@ -60,7 +60,7 @@ describe('Linux hosts', () => {
     const drawer = screen.getByRole('dialog', { name: 'Host A' });
     expect(await within(drawer).findByText('SSH')).toBeInTheDocument();
     expect(within(drawer).getByRole('link', { name: '192.0.2.1' })).toHaveAttribute('href', '/ipam?siteId=site-a&subnetId=subnet-a&ipId=ip-a');
-    expect(within(drawer).getByRole('link', { name: 'Equipamento A' })).toHaveAttribute('href', '/infraestrutura?siteId=site-a&tab=devices&deviceId=device-a&focus=device');
+    expect(within(drawer).getByRole('link', { name: 'Equipamento A' })).toHaveAttribute('href', '/infraestrutura/equipamentos/device-a?siteId=site-a');
     fireEvent.click(within(drawer).getByRole('button', { name: 'linuxHosts.close' }));
     expect(screen.queryByRole('dialog')).toBeNull();
   });

@@ -74,7 +74,7 @@ describe('AuditPage', () => {
   it('links the changed record and shows a plain state when no before/after was stored', async () => {
     renderPage();
     const link = await screen.findByRole('link', { name: 'SW-1' });
-    expect(link).toHaveAttribute('href', '/infraestrutura?siteId=s1&tab=devices&deviceId=dev-1&focus=device');
+    expect(link).toHaveAttribute('href', '/infraestrutura/equipamentos/dev-1?siteId=s1');
     fireEvent.click(screen.getAllByRole('button', { name: 'Ver detalhe de DEVICE_UPDATED' })[0]);
     const panel = screen.getByRole('complementary', { name: 'Detalhe de DEVICE_UPDATED' });
     expect(within(panel).getByText(/não guardou os valores anteriores/)).toBeInTheDocument();

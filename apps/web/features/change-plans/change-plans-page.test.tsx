@@ -260,7 +260,7 @@ describe('ChangePlansPage workspace', () => {
     expect(mocks.getChangeActivity).toHaveBeenCalledWith('p1');
     expect(await screen.findByText('A janela sobrepõe-se a outras alterações ou manutenções deste Site')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Renomear VLAN' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Core-SW-01' })).toHaveAttribute('href', '/infraestrutura?siteId=site-1&tab=devices&deviceId=device-1&focus=device');
+    expect(screen.getByRole('link', { name: 'Core-SW-01' })).toHaveAttribute('href', '/infraestrutura/equipamentos/device-1?siteId=site-1');
     expect(await screen.findByRole('heading', { name: 'Atividade' })).toBeInTheDocument();
     expect(screen.getByText('Ainda não há atividade registada para esta alteração.')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '← Todas as alterações' }));
