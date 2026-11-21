@@ -31,7 +31,8 @@ vi.mock('./api', () => ({
   tickChecklistItem: mocks.tickChecklistItem, addChecklistItems: mocks.addChecklistItems, removeChecklistItem: mocks.removeChecklistItem, getPostChangeCheck: mocks.getPostChangeCheck,
 }));
 vi.mock('@/components/layout/app-shell', async (importOriginal) => ({ ...await importOriginal<typeof import('@/components/layout/app-shell')>(), AppShell: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
-vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: () => true }) }));
+const auth = vi.hoisted(() => ({ roles: null as string[] | null }));
+vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: (role: string) => auth.roles === null || auth.roles.includes(role) }) }));
 vi.mock('@/lib/site-context', () => ({ useSiteContext: () => ({ siteId: 'site-1', activeSite: { id: 'site-1', name: 'Site One' } }) }));
 
 const emptySummary = { siteId: 'site-1', total: 0, byStatus: { DRAFT: 0, SUBMITTED: 0, APPROVED: 0, REJECTED: 0, CANCELLED: 0 }, inProgress: 0, upcoming: 0, generatedAt: '' };
@@ -40,7 +41,7 @@ beforeEach(() => {
   mocks.getChangeCalendar.mockResolvedValue({ siteId: 'site-1', from: '', to: '', changePlans: [], maintenanceWindows: [], truncated: false });
   mocks.getChangeConflicts.mockResolvedValue({ changePlanId: '', tierSource: 'IS_CRITICAL', warnings: [], generatedAt: '' });
 });
-afterEach(() => { cleanup(); vi.clearAllMocks(); mocks.detail = null; });
+afterEach(() => { cleanup(); vi.clearAllMocks(); mocks.detail = null; auth.roles = null; });
 
 describe('ChangePlansPage impact preview transition', () => {
   it('renders the list-card title without a decorative site eyebrow and keeps its count badge', async () => {
@@ -348,6 +349,25 @@ describe('ChangePlansPage implementation and close-out (Step 30)', () => {
     expect(await screen.findByText(/Implementação iniciada com 1 aviso/)).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Encerrar alteração' })).toBeInTheDocument();
     expect(screen.getByText(/Ana Ops/)).toBeInTheDocument();
+  });
+
+  it('gives an auditor a read-only execution panel: no start, no ticks, no close-out', async () => {
+    auth.roles = ['AUDITOR'];
+    const step = { id: 'step-1', position: 1, label: 'Guardar configuração', doneAt: null, doneBy: null };
+    setup(plan({ checklist: [step] }));
+    const { unmount } = render(<ChangePlansPage />);
+    expect(await screen.findByRole('checkbox', { name: /Guardar configuração/ })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Iniciar implementação' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Novos passos (um por linha)')).not.toBeInTheDocument();
+    unmount();
+
+    setup(plan({ status: 'IN_PROGRESS', startedAt: '2026-11-22T22:01:00.000Z', checklist: [step] }));
+    render(<ChangePlansPage />);
+    expect(await screen.findByRole('checkbox', { name: /Guardar configuração/ })).toBeDisabled();
+    expect(screen.queryByRole('heading', { name: 'Encerrar alteração' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Encerrar alteração' })).not.toBeInTheDocument();
+    expect(mocks.startChangePlan).not.toHaveBeenCalled();
+    expect(mocks.tickChecklistItem).not.toHaveBeenCalled();
   });
 
   it('ticks checklist steps only while in progress and records who ticked them', async () => {
