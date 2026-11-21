@@ -2655,6 +2655,7 @@ body { color:var(--ink); background:#e9eef5; }
 /* Phase D: drill-through KPI tiles are links; keep the tile look and show the hover/focus target. */
 a.dashboard-kpi { color:inherit; text-decoration:none; }
 a.dashboard-kpi:hover { box-shadow:0 9px 24px rgba(35,55,87,.09); }
+a.dashboard-kpi:focus-visible { box-shadow:0 9px 24px rgba(35,55,87,.09); outline:3px solid #4778da; outline-offset:2px; }
 .dashboard-kpi.severity { border-left:4px solid var(--severity-color,#dfe6f0); }
 .dashboard-kpi.severity .dashboard-kpi-head span { color:var(--severity-ink,#58687f); }
 .dashboard-kpi.severity .dashboard-kpi-head span::before { display:inline-block; width:7px; height:7px; margin-right:6px; border-radius:50%; background:var(--severity-color); content:''; vertical-align:1px; }
@@ -2903,7 +2904,7 @@ a.dashboard-kpi:hover { box-shadow:0 9px 24px rgba(35,55,87,.09); }
 .rack-pdu-compact[data-level="over"] .rack-pdu-thin-fill { background:#f0614f; }
 .rack-pdu-badge-compact { top:0; padding:2px 3px; min-width:0; transform:translate(-50%, calc(-100% - 2px)); font-size:8px; }
 .rack-pdu-badge-compact b { font-size:8.5px; }
-.rack-power-summary { margin-top:3px !important; color:#45556b !important; font:600 12px/1.3 'DM Sans',Arial,sans-serif !important; font-variant-numeric:tabular-nums; }
+.rack-view .rack-power-summary { margin-top:3px; color:#45556b; font:600 12px/1.3 'DM Sans',Arial,sans-serif; font-variant-numeric:tabular-nums; }
 
 /* PDU card: shares the device card's surface, title, label/value rows and type (see .rack-equipment-tooltip above); only what the PDU card adds lives here. */
 .rack-pdu-card { z-index:1101; max-height:calc(100vh - 16px); overflow:auto; pointer-events:auto; font:500 11px/1.25 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
