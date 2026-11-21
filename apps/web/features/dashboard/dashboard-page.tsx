@@ -16,6 +16,7 @@ import {
   AlertTriangle,
   SlidersHorizontal,
   Radar,
+  CalendarClock,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { AppShell, ToolbarMore } from '@/components/layout/app-shell';
@@ -26,6 +27,7 @@ import { useSiteContext } from '@/lib/site-context';
 import { useI18n } from '@/lib/i18n';
 import { countProblemsBySeverity, type DashboardSeverity } from './severity';
 import { formatDateTime, formatNumber } from '@/lib/format/date';
+import { alertListHref, auditHref, changePlansHref, deviceListHref, discoveryJobsHref, qualityListHref, severityTileHref, subnetListHref, widgetLabel } from './drill-through';
 
 const severityTiles: Array<{ severity: DashboardSeverity; labelKey: string }> = [
   { severity: 'CRITICAL', labelKey: 'dashboard.severity.critical' },
@@ -40,14 +42,15 @@ const kpiWidgetIds = new Set(['running-processes', 'discovery-review', 'snmp-dri
 const FIT_COLUMNS = 3;
 const FIT_CELLS = FIT_COLUMNS * 2;
 
-function KpiTile({ label, value, detail, icon: Icon, tone = '', ariaLabel }: { label: string; value: string; detail?: string; icon?: typeof Activity; tone?: string; ariaLabel?: string }) {
-  return (
-    <article className={`dashboard-kpi ${tone}`.trim()} aria-label={ariaLabel}>
-      <div className="dashboard-kpi-head"><span>{label}</span>{Icon && <Icon size={14} strokeWidth={1.8} aria-hidden="true" />}</div>
-      <div className="dashboard-kpi-value">{value}</div>
-      {detail && <small>{detail}</small>}
-    </article>
-  );
+/** A KPI tile; with `href` the whole tile is a link to the matching filtered list (drill-through). */
+function KpiTile({ label, value, detail, icon: Icon, tone = '', ariaLabel, href }: { label: string; value: string; detail?: string; icon?: typeof Activity; tone?: string; ariaLabel?: string; href?: string }) {
+  const className = `dashboard-kpi ${tone}`.trim();
+  const content = <>
+    <div className="dashboard-kpi-head"><span>{label}</span>{Icon && <Icon size={14} strokeWidth={1.8} aria-hidden="true" />}</div>
+    <div className="dashboard-kpi-value">{value}</div>
+    {detail && <small>{detail}</small>}
+  </>;
+  return href ? <Link className={className} href={href} aria-label={ariaLabel}>{content}</Link> : <article className={className} aria-label={ariaLabel}>{content}</article>;
 }
 
 export default function DashboardPage() {
@@ -81,6 +84,9 @@ export default function DashboardPage() {
   const canNetworkChange = hasRole('ADMIN') || hasRole('NETWORK_OPERATOR');
   const canConfigureAlerts = hasRole('ADMIN');
   const canViewAudit = hasRole('ADMIN') || hasRole('AUDITOR');
+  const canViewChanges = ['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'AUDITOR', 'READ_ONLY'].some(hasRole);
+  /** Drill-through links open the list in the dashboard's workspace Site. */
+  const drillSiteId = workspace?.siteId || siteId || undefined;
   const operationalPercent = operational?.services.length
     ? Math.round(operational.services.filter((item) => item.state === 'OPERATIONAL').length / operational.services.length * 100)
     : 0;
@@ -108,13 +114,24 @@ export default function DashboardPage() {
 
   const counts = summary?.counts ? { ...summary.counts, ...(operational?.inventory ?? {}) } : undefined;
   const recentAudit = summary?.recentAudit ?? [];
-  const inventoryBars = counts ? [
+  const inventoryBars: Array<{ label: string; value: number; color: string; href?: string }> = counts ? [
     { label: 'Sites', value: counts.sites, color: 'black' },
-    { label: 'Equipamentos', value: counts.devices, color: 'blue' },
+    { label: 'Equipamentos', value: counts.devices, color: 'blue', href: deviceListHref(drillSiteId) },
     { label: 'VLANs', value: counts.vlans, color: 'purple' },
-    { label: 'Subnets', value: counts.subnets, color: 'green' },
+    { label: 'Subnets', value: counts.subnets, color: 'green', href: subnetListHref(drillSiteId, { sort: 'utilization' }) },
     { label: 'IPs', value: counts.ips, color: 'orange' },
   ] : [];
+  /** Drill-through shortcuts in "Acesso rápido": each opens a list already filtered. */
+  const drillLinks: Array<{ label: string; href: string; icon: typeof Activity }> = [
+    { label: 'Equipamentos críticos', href: deviceListHref(drillSiteId, { critical: true }), icon: ShieldCheck },
+    { label: 'Ciclo de vida expirado', href: deviceListHref(drillSiteId, { lifecycle: 'overdue' }), icon: AlertTriangle },
+    { label: 'Ciclo de vida nos próximos 90 dias', href: deviceListHref(drillSiteId, { lifecycle: 'due:90' }), icon: CalendarClock },
+    { label: 'Subnets acima de 80%', href: subnetListHref(drillSiteId, { band: 'WARNING,CRITICAL', sort: 'utilization' }), icon: Network },
+    { label: 'Alertas críticos abertos', href: alertListHref(drillSiteId, { severity: 'CRITICAL', status: 'OPEN' }), icon: Bell },
+    { label: 'Findings de qualidade críticos', href: qualityListHref(drillSiteId, { severity: 'CRITICAL' }), icon: ClipboardCheck },
+    ...(canViewChanges ? [{ label: 'Alterações em revisão', href: changePlansHref(drillSiteId, { status: 'SUBMITTED' }), icon: CalendarClock }] : []),
+    ...(canNetworkChange ? [{ label: 'Descobertas com falha', href: discoveryJobsHref({ status: 'FAILED' }), icon: Radar }] : []),
+  ];
   const problems = countProblemsBySeverity(operational?.alerts?.groups, operational?.quality?.groups);
   const operationalValue = (value: number | undefined) => operational && value !== undefined ? formatNumber(value) : operationalError || workspacesStatus === 'error' ? t('dashboard.error') : workspacesStatus === 'ready' && !workspace ? '—' : operationalPending || workspacesStatus === 'loading' ? '…' : '—';
 
@@ -124,7 +141,7 @@ export default function DashboardPage() {
   return (
     <AppShell section="Dashboard" globalSearch toolbar={dashboardToolbar} actions={dashboardActions}>
           <div className={`dashboard-content dashboard-fit${fitOverflow || editingLayout ? ' dashboard-fit--scroll' : ''}`}>
-            {editingLayout && canEditLayout && layout && <section className="ipam-card dashboard-layout-editor"><div className="panel-heading"><div><h2>Widgets do dashboard</h2><p className="panel-description">Escolhe o que aparece e quais cartões ocupam a largura completa.</p></div></div>{fitOverflow && <p className="dashboard-fit-warning" role="status"><AlertTriangle size={15} aria-hidden="true" /> {t('dashboard.fitOverflowWarning')}</p>}<div className="dashboard-layout-options">{layout.widgets.map((widget) => <div className="dashboard-layout-option" key={widget.id}><label><input type="checkbox" checked={widget.visible} onChange={(event) => setLayout((current) => current ? ({ ...current, widgets: current.widgets.map((item) => item.id === widget.id ? { ...item, visible: event.target.checked } : item) }) : current)} /> <strong>{widget.id}</strong></label>{kpiWidgetIds.has(widget.id) ? <span className="dashboard-layout-kpi-note">{t('dashboard.kpiWidget')}</span> : <label>Largura<select value={widget.w >= 9 ? '12' : '6'} onChange={(event) => { const width = Number(event.target.value); updateWidget(widget.id, 'w', width); updateWidget(widget.id, 'x', 0); }}><option value="6">Metade</option><option value="12">Completa</option></select></label>}</div>)}</div><button className="primary-button" onClick={() => void saveDashboardLayout(layout).then((saved) => { setLayout(saved); setEditingLayout(false); })}>Guardar layout</button></section>}
+            {editingLayout && canEditLayout && layout && <section className="ipam-card dashboard-layout-editor"><div className="panel-heading"><div><h2>Widgets do dashboard</h2><p className="panel-description">Escolhe o que aparece e quais cartões ocupam a largura completa.</p></div></div>{fitOverflow && <p className="dashboard-fit-warning" role="status"><AlertTriangle size={15} aria-hidden="true" /> {t('dashboard.fitOverflowWarning')}</p>}<div className="dashboard-layout-options">{layout.widgets.map((widget) => <div className="dashboard-layout-option" key={widget.id}><label><input type="checkbox" checked={widget.visible} onChange={(event) => setLayout((current) => current ? ({ ...current, widgets: current.widgets.map((item) => item.id === widget.id ? { ...item, visible: event.target.checked } : item) }) : current)} /> <strong>{widgetLabel(widget.id)}</strong></label>{kpiWidgetIds.has(widget.id) ? <span className="dashboard-layout-kpi-note">{t('dashboard.kpiWidget')}</span> : <label>Largura<select value={widget.w >= 9 ? '12' : '6'} onChange={(event) => { const width = Number(event.target.value); updateWidget(widget.id, 'w', width); updateWidget(widget.id, 'x', 0); }}><option value="6">Metade</option><option value="12">Completa</option></select></label>}</div>)}</div><button className="primary-button" onClick={() => void saveDashboardLayout(layout).then((saved) => { setLayout(saved); setEditingLayout(false); })}>Guardar layout</button></section>}
             {workspacesStatus === 'error' && <p className="dashboard-fit-warning dashboard-load-error" role="alert"><AlertTriangle size={15} aria-hidden="true" /> {t('dashboard.workspacesError')} <button className="text-button" onClick={refreshDashboard}>{t('dashboard.retry')}</button></p>}
             {workspacesStatus === 'ready' && workspaces.length === 0 && <p className="dashboard-fit-warning" role="status"><AlertTriangle size={15} aria-hidden="true" /> {t('dashboard.noWorkspace')}</p>}
             <section className="hero-row dashboard-hero">
@@ -132,11 +149,11 @@ export default function DashboardPage() {
             </section>
 
             <section className="dashboard-kpi-strip" aria-label={t('dashboard.kpis')}>
-              <KpiTile label={t('dashboard.assets')} value={operationalValue(operational?.inventory?.devices)} detail={t('dashboard.assetsDetail')} icon={Server} tone="assets" />
-              {severityTiles.map(({ severity, labelKey }) => { const count = problems[severity]; const label = t(labelKey); const detail = t('dashboard.severityDetail', undefined, { alerts: count.alerts, quality: count.quality }); return <KpiTile key={severity} label={label} value={operationalValue(count.total)} detail={detail} tone={`severity ${severity.toLowerCase()}${count.total ? '' : ' is-zero'}`} ariaLabel={operational ? `${label}: ${count.total} — ${detail}` : undefined} />; })}
-              {visible('running-processes') && <KpiTile label={t('dashboard.runningProcesses')} value={operationalValue(operational?.processes.length)} icon={Activity} />}
-              {visible('discovery-review') && <KpiTile label={t('dashboard.discoveryReview')} value={operationalValue(operational?.discovery)} icon={Search} />}
-              {visible('snmp-drifts') && <KpiTile label={t('dashboard.snmpDrifts')} value={operationalValue(operational?.drifts)} icon={Network} />}
+              <KpiTile label={t('dashboard.assets')} value={operationalValue(operational?.inventory?.devices)} detail={t('dashboard.assetsDetail')} icon={Server} tone="assets" href={deviceListHref(drillSiteId)} />
+              {severityTiles.map(({ severity, labelKey }) => { const count = problems[severity]; const label = t(labelKey); const detail = t('dashboard.severityDetail', undefined, { alerts: count.alerts, quality: count.quality }); return <KpiTile key={severity} label={label} value={operationalValue(count.total)} detail={detail} tone={`severity ${severity.toLowerCase()}${count.total ? '' : ' is-zero'}`} ariaLabel={operational ? `${label}: ${count.total} — ${detail}` : undefined} href={severityTileHref(drillSiteId, severity, count)} />; })}
+              {visible('running-processes') && <KpiTile label={t('dashboard.runningProcesses')} value={operationalValue(operational?.processes.length)} icon={Activity} href={canNetworkChange ? discoveryJobsHref({ status: 'PENDING,RUNNING' }) : undefined} />}
+              {visible('discovery-review') && <KpiTile label={t('dashboard.discoveryReview')} value={operationalValue(operational?.discovery)} icon={Search} href={canNetworkChange ? discoveryJobsHref({ status: 'FAILED' }) : undefined} />}
+              {visible('snmp-drifts') && <KpiTile label={t('dashboard.snmpDrifts')} value={operationalValue(operational?.drifts)} icon={Network} href="/snmp" />}
             </section>
 
             <section className="dashboard-widget-grid" aria-label={t('dashboard.siteOperations')}>
@@ -148,10 +165,10 @@ export default function DashboardPage() {
 
               {visible('inventory-summary') && <article className={`panel ipam-card trend-panel ${widgetClass('inventory-summary')}`} style={gridStyle('inventory-summary')}>
                 <div className="panel-heading"><div><h2>Distribuição atual</h2></div><span className="data-badge">dados reais</span></div>
-                <div className="inventory-bars dashboard-scroll" tabIndex={0} role="region" aria-label={t('dashboard.inventoryList')}>{inventoryBars.length ? inventoryBars.map((item) => { const max = Math.max(...inventoryBars.map((bar) => bar.value), 1); return <div className="inventory-bar" key={item.label}><div><span>{item.label}</span><strong>{formatNumber(item.value)}</strong></div><div className="bar-track"><i className={item.color} style={{ width: `${Math.max(item.value / max * 100, item.value ? 4 : 0)}%` }} /></div></div>; }) : <div className="no-data" role="status">{summaryError ? t('dashboard.inventoryLoadError') : t('dashboard.inventoryLoading')}</div>}</div>
+                <div className="inventory-bars dashboard-scroll" tabIndex={0} role="region" aria-label={t('dashboard.inventoryList')}>{inventoryBars.length ? inventoryBars.map((item) => { const max = Math.max(...inventoryBars.map((bar) => bar.value), 1); return <div className="inventory-bar" key={item.label}><div>{item.href ? <Link className="text-button" href={item.href}>{item.label} <ArrowUpRight size={12} aria-hidden="true" /></Link> : <span>{item.label}</span>}<strong>{formatNumber(item.value)}</strong></div><div className="bar-track"><i className={item.color} style={{ width: `${Math.max(item.value / max * 100, item.value ? 4 : 0)}%` }} /></div></div>; }) : <div className="no-data" role="status">{summaryError ? t('dashboard.inventoryLoadError') : t('dashboard.inventoryLoading')}</div>}</div>
               </article>}
-              {visible('recent-changes') && <article className={`panel ipam-card activity-panel ${widgetClass('recent-changes')}`} style={gridStyle('recent-changes')}><div className="panel-heading"><div><h2>Atividade recente</h2></div>{canViewAudit && <button className="text-button" onClick={() => { window.location.href = '/auditoria'; }}>Ver auditoria <ArrowUpRight size={14} /></button>}</div><div className="activity-list dashboard-scroll" tabIndex={0} role="region" aria-label={t('dashboard.activityList')} aria-live="polite">{summaryPending ? <div className="no-data">A carregar atividade recente…</div> : summaryError ? <div className="no-data" role="status">Não foi possível carregar a atividade. Tenta atualizar o dashboard.</div> : recentAudit.length ? recentAudit.map((entry) => <div className="activity-row" key={entry.id}><span className="activity-icon dark"><ShieldCheck size={16} /></span><span><strong>{entry.username} · {entry.action}</strong><small>{entry.entityType ?? 'Operação'} · {formatDateTime(entry.createdAt)}</small></span><ArrowUpRight size={15} className="muted-icon" /></div>) : <div className="no-data">Ainda não existem ações registadas.</div>}</div></article>}
-              {visible('quick-actions') && <article className={`panel ipam-card quick-panel ${widgetClass('quick-actions')}`} style={gridStyle('quick-actions')}><div className="panel-heading"><div><h2>Acesso rápido</h2></div></div><p className="dashboard-toolbar-hint">Aceda às próximas áreas de operação.</p><nav className="dashboard-quick-links dashboard-scroll" aria-label="Atalhos para outras áreas">{canConfigureAlerts && <Link className="dashboard-quick-link" href="/alertas"><Bell size={17} /><span>Regras de alertas</span><ArrowUpRight size={15} className="dashboard-quick-link-arrow" /></Link>}<Link className="dashboard-quick-link" href="/qualidade-inventario"><ClipboardCheck size={17} /><span>Qualidade do inventário</span><ArrowUpRight size={15} className="dashboard-quick-link-arrow" /></Link>{canNetworkChange && <Link className="dashboard-quick-link" href="/descoberta?action=new"><Radar size={17} /><span>Iniciar descoberta</span><ArrowUpRight size={15} className="dashboard-quick-link-arrow" /></Link>}</nav></article>}
+              {visible('recent-changes') && <article className={`panel ipam-card activity-panel ${widgetClass('recent-changes')}`} style={gridStyle('recent-changes')}><div className="panel-heading"><div><h2>Atividade recente</h2></div>{canViewAudit && <button className="text-button" onClick={() => { window.location.href = '/auditoria'; }}>Ver auditoria <ArrowUpRight size={14} /></button>}</div><div className="activity-list dashboard-scroll" tabIndex={0} role="region" aria-label={t('dashboard.activityList')} aria-live="polite">{summaryPending ? <div className="no-data">A carregar atividade recente…</div> : summaryError ? <div className="no-data" role="status">Não foi possível carregar a atividade. Tenta atualizar o dashboard.</div> : recentAudit.length ? recentAudit.map((entry) => <div className="activity-row" key={entry.id}><span className="activity-icon dark"><ShieldCheck size={16} /></span><span><strong>{entry.username} · {entry.action}</strong><small>{entry.entityType ?? 'Operação'} · {formatDateTime(entry.createdAt)}</small></span>{canViewAudit ? <Link className="icon-button subtle" href={auditHref({ entityType: entry.entityType, event: entry.id })} aria-label={`Abrir na auditoria: ${entry.action}`}><ArrowUpRight size={15} /></Link> : <ArrowUpRight size={15} className="muted-icon" />}</div>) : <div className="no-data">Ainda não existem ações registadas.</div>}</div></article>}
+              {visible('quick-actions') && <article className={`panel ipam-card quick-panel ${widgetClass('quick-actions')}`} style={gridStyle('quick-actions')}><div className="panel-heading"><div><h2>Acesso rápido</h2></div></div><p className="dashboard-toolbar-hint">Aceda às próximas áreas de operação.</p><nav className="dashboard-quick-links dashboard-scroll" aria-label="Atalhos para outras áreas">{canConfigureAlerts && <Link className="dashboard-quick-link" href="/alertas"><Bell size={17} /><span>Regras de alertas</span><ArrowUpRight size={15} className="dashboard-quick-link-arrow" /></Link>}<Link className="dashboard-quick-link" href="/qualidade-inventario"><ClipboardCheck size={17} /><span>Qualidade do inventário</span><ArrowUpRight size={15} className="dashboard-quick-link-arrow" /></Link>{canNetworkChange && <Link className="dashboard-quick-link" href="/descoberta?action=new"><Radar size={17} /><span>Iniciar descoberta</span><ArrowUpRight size={15} className="dashboard-quick-link-arrow" /></Link>}{drillLinks.map((item) => <Link className="dashboard-quick-link" href={item.href} key={item.href}><item.icon size={17} /><span>{item.label}</span><ArrowUpRight size={15} className="dashboard-quick-link-arrow" /></Link>)}</nav></article>}
               {visible('active-alerts') && <div className={`dashboard-operations-widget ${widgetClass('active-alerts')}`} style={gridStyle('active-alerts')}>{panelsReady ? <OperationsPanel showAlerts showQuality={false} compact siteId={workspace?.siteId} /> : <section className="content-grid operations-compact">{panelPlaceholder('alerts')}</section>}</div>}
               {visible('quality-queue') && <div className={`dashboard-operations-widget ${widgetClass('quality-queue')}`} style={gridStyle('quality-queue')}>{panelsReady ? <OperationsPanel showAlerts={false} showQuality compact siteId={workspace?.siteId} /> : <section className="content-grid operations-compact">{panelPlaceholder('quality')}</section>}</div>}
             </section>

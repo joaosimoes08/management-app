@@ -1,3 +1,4 @@
+import { subnetFilterQuery, type SubnetUrlFilters } from './subnet-filters';
 import { apiFetch } from '@/lib/api/client';
 import type { PaginatedResponse } from '@/lib/api/types';
 import { listSites } from '@/features/infrastructure/api';
@@ -51,8 +52,9 @@ export function getNetworkMap(siteId: string): Promise<{ vlans: NetworkMapVlan[]
 
 /** The API caps pageSize at 100, so every page is fetched and merged: pickers and lookups need the whole Site. */
 export const SUBNET_PAGE_SIZE = 100;
-export async function listSubnets(siteId: string): Promise<PaginatedResponse<Subnet>> {
-  const path = (page: number) => `/api/v1/subnets?siteId=${siteId}&page=${page}&pageSize=${SUBNET_PAGE_SIZE}`;
+/** `filters` are the optional drill-through filters (band, minUtilization, sort). */
+export async function listSubnets(siteId: string, filters?: Partial<SubnetUrlFilters>): Promise<PaginatedResponse<Subnet>> {
+  const path = (page: number) => `/api/v1/subnets?siteId=${siteId}&page=${page}&pageSize=${SUBNET_PAGE_SIZE}${subnetFilterQuery(filters)}`;
   const first = await apiFetch<PaginatedResponse<Subnet>>(path(1));
   const totalPages = Math.max(first.totalPages ?? 1, 1);
   if (totalPages === 1) return first;

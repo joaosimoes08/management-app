@@ -59,3 +59,36 @@ describe('rack-scoped global search', () => {
     expect(await screen.findByRole('option', { name: /Main site/ })).toBeInTheDocument();
   });
 });
+
+describe('platform search with extended types (Phase D)', () => {
+  it('asks for every result type and renders change plans, audit events and quality findings with their links', async () => {
+    apiFetch.mockResolvedValueOnce({ items: [
+      { id: 'c1', type: 'CHANGE_PLAN', title: 'Trocar switch', detail: 'Alteração · SUBMITTED · Lisboa', href: '/alteracoes?siteId=s1&planId=c1' },
+      { id: 'e1', type: 'AUDIT_EVENT', title: 'device.update', detail: 'Auditoria · Device', href: '/auditoria?entityType=Device&entityId=d1' },
+      { id: 'f1', type: 'QUALITY_FINDING', title: 'Sem número de série', detail: 'Qualidade · HIGH · OPEN', href: '/qualidade-inventario?siteId=s1&findingId=f1', actionHref: '/infraestrutura?siteId=s1&deviceId=d1' },
+    ] } as never);
+    render(<GlobalSearchPalette open onClose={vi.fn()} />);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Pesquisa global' }), { target: { value: 'sw' } });
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith('/api/v1/dashboard/search?q=sw&limit=8&types=all', expect.anything()), { timeout: 1000 });
+    expect(await screen.findByRole('option', { name: /Trocar switch/ })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /device\.update/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('option', { name: /Corrigir: Sem número de série/ }));
+    expect(push).toHaveBeenCalledWith('/infraestrutura?siteId=s1&deviceId=d1');
+  });
+
+  it('falls back to the default search when the API rejects the types parameter', async () => {
+    apiFetch.mockRejectedValueOnce(Object.assign(new Error('types inválido'), { status: 400, code: 'SEARCH_TYPES_INVALID' }));
+    render(<GlobalSearchPalette open onClose={vi.fn()} />);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Pesquisa global' }), { target: { value: 'main' } });
+    expect(await screen.findByRole('option', { name: /Main site/ }, { timeout: 1000 })).toBeInTheDocument();
+    expect(apiFetch.mock.calls.map(([path]) => path)).toEqual(['/api/v1/dashboard/search?q=main&limit=8&types=all', '/api/v1/dashboard/search?q=main&limit=8']);
+  });
+
+  it('shows the generic error for other failures', async () => {
+    apiFetch.mockRejectedValueOnce(Object.assign(new Error('boom'), { status: 500 }));
+    render(<GlobalSearchPalette open onClose={vi.fn()} />);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Pesquisa global' }), { target: { value: 'main' } });
+    expect(await screen.findByText('Não foi possível pesquisar.', undefined, { timeout: 1000 })).toBeInTheDocument();
+    expect(apiFetch).toHaveBeenCalledTimes(1);
+  });
+});

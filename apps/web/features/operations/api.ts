@@ -20,6 +20,28 @@ export const acknowledgeInventoryFinding = (id: string) => apiFetch(`/api/v1/inv
 export const assignInventoryFinding = (id: string, userId?: string) => apiFetch(`/api/v1/inventory-quality/findings/${encodeURIComponent(id)}/assign`, { method: 'PATCH', body: JSON.stringify({ userId: userId || null }) });
 export const snoozeInventoryFinding = (id: string, until = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()) => apiFetch(`/api/v1/inventory-quality/findings/${encodeURIComponent(id)}/snooze`, { method: 'PATCH', body: JSON.stringify({ until }) });
 
+// Phase D: Alertas list, maintenance summary and inline rule / window edits (PR #85 contract).
+export type AlertListItem = { id: string; source: string; siteId?: string | null; site?: { id: string; name: string } | null; status: 'OPEN' | 'ACKNOWLEDGED' | 'SNOOZED' | 'RESOLVED'; severity: string; title: string; detail?: string | null; actionHref?: string | null; lastOccurredAt?: string | null; firstOccurredAt?: string | null; occurrenceCount?: number; relatedDeviceId?: string | null; readAt?: string | null };
+export type AlertListFilters = { siteId?: string; severity?: string; status?: string; source?: string; search?: string };
+/** GET /operations/alerts; unresolved by default. Invalid filters answer 400 with a message. */
+export const listAlerts = (filters: AlertListFilters, pageSize = 100) => {
+  const query = new URLSearchParams();
+  for (const key of ['siteId', 'severity', 'status', 'source', 'search'] as const) if (filters[key]) query.set(key, filters[key]!);
+  query.set('page', '1');
+  query.set('pageSize', String(pageSize));
+  return apiFetch<{ items: AlertListItem[]; total: number; page: number; pageSize: number }>(`/api/v1/operations/alerts?${query.toString()}`);
+};
+
+export type MaintenanceWindowSummaryItem = { id: string; name: string; reason?: string | null; siteId?: string | null; startsAt: string; endsAt: string; site?: { id: string; name: string } | null };
+export type MaintenanceSummary = { generatedAt: string; horizonDays: number; counts: { active: number; upcoming: number }; nextStartsAt?: string | null; active: MaintenanceWindowSummaryItem[]; upcoming: MaintenanceWindowSummaryItem[]; criticalAlertsUnaffected?: boolean };
+export const getMaintenanceSummary = (siteId?: string) => apiFetch<MaintenanceSummary>(`/api/v1/operations/maintenance/summary${siteId ? `?siteId=${encodeURIComponent(siteId)}` : ''}`);
+
+export type RuleAlertCounts = { matching: number; governed: number; shown: number; belowThreshold: number; inMaintenance: number };
+export type AlertRule = { id: string; name: string; source: string; siteId?: string | null; minSeverity: string; enabled: boolean; site?: { id: string; name: string } | null; activeAlerts?: RuleAlertCounts };
+export type AlertRulePatch = Partial<{ name: string; source: string; siteId: string | null; minSeverity: string; enabled: boolean }>;
+export const patchAlertRule = (id: string, patch: AlertRulePatch) => apiFetch<AlertRule>(`/api/v1/operations/configuration/rules/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) });
+export type MaintenanceWindowPatch = Partial<{ name: string; reason: string | null; siteId: string | null; startsAt: string; endsAt: string }>;
+export const patchMaintenanceWindow = (id: string, patch: MaintenanceWindowPatch) => apiFetch(`/api/v1/operations/configuration/maintenance-windows/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) });
 /** Server filters of the findings list and its facets. `assignee` is a user id, `me` or `unassigned`. */
 export type FindingQuery = { siteId?: string; status?: FindingStatus; severity?: FindingSeverity; rule?: string; search?: string; assignee?: string };
 export type FindingPage = { items: InventoryFinding[]; total: number; page: number; pageSize: number };
