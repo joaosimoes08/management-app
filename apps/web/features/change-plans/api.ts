@@ -1,9 +1,11 @@
 import { apiFetch } from '@/lib/api/client';
+import { ApiRequestError } from '@/lib/api/errors';
 
 export type ChangeEntityType = 'DEVICE' | 'INTERFACE' | 'VLAN' | 'SUBNET' | 'IP_ADDRESS' | 'HOST' | 'SERVICE';
 export type ChangeStatus = 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
 export type ChangeItem = { id?: string; entityType: ChangeEntityType; entityId: string; operationSummary: string; currentValue?: Record<string, unknown>; proposedValue?: Record<string, unknown> };
-export type ChangePlan = { id: string; siteId: string; title: string; reason: string; plannedStartAt: string; plannedEndAt: string; status: ChangeStatus; revision: number; previewRevision: number | null; previewSnapshot: ImpactPreview | null; previewedAt: string | null; submittedAt: string | null; reviewer?: { displayName?: string | null; username: string } | null; reviewNote?: string | null; items: ChangeItem[] };
+export type ChangePlan = { id: string; siteId: string; title: string; reason: string; plannedStartAt: string; plannedEndAt: string; status: ChangeStatus; revision: number; previewRevision: number | null; previewSnapshot: ImpactPreview | null; previewedAt: string | null; submittedAt: string | null; reviewer?: ChangePerson | null; reviewNote?: string | null; reviewedAt?: string | null; creator?: ChangePerson | null; createdAt?: string; updatedAt?: string; items: ChangeItem[] };
+export type ChangePerson = { id?: string; displayName?: string | null; username: string };
 export type ChangeCandidate = { entityType: ChangeEntityType; entityId: string; label: string; detail?: string };
 export type ImpactNode = { entityType: ChangeEntityType; entityId: string; label: string; href: string; depth: number; dependencyPath: string[]; freshness: 'CURRENT' | 'STALE' | 'UNKNOWN'; confidence: 'RECORDED' | 'LOW' };
 export type ImpactPreview = { analysisStatus: string; revision: number; generatedAt: string; knownImpacts: ImpactNode[]; maintenanceOverlaps: Array<{ id: string; name: string; reason?: string | null; startsAt: string; endsAt: string }>; changeOverlaps: Array<{ id: string; title: string; plannedStartAt: string; plannedEndAt: string; status: string }>; coverage: { status: 'COMPLETE' | 'PARTIAL' | 'UNKNOWN'; reason: string; latestInventoryUpdate: string | null; staleItems: number; unknownFreshnessItems: number }; graphSignature: string };
@@ -18,3 +20,20 @@ export const previewChangePlan = (id: string) => apiFetch<ImpactPreview>(`/api/v
 export const submitChangePlan = (id: string) => apiFetch<ChangePlan>(`/api/v1/change-plans/${encodeURIComponent(id)}/submit`, { method: 'POST', body: JSON.stringify({}) });
 export const reviewChangePlan = (id: string, status: 'APPROVED' | 'REJECTED', reviewNote?: string) => apiFetch<ChangePlan>(`/api/v1/change-plans/${encodeURIComponent(id)}/review`, { method: 'POST', body: JSON.stringify({ status, reviewNote }) });
 export const cancelChangePlan = (id: string) => apiFetch<ChangePlan>(`/api/v1/change-plans/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: JSON.stringify({}) });
+
+/** One audited action on a change plan (`CHANGE_PLAN_*`), newest or oldest first. */
+export type ChangeActivity = { id: string; action: string; at: string; actor?: ChangePerson | null; note?: string | null; revision?: number | null };
+/**
+ * Full activity log, when the API provides `GET /change-plans/:id/activity`.
+ * Resolves `null` while that endpoint does not exist (404/405/501), so the page
+ * falls back to the milestones recorded on the plan.
+ */
+export const getChangeActivity = async (id: string): Promise<ChangeActivity[] | null> => {
+  try {
+    const result = await apiFetch<ChangeActivity[] | { items: ChangeActivity[] }>(`/api/v1/change-plans/${encodeURIComponent(id)}/activity`);
+    return Array.isArray(result) ? result : Array.isArray(result?.items) ? result.items : null;
+  } catch (cause) {
+    if (cause instanceof ApiRequestError && [404, 405, 501].includes(cause.status)) return null;
+    throw cause;
+  }
+};

@@ -2537,6 +2537,9 @@ body { color:var(--ink); background:#e9eef5; }
   .change-list-card .change-plan-list { grid-template-columns:1fr; }
 }
 .change-layout { grid-template-columns:minmax(0,1fr); }
+/* Alterações calendar: the month grid reuses .ip-table; cells read top-down with equal columns. */
+.change-calendar { table-layout:fixed; }
+.change-calendar td { height:88px; vertical-align:top; }
 
 /* IPAM's topbar tabs share the complete navigation slot. The overflow component
    measures natural label widths separately, so visible tabs can safely grow. */

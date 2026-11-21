@@ -4,6 +4,7 @@ import { ChangePlansPage } from './change-plans-page';
 import type { ChangePlan, ImpactPreview } from './api';
 
 const mocks = vi.hoisted(() => ({
+  getChangeActivity: vi.fn(async () => null),
   listChangePlans: vi.fn(),
   createChangePlan: vi.fn(),
   getChangeCandidates: vi.fn(),
@@ -15,7 +16,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('./api', () => ({
   cancelChangePlan: vi.fn(), createChangePlan: mocks.createChangePlan, getChangeCandidates: mocks.getChangeCandidates,
   getChangePlan: mocks.getChangePlan, listChangePlans: mocks.listChangePlans, previewChangePlan: mocks.previewChangePlan,
-  reviewChangePlan: vi.fn(), submitChangePlan: vi.fn(), updateChangePlan: vi.fn(),
+  reviewChangePlan: vi.fn(), submitChangePlan: vi.fn(), updateChangePlan: vi.fn(), getChangeActivity: mocks.getChangeActivity,
 }));
 vi.mock('@/components/layout/app-shell', async (importOriginal) => ({ ...await importOriginal<typeof import('@/components/layout/app-shell')>(), AppShell: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: () => true }) }));
@@ -163,5 +164,91 @@ describe('ChangePlansPage impact preview transition', () => {
     await vi.waitFor(() => expect(mocks.getChangePlan).toHaveBeenCalledTimes(6));
     expect(screen.getByText('Pré-visualização').closest('.change-detail')).toHaveTextContent(`Calculada ${expectedTimestamp}`);
     expect(screen.getByText('Pré-visualização').closest('.change-detail')?.querySelectorAll('.impact-group li')).toHaveLength(7);
+  });
+});
+
+describe('ChangePlansPage workspace', () => {
+  const base = (id: string, title: string, start: string, end: string, extra: Partial<ChangePlan> = {}): ChangePlan => ({
+    id, siteId: 'site-1', title, reason: 'Motivo', plannedStartAt: start, plannedEndAt: end, status: 'DRAFT', revision: 1,
+    previewRevision: null, previewSnapshot: null, previewedAt: null, submittedAt: null, items: [{ entityType: 'DEVICE', entityId: 'device-1', operationSummary: 'Upgrade' }], ...extra,
+  });
+  const core = base('p1', 'Troca do core', '2026-11-20T10:00:00.000Z', '2026-11-20T12:00:00.000Z', { status: 'SUBMITTED' });
+  const vlan = base('p2', 'Renomear VLAN', '2026-11-20T11:00:00.000Z', '2026-11-20T13:00:00.000Z', { items: [{ entityType: 'VLAN', entityId: 'vlan-1', operationSummary: 'Rename' }] });
+  const old = base('p3', 'Limpeza antiga', '2026-10-01T10:00:00.000Z', '2026-10-01T11:00:00.000Z', { status: 'CANCELLED' });
+  const setup = (path = '/alteracoes') => {
+    window.history.replaceState(null, '', path);
+    mocks.listChangePlans.mockResolvedValue([core, vlan, old]);
+    mocks.getChangeCandidates.mockResolvedValue({ groups: [[{ entityType: 'DEVICE', entityId: 'device-1', label: 'Core-SW-01' }]], truncated: false });
+    mocks.getChangePlan.mockImplementation(async (id: string) => [core, vlan, old].find((plan) => plan.id === id)!);
+  };
+  afterEach(() => { window.history.replaceState(null, '', '/'); });
+
+  it('honours ?q= from the Phase B entity links and searches target labels', async () => {
+    setup('/alteracoes?siteId=site-1&q=Troca+do+core');
+    render(<ChangePlansPage />);
+    expect(await screen.findByRole('button', { name: 'Troca do core' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Renomear VLAN' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('1 de 3 alterações')).toBeInTheDocument();
+
+    act(() => { window.history.replaceState(null, '', '/alteracoes?q=core-sw'); window.dispatchEvent(new PopStateEvent('popstate')); });
+    expect(await screen.findByRole('button', { name: 'Troca do core' })).toBeInTheDocument();
+  });
+
+  it('filters by status tab with counts and keeps the tab in the URL', async () => {
+    setup();
+    render(<ChangePlansPage />);
+    await screen.findByRole('button', { name: 'Troca do core' });
+    expect(screen.getByRole('button', { name: 'Todas (3)' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'Canceladas (1)' }));
+    expect(window.location.search).toContain('status=CANCELLED');
+    expect(screen.getByRole('button', { name: 'Limpeza antiga' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Troca do core' })).not.toBeInTheDocument();
+  });
+
+  it('flags overlapping windows in the list and in the calendar', async () => {
+    setup('/alteracoes?view=calendar&month=2026-11');
+    render(<ChangePlansPage />);
+    const calendar = await screen.findByRole('region', { name: 'Calendário de alterações' });
+    await vi.waitFor(() => expect(calendar.querySelectorAll('.state-badge.excluded')).toHaveLength(2));
+    expect(screen.getByText('2 alterações com janelas sobrepostas neste mês.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Mês anterior' }));
+    expect(window.location.search).toContain('month=2026-10');
+    expect(await screen.findByText('Sem janelas sobrepostas neste mês.')).toBeInTheDocument();
+  });
+
+  it('opens ?changeId= directly, lists the overlap and the activity fallback, and returns to the list', async () => {
+    setup('/alteracoes?changeId=p1');
+    render(<ChangePlansPage />);
+    expect(await screen.findByRole('heading', { name: 'Troca do core' })).toBeInTheDocument();
+    expect(mocks.getChangeActivity).toHaveBeenCalledWith('p1');
+    expect(screen.getByText('A janela sobrepõe-se a outras alterações deste Site')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Renomear VLAN' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Core-SW-01' })).toHaveAttribute('href', '/infraestrutura?siteId=site-1&tab=devices&deviceId=device-1&focus=device');
+    expect(await screen.findByRole('heading', { name: 'Atividade' })).toBeInTheDocument();
+    expect(screen.getByText(/Mostra os marcos registados na alteração/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '← Todas as alterações' }));
+    expect(window.location.search).not.toContain('changeId');
+    expect(await screen.findByRole('heading', { name: 'Alterações Planeadas' })).toBeInTheDocument();
+  });
+
+  it('shows the full activity log when the API provides it', async () => {
+    setup('/alteracoes?changeId=p1');
+    mocks.getChangeActivity.mockResolvedValueOnce([{ id: 'a1', action: 'CHANGE_PLAN_UPDATED', at: '2026-11-19T09:00:00.000Z', actor: { username: 'ana', displayName: 'Ana Ops' }, revision: 2 }] as never);
+    render(<ChangePlansPage />);
+    expect(await screen.findByText('Rascunho editado')).toBeInTheDocument();
+    expect(screen.getByText(/Ana Ops/)).toBeInTheDocument();
+    expect(screen.queryByText(/Mostra os marcos registados/)).not.toBeInTheDocument();
+  });
+
+  it('asks for confirmation before cancelling a change', async () => {
+    setup('/alteracoes?changeId=p1');
+    const cancelSpy = vi.mocked((await import('./api')).cancelChangePlan);
+    render(<ChangePlansPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancelar alteração' }));
+    const dialog = await screen.findByRole('alertdialog', { name: 'Cancelar alteração' });
+    expect(dialog).toHaveTextContent('Cancelar “Troca do core”?');
+    fireEvent.click(screen.getByRole('button', { name: 'Manter' }));
+    await vi.waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+    expect(cancelSpy).not.toHaveBeenCalled();
   });
 });
