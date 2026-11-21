@@ -97,6 +97,17 @@ export function computeDueState(attestations: AttestationForDue[], owned: boolea
 
 export type CadenceSite = { criticalCadenceT1Weeks: number; criticalCadenceT2Weeks: number; criticalCadenceT3Weeks: number };
 
+/** Review cadence per tier in weeks (1 to 52). Anything else is rejected before it reaches the database. */
+export function parseCadenceWeeks(input: unknown): { T1: number; T2: number; T3: number } {
+  const body = (input ?? {}) as Record<string, unknown>;
+  const read = (key: 'T1' | 'T2' | 'T3') => {
+    const value = body[key];
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 52) throw new BadRequestException({ code: 'CRITICAL_ASSET_CADENCE_INVALID', message: `A cadência de ${key} deve ser um número de semanas entre 1 e 52.` });
+    return value;
+  };
+  return { T1: read('T1'), T2: read('T2'), T3: read('T3') };
+}
+
 /** Review cadence in weeks for a device's tier. A device without a tier falls back to T2. */
 export function cadenceWeeks(tier: string | null | undefined, site: CadenceSite) {
   if (tier === 'T1') return site.criticalCadenceT1Weeks;
@@ -276,6 +287,21 @@ export class CriticalAssetsService implements OnModuleInit, OnModuleDestroy {
       await tx.site.update({ where: { id: siteId }, data: { timezone } });
       await tx.auditLog.create({ data: { userId: user.id, action: 'CRITICAL_ASSET_GROUP_MAPPING_UPDATED', entityType: 'Site', entityId: siteId, metadata: { assetType, groupId, timezone } } });
       return mapping;
+    });
+    return result;
+  }
+
+  async cadence(siteId: string, _user: AuthenticatedUser) {
+    const site = await this.prisma.site.findUniqueOrThrow({ where: { id: siteId }, select: { criticalCadenceT1Weeks: true, criticalCadenceT2Weeks: true, criticalCadenceT3Weeks: true } });
+    return { T1: site.criticalCadenceT1Weeks, T2: site.criticalCadenceT2Weeks, T3: site.criticalCadenceT3Weeks };
+  }
+
+  async saveCadence(siteId: string, input: unknown, user: AuthenticatedUser) {
+    const cadence = parseCadenceWeeks(input);
+    const result = await this.prisma.$transaction(async (tx) => {
+      const site = await tx.site.update({ where: { id: siteId }, data: { criticalCadenceT1Weeks: cadence.T1, criticalCadenceT2Weeks: cadence.T2, criticalCadenceT3Weeks: cadence.T3 }, select: { criticalCadenceT1Weeks: true, criticalCadenceT2Weeks: true, criticalCadenceT3Weeks: true } });
+      await tx.auditLog.create({ data: { userId: user.id, action: 'CRITICAL_ASSET_CADENCE_UPDATED', entityType: 'Site', entityId: siteId, metadata: cadence } });
+      return { T1: site.criticalCadenceT1Weeks, T2: site.criticalCadenceT2Weeks, T3: site.criticalCadenceT3Weeks };
     });
     return result;
   }

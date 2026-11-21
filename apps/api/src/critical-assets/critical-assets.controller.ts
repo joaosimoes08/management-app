@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ArrayMaxSize, IsArray, IsIn, IsOptional, IsString, IsUUID } from 'class-validator';
 import { Roles } from '../auth/roles.decorator';
@@ -30,6 +30,8 @@ const VIEWERS = ['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'STORAGE_OPERA
 export class CriticalAssetsController {
   constructor(private readonly service: CriticalAssetsService) {}
   @Get() @Roles(...VIEWERS) list(@Query('siteId') siteId: string, @Req() req: { user: AuthenticatedUser }) { return this.service.list(siteId, req.user); }
+  @Get('cadence') @Roles(...VIEWERS) cadence(@Query('siteId') siteId: string, @Req() req: { user: AuthenticatedUser }) { return this.service.cadence(siteId, req.user); }
+  @Patch('cadence') @Roles('ADMIN') saveCadence(@Query('siteId') siteId: string, @Body() dto: unknown, @Req() req: { user: AuthenticatedUser }) { return this.service.saveCadence(siteId, dto, req.user); }
   @Get('summary') @Roles(...VIEWERS) summary(@Query('siteId') siteId: string, @Req() req: { user: AuthenticatedUser }) { return this.service.summary(siteId, req.user); }
   @Get('assets') @Roles(...VIEWERS) page(@Query('siteId') siteId: string, @Query() query: Record<string, string | undefined>, @Req() req: { user: AuthenticatedUser }) {
     const assetQuery: AssetQuery = { type: query.type, owner: query.owner, outcome: query.outcome, due: query.due, q: query.q, page: query.page ? Number(query.page) : undefined, pageSize: query.pageSize ? Number(query.pageSize) : undefined };

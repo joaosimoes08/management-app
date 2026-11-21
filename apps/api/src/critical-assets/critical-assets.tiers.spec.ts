@@ -69,3 +69,18 @@ describe('criticality write rules', () => {
     assert.deepEqual(criticalityWrite({}), {});
   });
 });
+
+describe('mixed tiers on one site', () => {
+  it('generates cycles on each tier cadence over eight consecutive weeks (T1 8, T2 4, T3 2)', () => {
+    const mondays: Date[] = [];
+    for (let week = 0; week < 8; week += 1) mondays.push(new Date(monday('2026-11-09').getTime() + week * 7 * 24 * 60 * 60 * 1000));
+    const count = (tier: 'T1' | 'T2' | 'T3') => mondays.filter((day) => isCycleWeek(day, cadenceWeeks(tier, SITE))).length;
+    assert.equal(count('T1'), 8);
+    assert.equal(count('T2'), 4);
+    assert.equal(count('T3'), 2);
+  });
+
+  it('a device without a tier falls back to the T2 cadence', () => {
+    assert.equal(cadenceWeeks(null, SITE), cadenceWeeks('T2', SITE));
+  });
+});

@@ -20,3 +20,9 @@ test('invalid drill-through filters are rejected with a code', () => {
     assert.throws(() => deviceListFilterWhere(input, now), (error: { getStatus(): number; getResponse(): { code: string } }) => error.getStatus() === 400 && /^DEVICE_/.test(error.getResponse().code));
   }
 });
+
+test('tier filter keeps only the listed criticality tiers and rejects unknown ones', () => {
+  assert.deepEqual(deviceListFilterWhere({ tier: 't1, T3' }, now), [{ criticalityTier: { in: ['T1', 'T3'] } }]);
+  assert.deepEqual(deviceListFilterWhere({ tier: '' }, now), []);
+  assert.throws(() => deviceListFilterWhere({ tier: 'T4' }, now), (error: { getResponse(): { code: string } }) => error.getResponse().code === 'DEVICE_TIER_FILTER_INVALID');
+});
