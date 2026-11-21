@@ -76,13 +76,24 @@ function sameValue(a: unknown, b: unknown) {
 /** Fields never echoed by the post-change check, whatever a plan's proposedValue names. */
 export const SENSITIVE_FIELD = /pass(word)?|secret|community|token|credential|private|apikey|api_key|authkey|privkey/i;
 
+/**
+ * Keys the plan editor writes to describe a change in free text rather than name a record field
+ * (the UI saves `{ summary: '…' }` for proposed values). They are skipped unless the target record
+ * really has a field of that name, so a typed description never shows up as "Diferente".
+ */
+export const DESCRIPTION_KEYS = ['summary'] as const;
+function isDescriptionOnly(field: string, current: Record<string, unknown>) {
+  return (DESCRIPTION_KEYS as readonly string[]).includes(field) && !Object.prototype.hasOwnProperty.call(current, field);
+}
+
 export function checkItem(item: { entityType: string; entityId: string; operationSummary: string; currentValue?: unknown; proposedValue?: unknown }, current: Record<string, unknown> | null): ItemCheck {
   const base = { entityType: item.entityType, entityId: item.entityId, operationSummary: item.operationSummary };
   if (!current) return { ...base, result: 'TARGET_MISSING', fields: [] };
   const planned = item.proposedValue && typeof item.proposedValue === 'object' && !Array.isArray(item.proposedValue) ? item.proposedValue as Record<string, unknown> : null;
-  if (!planned || !Object.keys(planned).some((field) => !SENSITIVE_FIELD.test(field))) return { ...base, result: 'NOT_COMPARABLE', fields: [] };
+  const comparable = planned ? Object.keys(planned).filter((field) => !SENSITIVE_FIELD.test(field) && !isDescriptionOnly(field, current)) : [];
+  if (!planned || !comparable.length) return { ...base, result: 'NOT_COMPARABLE', fields: [] };
   const before = item.currentValue && typeof item.currentValue === 'object' && !Array.isArray(item.currentValue) ? item.currentValue as Record<string, unknown> : {};
-  const fields = Object.keys(planned).filter((field) => !SENSITIVE_FIELD.test(field)).sort().map((field) => {
+  const fields = comparable.sort().map((field) => {
     const now = Object.prototype.hasOwnProperty.call(current, field) ? current[field] : undefined;
     return { field, planned: normalizeValue(planned[field]), current: normalizeValue(now), before: normalizeValue(before[field]), matches: now !== undefined && sameValue(planned[field], now) };
   });
