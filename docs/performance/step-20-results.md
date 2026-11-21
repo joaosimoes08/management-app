@@ -7,7 +7,7 @@ Raw outputs: `raw/step-20/` (`api-summary-before.csv`, `api-summary-after.csv`, 
 ## Changes
 
 - `dashboard.service.ts`: AUDIT_EVENT search now runs as raw SQL with a literal `entityType <> 'HTTP_REQUEST'` predicate. The previous Prisma filter `action: { not: 'HTTP_REQUEST' }` never excluded anything, because HTTP rows are identified by `entityType`.
-- Migration `20261122120000_audit_log_search_index`: partial index `AuditLog_nonhttp_createdAt_id_idx` on `("createdAt" DESC, "id" DESC) WHERE ("entityType" IS NULL OR "entityType" <> 'HTTP_REQUEST')`. Rollback: `rollback.sql`.
+- Migration `20261122130000_audit_log_search_index`: partial index `AuditLog_nonhttp_createdAt_id_idx` on `("createdAt" DESC, "id" DESC) WHERE ("entityType" IS NULL OR "entityType" <> 'HTTP_REQUEST')`. Rollback: `rollback.sql`.
 - `audit.interceptor.ts`: GET and HEAD requests are no longer audited. Mutations keep their `HTTP_REQUEST` rows. See `step-20-audit-writes.md`.
 - No DB extension (no pg_trgm), no new packages, no UI change.
 
