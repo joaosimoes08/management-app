@@ -2,12 +2,17 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Req } fr
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { Roles } from '../auth/roles.decorator';
-import { AssociateTopologyConnectionDto, BulkTopologyNodesDto, CreateDeviceConnectionDto, CreateTopologyConnectionDto, CreateTopologyMapDto, ListDeviceConnectionsQueryDto, ListTopologyMapsQueryDto, TopologyConnectionPortAvailabilityQueryDto, UpdateDeviceConnectionDto, UpdateTopologyMapDto } from './dto';
+import { AssociateTopologyConnectionDto, BulkTopologyNodesDto, CreateDeviceConnectionDto, CreateTopologyConnectionDto, CreateTopologyMapDto, ListDeviceConnectionsQueryDto, ListTopologyMapsQueryDto, TopologyConnectionPortAvailabilityQueryDto, TopologyImpactQueryDto, TopologyPathQueryDto, UpdateDeviceConnectionDto, UpdateTopologyMapDto } from './dto';
+import { TopologyImpactService } from './topology-impact.service';
 import { TopologyService } from './topology.service';
 
 @ApiTags('topology') @ApiBearerAuth() @Controller({ path: 'topology', version: '1' })
 export class TopologyController {
-  constructor(private readonly service: TopologyService) {}
+  constructor(private readonly service: TopologyService, private readonly impactService: TopologyImpactService) {}
+  /** Step 34: everything downstream of a device, PDU or rack (bounded, loop-safe). */
+  @Get('impact') impact(@Req() req: { user: AuthenticatedUser }, @Query() query: TopologyImpactQueryDto) { return this.impactService.impact(req.user, query); }
+  /** Step 34: shortest documented path between two devices of the same site. */
+  @Get('path') path(@Req() req: { user: AuthenticatedUser }, @Query() query: TopologyPathQueryDto) { return this.impactService.path(req.user, query); }
   @Get('maps') maps(@Req() req: { user: AuthenticatedUser }, @Query() query: ListTopologyMapsQueryDto) { return this.service.list(req.user, query); }
   @Get('maps/:id') map(@Req() req: { user: AuthenticatedUser }, @Param('id') id: string) { return this.service.get(req.user, id); }
   @Get('maps/:id/connection-port-availability') connectionPortAvailability(@Req() req: { user: AuthenticatedUser }, @Param('id') id: string, @Query() query: TopologyConnectionPortAvailabilityQueryDto) { return this.service.connectionPortAvailability(req.user, id, query.excludeConnectionId); }
