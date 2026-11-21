@@ -40,14 +40,18 @@ const calls = (part: string) => mock.mock.calls.map(([path]) => String(path)).fi
 describe('InventoryQualityPage', () => {
   it('saves the current filters as a named view for the signed-in user', async () => {
     window.history.replaceState(null, '', '/qualidade-inventario?severity=HIGH');
-    renderPage();
-    await screen.findByText('Finding 1');
-    fireEvent.click(screen.getByRole('button', { name: /Guardar vista/ }));
-    fireEvent.change(screen.getByLabelText('Nome da vista'), { target: { value: 'Altos' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
-    expect(JSON.parse(localStorage.getItem('management-app:saved-views:u-me:quality') ?? '[]')).toEqual([{ name: 'Altos', query: '?severity=HIGH' }]);
-    expect(screen.getByRole('combobox', { name: 'Aplicar vista guardada' })).toHaveDisplayValue('Altos');
-    localStorage.clear();
+    try {
+      renderPage();
+      await screen.findByText('Finding 1');
+      fireEvent.click(screen.getByRole('button', { name: /Guardar vista/ }));
+      fireEvent.change(screen.getByLabelText('Nome da vista'), { target: { value: 'Altos' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+      expect(JSON.parse(localStorage.getItem('management-app:saved-views:u-me:quality') ?? '[]')).toEqual([{ name: 'Altos', query: '?severity=HIGH' }]);
+      expect(screen.getByRole('combobox', { name: 'Aplicar vista guardada' })).toHaveDisplayValue('Altos');
+    } finally {
+      // A failed assertion must not leak the saved view into the next test.
+      localStorage.clear();
+    }
   });
 
   it('opens on open findings with status counts and asks facets without the status tab', async () => {
