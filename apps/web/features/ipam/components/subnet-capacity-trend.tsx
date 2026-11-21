@@ -1,7 +1,8 @@
 'use client';
 
+import { formatIpamPercent } from '../utilization';
 import type { SubnetCapacityHistory } from '../types';
-import { formatDateTime } from '@/lib/format/date';
+import { formatDateTime, formatNumber } from '@/lib/format/date';
 
 const dateLabel = (value: string) => formatDateTime(value, { day: '2-digit', month: 'short', timeZone: 'UTC' });
 
@@ -27,18 +28,18 @@ export function SubnetCapacityTrend({ history, loading = false }: { history: Sub
     <div className="panel-heading"><div><span className="section-kicker">CAPACIDADE DA SUBNET</span><h3 id="subnet-capacity-title">Tendência dos últimos 90 dias</h3><p className="panel-description">{ipv4 ? 'Alocação IPv4 face à capacidade utilizável.' : 'Endereços IPv6 registados no inventário; o prefixo não representa uma lista enumerável de endereços livres.'}</p></div></div>
     {samples.length ? <>
       <div className="subnet-capacity-chart-wrap">
-        <div className="subnet-capacity-value">{ipv4 ? `${values.at(-1)}% utilizado` : `${values.at(-1)} endereços registados`}</div>
+        <div className="subnet-capacity-value">{ipv4 ? `${formatIpamPercent(values.at(-1)!)} utilizado` : `${formatNumber(values.at(-1)!)} endereços registados`}</div>
         <svg className="subnet-capacity-chart" viewBox="0 0 100 50" role="img" aria-label={ipv4 ? 'Tendência de utilização IPv4' : 'Tendência de endereços IPv6 registados'} preserveAspectRatio="none">
           <line x1="8" y1="10" x2="92" y2="10" />
           <line x1="8" y1="44" x2="92" y2="44" />
           {samples.length > 1 && <polyline points={points} />}
-          {samples.length === 1 && <circle cx="50" cy={44 - (values[0] / max) * 34} r="1.5" />}
+          {samples.length === 1 && <line className="subnet-capacity-single-point" x1="50" x2="50" y1={44 - (values[0] / max) * 34} y2={44 - (values[0] / max) * 34} vectorEffect="non-scaling-stroke" />}
           {samples.length > 1 && <><circle cx={points.split(' ').at(-1)!.split(',')[0]} cy={points.split(' ').at(-1)!.split(',')[1]} r="1.5" /><circle cx={points.split(' ')[0].split(',')[0]} cy={points.split(' ')[0].split(',')[1]} r="1.5" /></>}
         </svg>
         <div className="subnet-capacity-dates"><span>{dateLabel(samples[0].sampledAt)}</span><span>{dateLabel(samples.at(-1)!.sampledAt)}</span></div>
       </div>
       <p className="subnet-capacity-forecast">{forecastText}</p>
-      {ipv4 && forecast.dailyGrowth !== null && forecast.dailyGrowth > 0 && <small className="subnet-capacity-growth">Crescimento estimado: {forecast.dailyGrowth} endereços/dia</small>}
+      {ipv4 && forecast.dailyGrowth !== null && forecast.dailyGrowth > 0 && <small className="subnet-capacity-growth">Crescimento estimado: {formatNumber(forecast.dailyGrowth)} endereços/dia</small>}
     </> : <p className="subnet-capacity-forecast">Ainda não há registos de capacidade.</p>}
   </section>;
 }

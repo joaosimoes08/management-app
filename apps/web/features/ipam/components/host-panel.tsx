@@ -1,5 +1,6 @@
 'use client';
 
+import { useEscapeClose } from '@/components/ui/use-escape-close';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Edit3, Plus, Trash2, X } from 'lucide-react';
 import { BookStackContextLink } from '@/components/bookstack-context-link';
@@ -39,6 +40,7 @@ type HostFormState = {
 /** Host detail side panel: identity, IPs/VLANs relations and services. */
 export function HostPanel({ host, canEdit, close, reload, success, toastError }: HostPanelProps) {
   const { confirm: askConfirm, confirmDialog } = useConfirm();
+  useEscapeClose(close);
   const [form, setForm] = useState<HostFormState>({ name: host.name, hostname: host.hostname ?? '', operatingSystem: host.operatingSystem ?? '', macAddress: host.macAddress ?? '', notes: host.notes ?? '', status: host.status });
   const [service, setService] = useState<ServiceFormState>(emptyService);
   const [editingServiceId, setEditingServiceId] = useState('');

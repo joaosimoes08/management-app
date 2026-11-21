@@ -103,6 +103,14 @@ describe('critical assets workbench helpers', () => {
 });
 
 describe('CriticalAssetsPage', () => {
+  it('opens the asset and identifies the week linked from a notification', async () => {
+    window.history.replaceState(null, '', '/attestacao-ativos?siteId=site-1&assetId=device-1&week=2026-11-09');
+    renderPage();
+    const panel = await screen.findByRole('complementary', { name: 'Histórico de Core switch' });
+    expect(within(panel).getByText(/09\/11\/26.*Revisão ligada à notificação/)).toBeInTheDocument();
+    expect(within(panel).getAllByText(/Revisão ligada à notificação/)).toHaveLength(1);
+  });
+
   it('shows a dense table with group, latest result, due state as text and an explicit no-owner label', async () => {
     renderPage();
     const core = await rowFor('Core switch');
@@ -463,7 +471,7 @@ describe('CriticalAssetsPage', () => {
     renderPage();
     fireEvent.click(await screen.findByRole('button', { name: 'Abrir histórico de Core switch' }));
     const panel = screen.getByRole('complementary', { name: 'Histórico de Core switch' });
-    expect(within(panel).getByRole('link', { name: /Abrir equipamento/ })).toHaveAttribute('href', '/infraestrutura?siteId=site-1&tab=devices&deviceId=device-1&focus=device');
+    expect(within(panel).getByRole('link', { name: /Abrir equipamento/ })).toHaveAttribute('href', '/infraestrutura/equipamentos/device-1?siteId=site-1');
     expect(panel.querySelectorAll('.host-relation time')).toHaveLength(4);
     expect(within(panel).queryByRole('button', { name: 'Confirmar' })).not.toBeInTheDocument();
   });

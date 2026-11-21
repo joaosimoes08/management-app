@@ -23,7 +23,7 @@ function schedulerService(options: { failFirstNotification?: boolean } = {}) {
           transactionState.attestationExists = true;
           return { count: 1 };
         } },
-        notification: { createMany: async () => {
+        notificationMute: { findMany: async () => [] }, notification: { createMany: async () => {
           notificationAttempts += 1;
           if (options.failFirstNotification && notificationAttempts === 1) throw new Error('injected notification failure');
           transactionState.notificationWrites += 1;

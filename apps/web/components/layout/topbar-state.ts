@@ -27,6 +27,7 @@ export interface TopbarState {
     services: { key: string; label: string; state: string }[];
   };
   alerts: TopbarAlert[];
+  notificationUnreadCount?: number;
   processes: { id: string; label: string; detail: string; state: string; href: string }[];
   updatedAt: string;
 }

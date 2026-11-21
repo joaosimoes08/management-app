@@ -81,7 +81,7 @@ test('topbar state degrades when Redis is unavailable and adapts persisted alert
       findMany: async () => [{ id: 'running-1', name: 'Discovery core', status: 'RUNNING', subnet: { cidr: '10.1.0.0/24' } }],
     },
     systemSettings: { findFirst: async () => ({ setupCompleted: true, setupCompletedAt: now }) },
-    roleRequest: { count: async () => 0 }, notification: { findMany: async () => [] },
+    roleRequest: { count: async () => 0 }, notification: { findMany: async () => [], count: async () => 0 },
   }, { getJobCounts: async () => { throw new Error('Redis offline'); } }, { list: async () => ({ items: [{ id: 'alert-1', severity: 'WARNING', title: 'Discovery falhou', detail: 'Timeout', actionHref: '/descoberta', lastOccurredAt: now }] }) });
 
   const result = await service.topbarState({ id: 'user', externalId: 'external', username: 'admin', roles: ['ADMIN'] });
@@ -97,7 +97,7 @@ test('topbar state appends the persistent missing-config alerts after the capped
   const service = serviceWith({
     discoveryJob: { findMany: async () => [] },
     systemSettings: { findFirst: async () => ({ setupCompleted: true, setupCompletedAt: now }) },
-    roleRequest: { count: async () => 0 }, notification: { findMany: async () => [] },
+    roleRequest: { count: async () => 0 }, notification: { findMany: async () => [], count: async () => 0 },
   }, { getJobCounts: async () => ({}) }, { list: async () => ({ items: many }) });
   (service as any).requiredConfig = { topbarAlerts: async () => [{ id: 'device-missing-config-power', severity: 'WARNING', title: '3 dispositivos sem tomadas de energia configuradas', detail: 'd', href: '/infraestrutura?tab=devices&missingConfig=power', occurredAt: now.toISOString(), persistent: true, kind: 'DEVICE_MISSING_CONFIG', config: 'power', count: 3 }] };
   const result = await service.topbarState({ id: 'user', externalId: 'external', username: 'admin', roles: ['ADMIN'] });
@@ -112,7 +112,7 @@ test('topbar state stays up when the missing-config source fails, and the failur
   const service = serviceWith({
     discoveryJob: { findMany: async () => [] },
     systemSettings: { findFirst: async () => ({ setupCompleted: true, setupCompletedAt: now }) },
-    roleRequest: { count: async () => 0 }, notification: { findMany: async () => [] },
+    roleRequest: { count: async () => 0 }, notification: { findMany: async () => [], count: async () => 0 },
   }, { getJobCounts: async () => ({}) });
   (service as any).requiredConfig = { topbarAlerts: async () => { throw new Error('db down'); } };
   const { Logger } = await import('@nestjs/common');

@@ -1,5 +1,6 @@
 'use client';
 
+import { useEscapeClose } from '@/components/ui/use-escape-close';
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
@@ -33,14 +34,11 @@ export function ConfirmDialog({ message, title, confirmLabel, cancelLabel = 'Can
     return () => { document.body.style.overflow = previousOverflow; };
   }, [destructive]);
 
-  const resolveRef = useRef(onResolve);
-  resolveRef.current = onResolve;
+  useEscapeClose(() => onResolve(false));
 
-  // Listen on the document, not the card: if focus falls to <body> (e.g. a click on the message text),
-  // Escape must still cancel and Tab must still land inside the dialog.
+  // Keep Tab inside the dialog even if focus falls back to the body.
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); resolveRef.current(false); return; }
       if (event.key !== 'Tab' || !cardRef.current) return;
       const focusable = [...cardRef.current.querySelectorAll<HTMLElement>(focusableSelector)];
       if (!focusable.length) return;
