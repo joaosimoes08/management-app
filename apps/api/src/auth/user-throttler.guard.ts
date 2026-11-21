@@ -7,7 +7,8 @@ import { ThrottlerGuard } from '@nestjs/throttler';
  * Behind nginx every request arrives from the proxy's address, so an IP key would put all users in one bucket.
  * `request.user` is only set by AuthGuard after the bearer token's signature, issuer and audience are verified,
  * so it cannot be forged with a header. AuthModule registers this guard after AuthGuard so the user is known.
- * Requests without a verified user (public routes, AUTH_DISABLED) fall back to the IP.
+ * Requests without a verified user (public routes, AUTH_DISABLED) fall back to request.ip. Behind the bundled
+ * nginx set TRUST_PROXY_HOPS=1 so request.ip is the client from X-Forwarded-For rather than nginx (see common/trust-proxy).
  */
 @Injectable()
 export class UserThrottlerGuard extends ThrottlerGuard {
