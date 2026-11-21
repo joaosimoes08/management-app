@@ -14,9 +14,9 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); });
 const channel = (target: ChannelStatus['target'], overrides: Partial<ChannelStatus> = {}): ChannelStatus => ({ kind: 'TEAMS', target, enabled: false, configured: false, minSeverity: target === 'GROUP_ALERTS' ? 'HIGH' : null, updatedAt: null, ...overrides });
 const failed: DeliveryItem = { id: 'd-1', target: 'GROUP_ALERTS', status: 'FAILED', topic: 'OPERATIONAL_ALERT', title: '[CRITICAL] Core down', attempts: 5, failureReason: 'HTTP_500', createdAt: '2026-11-21T10:00:00.000Z', sentAt: null, nextAttemptAt: null, recipient: null };
 
-function api(channels: ChannelStatus[], items: DeliveryItem[] = []) {
+function api(channels: ChannelStatus[], items: DeliveryItem[] = [], publicLinks = true) {
   mocks.apiFetch.mockImplementation(async (path: string) => {
-    if (path === '/api/v1/settings/notification-channels') return { channels, keyringAvailable: true, publicLinks: true, maxAttempts: 5 };
+    if (path === '/api/v1/settings/notification-channels') return { channels, keyringAvailable: true, publicLinks, maxAttempts: 5 };
     if (path.startsWith('/api/v1/settings/notification-deliveries?') || path === '/api/v1/settings/notification-deliveries') return { items, nextCursor: null, counts: { FAILED: items.length } };
     if (path.endsWith('/test')) return { deliveryId: 't-1', status: 'FAILED', failureReason: 'HTTP_404' };
     return {};
@@ -24,6 +24,14 @@ function api(channels: ChannelStatus[], items: DeliveryItem[] = []) {
 }
 
 describe('NotificationChannelsSettings', () => {
+  it('shows the missing APP_PUBLIC_URL notice in the warning callout', async () => {
+    api([channel('USER_NOTIFICATIONS'), channel('GROUP_ALERTS')], [], false);
+    render(<NotificationChannelsSettings />);
+    const notice = await screen.findByText(/APP_PUBLIC_URL não está definido/);
+    expect(notice).toHaveClass('ipam-alert', 'warning');
+    expect(notice).toHaveAttribute('role', 'status');
+  });
+
   it('starts off, keeps the webhook write-only and saves only the channel that changed', async () => {
     api([channel('USER_NOTIFICATIONS'), channel('GROUP_ALERTS')]);
     const { container } = render(<NotificationChannelsSettings />);
