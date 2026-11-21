@@ -1,6 +1,11 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { countTokens, diffPrefixes, parseCidr, parsePrefixList, summarizeDiff } from './ripe-diff';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { countTokens, diffPrefixes, extractRipestatPrefixes, parseCidr, parsePrefixList, summarizeDiff } from './ripe-diff';
+
+// Real RIPEstat responses captured on 2026-11-21 (see test/fixtures).
+const fixture = (name: string) => JSON.parse(readFileSync(join(__dirname, '../../test/fixtures', name), 'utf8'));
 
 test('parses, normalises and de-duplicates pasted IPv4/IPv6 prefixes', () => {
   const parsed = parsePrefixList(['193.0.0.0/21\n193.0.10.1/23, 2001:DB8:0:0::/32;bad', '10.0.0.5', '193.0.0.0/21', '10.0.0.0/33']);
@@ -65,4 +70,17 @@ test('hides attribute changes of a subnet the user cannot read', () => {
   const subnets = [{ id: 's1', cidr: '10.1.0.0/24', siteId: 'site-a', vrfId: 'vrf-secret', purpose: 'Secret', environment: null, visible: false }];
   const item = diffPrefixes(parsePrefixList(['10.1.0.0/24']).valid, subnets, { siteId: 'site-a', purpose: 'Public' })[0];
   assert.deepEqual([item.status, item.existing, item.changes], ['changed', { id: null, cidr: null, hidden: true }, undefined]);
+});
+
+test('extracts announced prefixes from the real RIPEstat object shape (and plain strings)', () => {
+  assert.deepEqual(extractRipestatPrefixes('announced-prefixes', fixture('ripestat-announced-prefixes-AS3333.json')), ['193.0.12.0/23', '2001:67c:2e8::/48', '193.0.10.0/23', '193.0.18.0/23', '193.0.22.0/23', '193.0.20.0/23', '193.0.0.0/21', '2a13:27c0::/44']);
+  assert.deepEqual(extractRipestatPrefixes('announced-prefixes', { data: { prefixes: ['10.0.0.0/8', { prefix: '10.0.0.0/8' }, { prefix: 7 }, 'junk', null] } }), ['10.0.0.0/8']);
+  assert.deepEqual(extractRipestatPrefixes('announced-prefixes', {}), []);
+});
+
+test('extracts prefixes from the real RIPEstat whois key/value records', () => {
+  assert.deepEqual(extractRipestatPrefixes('whois', fixture('ripestat-whois-193.0.0.0-21.json')), ['193.0.0.0/21']);
+  const payload = { data: { records: [[{ key: 'inet6num', value: '2001:67c:2e8::/48' }, { key: 'netname', value: 'X' }]], irr_records: [[{ key: 'route', value: '193.0.10.0/23' }, { key: 'origin', value: '3333' }], [{ key: 'route6', value: '2001:67c:2e8::/48' }]] } };
+  assert.deepEqual(extractRipestatPrefixes('whois', payload), ['2001:67c:2e8::/48', '193.0.10.0/23']);
+  assert.deepEqual(extractRipestatPrefixes('whois', fixture('ripestat-whois-unsupported.json')), []);
 });

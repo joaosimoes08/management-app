@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { strict as assert } from 'node:assert';
 import { randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -830,19 +831,45 @@ test('previews a pasted prefix list with a server-side diff and imports it throu
 });
 
 test('keeps the RIPEstat lookup preview response unchanged and adds a diff only when a Site is given', async () => {
-  const server = createServer((_req, res) => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ data: { prefixes: ['10.251.1.0/24', '10.251.40.0/24'] } })); });
+  // The stand-in serves real RIPEstat responses (test/fixtures, captured 2026-11-21) by data call.
+  const fixture = (name: string) => readFileSync(join(__dirname, 'fixtures', name), 'utf8');
+  const calls: string[] = [];
+  const server = createServer((req, res) => {
+    calls.push(req.url ?? '');
+    res.setHeader('content-type', 'application/json');
+    if (req.url?.startsWith('/data/announced-prefixes/')) return res.end(fixture('ripestat-announced-prefixes-AS3333.json'));
+    if (req.url?.startsWith('/data/whois/') && req.url.includes('193.0.0.0')) return res.end(fixture('ripestat-whois-193.0.0.0-21.json'));
+    res.statusCode = 400; res.end(fixture('ripestat-whois-unsupported.json'));
+  });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const original = process.env.RIPESTAT_BASE_URL;
   process.env.RIPESTAT_BASE_URL = `http://127.0.0.1:${(server.address() as AddressInfo).port}/data/`;
+  const as3333 = ['193.0.12.0/23', '2001:67c:2e8::/48', '193.0.10.0/23', '193.0.18.0/23', '193.0.22.0/23', '193.0.20.0/23', '193.0.0.0/21', '2a13:27c0::/44'];
   try {
-    const legacy = await request('POST', '/api/v1/ipam/ripe/preview', 'qa-admin', { query: 'AS64500' });
+    const legacy = await request('POST', '/api/v1/ipam/ripe/preview', 'qa-admin', { query: 'AS3333' });
     assert.equal(legacy.statusCode, 201, legacy.body);
     assert.deepEqual(Object.keys(json(legacy)).sort(), ['id', 'prefixes', 'query', 'queryType', 'status']);
-    assert.deepEqual(json(legacy).prefixes, ['10.251.1.0/24', '10.251.40.0/24']);
-    const withSite = await request('POST', '/api/v1/ipam/ripe/preview', 'qa-admin', { query: 'AS64500', siteId: ids.siteA });
+    assert.deepEqual(json(legacy).prefixes, as3333);
+    assert.match(calls[0], /announced-prefixes\/data\.json\?resource=AS3333$/);
+    const withSite = await request('POST', '/api/v1/ipam/ripe/preview', 'qa-admin', { query: 'AS3333', siteId: ids.siteA });
     assert.equal(withSite.statusCode, 201, withSite.body);
     assert.equal(json(withSite).source, 'RIPESTAT');
-    assert.deepEqual(json(withSite).diff.map((item: { status: string }) => item.status), ['exists', 'new']);
+    assert.deepEqual(json(withSite).diff.map((item: { prefix: string }) => item.prefix), as3333);
+    assert.deepEqual([...new Set(json(withSite).diff.map((item: { status: string }) => item.status))], ['new']);
+
+    const whois = await request('POST', '/api/v1/ipam/ripe/preview', 'qa-admin', { query: '193.0.0.0/21' });
+    assert.equal(whois.statusCode, 201, whois.body);
+    assert.equal(json(whois).queryType, 'prefix');
+    assert.deepEqual(json(whois).prefixes, ['193.0.0.0/21']);
+
+    const callsBefore = calls.length;
+    const organisation = await request('POST', '/api/v1/ipam/ripe/preview', 'qa-admin', { query: 'RIPE-NCC' });
+    assert.equal(organisation.statusCode, 400);
+    assert.equal(json(organisation).code, 'RIPE_ORGANISATION_UNSUPPORTED');
+    assert.equal(calls.length, callsBefore, 'organisation lookups must not call RIPEstat');
+    const unsupported = await request('POST', '/api/v1/ipam/ripe/preview', 'qa-admin', { query: '10.9.9.9/32' });
+    assert.equal(unsupported.statusCode, 400);
+    assert.match(json(unsupported).message, /unsupported resource type/);
   } finally {
     if (original === undefined) delete process.env.RIPESTAT_BASE_URL; else process.env.RIPESTAT_BASE_URL = original;
     await new Promise((resolve) => server.close(resolve));

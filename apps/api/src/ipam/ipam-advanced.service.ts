@@ -8,7 +8,7 @@ import { IpamAccessService } from './ipam-access.service';
 import { assertDiscoveryAllowed, DiscoveryPolicyError } from '../discovery/discovery-policy';
 import { CalculatorDto, CreateNatRuleDto, RIPE_PASTE_MAX_PREFIXES, RipePreviewDto, CreateSubnetDto, CreateVrfDto, UpdateNatRuleDto, UpdateSubnetDto, UpdateSubnetScanDto, UpdateVrfDto } from './dto';
 import * as net from 'node:net';
-import { countTokens, diffPrefixes, parsePrefixList, summarizeDiff } from './ripe-diff';
+import { countTokens, diffPrefixes, extractRipestatPrefixes, parsePrefixList, summarizeDiff } from './ripe-diff';
 
 function normalizeIpv4(address: string) { const parts = address.split('.').map(Number); if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) throw new BadRequestException('IPv4 inválido'); return parts.join('.'); }
 function ipv4Number(address: string) { return normalizeIpv4(address).split('.').reduce((n, part) => n * 256 + Number(part), 0); }
@@ -142,6 +142,9 @@ export class IpamAdvancedService implements OnModuleDestroy {
     const target = dto.siteId ? await this.access.assertSubnetPlacement(user, 'IMPORT', { siteId: dto.siteId, vrfId: dto.vrfId }) : null;
     const query = dto.query.trim();
     const queryType = dto.queryType ?? (query.toUpperCase().startsWith('AS') ? 'asn' : net.isIP(query.split('/')[0]) ? 'prefix' : 'organisation');
+    // RIPEstat's whois data call only accepts an IP prefix/range/address or an ASN; an organisation
+    // name or handle gets a 400 ("unsupported resource type"), so fail early with a clear message.
+    if (queryType === 'organisation') throw new BadRequestException({ code: 'RIPE_ORGANISATION_UNSUPPORTED', message: 'O RIPEstat não pesquisa por organização. Usa o ASN (ex.: AS3333) ou um prefixo, ou cola a lista de prefixos.' });
     const resource = queryType === 'asn' ? query.replace(/^AS/i, '') : query;
     const endpoint = queryType === 'asn' ? `announced-prefixes/data.json?resource=AS${encodeURIComponent(resource)}` : `whois/data.json?resource=${encodeURIComponent(resource)}`;
     const base = process.env.RIPESTAT_BASE_URL ?? 'https://stat.ripe.net/data/';
@@ -149,10 +152,10 @@ export class IpamAdvancedService implements OnModuleDestroy {
     let ripestatPrefixes: string[] = [];
     try {
       const response = await fetch(`${base.replace(/\/$/, '/')}${endpoint}`, { signal: controller.signal, headers: { accept: 'application/json' } });
-      if (!response.ok) throw new Error(`RIPEstat respondeu ${response.status}`);
-      const payload: any = await response.json();
-      const prefixes = queryType === 'asn' ? (payload.data?.prefixes ?? []) : (payload.data?.records ?? []).map((record: any) => record.prefix).filter(Boolean);
-      const unique = [...new Set(prefixes.filter((prefix: unknown): prefix is string => typeof prefix === 'string'))];
+      const payload: any = await response.json().catch(() => null);
+      const ripeError = Array.isArray(payload?.messages) ? payload.messages.filter((item: unknown) => Array.isArray(item) && item[0] === 'error').map((item: string[]) => item[1]).join('; ') : '';
+      if (!response.ok || payload?.status === 'error') throw new Error(ripeError || `RIPEstat respondeu ${response.status}`);
+      const unique = extractRipestatPrefixes(queryType === 'asn' ? 'announced-prefixes' : 'whois', payload);
       if (!target) {
         const item = await this.prisma.ripeImport.create({ data: { query, queryType, status: 'PREVIEW', result: { prefixes: unique, source: 'RIPESTAT' }, createdBy: user.id } });
         await this.log(user, 'RIPE_PREVIEW_CREATED', 'RipeImport', item.id, { query, count: unique.length });
