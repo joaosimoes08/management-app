@@ -72,6 +72,35 @@ export function parseCidr(input: string): Omit<ParsedPrefix, 'input'> | null {
   return { version, prefix: `${version === 4 ? bigIntToIpv4(start) : bigIntToIpv6(start)}/${length}`, start, end };
 }
 
+const WHOIS_PREFIX_KEYS = new Set(['inetnum', 'inet6num', 'route', 'route6']);
+/**
+ * Pulls prefixes out of a RIPEstat response, in order of first appearance, keeping only valid CIDRs.
+ * - `announced-prefixes`: `data.prefixes` is `[{ prefix: "193.0.12.0/23", timelines: [...] }]`
+ *   (plain strings are accepted too).
+ * - `whois`: `data.records` and `data.irr_records` are arrays of records, each an array of
+ *   `{ key, value }` attributes; the prefix is the value of `inetnum`/`inet6num`/`route`/`route6`.
+ */
+export function extractRipestatPrefixes(kind: 'announced-prefixes' | 'whois', payload: any): string[] {
+  const data = payload?.data ?? {};
+  const values: unknown[] = [];
+  if (kind === 'announced-prefixes') {
+    for (const item of Array.isArray(data.prefixes) ? data.prefixes : []) values.push(typeof item === 'string' ? item : item?.prefix);
+  } else {
+    for (const group of [data.records, data.irr_records]) {
+      for (const record of Array.isArray(group) ? group : []) {
+        for (const attribute of Array.isArray(record) ? record : []) if (WHOIS_PREFIX_KEYS.has(attribute?.key)) values.push(attribute.value);
+      }
+    }
+  }
+  const result: string[] = [];
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    const prefix = value.trim();
+    if (parseCidr(prefix) && !result.includes(prefix)) result.push(prefix);
+  }
+  return result;
+}
+
 /** Splits pasted text, validates, normalises and de-duplicates. Order of first appearance is kept. */
 export function parsePrefixList(items: string[]): ParsedPrefixList {
   const tokens = items.flatMap((item) => item.split(SPLIT)).map((token) => token.trim()).filter(Boolean);
