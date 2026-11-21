@@ -30,6 +30,7 @@ export class SettingsController {
   @Put('directory-federation') @Roles('ADMIN') updateDirectoryFederation(@Body() body: UpdateDirectoryFederationDto, @Req() req: { user: AuthenticatedUser }) { return this.keycloak.updateDirectoryFederation(body, req.user); }
   @Get('legacy-role-assignments') @Roles('ADMIN') legacyRoleAssignments() { return this.service.legacyRoleAssignments(); }
   @Patch('users/:externalId/roles') @Roles('ADMIN') updateUserRoles(@Param('externalId') externalId: string, @Body() body: UpdateUserRolesDto, @Req() req: { user: AuthenticatedUser }) { return this.keycloak.updateRoles(externalId, body.roles, req.user); }
+  @Get('role-requests') @Roles('ADMIN') listRoleRequests(@Query('status') status?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) { return this.roleRequests.list({ status, page, pageSize }); }
   @Get('role-requests/me') mineRoleRequests(@Req() req: { user: AuthenticatedUser }) { return this.roleRequests.mine(req.user); }
   @Post('role-requests') submitRoleRequest(@Body() body: CreateRoleRequestDto, @Req() req: { user: AuthenticatedUser }) { return this.roleRequests.submit(req.user, body.roles); }
   @Patch('role-requests/:id') @Roles('ADMIN') decideRoleRequest(@Param('id') id: string, @Body() body: DecideRoleRequestDto, @Req() req: { user: AuthenticatedUser }) { return this.roleRequests.decide(id, body.decision, req.user); }

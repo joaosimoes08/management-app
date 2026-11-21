@@ -28,3 +28,39 @@ export interface NetAppIntegrationInput { endpointUrl: string; username: string;
 export const getNetAppIntegration = (siteId: string) => apiFetch<NetAppIntegration>(`/api/v1/netapp/sites/${encodeURIComponent(siteId)}`);
 export const configureNetAppIntegration = (siteId: string, body: NetAppIntegrationInput) => apiFetch<NetAppIntegration>(`/api/v1/netapp/sites/${encodeURIComponent(siteId)}/integration`, { method: 'PUT', body: JSON.stringify(body) });
 export const refreshNetAppSnapshot = (siteId: string) => apiFetch<NetAppIntegration>(`/api/v1/netapp/sites/${encodeURIComponent(siteId)}/refresh`, { method: 'POST' });
+
+// ── Capacity trend (#85) ───────────────────────────────────────────────────
+
+export type NetAppTrendKind = 'CLUSTER' | 'AGGREGATE' | 'VOLUME';
+
+export interface NetAppTrendPoint { date: string; observedAt: string; sizeBytes: number | null; usedBytes: number | null; usedPercent: number | null; state?: string | null }
+
+export interface NetAppTrend {
+  siteId: string;
+  kind: NetAppTrendKind;
+  key: string | null;
+  name: string | null;
+  svm?: string | null;
+  days: number;
+  retentionDays: number;
+  points: NetAppTrendPoint[];
+  summary: { days: number; firstUsedBytes: number | null; lastUsedBytes: number | null; changeBytes: number | null; growthBytesPerDay: number | null; latestUsedPercent: number | null; projectedFullAt: string | null };
+}
+
+export interface NetAppTrendObject { key: string; name: string; svm?: string | null; state?: string | null; observedAt?: string; sizeBytes?: number | null; usedBytes?: number | null; usedPercent?: number | null; firstObservedAt?: string; changeBytes?: number | null; growthBytesPerDay?: number | null }
+
+export interface NetAppTrendObjects { siteId: string; kind: NetAppTrendKind; days: number; retentionDays: number; items: NetAppTrendObject[]; truncated?: boolean }
+
+const trendQuery = (values: Record<string, string | number | null | undefined>) => {
+  const params = new URLSearchParams();
+  for (const [name, value] of Object.entries(values)) if (value !== undefined && value !== null && value !== '') params.set(name, String(value));
+  return params.toString();
+};
+
+/** Daily capacity points for the cluster, one aggregate or one volume (key = uuid or name). 400 NETAPP_TREND_INVALID. Each read is audited. */
+export const getNetAppTrend = (siteId: string, input: { kind: NetAppTrendKind; key?: string | null; days?: number }) =>
+  apiFetch<NetAppTrend>(`/api/v1/netapp/sites/${encodeURIComponent(siteId)}/trend?${trendQuery({ kind: input.kind, key: input.kind === 'CLUSTER' ? undefined : input.key, days: input.days })}`);
+
+/** Aggregates or volumes with trend samples in the window, to pick the trend object. */
+export const listNetAppTrendObjects = (siteId: string, input: { kind: Exclude<NetAppTrendKind, 'CLUSTER'>; days?: number }) =>
+  apiFetch<NetAppTrendObjects>(`/api/v1/netapp/sites/${encodeURIComponent(siteId)}/trend/objects?${trendQuery({ kind: input.kind, days: input.days })}`);

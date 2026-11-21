@@ -88,7 +88,7 @@ const request = (method: string, url: string, persona?: string, payload?: unknow
 
 async function resetDatabase() {
   await prisma.$executeRawUnsafe(`TRUNCATE TABLE
-    "Notification", "RoleRequest", "ApplicationLinkRole", "ApplicationLink", "RipeImport", "InfrastructurePermission", "AccessGroupSitePermission", "AccessGroupSite", "AccessGroupMember", "AccessGroup",
+    "Notification", "RoleRequest", "UserApplicationFavorite", "ApplicationLinkRole", "ApplicationLink", "RipeImport", "InfrastructurePermission", "AccessGroupSitePermission", "AccessGroupSite", "AccessGroupMember", "AccessGroup",
     "DiscoveryResult", "DiscoveryJob", "DiscoverySchedule", "Service", "IpAddress", "InterfaceVlan", "DeviceInterface",
     "Host", "Device", "DeviceModel", "AssetFile", "Rack", "RackModel", "Room", "Building", "NatRule", "Subnet", "Vrf",
     "Vlan", "Site", "AuditLog", "UserRole", "User", "SystemSettings" RESTART IDENTITY CASCADE`);
@@ -533,6 +533,315 @@ test('enforces scoped operations, dashboard, topology and quality workflows', as
   assert.equal((await request('PATCH', `/api/v1/inventory-quality/findings/${findingId}/assign`, 'qa-network-scoped', { userId: ids.scoped })).statusCode, 200);
 });
 
+test('rack PDU power: defaults, allocation, 409s, cascades, audit, RBAC and wattage over HTTP', async () => {
+  await resetDatabase();
+  const admin = 'qa-admin';
+  const conflict = (response: { statusCode: number; body: string }, code: string) => { assert.equal(response.statusCode, 409, response.body); assert.equal(json(response).code, code); return json(response); };
+
+  // Defaults endpoint
+  const defaults = await request('GET', '/api/v1/power/defaults', admin);
+  assert.equal(defaults.statusCode, 200);
+  assert.deepEqual([json(defaults).pduOutletCount, json(defaults).pduBudgetWatts, json(defaults).powerPlugCount, json(defaults).wattsByDeviceType.SERVER], [32, 3680, 2, 350]);
+
+  // New rack: Só rede by default (one 32-outlet SUPPLIER PDU), Rede + UPS adds a UPS PDU
+  const plain = await request('POST', '/api/v1/racks', admin, { name: 'Power Plain', roomId: ids.roomA });
+  assert.equal(plain.statusCode, 201, plain.body);
+  const plainRack = json(await request('GET', `/api/v1/racks/${json(plain).id}`, admin));
+  assert.equal(plainRack.powerMode, 'SUPPLIER_ONLY');
+  assert.deepEqual(plainRack.pdus.map((p: any) => [p.source, p.outletCount, p.budgetWatts]), [['SUPPLIER', 32, 3680]]);
+  const dual = await request('POST', '/api/v1/racks', admin, { name: 'Power Dual', roomId: ids.roomA, powerMode: 'SUPPLIER_AND_UPS' });
+  assert.equal(dual.statusCode, 201, dual.body);
+  const rackId = json(dual).id;
+  let rack = json(await request('GET', `/api/v1/racks/${rackId}`, admin));
+  assert.equal(rack.powerMode, 'SUPPLIER_AND_UPS');
+  assert.deepEqual(rack.pdus.map((p: any) => p.source), ['SUPPLIER', 'UPS']);
+  const [supplierId, upsId] = rack.pdus.map((p: any) => p.id);
+
+  // Devices: manual watts, model watts, type default
+  const model = await prisma.deviceModel.create({ data: { manufacturer: 'QA', model: 'SW-120', type: 'SWITCH', typicalWatts: 120 } });
+  const dev = { srv: '94000000-0000-4000-8000-000000000001', sw: '94000000-0000-4000-8000-000000000002', fw: '94000000-0000-4000-8000-000000000003' };
+  await prisma.device.createMany({ data: [
+    { id: dev.srv, name: 'PWR Server', type: 'SERVER', siteId: ids.siteA, rackId, estimatedWatts: 400 },
+    { id: dev.sw, name: 'PWR Switch', type: 'SWITCH', siteId: ids.siteA, rackId, modelId: model.id },
+    { id: dev.fw, name: 'PWR Firewall', type: 'FIREWALL', siteId: ids.siteA, rackId },
+  ] });
+  for (const id of [dev.srv, dev.sw, dev.fw]) {
+    const response = await request('PUT', `/api/v1/devices/${id}/power`, admin, {});
+    assert.equal(response.statusCode, 200, response.body);
+    const body = json(response);
+    assert.equal(body.device.plugCount, 2);
+    assert.deepEqual(body.device.assignments.map((a: any) => a.source), ['SUPPLIER', 'UPS']);
+    assert.equal(body.device.redundant, true);
+  }
+  rack = json(await request('GET', `/api/v1/racks/${rackId}`, admin));
+  const supplier = rack.pdus.find((p: any) => p.source === 'SUPPLIER');
+  assert.deepEqual(Object.fromEntries(supplier.connections.map((c: any) => [c.deviceName, [c.wattsSource, c.deviceEstimatedWatts, c.estimatedWattsShare, c.outlets.map((o: any) => o.outletIndex)]])), {
+    'PWR Server': ['manual', 400, 200, [1]], 'PWR Switch': ['modelo', 120, 60, [2]], 'PWR Firewall': ['padrão', 200, 100, [3]],
+  });
+  assert.deepEqual([supplier.usedOutlets, supplier.estimatedWatts, supplier.failoverWatts], [3, 360, 720]);
+  assert.deepEqual(rack.power.totals.bySource, { SUPPLIER: 360, UPS: 360 });
+  assert.equal(rack.power.totals.estimatedWatts, 720);
+
+  // Step 12: rack power summary (capacity vs estimated draw, near-limit PDUs/devices, thresholds 80/90 by default)
+  const summaryRes = await request('GET', `/api/v1/racks/${rackId}/power-summary`, admin);
+  assert.equal(summaryRes.statusCode, 200, summaryRes.body);
+  const summary = json(summaryRes);
+  assert.deepEqual([summary.rack.id, summary.rack.roomName, summary.mode, summary.level], [rackId, 'HTTP Room A', 'SUPPLIER_AND_UPS', 'ok']);
+  assert.deepEqual(summary.thresholds, { warningPercent: 80, criticalPercent: 90 });
+  assert.deepEqual(summary.capacity, { watts: 7360, bySource: { SUPPLIER: 3680, UPS: 3680 }, missingBudgetPduIds: [] });
+  assert.deepEqual(summary.draw, { estimatedWatts: 720, bySource: { SUPPLIER: 360, UPS: 360 }, worstFailoverWatts: 720 });
+  assert.deepEqual(summary.utilisation, { bySource: { SUPPLIER: 9.8, UPS: 9.8 }, worstFailoverPercent: 19.6 });
+  assert.deepEqual([summary.outlets.used, summary.outlets.total], [6, 64]);
+  assert.deepEqual([summary.devices.total, summary.devices.connected, summary.devices.unconnected, summary.devices.nonRedundant], [3, 3, [], []]);
+  assert.deepEqual(summary.nearLimit, { pdus: [], devices: [] });
+  // Tighter thresholds: failover 19.6 % >= 19 % is critical, watts 9.8 % and outlets 3/32 = 9.4 % are warnings, so every device is near the limit
+  const tight = json(await request('GET', `/api/v1/racks/${rackId}/power-summary?warningPercent=9&criticalPercent=19`, admin));
+  assert.equal(tight.level, 'critical');
+  assert.deepEqual(tight.nearLimit.pdus.map((p: any) => [p.source, p.level, p.reasons]), [['SUPPLIER', 'critical', ['watts', 'failoverWatts', 'outlets']], ['UPS', 'critical', ['watts', 'failoverWatts', 'outlets']]]);
+  assert.deepEqual(tight.nearLimit.devices.map((d: any) => [d.name, d.estimatedWatts]), [['PWR Server', 400], ['PWR Firewall', 200], ['PWR Switch', 120]]);
+  for (const query of ['warningPercent=90&criticalPercent=80', 'warningPercent=abc', 'criticalPercent=500']) {
+    const bad = await request('GET', `/api/v1/racks/${rackId}/power-summary?${query}`, admin);
+    assert.equal(bad.statusCode, 400, query);
+    assert.equal(json(bad).code, 'POWER_THRESHOLD_INVALID');
+  }
+  assert.equal((await request('GET', '/api/v1/racks/99999999-0000-4000-8000-000000000000/power-summary', admin)).statusCode, 404);
+  assert.equal((await request('GET', `/api/v1/racks/${ids.rackSibling}/power-summary`, 'qa-systems-scoped')).statusCode, 404);
+  assert.equal((await request('GET', `/api/v1/racks/${rackId}/power-summary`, 'qa-systems-scoped')).statusCode, 200);
+  // Site roll-up: worst first, only racks the user can read
+  const siteSummary = json(await request('GET', `/api/v1/sites/${ids.siteA}/power-summary?warningPercent=9&criticalPercent=19`, admin));
+  assert.equal(siteSummary.racks[0].rack.id, rackId);
+  assert.ok(siteSummary.racks.some((r: any) => r.rack.id === ids.rackSibling));
+  assert.equal(siteSummary.totals.racks, siteSummary.racks.length);
+  assert.equal(siteSummary.totals.byLevel.critical, 1);
+  assert.equal(siteSummary.truncated, false);
+  const scopedSite = json(await request('GET', `/api/v1/sites/${ids.siteA}/power-summary`, 'qa-systems-scoped'));
+  assert.ok(scopedSite.racks.some((r: any) => r.rack.id === rackId));
+  assert.ok(!scopedSite.racks.some((r: any) => r.rack.id === ids.rackSibling));
+  assert.equal((await request('GET', '/api/v1/sites/99999999-0000-4000-8000-000000000000/power-summary', admin)).statusCode, 404);
+
+  // Double-booked outlet → 409, nothing changed
+  conflict(await request('PUT', `/api/v1/devices/${dev.fw}/power`, admin, { plugs: [{ plugIndex: 1, pduId: supplierId, outletIndex: 1 }] }), 'PDU_OUTLET_TAKEN');
+  assert.equal(await prisma.pduOutletAssignment.count({ where: { deviceId: dev.fw } }), 2);
+
+  // Shrinking below used outlets / removing a connected UPS → 409 with the device list
+  const shrink = conflict(await request('PUT', `/api/v1/racks/${rackId}/pdus`, admin, { mode: 'SUPPLIER_AND_UPS', supplier: { outletCount: 2 } }), 'PDU_OUTLETS_IN_USE');
+  assert.deepEqual(shrink.details.devices.map((d: any) => [d.deviceName, d.outlets]), [['PWR Firewall', [3]]]);
+  const removeUps = conflict(await request('PUT', `/api/v1/racks/${rackId}/pdus`, admin, { mode: 'SUPPLIER_ONLY' }), 'PDU_HAS_CONNECTIONS');
+  assert.deepEqual(removeUps.details.devices.map((d: any) => d.deviceName).sort(), ['PWR Firewall', 'PWR Server', 'PWR Switch']);
+  assert.equal(await prisma.rackPdu.count({ where: { rackId } }), 2);
+
+  // Read-only and scope-limited users get 403 on every write; network operator is blocked by role even for a SWITCH
+  for (const persona of ['qa-readonly', 'qa-auditor', 'qa-systems-scoped', 'qa-network-scoped']) {
+    assert.equal((await request('PUT', `/api/v1/devices/${dev.sw}/power`, persona, {})).statusCode, 403, persona);
+    assert.equal((await request('PUT', `/api/v1/racks/${rackId}/pdus`, persona, { mode: 'SUPPLIER_AND_UPS' })).statusCode, 403, persona);
+    assert.equal((await request('DELETE', `/api/v1/racks/${rackId}/pdus/${upsId}/devices/${dev.srv}`, persona)).statusCode, 403, persona);
+    assert.equal((await request('DELETE', `/api/v1/racks/${rackId}/pdus/${upsId}/devices/${dev.sw}`, persona)).statusCode, 403, persona);
+  }
+  assert.equal(await prisma.pduOutletAssignment.count({ where: { pduId: upsId } }), 3);
+
+  // Desligar frees only that PDU's outlets
+  const off = await request('DELETE', `/api/v1/racks/${rackId}/pdus/${upsId}/devices/${dev.srv}`, admin);
+  assert.equal(off.statusCode, 200, off.body);
+  assert.equal(json(off).removed, 1);
+  assert.equal(json(off).pdus.find((p: any) => p.source === 'UPS').usedOutlets, 2);
+  assert.deepEqual((await prisma.pduOutletAssignment.findMany({ where: { deviceId: dev.srv } })).map((a) => a.pduId), [supplierId]);
+
+  // Moving a powered device to another rack without outlets would clear its power config → 400, nothing changed
+  const moveBody = { name: 'PWR Switch', type: 'SWITCH', siteId: ids.siteA, rackId: json(plain).id, rackUnitStart: 1, rackUnitSize: 1 };
+  const refused = await request('PATCH', `/api/v1/devices/${dev.sw}`, admin, moveBody);
+  assert.equal(refused.statusCode, 400, refused.body);
+  assert.equal(json(refused).code, 'REQUIRED_CONFIG_MISSING');
+  // A move re-places the device: its (legacy) missing rear image is now required too, and filled power can't be dropped
+  assert.deepEqual(json(refused).details.errors.map((e: any) => [e.config, e.reason, e.tab]), [['rearImage', 'MISSING', 'imagens'], ['power', 'CLEARED', 'energia']]);
+  assert.equal((await prisma.device.findUnique({ where: { id: dev.sw } }))?.rackId, rackId);
+  assert.equal(await prisma.pduOutletAssignment.count({ where: { deviceId: dev.sw } }), 2);
+  // With the model's rear image and `power`, the move frees the old outlets and plugs into the new rack in one transaction
+  const swRear = await prisma.assetFile.create({ data: { filename: 'pwr-sw-rear.png', storageKey: 'pwr-sw-rear.png', mimeType: 'image/png', sizeBytes: 1, kind: 'DEVICE_BACK' } });
+  await prisma.deviceModel.update({ where: { id: model.id }, data: { backAssetId: swRear.id } });
+  const moved = await request('PATCH', `/api/v1/devices/${dev.sw}`, admin, { ...moveBody, power: {} });
+  assert.equal(moved.statusCode, 200, moved.body);
+  assert.deepEqual(json(moved).requiredConfig.missing, []);
+  const plainPduIds = (await prisma.rackPdu.findMany({ where: { rackId: json(plain).id } })).map((p) => p.id);
+  const swOutlets = await prisma.pduOutletAssignment.findMany({ where: { deviceId: dev.sw } });
+  assert.ok(swOutlets.length > 0 && swOutlets.every((a) => plainPduIds.includes(a.pduId)));
+  // HTTP delete is gated by the retirement checklist (409); the hard delete itself cascades in the database
+  assert.equal((await request('DELETE', `/api/v1/devices/${dev.fw}`, admin)).statusCode, 409);
+  assert.equal(await prisma.pduOutletAssignment.count({ where: { deviceId: dev.fw } }), 2);
+  await prisma.device.delete({ where: { id: dev.fw } });
+  assert.equal(await prisma.pduOutletAssignment.count({ where: { deviceId: dev.fw } }), 0);
+
+  // With the UPS empty it can now be removed
+  for (const device of [dev.srv]) await request('DELETE', `/api/v1/racks/${rackId}/pdus/${upsId}/devices/${device}`, admin);
+  const removed = await request('PUT', `/api/v1/racks/${rackId}/pdus`, admin, { mode: 'SUPPLIER_ONLY' });
+  assert.equal(removed.statusCode, 200, removed.body);
+  assert.equal(json(removed).mode, 'SUPPLIER_ONLY');
+
+  // Every write is audited
+  const actions = (await prisma.auditLog.findMany({ where: { userId: ids.admin, action: { in: ['DEVICE_POWER_UPDATED', 'DEVICE_POWER_DISCONNECTED', 'RACK_POWER_UPDATED'] } }, select: { action: true } })).map((a) => a.action);
+  assert.equal(actions.filter((a) => a === 'DEVICE_POWER_UPDATED').length, 3);
+  assert.equal(actions.filter((a) => a === 'DEVICE_POWER_DISCONNECTED').length, 1);
+  assert.equal(actions.filter((a) => a === 'RACK_POWER_UPDATED').length, 1);
+  const moveAudit = await prisma.auditLog.findFirst({ where: { entityId: dev.sw, action: { contains: 'UPDATED' }, NOT: { action: 'DEVICE_POWER_UPDATED' } }, orderBy: { createdAt: 'desc' } });
+  assert.equal((moveAudit?.metadata as any)?.powerAssignmentsRemoved, 2);
+});
+
+test('required device configs: registry, create validation, legacy updates, grouped bell alerts and affected devices', async () => {
+  const admin = 'qa-admin';
+  const registry = json(await request('GET', '/api/v1/devices/required-configs', 'qa-readonly'));
+  assert.equal(registry.configs.some((c: any) => 'introducedAt' in c), false);
+  assert.deepEqual(registry.configs.map((c: any) => [c.key, c.kind, c.tab]), [['name', 'CORE', 'geral'], ['type', 'CORE', 'geral'], ['placement', 'CORE', 'localizacao'], ['rearImage', 'FEATURE', 'imagens'], ['power', 'FEATURE', 'energia']]);
+
+  const rack = json(await request('POST', '/api/v1/racks', admin, { name: 'Required Config Rack', roomId: ids.roomA }));
+  const base = { name: 'RC Server', type: 'SERVER', siteId: ids.siteA, rackId: rack.id, rackUnitStart: 10, rackUnitSize: 1 };
+
+  // Create: every missing config comes back with field-level details; nothing is written
+  const rejected = await request('POST', '/api/v1/devices', admin, base);
+  assert.equal(rejected.statusCode, 400, rejected.body);
+  assert.equal(json(rejected).code, 'REQUIRED_CONFIG_MISSING');
+  assert.deepEqual(json(rejected).details.errors.map((e: any) => [e.config, e.reason, e.tab, e.fields]), [['rearImage', 'MISSING', 'imagens', ['backAssetId']], ['power', 'MISSING', 'energia', ['power', 'powerPlugCount']]]);
+  const noName = await request('POST', '/api/v1/devices', admin, { ...base, name: '', powerPlugCount: 0 });
+  assert.equal(noName.statusCode, 400);
+  assert.equal(await prisma.device.count({ where: { name: 'RC Server' } }), 0);
+
+  // A device with no power (0 plugs) only needs the rear image; with `power: {}` it is plugged in on create
+  const unpowered = await request('POST', '/api/v1/devices', admin, { ...base, name: 'RC Patch', type: 'OTHER', powerPlugCount: 0, rackUnitStart: 11 });
+  assert.equal(unpowered.statusCode, 400);
+  assert.deepEqual(json(unpowered).details.errors.map((e: any) => e.config), ['rearImage']);
+
+  // The model's rear image counts, and `power: {}` plugs the device in during create (default distribution)
+  const rear = await prisma.assetFile.create({ data: { filename: 'rc-rear.png', storageKey: 'rc-rear.png', mimeType: 'image/png', sizeBytes: 1, kind: 'DEVICE_BACK' } });
+  const rcModel = await prisma.deviceModel.create({ data: { manufacturer: 'QA', model: 'RC-1U', type: 'SERVER', backAssetId: rear.id } });
+  const created = await request('POST', '/api/v1/devices', admin, { ...base, modelId: rcModel.id, power: {} });
+  assert.equal(created.statusCode, 201, created.body);
+  assert.deepEqual(json(created).requiredConfig, { missing: [], missingTabs: [], complete: true });
+  assert.ok(await prisma.pduOutletAssignment.count({ where: { deviceId: json(created).id } }) > 0);
+
+  // Site → rack: placing an unracked device is like creating it in the rack (rear image + power required)
+  const unracked = await request('POST', '/api/v1/devices', admin, { name: 'RC Site Only', type: 'SERVER', siteId: ids.siteA });
+  assert.equal(unracked.statusCode, 201, unracked.body);
+  assert.equal(json(unracked).requiredConfig.complete, true);
+  const placeBody = { name: 'RC Site Only', type: 'SERVER', siteId: ids.siteA, rackId: rack.id, rackUnitStart: 14, rackUnitSize: 1 };
+  const placeRefused = await request('PATCH', `/api/v1/devices/${json(unracked).id}`, admin, placeBody);
+  assert.equal(placeRefused.statusCode, 400, placeRefused.body);
+  assert.deepEqual(json(placeRefused).details.errors.map((e: any) => [e.config, e.reason]), [['rearImage', 'MISSING'], ['power', 'MISSING']]);
+  const placeNoPower = await request('PATCH', `/api/v1/devices/${json(unracked).id}`, admin, { ...placeBody, modelId: rcModel.id });
+  assert.equal(placeNoPower.statusCode, 400, placeNoPower.body);
+  assert.deepEqual(json(placeNoPower).details.errors.map((e: any) => [e.config, e.reason, e.tab]), [['power', 'MISSING', 'energia']]);
+  assert.equal((await prisma.device.findUnique({ where: { id: json(unracked).id } }))?.rackId, null);
+  const placed = await request('PATCH', `/api/v1/devices/${json(unracked).id}`, admin, { ...placeBody, modelId: rcModel.id, power: {} });
+  assert.equal(placed.statusCode, 200, placed.body);
+  assert.equal(json(placed).requiredConfig.complete, true);
+  const placedZero = await request('POST', '/api/v1/devices', admin, { name: 'RC Site Only 2', type: 'OTHER', siteId: ids.siteA });
+  const zero = await request('PATCH', `/api/v1/devices/${json(placedZero).id}`, admin, { name: 'RC Site Only 2', type: 'OTHER', siteId: ids.siteA, rackId: rack.id, rackUnitStart: 15, rackUnitSize: 1, modelId: rcModel.id, powerPlugCount: 0 });
+  assert.equal(zero.statusCode, 200, zero.body);
+
+  // Legacy device (written before the rule): may be saved while still missing configs, and shows in the bell
+  const legacy = await prisma.device.create({ data: { name: 'RC Legacy', type: 'SERVER', siteId: ids.siteA, rackId: rack.id, rackUnitStart: 20, rackUnitSize: 1 } });
+  const legacyDetail = json(await request('GET', `/api/v1/devices/${legacy.id}`, admin));
+  assert.deepEqual(legacyDetail.requiredConfig, { missing: ['rearImage', 'power'], missingTabs: ['imagens', 'energia'], complete: false });
+  const legacyUpdate = await request('PATCH', `/api/v1/devices/${legacy.id}`, admin, { name: 'RC Legacy 2', type: 'SERVER', siteId: ids.siteA, rackId: rack.id, rackUnitStart: 20, rackUnitSize: 1 });
+  assert.equal(legacyUpdate.statusCode, 200, legacyUpdate.body);
+
+  const listed = json(await request('GET', `/api/v1/devices/missing-config?config=power&siteId=${ids.siteA}&pageSize=100`, admin));
+  const row = listed.items.find((d: any) => d.id === legacy.id);
+  assert.equal(row.href, `/infraestrutura?siteId=${ids.siteA}&tab=devices&deviceId=${legacy.id}&settingsTab=energia`);
+  assert.equal((await request('GET', '/api/v1/devices/missing-config?config=frontImage', admin)).statusCode, 400);
+  const filtered = json(await request('GET', `/api/v1/devices?missingConfig=power&pageSize=100`, admin));
+  assert.ok(filtered.items.some((d: any) => d.id === legacy.id));
+  assert.ok(filtered.items.every((d: any) => d.requiredConfig.missing.includes('power')));
+
+  const bell = async () => json(await request('GET', '/api/v1/dashboard/topbar-state', admin)).alerts.filter((a: any) => String(a.id).startsWith('device-missing-config-'));
+  let alerts = await bell();
+  const powerAlert = alerts.find((a: any) => a.id === 'device-missing-config-power');
+  assert.equal(powerAlert.persistent, true);
+  assert.equal(powerAlert.title.endsWith('sem tomadas de energia configuradas'), true);
+  assert.equal(alerts.filter((a: any) => a.id === 'device-missing-config-power').length, 1);
+  const powerCount = json(await request('GET', '/api/v1/devices/missing-config?config=power', admin)).total;
+  assert.equal(powerAlert.count, powerCount);
+  assert.ok(powerAlert.siteCount >= 1);
+  if (powerAlert.count > 1 && powerAlert.siteCount > 1) {
+    assert.equal(powerAlert.href, '/infraestrutura?tab=devices&missingConfig=power&allSites=1');
+    assert.ok(powerAlert.detail.endsWith(` — em ${powerAlert.siteCount} Sites.`), powerAlert.detail);
+  } else assert.equal(powerAlert.href.includes('allSites'), false);
+
+  // Plugging the legacy device in auto-clears it from the group; clearing it again is refused
+  const plugged = await request('PUT', `/api/v1/devices/${legacy.id}/power`, admin, {});
+  assert.equal(plugged.statusCode, 200, plugged.body);
+  const after = json(await request('GET', '/api/v1/devices/missing-config?config=power&pageSize=100', admin));
+  assert.equal(after.total, powerCount - 1);
+  assert.equal(after.items.some((d: any) => d.id === legacy.id), false);
+  alerts = await bell();
+  const afterAlert = alerts.find((a: any) => a.id === 'device-missing-config-power');
+  if (powerCount - 1 === 0) assert.equal(afterAlert, undefined);
+  else assert.ok(afterAlert.title.startsWith(`${powerCount - 1} dispositivo`), afterAlert.title);
+  const cleared = await request('PUT', `/api/v1/devices/${legacy.id}/power`, admin, { plugs: [] });
+  assert.equal(cleared.statusCode, 400, cleared.body);
+  assert.deepEqual(json(cleared).details.errors.map((e: any) => [e.config, e.reason]), [['power', 'CLEARED']]);
+  assert.ok(await prisma.pduOutletAssignment.count({ where: { deviceId: legacy.id } }) > 0);
+
+  // Read-only users see no fix-it alerts
+  assert.deepEqual(json(await request('GET', '/api/v1/dashboard/topbar-state', 'qa-readonly')).alerts.filter((a: any) => String(a.id).startsWith('device-missing-config-')), []);
+});
+
+test('critical asset attestation: 409 on a second review of the same cycle, reviewer names and due state over HTTP', async () => {
+  await prisma.user.update({ where: { id: ids.admin }, data: { displayName: 'QA Admin Person' } });
+  await prisma.device.updateMany({ where: { id: { in: [ids.deviceA, ids.deviceA2] } }, data: { isCritical: true } });
+  await prisma.criticalAssetGroupMapping.create({ data: { siteId: ids.siteA, assetType: 'SWITCH', groupId: ids.groupRead } });
+  const pending = await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA, weekStart: new Date('2026-11-09T00:00:00.000Z') } });
+  for (const week of ['2026-11-02', '2026-10-26', '2026-10-19', '2026-10-12', '2026-10-05']) {
+    await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA, weekStart: new Date(`${week}T00:00:00.000Z`), outcome: 'CONFIRMED', confirmedAt: new Date(`${week}T10:00:00.000Z`), confirmedBy: ids.scoped, notes: week === '2026-10-26' ? 'checked tag' : null } });
+  }
+  const first = await request('POST', `/api/v1/critical-assets/${pending.id}/confirm`, 'qa-admin', { outcome: 'CORRECTION_NEEDED', notes: 'Wrong serial' });
+  assert.equal(first.statusCode, 201);
+  assert.equal(json(first).confirmedByName, 'QA Admin Person');
+  assert.equal(json(first).confirmedBy, ids.admin);
+  const second = await request('POST', `/api/v1/critical-assets/${pending.id}/confirm`, 'qa-admin', { outcome: 'CONFIRMED' });
+  assert.equal(second.statusCode, 409);
+  const conflict = json(second);
+  assert.equal(conflict.code, 'CRITICAL_ASSET_ATTESTATION_ALREADY_RECORDED');
+  assert.match(conflict.message, /já foi registada por QA Admin Person/);
+  assert.equal(conflict.details.outcome, 'CORRECTION_NEEDED');
+  assert.equal(conflict.details.weekStart, '2026-11-09');
+  const stored = await prisma.criticalAssetAttestation.findUniqueOrThrow({ where: { id: pending.id } });
+  assert.equal(stored.outcome, 'CORRECTION_NEEDED');
+  assert.equal(stored.notes, 'Wrong serial');
+  assert.equal(await prisma.auditLog.count({ where: { action: 'CRITICAL_ASSET_ATTESTATION_RECORDED', entityId: ids.deviceA } }), 1);
+
+  const list = await request('GET', `/api/v1/critical-assets?siteId=${ids.siteA}`, 'qa-admin');
+  assert.equal(list.statusCode, 200);
+  const body = json(list);
+  const switchA = body.assets.find((asset: { id: string }) => asset.id === ids.deviceA);
+  assert.equal(switchA.attestations.length, 6);
+  assert.equal(switchA.owner.id, ids.groupRead);
+  assert.equal(switchA.latestOutcome, 'CORRECTION_NEEDED');
+  assert.equal(switchA.dueState, 'up_to_date');
+  assert.equal(switchA.attestations[0].confirmedByName, 'QA Admin Person');
+  assert.equal(switchA.attestations[1].confirmedByName, 'qa-network-scoped');
+  assert.equal(switchA.attestations.find((row: { notes: string | null }) => row.notes === 'checked tag')?.weekStart.slice(0, 10), '2026-10-26');
+  const switchA2 = body.assets.find((asset: { id: string }) => asset.id === ids.deviceA2);
+  assert.equal(switchA2.dueState, 'unscheduled');
+  assert.equal(typeof switchA2.dueDate, 'string');
+});
+
+test('critical asset attestation: two simultaneous reviews of one cycle give exactly one 201 and one 409', async () => {
+  await prisma.device.update({ where: { id: ids.deviceA2 }, data: { isCritical: true } });
+  await prisma.criticalAssetGroupMapping.upsert({ where: { siteId_assetType: { siteId: ids.siteA, assetType: 'SWITCH' } }, create: { siteId: ids.siteA, assetType: 'SWITCH', groupId: ids.groupRead }, update: {} });
+  for (let round = 0; round < 5; round += 1) {
+    const row = await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA2, weekStart: new Date(Date.UTC(2026, 5, 1 + round * 7)) } });
+    const responses = await Promise.all([
+      request('POST', `/api/v1/critical-assets/${row.id}/confirm`, 'qa-admin', { outcome: 'CONFIRMED', notes: 'first' }),
+      request('POST', `/api/v1/critical-assets/${row.id}/confirm`, 'qa-admin', { outcome: 'CORRECTION_NEEDED', notes: 'second' }),
+    ]);
+    assert.deepEqual(responses.map((response) => response.statusCode).sort(), [201, 409]);
+    const winner = json(responses.find((response) => response.statusCode === 201)!);
+    const loser = json(responses.find((response) => response.statusCode === 409)!);
+    assert.equal(loser.code, 'CRITICAL_ASSET_ATTESTATION_ALREADY_RECORDED');
+    const stored = await prisma.criticalAssetAttestation.findUniqueOrThrow({ where: { id: row.id } });
+    assert.equal(stored.outcome, winner.outcome);
+    assert.equal(stored.notes, winner.notes);
+    assert.equal(await prisma.auditLog.count({ where: { action: 'CRITICAL_ASSET_ATTESTATION_RECORDED', metadata: { path: ['attestationId'], equals: row.id } } }), 1);
+  }
+});
 test('enforces the Site permission on every NAT write, whatever links the rule to the Site', async () => {
   const vrfA = await prisma.vrf.create({ data: { name: 'HTTP VRF A', siteId: ids.siteA } });
   const vrfB = await prisma.vrf.create({ data: { name: 'HTTP VRF B', siteId: ids.siteB } });
@@ -714,275 +1023,559 @@ test('imports by the stored diff, not by the order the client sends the prefixes
   assert.equal(stored.status, 'PARTIAL');
 });
 
-test('critical asset attestation: 409 on a second review of the same cycle, reviewer names and due state over HTTP', async () => {
-  await prisma.user.update({ where: { id: ids.admin }, data: { displayName: 'QA Admin Person' } });
-  await prisma.device.updateMany({ where: { id: { in: [ids.deviceA, ids.deviceA2] } }, data: { isCritical: true } });
-  await prisma.criticalAssetGroupMapping.create({ data: { siteId: ids.siteA, assetType: 'SWITCH', groupId: ids.groupRead } });
-  const pending = await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA, weekStart: new Date('2026-11-09T00:00:00.000Z') } });
-  for (const week of ['2026-11-02', '2026-10-26', '2026-10-19', '2026-10-12', '2026-10-05']) {
-    await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA, weekStart: new Date(`${week}T00:00:00.000Z`), outcome: 'CONFIRMED', confirmedAt: new Date(`${week}T10:00:00.000Z`), confirmedBy: ids.scoped, notes: week === '2026-10-26' ? 'checked tag' : null } });
-  }
-  const first = await request('POST', `/api/v1/critical-assets/${pending.id}/confirm`, 'qa-admin', { outcome: 'CORRECTION_NEEDED', notes: 'Wrong serial' });
-  assert.equal(first.statusCode, 201);
-  assert.equal(json(first).confirmedByName, 'QA Admin Person');
-  assert.equal(json(first).confirmedBy, ids.admin);
-  const second = await request('POST', `/api/v1/critical-assets/${pending.id}/confirm`, 'qa-admin', { outcome: 'CONFIRMED' });
-  assert.equal(second.statusCode, 409);
-  const conflict = json(second);
-  assert.equal(conflict.code, 'CRITICAL_ASSET_ATTESTATION_ALREADY_RECORDED');
-  assert.match(conflict.message, /já foi registada por QA Admin Person/);
-  assert.equal(conflict.details.outcome, 'CORRECTION_NEEDED');
-  assert.equal(conflict.details.weekStart, '2026-11-09');
-  const stored = await prisma.criticalAssetAttestation.findUniqueOrThrow({ where: { id: pending.id } });
-  assert.equal(stored.outcome, 'CORRECTION_NEEDED');
-  assert.equal(stored.notes, 'Wrong serial');
-  assert.equal(await prisma.auditLog.count({ where: { action: 'CRITICAL_ASSET_ATTESTATION_RECORDED', entityId: ids.deviceA } }), 1);
+test('Phase C audit: cursor paging past 200, exact filters, facets, diff and CSV export', async () => {
+  const at = new Date('2030-01-01T00:00:00.000Z');
+  // 205 events sharing one timestamp prove the id tie-breaker gives a stable, gap-free order past the old 200 cap.
+  await prisma.auditLog.createMany({ data: Array.from({ length: 205 }, (_, index) => ({ userId: ids.admin, action: 'PHASEC_PAGING', entityType: 'PhaseCTest', entityId: `row-${index}`, createdAt: at })) });
+  await prisma.auditLog.create({ data: { userId: ids.auditor, action: 'AUDIT_RETENTION_UPDATED', entityType: 'SystemSettings', entityId: 'phase-c', metadata: { previousDays: 90, nextDays: 30 } } });
+  await prisma.auditLog.create({ data: { userId: ids.admin, action: 'GET /api/v1/phase-c-noise', entityType: 'HTTP_REQUEST', metadata: { statusCode: 200 } } });
 
-  const list = await request('GET', `/api/v1/critical-assets?siteId=${ids.siteA}`, 'qa-admin');
-  assert.equal(list.statusCode, 200);
-  const body = json(list);
-  const switchA = body.assets.find((asset: { id: string }) => asset.id === ids.deviceA);
-  assert.equal(switchA.attestations.length, 6);
-  assert.equal(switchA.owner.id, ids.groupRead);
-  assert.equal(switchA.latestOutcome, 'CORRECTION_NEEDED');
-  assert.equal(switchA.dueState, 'up_to_date');
-  assert.equal(switchA.attestations[0].confirmedByName, 'QA Admin Person');
-  assert.equal(switchA.attestations[1].confirmedByName, 'qa-network-scoped');
-  assert.equal(switchA.attestations.find((row: { notes: string | null }) => row.notes === 'checked tag')?.weekStart.slice(0, 10), '2026-10-26');
-  const switchA2 = body.assets.find((asset: { id: string }) => asset.id === ids.deviceA2);
-  assert.equal(switchA2.dueState, 'unscheduled');
-  assert.equal(typeof switchA2.dueDate, 'string');
-});
-
-test('critical asset attestation: two simultaneous reviews of one cycle give exactly one 201 and one 409', async () => {
-  await prisma.device.update({ where: { id: ids.deviceA2 }, data: { isCritical: true } });
-  await prisma.criticalAssetGroupMapping.upsert({ where: { siteId_assetType: { siteId: ids.siteA, assetType: 'SWITCH' } }, create: { siteId: ids.siteA, assetType: 'SWITCH', groupId: ids.groupRead }, update: {} });
-  for (let round = 0; round < 5; round += 1) {
-    const row = await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA2, weekStart: new Date(Date.UTC(2026, 5, 1 + round * 7)) } });
-    const responses = await Promise.all([
-      request('POST', `/api/v1/critical-assets/${row.id}/confirm`, 'qa-admin', { outcome: 'CONFIRMED', notes: 'first' }),
-      request('POST', `/api/v1/critical-assets/${row.id}/confirm`, 'qa-admin', { outcome: 'CORRECTION_NEEDED', notes: 'second' }),
-    ]);
-    assert.deepEqual(responses.map((response) => response.statusCode).sort(), [201, 409]);
-    const winner = json(responses.find((response) => response.statusCode === 201)!);
-    const loser = json(responses.find((response) => response.statusCode === 409)!);
-    assert.equal(loser.code, 'CRITICAL_ASSET_ATTESTATION_ALREADY_RECORDED');
-    const stored = await prisma.criticalAssetAttestation.findUniqueOrThrow({ where: { id: row.id } });
-    assert.equal(stored.outcome, winner.outcome);
-    assert.equal(stored.notes, winner.notes);
-    assert.equal(await prisma.auditLog.count({ where: { action: 'CRITICAL_ASSET_ATTESTATION_RECORDED', metadata: { path: ['attestationId'], equals: row.id } } }), 1);
-  }
-});
-
-test('rack PDU power: defaults, allocation, 409s, cascades, audit, RBAC and wattage over HTTP', async () => {
-  await resetDatabase();
-  const admin = 'qa-admin';
-  const conflict = (response: { statusCode: number; body: string }, code: string) => { assert.equal(response.statusCode, 409, response.body); assert.equal(json(response).code, code); return json(response); };
-
-  // Defaults endpoint
-  const defaults = await request('GET', '/api/v1/power/defaults', admin);
-  assert.equal(defaults.statusCode, 200);
-  assert.deepEqual([json(defaults).pduOutletCount, json(defaults).pduBudgetWatts, json(defaults).powerPlugCount, json(defaults).wattsByDeviceType.SERVER], [32, 3680, 2, 350]);
-
-  // New rack: Só rede by default (one 32-outlet SUPPLIER PDU), Rede + UPS adds a UPS PDU
-  const plain = await request('POST', '/api/v1/racks', admin, { name: 'Power Plain', roomId: ids.roomA });
-  assert.equal(plain.statusCode, 201, plain.body);
-  const plainRack = json(await request('GET', `/api/v1/racks/${json(plain).id}`, admin));
-  assert.equal(plainRack.powerMode, 'SUPPLIER_ONLY');
-  assert.deepEqual(plainRack.pdus.map((p: any) => [p.source, p.outletCount, p.budgetWatts]), [['SUPPLIER', 32, 3680]]);
-  const dual = await request('POST', '/api/v1/racks', admin, { name: 'Power Dual', roomId: ids.roomA, powerMode: 'SUPPLIER_AND_UPS' });
-  assert.equal(dual.statusCode, 201, dual.body);
-  const rackId = json(dual).id;
-  let rack = json(await request('GET', `/api/v1/racks/${rackId}`, admin));
-  assert.equal(rack.powerMode, 'SUPPLIER_AND_UPS');
-  assert.deepEqual(rack.pdus.map((p: any) => p.source), ['SUPPLIER', 'UPS']);
-  const [supplierId, upsId] = rack.pdus.map((p: any) => p.id);
-
-  // Devices: manual watts, model watts, type default
-  const model = await prisma.deviceModel.create({ data: { manufacturer: 'QA', model: 'SW-120', type: 'SWITCH', typicalWatts: 120 } });
-  const dev = { srv: '94000000-0000-4000-8000-000000000001', sw: '94000000-0000-4000-8000-000000000002', fw: '94000000-0000-4000-8000-000000000003' };
-  await prisma.device.createMany({ data: [
-    { id: dev.srv, name: 'PWR Server', type: 'SERVER', siteId: ids.siteA, rackId, estimatedWatts: 400 },
-    { id: dev.sw, name: 'PWR Switch', type: 'SWITCH', siteId: ids.siteA, rackId, modelId: model.id },
-    { id: dev.fw, name: 'PWR Firewall', type: 'FIREWALL', siteId: ids.siteA, rackId },
-  ] });
-  for (const id of [dev.srv, dev.sw, dev.fw]) {
-    const response = await request('PUT', `/api/v1/devices/${id}/power`, admin, {});
+  const seen = new Set<string>(); let cursor: string | null = null; let pages = 0;
+  do {
+    const response = await request('GET', `/api/v1/audit/events/page?action=PHASEC_PAGING&limit=60${cursor ? `&cursor=${cursor}` : ''}`, 'qa-auditor');
     assert.equal(response.statusCode, 200, response.body);
     const body = json(response);
-    assert.equal(body.device.plugCount, 2);
-    assert.deepEqual(body.device.assignments.map((a: any) => a.source), ['SUPPLIER', 'UPS']);
-    assert.equal(body.device.redundant, true);
-  }
-  rack = json(await request('GET', `/api/v1/racks/${rackId}`, admin));
-  const supplier = rack.pdus.find((p: any) => p.source === 'SUPPLIER');
-  assert.deepEqual(Object.fromEntries(supplier.connections.map((c: any) => [c.deviceName, [c.wattsSource, c.deviceEstimatedWatts, c.estimatedWattsShare, c.outlets.map((o: any) => o.outletIndex)]])), {
-    'PWR Server': ['manual', 400, 200, [1]], 'PWR Switch': ['modelo', 120, 60, [2]], 'PWR Firewall': ['padrão', 200, 100, [3]],
-  });
-  assert.deepEqual([supplier.usedOutlets, supplier.estimatedWatts, supplier.failoverWatts], [3, 360, 720]);
-  assert.deepEqual(rack.power.totals.bySource, { SUPPLIER: 360, UPS: 360 });
-  assert.equal(rack.power.totals.estimatedWatts, 720);
+    for (const item of body.items) { assert.equal(seen.has(item.id), false, 'duplicate across pages'); seen.add(item.id); assert.equal(item.user.username, 'qa-admin'); }
+    cursor = body.nextCursor; pages += 1;
+    assert.equal(body.hasMore, cursor !== null);
+  } while (cursor && pages < 10);
+  assert.equal(seen.size, 205); assert.equal(pages, 4);
 
-  // Double-booked outlet → 409, nothing changed
-  conflict(await request('PUT', `/api/v1/devices/${dev.fw}/power`, admin, { plugs: [{ plugIndex: 1, pduId: supplierId, outletIndex: 1 }] }), 'PDU_OUTLET_TAKEN');
-  assert.equal(await prisma.pduOutletAssignment.count({ where: { deviceId: dev.fw } }), 2);
+  // Exact match: a substring of the action does not match on the paged endpoint.
+  assert.equal(json(await request('GET', '/api/v1/audit/events/page?action=PHASEC', 'qa-auditor')).items.length, 0);
+  const byActor = json(await request('GET', `/api/v1/audit/events/page?actorId=${ids.auditor}&entityType=SystemSettings`, 'qa-admin'));
+  assert.equal(byActor.items.length, 1);
+  assert.deepEqual(byActor.items[0].diff, [{ field: 'days', before: 90, after: 30 }]);
+  assert.equal(byActor.items[0].hasDiff, true);
+  // (The interceptor logs each request URL, so filter by the exact action rather than free text here.)
+  const noiseAction = encodeURIComponent('GET /api/v1/phase-c-noise');
+  assert.equal(json(await request('GET', `/api/v1/audit/events/page?action=${noiseAction}&excludeHttp=true`, 'qa-admin')).items.length, 0);
+  assert.equal(json(await request('GET', `/api/v1/audit/events/page?action=${noiseAction}`, 'qa-admin')).items.length, 1);
+  assert.equal(json(await request('GET', '/api/v1/audit/events/page?entityType=PhaseCTest&entityId=row-7', 'qa-admin')).items.length, 1);
 
-  // Shrinking below used outlets / removing a connected UPS → 409 with the device list
-  const shrink = conflict(await request('PUT', `/api/v1/racks/${rackId}/pdus`, admin, { mode: 'SUPPLIER_AND_UPS', supplier: { outletCount: 2 } }), 'PDU_OUTLETS_IN_USE');
-  assert.deepEqual(shrink.details.devices.map((d: any) => [d.deviceName, d.outlets]), [['PWR Firewall', [3]]]);
-  const removeUps = conflict(await request('PUT', `/api/v1/racks/${rackId}/pdus`, admin, { mode: 'SUPPLIER_ONLY' }), 'PDU_HAS_CONNECTIONS');
-  assert.deepEqual(removeUps.details.devices.map((d: any) => d.deviceName).sort(), ['PWR Firewall', 'PWR Server', 'PWR Switch']);
-  assert.equal(await prisma.rackPdu.count({ where: { rackId } }), 2);
+  assert.equal((await request('GET', '/api/v1/audit/events/page?cursor=garbage', 'qa-admin')).statusCode, 400);
+  assert.equal((await request('GET', '/api/v1/audit/events/page?from=yesterday', 'qa-admin')).statusCode, 400);
+  assert.equal((await request('GET', '/api/v1/audit/events/page', 'qa-readonly')).statusCode, 403);
+  assert.equal((await request('GET', '/api/v1/audit/facets', 'qa-network-scoped')).statusCode, 403);
 
-  // Read-only and scope-limited users get 403 on every write; network operator is blocked by role even for a SWITCH
-  for (const persona of ['qa-readonly', 'qa-auditor', 'qa-systems-scoped', 'qa-network-scoped']) {
-    assert.equal((await request('PUT', `/api/v1/devices/${dev.sw}/power`, persona, {})).statusCode, 403, persona);
-    assert.equal((await request('PUT', `/api/v1/racks/${rackId}/pdus`, persona, { mode: 'SUPPLIER_AND_UPS' })).statusCode, 403, persona);
-    assert.equal((await request('DELETE', `/api/v1/racks/${rackId}/pdus/${upsId}/devices/${dev.srv}`, persona)).statusCode, 403, persona);
-    assert.equal((await request('DELETE', `/api/v1/racks/${rackId}/pdus/${upsId}/devices/${dev.sw}`, persona)).statusCode, 403, persona);
-  }
-  assert.equal(await prisma.pduOutletAssignment.count({ where: { pduId: upsId } }), 3);
+  const facets = json(await request('GET', '/api/v1/audit/facets', 'qa-auditor'));
+  assert.deepEqual(facets.actions.find((item: { value: string }) => item.value === 'PHASEC_PAGING'), { value: 'PHASEC_PAGING', count: 205 });
+  assert.equal(facets.actions.some((item: { value: string }) => item.value.startsWith('GET ')), false);
+  assert.ok(facets.entityTypes.some((item: { value: string }) => item.value === 'HTTP_REQUEST'));
+  assert.ok(facets.actors.some((item: { id: string; username: string }) => item.id === ids.auditor && item.username === 'qa-auditor'));
 
-  // Desligar frees only that PDU's outlets
-  const off = await request('DELETE', `/api/v1/racks/${rackId}/pdus/${upsId}/devices/${dev.srv}`, admin);
-  assert.equal(off.statusCode, 200, off.body);
-  assert.equal(json(off).removed, 1);
-  assert.equal(json(off).pdus.find((p: any) => p.source === 'UPS').usedOutlets, 2);
-  assert.deepEqual((await prisma.pduOutletAssignment.findMany({ where: { deviceId: dev.srv } })).map((a) => a.pduId), [supplierId]);
+  const csv = await request('GET', '/api/v1/audit/events/export?action=PHASEC_PAGING', 'qa-auditor');
+  assert.equal(csv.statusCode, 200);
+  assert.match(String(csv.headers['content-type']), /text\/csv/);
+  assert.equal(csv.headers['x-export-row-count'], '205');
+  assert.equal(csv.body.trim().split('\r\n').length, 206);
 
-  // Moving a powered device to another rack without outlets would clear its power config → 400, nothing changed
-  const moveBody = { name: 'PWR Switch', type: 'SWITCH', siteId: ids.siteA, rackId: json(plain).id, rackUnitStart: 1, rackUnitSize: 1 };
-  const refused = await request('PATCH', `/api/v1/devices/${dev.sw}`, admin, moveBody);
-  assert.equal(refused.statusCode, 400, refused.body);
-  assert.equal(json(refused).code, 'REQUIRED_CONFIG_MISSING');
-  // A move re-places the device: its (legacy) missing rear image is now required too, and filled power can't be dropped
-  assert.deepEqual(json(refused).details.errors.map((e: any) => [e.config, e.reason, e.tab]), [['rearImage', 'MISSING', 'imagens'], ['power', 'CLEARED', 'energia']]);
-  assert.equal((await prisma.device.findUnique({ where: { id: dev.sw } }))?.rackId, rackId);
-  assert.equal(await prisma.pduOutletAssignment.count({ where: { deviceId: dev.sw } }), 2);
-  // With the model's rear image and `power`, the move frees the old outlets and plugs into the new rack in one transaction
-  const swRear = await prisma.assetFile.create({ data: { filename: 'pwr-sw-rear.png', storageKey: 'pwr-sw-rear.png', mimeType: 'image/png', sizeBytes: 1, kind: 'DEVICE_BACK' } });
-  await prisma.deviceModel.update({ where: { id: model.id }, data: { backAssetId: swRear.id } });
-  const moved = await request('PATCH', `/api/v1/devices/${dev.sw}`, admin, { ...moveBody, power: {} });
-  assert.equal(moved.statusCode, 200, moved.body);
-  assert.deepEqual(json(moved).requiredConfig.missing, []);
-  const plainPduIds = (await prisma.rackPdu.findMany({ where: { rackId: json(plain).id } })).map((p) => p.id);
-  const swOutlets = await prisma.pduOutletAssignment.findMany({ where: { deviceId: dev.sw } });
-  assert.ok(swOutlets.length > 0 && swOutlets.every((a) => plainPduIds.includes(a.pduId)));
-  // HTTP delete is gated by the retirement checklist (409); the hard delete itself cascades in the database
-  assert.equal((await request('DELETE', `/api/v1/devices/${dev.fw}`, admin)).statusCode, 409);
-  assert.equal(await prisma.pduOutletAssignment.count({ where: { deviceId: dev.fw } }), 2);
-  await prisma.device.delete({ where: { id: dev.fw } });
-  assert.equal(await prisma.pduOutletAssignment.count({ where: { deviceId: dev.fw } }), 0);
-
-  // With the UPS empty it can now be removed
-  for (const device of [dev.srv]) await request('DELETE', `/api/v1/racks/${rackId}/pdus/${upsId}/devices/${device}`, admin);
-  const removed = await request('PUT', `/api/v1/racks/${rackId}/pdus`, admin, { mode: 'SUPPLIER_ONLY' });
-  assert.equal(removed.statusCode, 200, removed.body);
-  assert.equal(json(removed).mode, 'SUPPLIER_ONLY');
-
-  // Every write is audited
-  const actions = (await prisma.auditLog.findMany({ where: { userId: ids.admin, action: { in: ['DEVICE_POWER_UPDATED', 'DEVICE_POWER_DISCONNECTED', 'RACK_POWER_UPDATED'] } }, select: { action: true } })).map((a) => a.action);
-  assert.equal(actions.filter((a) => a === 'DEVICE_POWER_UPDATED').length, 3);
-  assert.equal(actions.filter((a) => a === 'DEVICE_POWER_DISCONNECTED').length, 1);
-  assert.equal(actions.filter((a) => a === 'RACK_POWER_UPDATED').length, 1);
-  const moveAudit = await prisma.auditLog.findFirst({ where: { entityId: dev.sw, action: { contains: 'UPDATED' }, NOT: { action: 'DEVICE_POWER_UPDATED' } }, orderBy: { createdAt: 'desc' } });
-  assert.equal((moveAudit?.metadata as any)?.powerAssignmentsRemoved, 2);
+  // The legacy list keeps its array shape and 200 cap.
+  const legacy = await request('GET', '/api/v1/audit/events?action=PHASEC&limit=500', 'qa-auditor');
+  assert.equal(legacy.statusCode, 200);
+  assert.ok(Array.isArray(json(legacy))); assert.equal(json(legacy).length, 200);
 });
 
-test('required device configs: registry, create validation, legacy updates, grouped bell alerts and affected devices', async () => {
-  const admin = 'qa-admin';
-  const registry = json(await request('GET', '/api/v1/devices/required-configs', 'qa-readonly'));
-  assert.equal(registry.configs.some((c: any) => 'introducedAt' in c), false);
-  assert.deepEqual(registry.configs.map((c: any) => [c.key, c.kind, c.tab]), [['name', 'CORE', 'geral'], ['type', 'CORE', 'geral'], ['placement', 'CORE', 'localizacao'], ['rearImage', 'FEATURE', 'imagens'], ['power', 'FEATURE', 'energia']]);
+test('Phase C quality: bounded snooze, bulk actions with per-item permission and Site isolation, facets', async () => {
+  const make = (key: string, rule: string, siteId: string, entityId: string) => prisma.inventoryFinding.create({ data: { dedupKey: `phase-c:${key}`, siteId, rule, severity: 'WARNING', entityType: 'Device', entityId, title: `Phase C ${key}`, detail: 'Phase C finding' } });
+  const a1 = await make('a1', 'PHASEC_RULE_ONE', ids.siteA, ids.deviceA);
+  const a2 = await make('a2', 'PHASEC_RULE_TWO', ids.siteA, ids.deviceA2);
+  const hidden = await make('hidden', 'PHASEC_RULE_ONE', ids.siteA, ids.deviceSibling);
+  const b1 = await make('b1', 'PHASEC_RULE_ONE', ids.siteB, ids.deviceB);
+  const url = '/api/v1/inventory-quality/findings';
 
-  const rack = json(await request('POST', '/api/v1/racks', admin, { name: 'Required Config Rack', roomId: ids.roomA }));
-  const base = { name: 'RC Server', type: 'SERVER', siteId: ids.siteA, rackId: rack.id, rackUnitStart: 10, rackUnitSize: 1 };
+  // Single snooze: duration, legacy until, and bounds.
+  const single = await request('PATCH', `${url}/${a1.id}/snooze`, 'qa-network-scoped', { durationHours: 2 });
+  assert.equal(single.statusCode, 200, single.body);
+  const delta = new Date(json(single).snoozedUntil).getTime() - Date.now();
+  assert.ok(delta > 1.9 * 3_600_000 && delta <= 2 * 3_600_000, String(delta));
+  assert.equal((await request('PATCH', `${url}/${a1.id}/snooze`, 'qa-network-scoped', { until: new Date(Date.now() + 24 * 3_600_000).toISOString() })).statusCode, 200);
+  assert.equal((await request('PATCH', `${url}/${a1.id}/snooze`, 'qa-network-scoped', { until: new Date(Date.now() + 40 * 24 * 3_600_000).toISOString() })).statusCode, 400);
+  assert.equal((await request('PATCH', `${url}/${a1.id}/snooze`, 'qa-network-scoped', { durationHours: 721 })).statusCode, 400);
+  assert.equal((await request('PATCH', `${url}/${a1.id}/snooze`, 'qa-network-scoped', {})).statusCode, 400);
 
-  // Create: every missing config comes back with field-level details; nothing is written
-  const rejected = await request('POST', '/api/v1/devices', admin, base);
-  assert.equal(rejected.statusCode, 400, rejected.body);
-  assert.equal(json(rejected).code, 'REQUIRED_CONFIG_MISSING');
-  assert.deepEqual(json(rejected).details.errors.map((e: any) => [e.config, e.reason, e.tab, e.fields]), [['rearImage', 'MISSING', 'imagens', ['backAssetId']], ['power', 'MISSING', 'energia', ['power', 'powerPlugCount']]]);
-  const noName = await request('POST', '/api/v1/devices', admin, { ...base, name: '', powerPlugCount: 0 });
-  assert.equal(noName.statusCode, 400);
-  assert.equal(await prisma.device.count({ where: { name: 'RC Server' } }), 0);
+  // Bulk snooze: items in the operator's Site succeed, the other Site's item looks not-found.
+  const bulk = await request('POST', `${url}/bulk`, 'qa-network-scoped', { action: 'SNOOZE', ids: [a1.id, a2.id, b1.id], durationHours: 72, reason: 'Phase C' });
+  assert.equal(bulk.statusCode, 200, bulk.body);
+  const bulkBody = json(bulk);
+  assert.equal(bulkBody.succeeded, 2); assert.equal(bulkBody.failed, 1);
+  assert.deepEqual(bulkBody.results.map((item: { code?: string }) => item.code ?? 'OK'), ['OK', 'OK', 'NOT_FOUND']);
+  const stored = await prisma.inventoryFinding.findMany({ where: { id: { in: [a1.id, a2.id, b1.id] } }, orderBy: { dedupKey: 'asc' } });
+  assert.deepEqual(stored.map((item) => item.status), ['SNOOZED', 'SNOOZED', 'OPEN']);
+  assert.equal(stored[0].snoozedUntil!.toISOString(), bulkBody.snoozedUntil);
+  assert.equal(await prisma.auditLog.count({ where: { action: 'INVENTORY_FINDING_SNOOZED', entityId: { in: [a1.id, a2.id] }, metadata: { path: ['reason'], equals: 'Phase C' } } }), 2);
 
-  // A device with no power (0 plugs) only needs the rear image; with `power: {}` it is plugged in on create
-  const unpowered = await request('POST', '/api/v1/devices', admin, { ...base, name: 'RC Patch', type: 'OTHER', powerPlugCount: 0, rackUnitStart: 11 });
-  assert.equal(unpowered.statusCode, 400);
-  assert.deepEqual(json(unpowered).details.errors.map((e: any) => e.config), ['rearImage']);
+  // Read-only member of room A: a visible item is FORBIDDEN, a sibling-room item is NOT_FOUND. Non-operator roles are rejected outright.
+  const forbidden = json(await request('POST', `${url}/bulk`, 'qa-systems-scoped', { action: 'ACKNOWLEDGE', ids: [a1.id, hidden.id] }));
+  assert.deepEqual(forbidden.results.map((item: { code: string }) => item.code), ['FORBIDDEN', 'NOT_FOUND']);
+  assert.equal((await prisma.inventoryFinding.findUniqueOrThrow({ where: { id: hidden.id } })).status, 'OPEN');
+  assert.equal((await request('POST', `${url}/bulk`, 'qa-auditor', { action: 'ACKNOWLEDGE', ids: [a1.id] })).statusCode, 403);
+  assert.equal((await request('POST', `${url}/bulk`, 'qa-network-scoped', { action: 'ACKNOWLEDGE', ids: [] })).statusCode, 400);
+  assert.equal((await request('POST', `${url}/bulk`, 'qa-network-scoped', { action: 'SNOOZE', ids: [a1.id], durationHours: 0 })).statusCode, 400);
+  assert.equal((await request('POST', `${url}/bulk`, 'qa-network-scoped', { action: 'ACKNOWLEDGE', ids: ['not-a-uuid'] })).statusCode, 400);
 
-  // The model's rear image counts, and `power: {}` plugs the device in during create (default distribution)
-  const rear = await prisma.assetFile.create({ data: { filename: 'rc-rear.png', storageKey: 'rc-rear.png', mimeType: 'image/png', sizeBytes: 1, kind: 'DEVICE_BACK' } });
-  const rcModel = await prisma.deviceModel.create({ data: { manufacturer: 'QA', model: 'RC-1U', type: 'SERVER', backAssetId: rear.id } });
-  const created = await request('POST', '/api/v1/devices', admin, { ...base, modelId: rcModel.id, power: {} });
+  // Bulk assign and acknowledge, then the assignee filter and facets.
+  const assigned = json(await request('POST', `${url}/bulk`, 'qa-network-scoped', { action: 'ASSIGN', ids: [a1.id, a2.id], userId: ids.scoped }));
+  assert.equal(assigned.succeeded, 2);
+  const acknowledged = json(await request('POST', `${url}/bulk`, 'qa-admin', { action: 'ACKNOWLEDGE', ids: [a2.id, b1.id] }));
+  assert.equal(acknowledged.succeeded, 2);
+  const mine = json(await request('GET', `${url}?siteId=${ids.siteA}&assignee=me&search=Phase C`, 'qa-network-scoped'));
+  assert.deepEqual(mine.items.map((item: { id: string }) => item.id).sort(), [a1.id, a2.id].sort());
+  assert.equal((await request('GET', `${url}?assignee=someone`, 'qa-network-scoped')).statusCode, 400);
+
+  // Facets as the room-A reader: the sibling-room finding is not counted.
+  await prisma.inventoryFinding.update({ where: { id: hidden.id }, data: { status: 'SNOOZED' } });
+  const facets = json(await request('GET', `/api/v1/inventory-quality/facets?siteId=${ids.siteA}&search=Phase C&status=SNOOZED`, 'qa-systems-scoped'));
+  // byStatus ignores the status filter (tab counts); other dimensions apply it.
+  assert.deepEqual(facets.byStatus, { OPEN: 0, ACKNOWLEDGED: 1, SNOOZED: 1, RESOLVED: 0 });
+  assert.equal(facets.total, 1);
+  assert.deepEqual(facets.byRule, [{ rule: 'PHASEC_RULE_ONE', total: 1, byStatus: { SNOOZED: 1 } }]);
+  assert.deepEqual(facets.byAssignee.map((item: { userId: string | null; total: number }) => [item.userId, item.total]), [[ids.scoped, 1]]);
+  assert.equal(JSON.stringify(facets).includes(hidden.id), false);
+  assert.equal((await request('GET', `/api/v1/inventory-quality/facets?siteId=${ids.siteB}`, 'qa-network-scoped')).statusCode, 404);
+});
+
+test('Phase C changes: list filters, status summary, calendar overlaps, target search and activity', async () => {
+  const day = (offsetHours: number) => new Date(Date.UTC(2031, 0, 10, offsetHours));
+  const before = json(await request('GET', `/api/v1/change-plans/summary?siteId=${ids.siteA}`, 'qa-readonly'));
+  const approved = await prisma.changePlan.create({ data: { siteId: ids.siteA, title: 'Phase C approved core upgrade', reason: 'Phase C', plannedStartAt: day(8), plannedEndAt: day(12), status: 'APPROVED', createdById: ids.admin, items: { create: [{ entityType: 'DEVICE', entityId: ids.deviceA, operationSummary: 'Upgrade' }, { entityType: 'DEVICE', entityId: ids.deviceSibling, operationSummary: 'Hidden target' }] } } });
+  const draft = await prisma.changePlan.create({ data: { siteId: ids.siteA, title: 'Phase C draft access change', reason: 'Phase C', plannedStartAt: day(11), plannedEndAt: day(13), status: 'DRAFT', createdById: ids.admin, items: { create: [{ entityType: 'DEVICE', entityId: ids.deviceA, operationSummary: 'Ports' }, { entityType: 'DEVICE', entityId: ids.deviceSibling, operationSummary: 'Hidden target' }] } } });
+  const touching = await prisma.changePlan.create({ data: { siteId: ids.siteA, title: 'Phase C touching change', reason: 'Phase C', plannedStartAt: day(13), plannedEndAt: day(14), status: 'SUBMITTED', createdById: ids.admin, items: { create: [{ entityType: 'DEVICE', entityId: ids.deviceA2, operationSummary: 'Reboot' }] } } });
+  const cancelled = await prisma.changePlan.create({ data: { siteId: ids.siteA, title: 'Phase C cancelled', reason: 'Phase C', plannedStartAt: day(9), plannedEndAt: day(10), status: 'CANCELLED', createdById: ids.admin, items: { create: [{ entityType: 'DEVICE', entityId: ids.deviceA, operationSummary: 'Nothing' }] } } });
+  const window = await prisma.maintenanceWindow.create({ data: { name: 'Phase C global window', siteId: null, startsAt: day(12), endsAt: day(16) } });
+
+  const summary = json(await request('GET', `/api/v1/change-plans/summary?siteId=${ids.siteA}`, 'qa-readonly'));
+  assert.equal(summary.byStatus.APPROVED - before.byStatus.APPROVED, 1);
+  assert.equal(summary.byStatus.DRAFT - before.byStatus.DRAFT, 1);
+  assert.equal(summary.byStatus.CANCELLED - before.byStatus.CANCELLED, 1);
+  assert.equal(summary.total - before.total, 4);
+  assert.equal(summary.upcoming - before.upcoming, 2);
+
+  const range = `from=${day(0).toISOString()}&to=${day(24).toISOString()}`;
+  const calendarResponse = await request('GET', `/api/v1/change-plans/calendar?siteId=${ids.siteA}&${range}`, 'qa-readonly');
+  assert.equal(calendarResponse.statusCode, 200, calendarResponse.body);
+  const calendar = json(calendarResponse);
+  const plan = (id: string) => calendar.changePlans.find((item: { id: string }) => item.id === id);
+  assert.deepEqual(calendar.changePlans.map((item: { id: string }) => item.id), [approved.id, draft.id, touching.id]);
+  assert.equal(plan(draft.id).conflict, true);
+  assert.equal(plan(approved.id).conflict, false);
+  // Shared targets count only what the user can read: the hidden sibling device is shared too but not counted.
+  assert.deepEqual(plan(draft.id).overlapsWith.find((item: { id: string }) => item.id === approved.id), { kind: 'CHANGE_PLAN', id: approved.id, overlapStartsAt: day(11).toISOString(), overlapEndsAt: day(12).toISOString(), sharedTargetCount: 1 });
+  assert.equal(plan(approved.id).targetCount, 1);
+  assert.equal(plan(touching.id).overlapsWith.some((item: { id: string }) => item.id === draft.id), false);
+  assert.ok(plan(touching.id).overlapsWith.some((item: { kind: string; id: string }) => item.kind === 'MAINTENANCE_WINDOW' && item.id === window.id));
+  assert.equal(calendar.maintenanceWindows[0].global, true);
+  assert.equal(calendarResponse.body.includes(ids.deviceSibling), false);
+  const withCancelled = json(await request('GET', `/api/v1/change-plans/calendar?siteId=${ids.siteA}&${range}&includeCancelled=true`, 'qa-admin'));
+  assert.ok(withCancelled.changePlans.some((item: { id: string }) => item.id === cancelled.id));
+  assert.equal((await request('GET', `/api/v1/change-plans/calendar?siteId=${ids.siteA}&from=${day(0).toISOString()}`, 'qa-admin')).statusCode, 400);
+  assert.equal((await request('GET', `/api/v1/change-plans/calendar?siteId=${ids.siteA}&from=${day(0).toISOString()}&to=${new Date(day(0).getTime() + 121 * 86_400_000).toISOString()}`, 'qa-admin')).statusCode, 400);
+  assert.equal((await request('GET', `/api/v1/change-plans/calendar?siteId=${ids.siteB}&${range}`, 'qa-network-legacy')).statusCode, 404);
+
+  const filtered = json(await request('GET', `/api/v1/change-plans?siteId=${ids.siteA}&status=APPROVED,SUBMITTED&${range}`, 'qa-readonly'));
+  assert.deepEqual(filtered.map((item: { id: string }) => item.id).sort(), [approved.id, touching.id].sort());
+  assert.deepEqual(json(await request('GET', `/api/v1/change-plans?siteId=${ids.siteA}&q=access change`, 'qa-readonly')).map((item: { id: string }) => item.id), [draft.id]);
+  assert.equal((await request('GET', `/api/v1/change-plans?siteId=${ids.siteA}&status=DONE`, 'qa-readonly')).statusCode, 400);
+  assert.ok(json(await request('GET', `/api/v1/change-plans?siteId=${ids.siteA}`, 'qa-readonly')).length >= 4);
+
+  const search = json(await request('GET', `/api/v1/change-plans/candidates?siteId=${ids.siteA}&q=A2&type=DEVICE`, 'qa-network-scoped'));
+  assert.deepEqual(search.groups.flat().map((item: { label: string }) => item.label), ['HTTP Switch A2']);
+  const interfaces = json(await request('GET', `/api/v1/change-plans/candidates?siteId=${ids.siteA}&q=switch a2&type=INTERFACE`, 'qa-network-scoped'));
+  assert.deepEqual(interfaces.groups.flat().map((item: { label: string }) => item.label), ['HTTP Switch A2 · Gi1/0/1']);
+  assert.equal((await request('GET', `/api/v1/change-plans/candidates?siteId=${ids.siteA}&type=ROUTER`, 'qa-network-scoped')).statusCode, 400);
+
+  const created = await request('POST', '/api/v1/change-plans', 'qa-admin', { siteId: ids.siteA, title: 'Phase C activity plan', reason: 'Activity timeline', plannedStartAt: day(30).toISOString(), plannedEndAt: day(31).toISOString(), items: [{ entityType: 'DEVICE', entityId: ids.deviceA, operationSummary: 'Check' }] });
   assert.equal(created.statusCode, 201, created.body);
-  assert.deepEqual(json(created).requiredConfig, { missing: [], missingTabs: [], complete: true });
-  assert.ok(await prisma.pduOutletAssignment.count({ where: { deviceId: json(created).id } }) > 0);
+  const createdId = json(created).id;
+  assert.equal((await request('POST', `/api/v1/change-plans/${createdId}/cancel`, 'qa-admin')).statusCode, 201);
+  const activity = json(await request('GET', `/api/v1/change-plans/${createdId}/activity`, 'qa-readonly'));
+  assert.deepEqual(activity.items.map((item: { action: string }) => item.action), ['CHANGE_PLAN_CREATED', 'CHANGE_PLAN_CANCELLED']);
+  assert.equal(activity.items[0].actor.username, 'qa-admin');
+  assert.equal(activity.items[0].itemCount, 1);
+  assert.equal((await request('GET', `/api/v1/change-plans/${createdId}/activity`, 'qa-network-legacy')).statusCode, 404);
+});
 
-  // Site → rack: placing an unracked device is like creating it in the rack (rear image + power required)
-  const unracked = await request('POST', '/api/v1/devices', admin, { name: 'RC Site Only', type: 'SERVER', siteId: ids.siteA });
-  assert.equal(unracked.statusCode, 201, unracked.body);
-  assert.equal(json(unracked).requiredConfig.complete, true);
-  const placeBody = { name: 'RC Site Only', type: 'SERVER', siteId: ids.siteA, rackId: rack.id, rackUnitStart: 14, rackUnitSize: 1 };
-  const placeRefused = await request('PATCH', `/api/v1/devices/${json(unracked).id}`, admin, placeBody);
-  assert.equal(placeRefused.statusCode, 400, placeRefused.body);
-  assert.deepEqual(json(placeRefused).details.errors.map((e: any) => [e.config, e.reason]), [['rearImage', 'MISSING'], ['power', 'MISSING']]);
-  const placeNoPower = await request('PATCH', `/api/v1/devices/${json(unracked).id}`, admin, { ...placeBody, modelId: rcModel.id });
-  assert.equal(placeNoPower.statusCode, 400, placeNoPower.body);
-  assert.deepEqual(json(placeNoPower).details.errors.map((e: any) => [e.config, e.reason, e.tab]), [['power', 'MISSING', 'energia']]);
-  assert.equal((await prisma.device.findUnique({ where: { id: json(unracked).id } }))?.rackId, null);
-  const placed = await request('PATCH', `/api/v1/devices/${json(unracked).id}`, admin, { ...placeBody, modelId: rcModel.id, power: {} });
-  assert.equal(placed.statusCode, 200, placed.body);
-  assert.equal(json(placed).requiredConfig.complete, true);
-  const placedZero = await request('POST', '/api/v1/devices', admin, { name: 'RC Site Only 2', type: 'OTHER', siteId: ids.siteA });
-  const zero = await request('PATCH', `/api/v1/devices/${json(placedZero).id}`, admin, { name: 'RC Site Only 2', type: 'OTHER', siteId: ids.siteA, rackId: rack.id, rackUnitStart: 15, rackUnitSize: 1, modelId: rcModel.id, powerPlugCount: 0 });
-  assert.equal(zero.statusCode, 200, zero.body);
+test('Phase D alertas: PATCH rule and window, per-rule active counts, scoped maintenance summary', async () => {
+  const rule = await prisma.alertRule.create({ data: { name: 'Phase D rule', source: 'PHASE_D', siteId: null, minSeverity: 'HIGH', enabled: true } });
+  await prisma.operationalAlert.createMany({ data: [
+    { dedupKey: 'phase-d:high', source: 'PHASE_D', severity: 'HIGH', siteId: ids.siteA, title: 'Phase D high', detail: 'shown' },
+    { dedupKey: 'phase-d:warning', source: 'PHASE_D', severity: 'WARNING', siteId: ids.siteA, title: 'Phase D warning', detail: 'below threshold' },
+  ] });
+  const url = '/api/v1/operations/configuration';
+  const listed = json(await request('GET', url, 'qa-admin')).rules.find((item: { id: string }) => item.id === rule.id);
+  assert.deepEqual(listed.activeAlerts, { matching: 2, governed: 2, shown: 1, belowThreshold: 1, inMaintenance: 0 });
 
-  // Legacy device (written before the rule): may be saved while still missing configs, and shows in the bell
-  const legacy = await prisma.device.create({ data: { name: 'RC Legacy', type: 'SERVER', siteId: ids.siteA, rackId: rack.id, rackUnitStart: 20, rackUnitSize: 1 } });
-  const legacyDetail = json(await request('GET', `/api/v1/devices/${legacy.id}`, admin));
-  assert.deepEqual(legacyDetail.requiredConfig, { missing: ['rearImage', 'power'], missingTabs: ['imagens', 'energia'], complete: false });
-  const legacyUpdate = await request('PATCH', `/api/v1/devices/${legacy.id}`, admin, { name: 'RC Legacy 2', type: 'SERVER', siteId: ids.siteA, rackId: rack.id, rackUnitStart: 20, rackUnitSize: 1 });
-  assert.equal(legacyUpdate.statusCode, 200, legacyUpdate.body);
+  const patched = await request('PATCH', `${url}/rules/${rule.id}`, 'qa-admin', { minSeverity: 'WARNING' });
+  assert.equal(patched.statusCode, 200, patched.body);
+  const stored = await prisma.alertRule.findUniqueOrThrow({ where: { id: rule.id } });
+  assert.equal(stored.minSeverity, 'WARNING'); assert.equal(stored.name, 'Phase D rule'); assert.equal(stored.enabled, true);
+  assert.equal(json(await request('GET', url, 'qa-admin')).rules.find((item: { id: string }) => item.id === rule.id).activeAlerts.shown, 2);
+  assert.equal((await request('PATCH', `${url}/rules/${rule.id}`, 'qa-admin', {})).statusCode, 400);
+  assert.equal((await request('PATCH', `${url}/rules/${rule.id}`, 'qa-admin', { minSeverity: 'LOUD' })).statusCode, 400);
+  assert.equal((await request('PATCH', `${url}/rules/00000000-0000-4000-8000-00000000dead`, 'qa-admin', { enabled: false })).statusCode, 404);
+  assert.equal((await request('PATCH', `${url}/rules/${rule.id}`, 'qa-network-scoped', { enabled: false })).statusCode, 403);
 
-  const listed = json(await request('GET', `/api/v1/devices/missing-config?config=power&siteId=${ids.siteA}&pageSize=100`, admin));
-  const row = listed.items.find((d: any) => d.id === legacy.id);
-  assert.equal(row.href, `/infraestrutura?siteId=${ids.siteA}&tab=devices&deviceId=${legacy.id}&settingsTab=energia`);
-  assert.equal((await request('GET', '/api/v1/devices/missing-config?config=frontImage', admin)).statusCode, 400);
-  const filtered = json(await request('GET', `/api/v1/devices?missingConfig=power&pageSize=100`, admin));
-  assert.ok(filtered.items.some((d: any) => d.id === legacy.id));
-  assert.ok(filtered.items.every((d: any) => d.requiredConfig.missing.includes('power')));
+  const now = Date.now();
+  const activeA = await prisma.maintenanceWindow.create({ data: { name: 'Phase D active A', siteId: ids.siteA, startsAt: new Date(now - 3_600_000), endsAt: new Date(now + 3_600_000) } });
+  const upcomingB = await prisma.maintenanceWindow.create({ data: { name: 'Phase D upcoming B', siteId: ids.siteB, startsAt: new Date(now + 86_400_000), endsAt: new Date(now + 90_000_000) } });
+  const far = await prisma.maintenanceWindow.create({ data: { name: 'Phase D far global', siteId: null, startsAt: new Date(now + 20 * 86_400_000), endsAt: new Date(now + 21 * 86_400_000) } });
+  const windowPatch = await request('PATCH', `${url}/maintenance-windows/${far.id}`, 'qa-admin', { startsAt: new Date(now + 2 * 86_400_000).toISOString(), endsAt: new Date(now + 3 * 86_400_000).toISOString(), reason: 'moved' });
+  assert.equal(windowPatch.statusCode, 200, windowPatch.body);
+  assert.equal(await prisma.auditLog.count({ where: { action: 'MAINTENANCE_WINDOW_UPDATED', entityId: far.id } }), 1);
+  assert.equal((await request('PATCH', `${url}/maintenance-windows/${far.id}`, 'qa-admin', { endsAt: new Date(now).toISOString() })).statusCode, 400);
 
-  const bell = async () => json(await request('GET', '/api/v1/dashboard/topbar-state', admin)).alerts.filter((a: any) => String(a.id).startsWith('device-missing-config-'));
-  let alerts = await bell();
-  const powerAlert = alerts.find((a: any) => a.id === 'device-missing-config-power');
-  assert.equal(powerAlert.persistent, true);
-  assert.equal(powerAlert.title.endsWith('sem tomadas de energia configuradas'), true);
-  assert.equal(alerts.filter((a: any) => a.id === 'device-missing-config-power').length, 1);
-  const powerCount = json(await request('GET', '/api/v1/devices/missing-config?config=power', admin)).total;
-  assert.equal(powerAlert.count, powerCount);
-  assert.ok(powerAlert.siteCount >= 1);
-  if (powerAlert.count > 1 && powerAlert.siteCount > 1) {
-    assert.equal(powerAlert.href, '/infraestrutura?tab=devices&missingConfig=power&allSites=1');
-    assert.ok(powerAlert.detail.endsWith(` — em ${powerAlert.siteCount} Sites.`), powerAlert.detail);
-  } else assert.equal(powerAlert.href.includes('allSites'), false);
+  const summaryResponse = await request('GET', '/api/v1/operations/maintenance/summary', 'qa-network-scoped');
+  assert.equal(summaryResponse.statusCode, 200, summaryResponse.body);
+  const summary = json(summaryResponse);
+  assert.ok(summary.active.some((item: { id: string }) => item.id === activeA.id));
+  assert.ok(summary.upcoming.some((item: { id: string }) => item.id === far.id));
+  assert.equal(summaryResponse.body.includes(upcomingB.id), false);
+  assert.equal(summary.criticalAlertsUnaffected, true);
+  assert.equal(summary.horizonDays, 7);
+  assert.ok(json(await request('GET', '/api/v1/operations/maintenance/summary', 'qa-admin')).upcoming.some((item: { id: string }) => item.id === upcomingB.id));
+  assert.equal((await request('GET', `/api/v1/operations/maintenance/summary?siteId=${ids.siteB}`, 'qa-network-scoped')).statusCode, 404);
+});
 
-  // Plugging the legacy device in auto-clears it from the group; clearing it again is refused
-  const plugged = await request('PUT', `/api/v1/devices/${legacy.id}/power`, admin, {});
-  assert.equal(plugged.statusCode, 200, plugged.body);
-  const after = json(await request('GET', '/api/v1/devices/missing-config?config=power&pageSize=100', admin));
-  assert.equal(after.total, powerCount - 1);
-  assert.equal(after.items.some((d: any) => d.id === legacy.id), false);
-  alerts = await bell();
-  const afterAlert = alerts.find((a: any) => a.id === 'device-missing-config-power');
-  if (powerCount - 1 === 0) assert.equal(afterAlert, undefined);
-  else assert.ok(afterAlert.title.startsWith(`${powerCount - 1} dispositivo`), afterAlert.title);
-  const cleared = await request('PUT', `/api/v1/devices/${legacy.id}/power`, admin, { plugs: [] });
-  assert.equal(cleared.statusCode, 400, cleared.body);
-  assert.deepEqual(json(cleared).details.errors.map((e: any) => [e.config, e.reason]), [['power', 'CLEARED']]);
-  assert.ok(await prisma.pduOutletAssignment.count({ where: { deviceId: legacy.id } }) > 0);
+test('Phase D drill-through: device status, critical and lifecycle filters keep room isolation', async () => {
+  await prisma.device.updateMany({ where: { siteId: ids.siteA }, data: { isCritical: false, status: 'ACTIVE' } });
+  await prisma.device.update({ where: { id: ids.deviceA2 }, data: { isCritical: true, status: 'MAINTENANCE' } });
+  await prisma.device.update({ where: { id: ids.deviceSibling }, data: { isCritical: true } });
+  const today = new Date(); today.setUTCHours(0, 0, 0, 0);
+  await prisma.lifecycleDate.createMany({ data: [
+    { deviceId: ids.deviceA, kind: 'PHASE_D_SUPPORT', dueDate: new Date(today.getTime() - 86_400_000) },
+    { deviceId: ids.deviceA2, kind: 'PHASE_D_SUPPORT', dueDate: new Date(today.getTime() + 10 * 86_400_000) },
+  ] });
+  const names = async (query: string, persona = 'qa-systems-scoped') => {
+    const response = await request('GET', `/api/v1/devices?siteId=${ids.siteA}&${query}`, persona);
+    assert.equal(response.statusCode, 200, response.body);
+    return json(response).items.map((item: { name: string }) => item.name).sort();
+  };
+  assert.deepEqual(await names('critical=true'), ['HTTP Switch A2']);
+  assert.deepEqual(await names('critical=true', 'qa-admin'), ['HTTP Hidden Switch', 'HTTP Switch A2']);
+  assert.deepEqual(await names('status=MAINTENANCE'), ['HTTP Switch A2']);
+  assert.deepEqual(await names('lifecycle=overdue&lifecycleKind=PHASE_D_SUPPORT'), ['HTTP Switch A']);
+  assert.deepEqual(await names('lifecycle=due:30&lifecycleKind=PHASE_D_SUPPORT'), ['HTTP Switch A2']);
+  assert.deepEqual(await names('lifecycle=due:5&lifecycleKind=PHASE_D_SUPPORT'), []);
+  for (const bad of ['status=BROKEN', 'critical=maybe', 'lifecycle=soon']) {
+    const response = await request('GET', `/api/v1/devices?${bad}`, 'qa-admin');
+    assert.equal(response.statusCode, 400, bad);
+    assert.match(json(response).code, /^DEVICE_/);
+  }
+});
 
-  // Read-only users see no fix-it alerts
-  assert.deepEqual(json(await request('GET', '/api/v1/dashboard/topbar-state', 'qa-readonly')).alerts.filter((a: any) => String(a.id).startsWith('device-missing-config-')), []);
+test('Phase D IPAM: utilisation on the subnet list, next free IPs and reserve-next with Site isolation', async () => {
+  await prisma.ipAddress.createMany({ data: [
+    { address: '10.250.1.200', subnetId: ids.subnetA, state: 'OCCUPIED', source: 'MANUAL' },
+    { address: '10.250.1.201', subnetId: ids.subnetA, state: 'FREE', source: 'MANUAL' },
+  ] });
+  const list = await request('GET', '/api/v1/subnets?sort=utilization', 'qa-network-scoped');
+  assert.equal(list.statusCode, 200, list.body);
+  const listed = json(list);
+  assert.equal(list.body.includes(ids.subnetB), false);
+  assert.ok(listed.items.every((item: { utilization: { band: string } }) => typeof item.utilization.band === 'string'));
+  const percents = listed.items.map((item: { utilization: { utilizationPercent: number | null } }) => item.utilization.utilizationPercent).filter((value: number | null) => value !== null);
+  assert.deepEqual(percents, [...percents].sort((a: number, b: number) => b - a));
+  const subnetA = listed.items.find((item: { id: string }) => item.id === ids.subnetA);
+  assert.equal(subnetA.utilization.usableCapacity, 254);
+  assert.equal(subnetA.utilization.band, 'OK');
+  assert.ok(subnetA.utilization.allocated >= 3);
+  assert.equal(json(await request('GET', '/api/v1/subnets?band=CRITICAL', 'qa-admin')).total, 0);
+  assert.equal(json(await request('GET', '/api/v1/subnets', 'qa-admin')).items[0].utilization.band, 'OK');
+  assert.equal((await request('GET', '/api/v1/subnets?band=HOT', 'qa-admin')).statusCode, 400);
+  assert.equal((await request('GET', '/api/v1/subnets?sort=name', 'qa-admin')).statusCode, 400);
+
+  const range = 'from=10.250.1.200&to=10.250.1.205';
+  const next = await request('GET', `/api/v1/subnets/${ids.subnetA}/next-free?count=2&${range}`, 'qa-readonly');
+  assert.equal(next.statusCode, 200, next.body);
+  assert.deepEqual(json(next).items.map((item: { address: string; tracked: boolean }) => [item.address, item.tracked]), [['10.250.1.201', true], ['10.250.1.202', false]]);
+  assert.equal(json(next).exhausted, false);
+  assert.equal((await request('GET', `/api/v1/subnets/${ids.subnetB}/next-free`, 'qa-network-scoped')).statusCode, 404);
+  assert.equal((await request('GET', `/api/v1/subnets/${ids.subnetA}/next-free?count=33`, 'qa-admin')).statusCode, 400);
+  assert.equal((await request('GET', `/api/v1/subnets/${ids.subnetA}/next-free?from=10.250.2.1`, 'qa-admin')).statusCode, 400);
+
+  assert.equal((await request('POST', `/api/v1/subnets/${ids.subnetA}/reserve-next`, 'qa-readonly', { count: 1, reason: 'denied' })).statusCode, 403);
+  assert.equal((await request('POST', `/api/v1/subnets/${ids.subnetB}/reserve-next`, 'qa-network-scoped', { count: 1, reason: 'other site' })).statusCode, 404);
+  const reserved = await request('POST', `/api/v1/subnets/${ids.subnetA}/reserve-next`, 'qa-network-scoped', { count: 2, from: '10.250.1.200', to: '10.250.1.205', durationHours: 4, reason: 'Phase D rollout' });
+  assert.equal(reserved.statusCode, 201, reserved.body);
+  const reservedBody = json(reserved);
+  assert.deepEqual(reservedBody.reservations.map((item: { ipAddress: { address: string }; createdIpAddress: boolean }) => [item.ipAddress.address, item.createdIpAddress]), [['10.250.1.201', false], ['10.250.1.202', true]]);
+  const rows = await prisma.ipAddress.findMany({ where: { address: { in: ['10.250.1.201', '10.250.1.202'] } }, include: { reservations: true }, orderBy: { address: 'asc' } });
+  assert.deepEqual(rows.map((row) => [row.state, row.reservations.length]), [['RESERVED', 1], ['RESERVED', 1]]);
+  assert.equal(await prisma.auditLog.count({ where: { action: 'IP_RESERVATION_CREATED', metadata: { path: ['reserveNext'], equals: true } } }), 2);
+  const exhausted = await request('POST', `/api/v1/subnets/${ids.subnetA}/reserve-next`, 'qa-network-scoped', { count: 2, from: '10.250.1.200', to: '10.250.1.203', reason: 'too many' });
+  assert.equal(exhausted.statusCode, 409, exhausted.body);
+  assert.equal(json(exhausted).code, 'IP_RANGE_EXHAUSTED');
+  assert.equal(json(exhausted).details.available, 1);
+  assert.equal((await request('POST', `/api/v1/subnets/${ids.subnetA}/reserve-next`, 'qa-network-scoped', { count: 1 })).statusCode, 400);
+  // Enum filters are validated (400) instead of reaching Prisma.
+  for (const [path, code] of [['/api/v1/discovery/jobs?status=BOGUS', 'DISCOVERY_STATUS_INVALID'], ['/api/v1/ip-addresses?state=NOPE', 'IP_STATE_INVALID']]) {
+    const response = await request('GET', path, 'qa-admin');
+    assert.equal(response.statusCode, 400, `${path} ${response.body}`);
+    assert.equal(json(response).code, code);
+  }
+  assert.equal((await request('GET', '/api/v1/discovery/jobs?status=completed', 'qa-admin')).statusCode, 200);
+});
+
+test('Phase D discovery: bulk review with per-item results, IPAM state per result and run duration', async () => {
+  const startedAt = new Date(Date.now() - 120_000);
+  const jobA = await prisma.discoveryJob.create({ data: { name: 'Phase D job A', subnetId: ids.subnetA, methods: ['ICMP'], tcpPorts: [], status: 'COMPLETED', startedAt, completedAt: new Date(startedAt.getTime() + 45_000) } });
+  const jobB = await prisma.discoveryJob.create({ data: { name: 'Phase D job B', subnetId: ids.subnetB, methods: ['ICMP'], tcpPorts: [], status: 'COMPLETED' } });
+  const known = await prisma.discoveryResult.create({ data: { jobId: jobA.id, address: '10.250.1.10', icmpReachable: true, openPorts: [] } });
+  const unknown = await prisma.discoveryResult.create({ data: { jobId: jobA.id, address: '10.250.1.240', icmpReachable: true, openPorts: [] } });
+  const otherSite = await prisma.discoveryResult.create({ data: { jobId: jobB.id, address: '10.250.2.240', icmpReachable: true, openPorts: [] } });
+
+  const jobs = json(await request('GET', '/api/v1/discovery/jobs?status=COMPLETED,FAILED', 'qa-network-scoped'));
+  const listedJob = jobs.items.find((item: { id: string }) => item.id === jobA.id);
+  assert.equal(listedJob.durationMs, 45_000);
+  assert.equal(jobs.items.some((item: { id: string }) => item.id === jobB.id), false);
+
+  const results = json(await request('GET', `/api/v1/discovery/jobs/${jobA.id}/results`, 'qa-network-scoped'));
+  const byId = new Map(results.map((item: { id: string }) => [item.id, item]));
+  assert.equal((byId.get(known.id) as { ipam: { state: string; hostName: string } }).ipam.state, 'OCCUPIED');
+  assert.equal((byId.get(known.id) as { ipam: { hostName: string } }).ipam.hostName, 'HTTP Multi Host');
+  assert.equal((byId.get(unknown.id) as { ipam: unknown }).ipam, null);
+
+  const missing = '00000000-0000-4000-8000-00000000beef';
+  const bulk = await request('POST', '/api/v1/discovery/results/bulk-review', 'qa-network-scoped', { ids: [known.id, unknown.id, otherSite.id, missing], status: 'IGNORED' });
+  assert.equal(bulk.statusCode, 201, bulk.body);
+  const body = json(bulk);
+  assert.equal(body.total, 4); assert.equal(body.succeeded, 2); assert.equal(body.failed, 2);
+  assert.deepEqual(body.items.map((item: { ok: boolean; error?: { statusCode: number } }) => item.ok ? 200 : item.error!.statusCode), [200, 200, 404, 404]);
+  assert.equal((await prisma.discoveryResult.findUniqueOrThrow({ where: { id: otherSite.id } })).status, 'PENDING');
+  assert.equal((await request('POST', '/api/v1/discovery/results/bulk-review', 'qa-auditor', { ids: [known.id], status: 'IGNORED' })).statusCode, 403);
+  assert.equal((await request('POST', '/api/v1/discovery/results/bulk-review', 'qa-network-scoped', { ids: [known.id, known.id], status: 'IGNORED' })).statusCode, 400);
+  assert.equal((await request('POST', '/api/v1/discovery/results/bulk-review', 'qa-network-scoped', { ids: [known.id], status: 'PENDING' })).statusCode, 400);
+});
+
+test('Phase D SNMP: fleet summary, drift list and bulk drift review stay inside the visible Sites', async () => {
+  const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000);
+  await prisma.snmpDeviceConfig.upsert({ where: { deviceId: ids.deviceA2 }, create: { deviceId: ids.deviceA2, enabled: true, lastStatus: 'FAILED', lastPollAt: minutesAgo(5), lastErrorCode: 'TIMEOUT' }, update: { enabled: true, lastStatus: 'FAILED', lastPollAt: minutesAgo(5), lastErrorCode: 'TIMEOUT' } });
+  await prisma.snmpDeviceConfig.upsert({ where: { deviceId: ids.deviceB }, create: { deviceId: ids.deviceB, enabled: true, lastStatus: 'FAILED', lastPollAt: minutesAgo(5) }, update: { enabled: true, lastStatus: 'FAILED', lastPollAt: minutesAgo(5) } });
+  const snapshot = async (deviceId: string) => {
+    const job = await prisma.snmpJob.create({ data: { deviceId, type: 'POLL', status: 'COMPLETED' } });
+    return prisma.snmpSnapshot.create({ data: { deviceId, jobId: job.id } });
+  };
+  const snapA2 = await snapshot(ids.deviceA2);
+  const snapB = await snapshot(ids.deviceB);
+  const driftA2 = await prisma.snmpDrift.create({ data: { deviceId: ids.deviceA2, interfaceId: ids.interfaceA2, snapshotId: snapA2.id, field: 'description', documentedValue: 'old', observedValue: 'new' } });
+  const driftB = await prisma.snmpDrift.create({ data: { deviceId: ids.deviceB, snapshotId: snapB.id, field: 'sysName', documentedValue: 'b', observedValue: 'b2' } });
+
+  const summaryResponse = await request('GET', '/api/v1/snmp/fleet/summary', 'qa-network-scoped');
+  assert.equal(summaryResponse.statusCode, 200, summaryResponse.body);
+  const summary = json(summaryResponse);
+  assert.ok(summary.attention.some((item: { deviceId: string; reason: string }) => item.deviceId === ids.deviceA2 && item.reason === 'FAILED'));
+  assert.equal(summaryResponse.body.includes(ids.deviceB), false);
+  assert.ok(summary.drift.pending >= 1);
+  assert.ok(summary.devices.total >= summary.devices.configured);
+  assert.ok(json(await request('GET', '/api/v1/snmp/fleet/summary', 'qa-admin')).attention.some((item: { deviceId: string }) => item.deviceId === ids.deviceB));
+  assert.equal((await request('GET', `/api/v1/snmp/fleet/summary?siteId=${ids.siteB}`, 'qa-network-scoped')).statusCode, 404);
+  assert.equal((await request('GET', '/api/v1/snmp/fleet/summary', 'qa-systems-scoped')).statusCode, 403);
+
+  const drifts = await request('GET', '/api/v1/snmp/drifts', 'qa-network-scoped');
+  assert.equal(drifts.statusCode, 200, drifts.body);
+  assert.ok(json(drifts).items.some((item: { id: string; device: { name: string } }) => item.id === driftA2.id && item.device.name === 'HTTP Switch A2'));
+  assert.equal(drifts.body.includes(driftB.id), false);
+  assert.equal((await request('GET', '/api/v1/snmp/drifts?status=MAYBE', 'qa-network-scoped')).statusCode, 400);
+  assert.equal((await request('GET', `/api/v1/snmp/drifts?siteId=${ids.siteB}`, 'qa-network-scoped')).statusCode, 404);
+
+  const bulk = json(await request('POST', '/api/v1/snmp/drifts/bulk-review', 'qa-network-scoped', { ids: [driftA2.id, driftB.id], status: 'ACCEPTED' }));
+  assert.equal(bulk.succeeded, 1); assert.equal(bulk.failed, 1);
+  assert.equal((await prisma.snmpDrift.findUniqueOrThrow({ where: { id: driftB.id } })).status, 'PENDING');
+  assert.equal((await prisma.snmpDrift.findUniqueOrThrow({ where: { id: driftA2.id } })).status, 'ACCEPTED');
+  assert.equal((await request('POST', '/api/v1/snmp/drifts/bulk-review', 'qa-readonly', { ids: [driftB.id], status: 'ACCEPTED' })).statusCode, 403);
+});
+
+test('Phase D search: opt-in types, audit only for ADMIN and AUDITOR, change plans per Site, legacy response unchanged', async () => {
+  const planA = await prisma.changePlan.create({ data: { siteId: ids.siteA, title: 'Zebrafish core migration', reason: 'Phase D search', plannedStartAt: new Date(Date.UTC(2032, 0, 1)), plannedEndAt: new Date(Date.UTC(2032, 0, 2)), createdById: ids.admin } });
+  const planB = await prisma.changePlan.create({ data: { siteId: ids.siteB, title: 'Zebrafish edge migration', reason: 'Phase D search', plannedStartAt: new Date(Date.UTC(2032, 0, 1)), plannedEndAt: new Date(Date.UTC(2032, 0, 2)), createdById: ids.admin } });
+  await prisma.auditLog.create({ data: { userId: ids.admin, action: 'ZEBRAFISH_TEST_EVENT', entityType: 'Device', entityId: ids.deviceA } });
+
+  const legacy = await request('GET', '/api/v1/dashboard/search?q=Zebrafish', 'qa-admin');
+  assert.equal(legacy.statusCode, 200, legacy.body);
+  assert.equal(json(legacy).items.some((item: { type: string }) => ['CHANGE_PLAN', 'AUDIT_EVENT', 'QUALITY_FINDING'].includes(item.type)), false);
+
+  const scoped = json(await request('GET', '/api/v1/dashboard/search?q=Zebrafish&types=CHANGE_PLAN', 'qa-network-scoped'));
+  assert.deepEqual(scoped.items.map((item: { id: string }) => item.id), [planA.id]);
+  assert.match(scoped.items[0].href, /^\/alteracoes\?/);
+  assert.deepEqual(json(await request('GET', '/api/v1/dashboard/search?q=Zebrafish&types=CHANGE_PLAN', 'qa-admin')).items.map((item: { id: string }) => item.id).sort(), [planA.id, planB.id].sort());
+
+  const auditor = json(await request('GET', '/api/v1/dashboard/search?q=zebrafish_test&types=AUDIT_EVENT', 'qa-auditor'));
+  assert.equal(auditor.items.length, 1);
+  assert.equal(auditor.items[0].type, 'AUDIT_EVENT');
+  assert.deepEqual(json(await request('GET', '/api/v1/dashboard/search?q=zebrafish_test&types=AUDIT_EVENT', 'qa-readonly')).items, []);
+  assert.deepEqual(json(await request('GET', '/api/v1/dashboard/search?q=zebrafish_test&types=AUDIT_EVENT', 'qa-network-scoped')).items, []);
+  assert.ok(json(await request('GET', '/api/v1/dashboard/search?q=Zebrafish&types=all&limit=20', 'qa-admin')).items.length <= 20);
+  assert.equal((await request('GET', '/api/v1/dashboard/search?q=Zebrafish&types=PEOPLE', 'qa-admin')).statusCode, 400);
+});
+
+test('Phase E portal: favourites, check-all link health and the pending role-request queue', async () => {
+  const server = createServer((req, res) => { res.statusCode = req.url === '/down' ? 503 : 200; res.end(); });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const previousAllowed = process.env.APPLICATION_LINK_CHECK_ALLOWED_CIDRS;
+  try {
+    const up = await prisma.applicationLink.create({ data: { name: 'Phase E up', url: `${base}/up`, checkAvailability: true } });
+    const down = await prisma.applicationLink.create({ data: { name: 'Phase E down', url: `${base}/down`, checkAvailability: true } });
+    const adminOnly = await prisma.applicationLink.create({ data: { name: 'Phase E admin only', url: `${base}/admin`, roles: { create: { role: 'ADMIN' } } } });
+
+    assert.equal((await request('PUT', `/api/v1/application-links/${down.id}/favorite`, 'qa-readonly', {})).statusCode, 200);
+    const second = await request('PUT', `/api/v1/application-links/${up.id}/favorite`, 'qa-readonly', { sortOrder: 0 });
+    assert.equal(second.statusCode, 200, second.body);
+    assert.equal(json(await request('PUT', `/api/v1/application-links/${down.id}/favorite`, 'qa-readonly', { sortOrder: 5 })).sortOrder, 5);
+    assert.equal(json(await request('PUT', `/api/v1/application-links/${down.id}/favorite`, 'qa-readonly', {})).sortOrder, 5);
+    assert.equal((await request('PUT', `/api/v1/application-links/${up.id}/favorite`, 'qa-readonly', { sortOrder: 20_000 })).statusCode, 400);
+    assert.equal((await request('PUT', `/api/v1/application-links/${adminOnly.id}/favorite`, 'qa-readonly', {})).statusCode, 404);
+    const favorites = json(await request('GET', '/api/v1/application-links/favorites', 'qa-readonly'));
+    assert.deepEqual(favorites.items.map((item: { id: string }) => item.id), [up.id, down.id]);
+    assert.deepEqual(json(await request('GET', '/api/v1/application-links/favorites', 'qa-auditor')).items, []);
+    const listed = json(await request('GET', '/api/v1/application-links', 'qa-readonly'));
+    const flags = (Array.isArray(listed) ? listed : listed.items).filter((item: { name: string }) => item.name.startsWith('Phase E')).map((item: { name: string; isFavorite: boolean }) => [item.name, item.isFavorite]).sort();
+    assert.deepEqual(flags, [['Phase E down', true], ['Phase E up', true]]);
+    assert.deepEqual(json(await request('DELETE', `/api/v1/application-links/${down.id}/favorite`, 'qa-readonly')), { linkId: down.id, isFavorite: false });
+    assert.equal((await request('DELETE', `/api/v1/application-links/${down.id}/favorite`, 'qa-readonly')).statusCode, 200);
+
+    assert.equal((await request('POST', '/api/v1/application-links/check-all', 'qa-readonly')).statusCode, 403);
+    // Loopback is blocked by default; the stand-in is only reachable once an operator allows it.
+    delete process.env.APPLICATION_LINK_CHECK_ALLOWED_CIDRS;
+    const blockedRun = json(await request('POST', '/api/v1/application-links/check-all', 'qa-admin'));
+    assert.equal(blockedRun.checked, 2); assert.equal(blockedRun.blocked, 2); assert.equal(blockedRun.available, 0);
+    assert.deepEqual(blockedRun.items.map((item: { code: string }) => item.code), ['BLOCKED', 'BLOCKED']);
+    const metadata = await prisma.applicationLink.create({ data: { name: 'Phase E metadata', url: 'http://169.254.169.254/latest/meta-data/', checkAvailability: true } });
+    process.env.APPLICATION_LINK_CHECK_ALLOWED_CIDRS = '127.0.0.1/32';
+    const withMetadata = json(await request('POST', '/api/v1/application-links/check-all', 'qa-admin'));
+    assert.equal(withMetadata.items.find((item: { id: string }) => item.id === metadata.id).code, 'BLOCKED');
+    assert.equal(withMetadata.nextOffset, null);
+    assert.equal((await request('POST', '/api/v1/application-links/check-all?offset=-1', 'qa-admin')).statusCode, 400);
+    await prisma.applicationLink.delete({ where: { id: metadata.id } });
+    const checked = await request('POST', '/api/v1/application-links/check-all', 'qa-admin');
+    assert.equal(checked.statusCode, 201, checked.body);
+    const checkedBody = json(checked);
+    assert.equal(checkedBody.scope, 'CHECK_AVAILABILITY');
+    assert.equal(checkedBody.checked, 2); assert.equal(checkedBody.available, 1); assert.equal(checkedBody.unavailable, 1);
+    assert.equal((await prisma.applicationLink.findUniqueOrThrow({ where: { id: down.id } })).isAvailable, false);
+    assert.equal((await prisma.applicationLink.findUniqueOrThrow({ where: { id: up.id } })).isAvailable, true);
+    assert.equal(json(await request('POST', '/api/v1/application-links/check-all?all=true', 'qa-admin')).checked, 3);
+  } finally {
+    if (previousAllowed === undefined) delete process.env.APPLICATION_LINK_CHECK_ALLOWED_CIDRS; else process.env.APPLICATION_LINK_CHECK_ALLOWED_CIDRS = previousAllowed;
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+
+  await prisma.roleRequest.deleteMany({});
+  const old = await prisma.roleRequest.create({ data: { userId: ids.readonly, roles: ['NETWORK_OPERATOR'], createdAt: new Date(Date.now() - 86_400_000) } });
+  const fresh = await prisma.roleRequest.create({ data: { userId: ids.auditor, roles: ['NETWORK_OPERATOR'], status: 'PROCESSING' } });
+  const decided = await prisma.roleRequest.create({ data: { userId: ids.systems, roles: ['ADMIN'], status: 'REJECTED', decidedAt: new Date() } });
+  const queue = await request('GET', '/api/v1/settings/role-requests', 'qa-admin');
+  assert.equal(queue.statusCode, 200, queue.body);
+  assert.deepEqual(json(queue).items.map((item: { id: string }) => item.id), [old.id, fresh.id]);
+  assert.equal(json(queue).items[0].user.username, 'qa-readonly');
+  assert.equal(json(queue).pendingTotal, 2);
+  assert.deepEqual(json(await request('GET', '/api/v1/settings/role-requests?status=REJECTED', 'qa-admin')).items.map((item: { id: string }) => item.id), [decided.id]);
+  assert.equal((await request('GET', '/api/v1/settings/role-requests?status=LOST', 'qa-admin')).statusCode, 400);
+  assert.equal((await request('GET', '/api/v1/settings/role-requests', 'qa-network-scoped')).statusCode, 403);
+});
+
+test('Phase C review fixes: activity hides plan-wide counts from scoped users, list/get batch visibility, facet bounds, CORS export headers', async () => {
+  const day = (offset: number) => new Date(Date.UTC(2031, 1, 1 + offset, 8));
+  const created = await request('POST', '/api/v1/change-plans', 'qa-admin', { siteId: ids.siteA, title: 'Phase C hidden-target activity', reason: 'Review fix', plannedStartAt: day(1).toISOString(), plannedEndAt: day(2).toISOString(), items: [{ entityType: 'DEVICE', entityId: ids.deviceA, operationSummary: 'Visible' }, { entityType: 'DEVICE', entityId: ids.deviceSibling, operationSummary: 'Hidden' }] });
+  assert.equal(created.statusCode, 201, created.body);
+  const id = json(created).id;
+
+  // A scoped user who cannot see the sibling-room device gets no plan-wide counts (they would reveal the hidden target).
+  const scoped = await request('GET', `/api/v1/change-plans/${id}/activity`, 'qa-readonly');
+  assert.equal(scoped.statusCode, 200, scoped.body);
+  const scopedBody = json(scoped);
+  assert.equal(scopedBody.countsHidden, true);
+  assert.equal(scopedBody.items[0].action, 'CHANGE_PLAN_CREATED');
+  assert.equal(scopedBody.items[0].itemCount, null);
+  assert.equal(scopedBody.items[0].knownImpactCount, null);
+  assert.equal(scopedBody.items[0].coverage, null);
+  // Someone who sees every target still gets them.
+  const full = json(await request('GET', `/api/v1/change-plans/${id}/activity`, 'qa-admin'));
+  assert.equal(full.countsHidden, false);
+  assert.equal(full.items[0].itemCount, 2);
+
+  // get and list use the batched visibility check: the hidden target is dropped, the visible one kept.
+  const got = json(await request('GET', `/api/v1/change-plans/${id}`, 'qa-readonly'));
+  assert.deepEqual(got.items.map((item: { entityId: string }) => item.entityId), [ids.deviceA]);
+  const listed = json(await request('GET', `/api/v1/change-plans?siteId=${ids.siteA}&q=hidden-target activity`, 'qa-readonly'));
+  assert.equal(listed.length, 1);
+  assert.deepEqual(listed[0].items.map((item: { entityId: string }) => item.entityId), [ids.deviceA]);
+  assert.equal(JSON.stringify(listed).includes(ids.deviceSibling), false);
+  const adminList = json(await request('GET', `/api/v1/change-plans?siteId=${ids.siteA}&q=hidden-target activity`, 'qa-admin'));
+  assert.equal(adminList[0].items.length, 2);
+
+  // Audit facets without from/to are bounded to the default window and say so.
+  const old = await prisma.auditLog.create({ data: { action: 'PHASE_C_OLD_FACET_ONLY', createdAt: new Date(Date.now() - 200 * 86_400_000) } });
+  const facets = json(await request('GET', '/api/v1/audit/facets', 'qa-admin'));
+  assert.ok(facets.from);
+  assert.equal(facets.actions.some((item: { value: string }) => item.value === 'PHASE_C_OLD_FACET_ONLY'), false);
+  const wide = json(await request('GET', `/api/v1/audit/facets?from=${new Date(Date.now() - 365 * 86_400_000).toISOString()}`, 'qa-admin'));
+  assert.equal(wide.actions.some((item: { value: string }) => item.value === 'PHASE_C_OLD_FACET_ONLY'), true);
+  await prisma.auditLog.delete({ where: { id: old.id } });
+
+  // Quality facets report whether the scan was capped.
+  assert.equal(json(await request('GET', `/api/v1/inventory-quality/facets?siteId=${ids.siteA}`, 'qa-admin')).truncated, false);
+
+  // The browser may read the export headers cross-origin.
+  const cors = await app.inject({ method: 'GET', url: '/api/v1/audit/events/export?limit=1', headers: { 'x-test-user': 'qa-admin', origin: 'http://localhost:3000' } });
+  assert.equal(cors.statusCode, 200, cors.body);
+  assert.match(String(cors.headers['access-control-expose-headers']), /X-Export-Row-Count/);
+  assert.match(String(cors.headers['access-control-expose-headers']), /X-Export-Truncated/);
+});
+
+test('Step 16 NetApp trend: each refresh appends history, trend per aggregate/volume, retention prune, Site isolation', async () => {
+  const integration = await prisma.netAppIntegration.create({ data: { siteId: ids.siteA, endpointUrl: 'https://ontap.http-qa.example', username: 'reader', ...encryptCredential({ password: 'ontap-pw' }, testKeyring) } });
+  const DAY = 86_400_000;
+  // Old samples: one past the 400-day retention (pruned on the next refresh) and two inside the window.
+  const old = await prisma.netAppCapacitySample.create({ data: { integrationId: integration.id, kind: 'AGGREGATE', objectKey: 'aggr-uuid-1', name: 'aggr1', sizeBytes: 1000n, usedBytes: 100n, observedAt: new Date(Date.now() - 401 * DAY) } });
+  await prisma.netAppCapacitySample.createMany({ data: [
+    { integrationId: integration.id, kind: 'AGGREGATE', objectKey: 'aggr-uuid-1', name: 'aggr1', sizeBytes: 1000n, usedBytes: 300n, observedAt: new Date(Date.now() - 2 * DAY) },
+    { integrationId: integration.id, kind: 'AGGREGATE', objectKey: 'aggr-uuid-1', name: 'aggr1', sizeBytes: 1000n, usedBytes: 350n, observedAt: new Date(Date.now() - 1 * DAY) },
+  ] });
+  let used = 400;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: URL | string) => {
+    const url = String(input);
+    const body = url.includes('/api/cluster?') ? { name: 'qa-cluster', uuid: 'c-1' }
+      : url.includes('/cluster/nodes') ? { records: [{ name: 'node1', health: true }] }
+      : url.includes('/storage/aggregates') ? { records: [{ name: 'aggr1', uuid: 'aggr-uuid-1', state: 'online', space: { block_storage: { size: 1000, used } } }] }
+      : { records: [{ name: 'vol1', uuid: 'vol-uuid-1', state: 'online', svm: { name: 'svm1' }, space: { size: 200, used: 20 } }] };
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as typeof fetch;
+  try {
+    const first = await request('POST', `/api/v1/netapp/sites/${ids.siteA}/refresh`, 'qa-admin');
+    assert.equal(first.statusCode, 201, first.body);
+    used = 450;
+    assert.equal((await request('POST', `/api/v1/netapp/sites/${ids.siteA}/refresh`, 'qa-admin')).statusCode, 201);
+  } finally { globalThis.fetch = originalFetch; }
+
+  // Current-snapshot behaviour is unchanged: GET still returns the latest snapshot.
+  const current = json(await request('GET', `/api/v1/netapp/sites/${ids.siteA}`, 'qa-readonly'));
+  assert.equal(current.snapshot.aggregates[0].usedBytes, 450);
+  // Two refreshes × (cluster + aggregate + volume), plus the two in-window seeds; the 401-day-old row is pruned.
+  assert.equal(await prisma.netAppCapacitySample.count({ where: { integrationId: integration.id } }), 8);
+  assert.equal(await prisma.netAppCapacitySample.findUnique({ where: { id: old.id } }), null);
+
+  const trendResponse = await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend?kind=AGGREGATE&key=aggr-uuid-1&days=30`, 'qa-readonly');
+  assert.equal(trendResponse.statusCode, 200, trendResponse.body);
+  const trend = json(trendResponse);
+  // One point per day: today's two refreshes collapse to the later one (450).
+  assert.deepEqual(trend.points.map((point: { usedBytes: number }) => point.usedBytes), [300, 350, 450]);
+  assert.equal(trend.name, 'aggr1');
+  assert.equal(trend.retentionDays, 400);
+  assert.ok(trend.summary.growthBytesPerDay > 0);
+  assert.ok(trend.summary.projectedFullAt);
+  const cluster = json(await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend`, 'qa-readonly'));
+  assert.equal(cluster.kind, 'CLUSTER');
+  assert.equal(cluster.points.at(-1).usedBytes, 450);
+  const volumes = json(await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend/objects?kind=VOLUME`, 'qa-readonly'));
+  assert.deepEqual(volumes.items.map((item: { key: string; svm: string; usedPercent: number }) => [item.key, item.svm, item.usedPercent]), [['vol-uuid-1', 'svm1', 10]]);
+  const aggregates = json(await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend/objects?kind=AGGREGATE&days=30`, 'qa-readonly'));
+  assert.equal(aggregates.items[0].changeBytes, 150);
+
+  assert.equal((await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend?kind=VOLUME`, 'qa-readonly')).statusCode, 400);
+  assert.equal((await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend?kind=DISK&key=x`, 'qa-readonly')).statusCode, 400);
+  assert.equal((await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend?days=401`, 'qa-readonly')).statusCode, 400);
+  assert.equal((await request('GET', `/api/v1/netapp/sites/${ids.siteB}/trend`, 'qa-admin')).statusCode, 404);
+  assert.equal((await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend`, 'qa-network-legacy')).statusCode, 404);
 });

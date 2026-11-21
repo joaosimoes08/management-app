@@ -1,11 +1,24 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { ChevronRight, Loader2, Search } from 'lucide-react';
+import { ChevronRight, ClipboardCheck, GitPullRequestArrow, History, Loader2, Search, Wrench } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { apiFetch } from '@/lib/api/client';
 
-type SearchResult = { id: string; type: string; title: string; detail: string; href: string };
+type SearchResult = { id: string; type: string; title: string; detail: string; href: string; actionHref?: string };
+
+/** Search params for the palette. `types=all` adds change plans, audit events and quality findings (PR #85). */
+export const globalSearchPath = (query: string, types?: 'all') => `/api/v1/dashboard/search?q=${encodeURIComponent(query)}&limit=8${types ? `&types=${types}` : ''}`;
+/** An API without the extended types answers 400 SEARCH_TYPES_INVALID; the palette then retries with the default types. */
+export const isSearchTypesInvalid = (cause: unknown) => {
+  const error = cause as { status?: number; code?: string; payload?: { code?: string } } | null;
+  return error?.status === 400 && (error.code ?? error.payload?.code) === 'SEARCH_TYPES_INVALID';
+};
+/** A quality finding with a fix page gets a second entry that opens it directly. */
+export const expandSearchResults = (items: SearchResult[]): SearchResult[] => items.flatMap((item) => item.type === 'QUALITY_FINDING' && item.actionHref && item.actionHref !== item.href
+  ? [item, { id: `${item.id}-action`, type: 'QUALITY_FINDING_ACTION', title: `Corrigir: ${item.title}`, detail: 'Qualidade · abrir a página de correção', href: item.actionHref }]
+  : [item]);
+const resultIcons: Record<string, typeof Search> = { CHANGE_PLAN: GitPullRequestArrow, AUDIT_EVENT: History, QUALITY_FINDING: ClipboardCheck, QUALITY_FINDING_ACTION: Wrench };
 export type RackSearchItem = { id: string; name: string; roomId?: string; room?: { id: string; building?: { id: string } }; devices?: { name: string }[] };
 export type RackSearchContext = { racks: RackSearchItem[]; value: string; onChange: (value: string) => void; hrefForRack: (rack: RackSearchItem) => string };
 export type LocalSearchContext = { value: string; onChange: (value: string) => void; placeholder: string; ariaLabel?: string; scopeLabel?: string };
@@ -57,8 +70,10 @@ export function GlobalSearchPalette({ open, onClose, rackSearch, localSearch }: 
     const timer = window.setTimeout(() => {
       setSearching(true);
       setError('');
-      void apiFetch<{ items: SearchResult[] }>(`/api/v1/dashboard/search?q=${encodeURIComponent(value)}&limit=8`, { signal: controller.signal })
-        .then((result) => { setItems(result.items); setActiveIndex(0); })
+      const search = (types?: 'all') => apiFetch<{ items: SearchResult[] }>(globalSearchPath(value, types), { signal: controller.signal });
+      void search('all')
+        .catch((cause) => { if (isSearchTypesInvalid(cause)) return search(); throw cause; })
+        .then((result) => { setItems(expandSearchResults(result.items)); setActiveIndex(0); })
         .catch((cause) => {
           if ((cause as Error).name !== 'AbortError') { setItems([]); setError('Não foi possível pesquisar.'); }
         })
@@ -95,7 +110,7 @@ export function GlobalSearchPalette({ open, onClose, rackSearch, localSearch }: 
       </div>}
       <div className="command-input">
         <Search size={18} />
-        <input ref={inputRef} value={query} onChange={(event) => { setQuery(event.target.value); if (scope === 'local') changeLocalQuery(event.target.value); }} placeholder={scope === 'local' ? rackSearch ? 'Pesquisar bastidores ou equipamentos deste site…' : localSearch?.placeholder ?? 'Pesquisar neste separador…' : 'Pesquisar sites, equipamentos, interfaces, hosts, services, IPs ou aplicações…'} aria-label={scope === 'local' ? rackSearch ? 'Pesquisar bastidores ou equipamentos deste site' : localSearch?.ariaLabel ?? localSearch?.placeholder ?? 'Pesquisar neste separador' : 'Pesquisa global'} onKeyDown={(event) => {
+        <input ref={inputRef} value={query} onChange={(event) => { setQuery(event.target.value); if (scope === 'local') changeLocalQuery(event.target.value); }} placeholder={scope === 'local' ? rackSearch ? 'Pesquisar bastidores ou equipamentos deste site…' : localSearch?.placeholder ?? 'Pesquisar neste separador…' : 'Pesquisar sites, equipamentos, IPs, aplicações, alterações, auditoria ou qualidade…'} aria-label={scope === 'local' ? rackSearch ? 'Pesquisar bastidores ou equipamentos deste site' : localSearch?.ariaLabel ?? localSearch?.placeholder ?? 'Pesquisar neste separador' : 'Pesquisa global'} onKeyDown={(event) => {
           if (event.key === 'ArrowDown') { event.preventDefault(); setActiveIndex((index) => Math.min(index + 1, results.length - 1)); }
           if (event.key === 'ArrowUp') { event.preventDefault(); setActiveIndex((index) => Math.max(index - 1, 0)); }
           if (event.key === 'Enter') { event.preventDefault(); activate(results[activeIndex]); }
@@ -108,9 +123,14 @@ export function GlobalSearchPalette({ open, onClose, rackSearch, localSearch }: 
           : scope === 'platform' && searching ? <div className="command-empty"><Loader2 className="spin" size={16} /> A pesquisar…</div>
           : scope === 'platform' && error ? <div className="command-empty error">{error}</div>
             : query.trim().length < 2 ? <div className="command-empty">Escreve pelo menos dois caracteres.</div>
-              : results.length ? results.map((item, index) => <button key={`${item.type}-${item.id}`} className={index === activeIndex ? 'active' : ''} role="option" aria-selected={index === activeIndex} onMouseEnter={() => setActiveIndex(index)} onClick={() => activate(item)}><span className="command-result-icon"><Search size={14} /></span><span><strong>{item.title}</strong><small>{item.detail}</small></span><ChevronRight size={14} /></button>)
+              : results.length ? results.map((item, index) => <button key={`${item.type}-${item.id}`} className={index === activeIndex ? 'active' : ''} role="option" aria-selected={index === activeIndex} onMouseEnter={() => setActiveIndex(index)} onClick={() => activate(item)}><span className="command-result-icon"><ResultIcon type={item.type} /></span><span><strong>{item.title}</strong><small>{item.detail}</small></span><ChevronRight size={14} /></button>)
                 : <div className="command-empty">Sem resultados para “{query.trim()}”.</div>}
       </div>
     </section>
   </div>;
+}
+
+function ResultIcon({ type }: { type: string }) {
+  const Icon = resultIcons[type] ?? Search;
+  return <Icon size={14} />;
 }

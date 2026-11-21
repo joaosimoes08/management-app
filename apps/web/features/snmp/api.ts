@@ -1,4 +1,5 @@
 import { apiFetch } from '@/lib/api/client';
+import type { BulkReviewResponse } from '@/components/ui/bulk-review-dialog';
 
 export type SnmpCredentialPurpose = 'READ' | 'WRITE' | 'TRAP';
 export type SnmpVersion = 'V2C' | 'V3';
@@ -33,3 +34,40 @@ export const reviewSnmpDrift = (id: string, status: 'ACCEPTED' | 'IGNORED') => a
 export type SnmpImpactPreview = { applicable: boolean; summary: string; knownImpacts: { id: string; name: string; type: string; href: string; source: string; observedAt?: string }[]; coverage: { status: string; source?: string; lastObservedAt?: string | null; reason: string } };
 export const previewSnmpWrite = (deviceId: string, operation: string, parameters: Record<string, unknown>) => apiFetch<{ id: string; status: string; impactPreview: SnmpImpactPreview }>(`/api/v1/snmp/devices/${deviceId}/write-requests/preview`, { method: 'POST', body: JSON.stringify({ operation, parameters }) });
 export const executeSnmpWrite = (id: string, impactAcknowledged: boolean) => apiFetch(`/api/v1/snmp/write-requests/${id}/execute`, { method: 'POST', body: JSON.stringify({ impactAcknowledged }) });
+
+// Phase E: fleet summary and drift review across devices. Types are kept loose
+// (optional fields, string unions open-ended) so API additions never break the UI.
+export type SnmpAttentionReason = 'FAILED' | 'BLOCKED' | 'STALE' | 'NEVER_POLLED' | (string & {});
+export interface SnmpFleetSummary {
+  siteId?: string | null;
+  generatedAt?: string;
+  devices: { total: number; configured: number; enabled: number; disabled: number; notConfigured: number };
+  polling: { byStatus: Record<string, number>; stale: number; lastPollAt?: string | null; oldestPollAt?: string | null };
+  drift: { pending: number; devicesWithPending: number };
+  attention: Array<{ deviceId: string; name: string; siteId?: string | null; reason: SnmpAttentionReason; lastStatus?: string | null; lastPollAt?: string | null; lastErrorCode?: string | null; pendingDrifts?: number }>;
+  attentionTotal?: number;
+}
+export type SnmpDriftStatus = 'PENDING' | 'ACCEPTED' | 'IGNORED';
+export interface SnmpFleetDrift {
+  id: string;
+  field: string;
+  documentedValue: unknown;
+  observedValue: unknown;
+  status: SnmpDriftStatus | (string & {});
+  reviewedAt?: string | null;
+  createdAt: string;
+  device?: { id: string; name: string; type?: string; siteId?: string | null } | null;
+  interface?: { id: string; name: string } | null;
+}
+export interface SnmpDriftPage { items: SnmpFleetDrift[]; page: number; pageSize: number; total: number; totalPages: number }
+export type SnmpDriftQuery = { status?: string; siteId?: string; deviceId?: string; page?: number; pageSize?: number };
+
+const query = (values: Record<string, string | number | undefined>) => {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(values)) if (value !== undefined && value !== '') params.set(key, String(value));
+  const text = params.toString();
+  return text ? `?${text}` : '';
+};
+export const getSnmpFleetSummary = (siteId?: string) => apiFetch<SnmpFleetSummary>(`/api/v1/snmp/fleet/summary${query({ siteId })}`);
+export const listSnmpDrifts = (params: SnmpDriftQuery = {}) => apiFetch<SnmpDriftPage>(`/api/v1/snmp/drifts${query(params)}`);
+export const bulkReviewSnmpDrifts = (ids: string[], status: 'ACCEPTED' | 'IGNORED') => apiFetch<BulkReviewResponse>('/api/v1/snmp/drifts/bulk-review', { method: 'POST', body: JSON.stringify({ ids, status }) });

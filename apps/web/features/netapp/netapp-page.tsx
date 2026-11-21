@@ -7,10 +7,10 @@ import { AppShell } from '@/components/layout/app-shell';
 import { useAuth } from '@/lib/auth';
 import { useSiteContext } from '@/lib/site-context';
 import { configureNetAppIntegration, getNetAppIntegration, refreshNetAppSnapshot, type NetAppIntegrationInput, type NetAppSnapshot } from './api';
-import { formatDateTime, formatNumber } from '@/lib/format/date';
+import { formatDateTime } from '@/lib/format/date';
+import { CapacityTable, formatBytes, NetAppCapacityTrend, TopFullest, type TrendTarget } from './netapp-capacity';
 
 const emptyForm = { endpointUrl: '', username: '', password: '' };
-const formatBytes = (value?: number | null) => typeof value === 'number' && Number.isFinite(value) ? formatNumber(value, { style: 'unit', unit: 'byte', unitDisplay: 'narrow', notation: 'compact', maximumFractionDigits: 1 }) : '—';
 const dateLabel = (value?: string | null) => value ? formatDateTime(value) : '—';
 const messageOf = (value: unknown) => value instanceof Error ? value.message : 'A operação NetApp falhou.';
 
@@ -70,19 +70,28 @@ export default function NetAppPage() {
             {integration.lastErrorCode && <div role="status" className="ipam-alert error"><AlertTriangle size={15} />A última atualização falhou ({integration.lastErrorCode}). Os dados abaixo são o último snapshot conhecido e foram mantidos.</div>}
             {!snapshot && <div className="empty-context"><HardDrive size={22} /><strong>Ainda não existe snapshot</strong><span>Usa “Atualizar snapshot” para importar sistemas, nós, aggregates, volumes, capacidade e saúde.</span></div>}
           </section>
-          {snapshot && <SnapshotTables snapshot={snapshot} />}
+          {snapshot && <SnapshotTables key={siteId} siteId={siteId} snapshot={snapshot} />}
         </>}
       </>}
     </div></section></main>
   </AppShell>;
 }
 
-function SnapshotTables({ snapshot }: { snapshot: NetAppSnapshot }) {
+function SnapshotTables({ siteId, snapshot }: { siteId: string; snapshot: NetAppSnapshot }) {
+  const [trendTarget, setTrendTarget] = useState<TrendTarget>({ kind: 'CLUSTER', key: null });
+  const showTrend = (target: TrendTarget) => {
+    setTrendTarget(target);
+    document.getElementById('netapp-capacity-trend')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  };
   return <>
+    <div className="ipam-overview-grid">
+      <TopFullest snapshot={snapshot} onTrend={showTrend} />
+      <NetAppCapacityTrend siteId={siteId} target={trendTarget} onTarget={setTrendTarget} />
+    </div>
     <SnapshotTable title="Sistemas" rows={snapshot.systems.map((item) => [item.name, item.version ?? '—', item.serialNumber ?? item.uuid ?? '—'])} headings={['Sistema', 'Versão', 'Número de série / UUID']} />
     <SnapshotTable title="Nós" rows={snapshot.nodes.map((item) => [item.name, item.health ?? '—', item.eligibility ?? '—'])} headings={['Nó', 'Saúde', 'Elegibilidade']} />
-    <SnapshotTable title="Aggregates" rows={snapshot.aggregates.map((item) => [item.name, item.state ?? '—', `${formatBytes(item.usedBytes)} / ${formatBytes(item.sizeBytes)}`])} headings={['Aggregate', 'Estado', 'Utilizado / total']} />
-    <SnapshotTable title="Volumes" rows={snapshot.volumes.map((item) => [item.name, item.svm ?? '—', item.state ?? '—', `${formatBytes(item.usedBytes)} / ${formatBytes(item.sizeBytes)}`])} headings={['Volume', 'SVM', 'Estado', 'Utilizado / total']} />
+    <CapacityTable title="Aggregates" kind="AGGREGATE" items={snapshot.aggregates} onTrend={showTrend} />
+    <CapacityTable title="Volumes" kind="VOLUME" items={snapshot.volumes} onTrend={showTrend} />
     <p className="netapp-observed-at">Snapshot observado em {dateLabel(snapshot.observedAt)}.</p>
   </>;
 }
