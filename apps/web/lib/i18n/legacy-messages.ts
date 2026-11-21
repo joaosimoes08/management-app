@@ -629,7 +629,6 @@ const enUS: LegacyDictionary = {
   'Adiar…': 'Snooze…',
   'Atribuir': 'Assign',
   'Adiar': 'Snooze',
-  'Abrir registo': 'Open record',
   'Não foi possível reconhecer o finding.': 'Could not acknowledge the finding.',
   'Problemas detetados automaticamente. Age em cada finding na sua linha, ou seleciona findings visíveis para os reconhecer, atribuir ou adiar em conjunto.': 'Automatically detected problems. Act on a finding from its row, or select visible findings to acknowledge, assign or snooze them together.',
   'livres': 'free',
@@ -641,6 +640,8 @@ const enUS: LegacyDictionary = {
   'Subnets do Site': 'Site subnets',
   'Todas as subnets': 'All subnets',
   'Todos os Sites': 'All Sites',
+  ' · todos os Sites': ' · all Sites',
+  'Remover filtro de configuração em falta': 'Remove missing configuration filter',
   'Todos os tipos': 'All types',
   'Último avistamento': 'Last seen',
   'Uptime': 'Uptime',
@@ -834,6 +835,7 @@ const enUS: LegacyDictionary = {
   'Seleciona uma imagem frontal para posicionar as portas.': 'Choose a front image to position the ports.',
   'Seleciona uma imagem traseira para posicionar as portas.': 'Choose a rear image to position the ports.',
   'Mapeia as portas em cada face do equipamento e associa-as à interface correspondente. Arrasta para mover; usa as setas para ajustes precisos. Alt + setas redimensiona. As posições são relativas à imagem de cada face.': 'Map the ports on each face of the device and link them to the matching interface. Drag to move; use the arrow keys for fine adjustments. Alt + arrows resizes. Positions are relative to each face image.',
+  // Critical assets workbench (extra labels from the shared table kit)
   // IPAM VRFs, NAT and RIPE views
   'Pesquisar VRF ou route distinguisher…': 'Search VRF or route distinguisher…',
   'Pesquisar regra NAT ou endereço…': 'Search NAT rule or address…',
@@ -964,6 +966,7 @@ const enUS: LegacyDictionary = {
   'Eventos de auditoria': 'Audit events',
   'Carregar mais': 'Load more',
   'EVENTO DE AUDITORIA': 'AUDIT EVENT',
+  'Abrir registo': 'Open record',
   'Histórico deste registo': 'History of this record',
   'Valores antes e depois': 'Values before and after',
   'Campo': 'Field',
