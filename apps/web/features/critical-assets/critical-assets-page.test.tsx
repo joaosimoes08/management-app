@@ -26,7 +26,9 @@ vi.mock('@/lib/api/client', () => ({ apiFetch: vi.fn() }));
 
 const network = { id: 'group-1', name: 'Network Team' };
 const systems = { id: 'group-2', name: 'Systems Team' };
-const attestation = (id: string, weekStart: string, extra: Record<string, unknown> = {}) => ({ id, weekStart, outcome: null as string | null, notes: null as string | null, confirmedAt: null as string | null, confirmedBy: null as string | null, confirmedByName: null as string | null, ...extra });
+// Weekly cycle due the following Monday 09:00 Europe/Lisbon (UTC+0 in November).
+const weeklyDueAt = (weekStart: string) => new Date(Date.parse(`${weekStart.slice(0, 10)}T09:00:00.000Z`) + 7 * 86_400_000).toISOString();
+const attestation = (id: string, weekStart: string, extra: Record<string, unknown> = {}) => ({ id, weekStart, dueAt: weeklyDueAt(weekStart), outcome: null as string | null, notes: null as string | null, confirmedAt: null as string | null, confirmedBy: null as string | null, confirmedByName: null as string | null, ...extra });
 const asset = (id: string, name: string, extra: Record<string, unknown> = {}) => ({ id, name, type: 'SWITCH', hostname: `${name.toLowerCase().replace(/\s/g, '-')}`, managementIp: '192.0.2.1', serialNumber: `SN-${id}`, assetTag: `AT-${id}`, status: 'ACTIVE', owner: network, assignedGroup: network, dueState: 'up_to_date', dueDate: '2026-11-23T09:00:00.000Z', dueWeekStart: '2026-11-16', pendingCount: 0, overdueCount: 0, latestOutcome: null as string | null, latestConfirmedAt: null as string | null, attestations: [] as ReturnType<typeof attestation>[], ...extra });
 
 const history = [
@@ -52,8 +54,34 @@ const pageData = (): CriticalAssetsResult => {
   } as unknown as CriticalAssetsResult;
 };
 
-const savedReview = (id: string, outcome: string, notes: string | null = null) => ({ id, siteId: 'site-1', weekStart: '2026-11-16T00:00:00.000Z', outcome, notes, confirmedAt: '2026-11-20T10:00:00.000Z', confirmedBy: 'u-9', confirmedByName: 'Joao', inventoryChanged: false });
+const savedReview = (id: string, outcome: string, notes: string | null = null) => ({ id, siteId: 'site-1', weekStart: '2026-11-16T00:00:00.000Z', dueAt: '2026-11-23T09:00:00.000Z', outcome, notes, confirmedAt: '2026-11-20T10:00:00.000Z', confirmedBy: 'u-9', confirmedByName: 'Joao', inventoryChanged: false });
 const alreadyRecorded = () => new ApiRequestError('A revisão da semana de 2026-11-16 já foi registada por Ana.', 409, { code: 'CRITICAL_ASSET_ATTESTATION_ALREADY_RECORDED', message: 'A revisão da semana de 2026-11-16 já foi registada por Ana.', details: { weekStart: '2026-11-16', confirmedByName: 'Ana' } });
+
+
+/** Answers the paged endpoint the way the server does: filters, then due order and name, then the page slice. */
+const pagedResponse = (url: string, source: CriticalAssetsResult = data) => {
+  const params = new URL(url, 'http://local').searchParams;
+  const byId = new Map<string, ReturnType<typeof asset>>();
+  for (const item of [...source.assets, ...source.unassigned]) if (!byId.has(item.id)) byId.set(item.id, item as never);
+  const rank: Record<string, number> = { overdue: 0, due_this_week: 1, unscheduled: 2, up_to_date: 3 };
+  const q = (params.get('q') ?? '').trim().toLowerCase();
+  const owner = params.get('owner');
+  const outcome = params.get('outcome');
+  const filtered = [...byId.values()].filter((item) => {
+    const row = item as unknown as { type: string; owner: { id: string } | null; latestOutcome: string | null; dueState: string; criticalityTier?: string | null; name: string; hostname: string | null; managementIp: string | null; serialNumber: string | null; assetTag: string | null };
+    if (params.get('type') && row.type !== params.get('type')) return false;
+    if (owner === 'NONE' ? row.owner : owner && row.owner?.id !== owner) return false;
+    if (outcome === 'NONE' ? row.latestOutcome : outcome && row.latestOutcome !== outcome) return false;
+    if (params.get('due') && row.dueState !== params.get('due')) return false;
+    if (params.get('tier') && row.criticalityTier !== params.get('tier')) return false;
+    return !q || [row.name, row.hostname, row.managementIp, row.serialNumber, row.assetTag].filter(Boolean).join(' ').toLowerCase().includes(q);
+  }).sort((a, b) => (rank[a.dueState] ?? 9) - (rank[b.dueState] ?? 9) || a.name.localeCompare(b.name));
+  const pageSize = Number(params.get('pageSize') ?? 50);
+  const page = Number(params.get('page') ?? 1);
+  return { timezone: source.timezone, total: filtered.length, page, pageSize, items: filtered.slice((page - 1) * pageSize, page * pageSize) };
+};
+/** Every fallback answer: the paged table gets its page, anything else the full list. */
+const respond = (url: string, source: CriticalAssetsResult = data) => (url.includes('/critical-assets/assets') ? pagedResponse(url, source) : source);
 
 let data = pageData();
 const renderPage = (queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })) => ({ ...render(<QueryClientProvider client={queryClient}><CriticalAssetsPage /></QueryClientProvider>), queryClient });
@@ -80,7 +108,7 @@ beforeEach(() => {
       return saved as never;
     }
     if (url.includes('/critical-assets/mapping')) return { id: 'm-new' } as never;
-    return data as never;
+    return respond(url) as never;
   });
 });
 
@@ -95,7 +123,7 @@ describe('critical assets workbench helpers', () => {
   });
 
   it('derives due state and latest outcome when an older API omits them', () => {
-    const legacy = { timezone: 'Europe/Lisbon', mappings: [{ id: 'm', assetType: 'SWITCH', group: network }], unassigned: [], assets: [{ id: 'd', name: 'Old', type: 'SWITCH', status: 'ACTIVE', attestations: [{ id: 'x', weekStart: '2026-11-16T00:00:00.000Z' }, { id: 'y', weekStart: '2026-11-09T00:00:00.000Z', outcome: 'CONFIRMED', confirmedAt: '2026-11-10T00:00:00.000Z' }] }] } as CriticalAssetsResult;
+    const legacy = { timezone: 'Europe/Lisbon', mappings: [{ id: 'm', assetType: 'SWITCH', group: network }], unassigned: [], assets: [{ id: 'd', name: 'Old', type: 'SWITCH', status: 'ACTIVE', attestations: [{ id: 'x', weekStart: '2026-11-16T00:00:00.000Z', dueAt: '2026-11-23T09:00:00.000Z' }, { id: 'y', weekStart: '2026-11-09T00:00:00.000Z', dueAt: '2026-11-16T09:00:00.000Z', outcome: 'CONFIRMED', confirmedAt: '2026-11-10T00:00:00.000Z' }] }] } as CriticalAssetsResult;
     expect(buildRows(legacy)[0]).toMatchObject({ owner: network, dueState: 'due_this_week', pendingCount: 1, latestOutcome: 'CONFIRMED' });
     legacy.mappings = [];
     expect(buildRows(legacy)[0]).toMatchObject({ owner: null, dueState: 'unscheduled', pendingCount: 1 });
@@ -136,16 +164,16 @@ describe('CriticalAssetsPage', () => {
     expect(overdue).toHaveTextContent('1');
     fireEvent.click(overdue);
     expect(overdue).toHaveAttribute('aria-pressed', 'true');
-    expect(visibleNames()).toEqual(['Core switch']);
+    await waitFor(() => expect(visibleNames()).toEqual(['Core switch']));
     fireEvent.click(within(strip).getByRole('button', { name: /Sem responsável/ }));
-    expect(visibleNames()).toEqual([]);
+    await waitFor(() => expect(visibleNames()).toEqual([]));
     expect(screen.getByText('Sem ativos correspondentes')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Limpar filtros/ }));
-    expect(visibleNames()).toHaveLength(4);
+    await waitFor(() => expect(visibleNames()).toHaveLength(4));
     fireEvent.click(within(strip).getByRole('button', { name: /Correção pedida/ }));
-    expect(visibleNames()).toEqual(['Core switch']);
+    await waitFor(() => expect(visibleNames()).toEqual(['Core switch']));
     fireEvent.click(within(strip).getByRole('button', { name: /Correção pedida/ }));
-    expect(visibleNames()).toHaveLength(4);
+    await waitFor(() => expect(visibleNames()).toHaveLength(4));
   });
 
   it('keeps unowned assets out of the overdue count and under "no owner" and "unscheduled"', async () => {
@@ -154,30 +182,30 @@ describe('CriticalAssetsPage', () => {
     const strip = screen.getByRole('group', { name: 'Resumo e filtros rápidos' });
     expect(within(strip).getByRole('button', { name: /Em atraso/ })).toHaveTextContent('1');
     fireEvent.click(within(strip).getByRole('button', { name: /Em atraso/ }));
-    expect(visibleNames()).toEqual(['Core switch']);
+    await waitFor(() => expect(visibleNames()).toEqual(['Core switch']));
     fireEvent.click(within(strip).getByRole('button', { name: /Em atraso/ }));
     fireEvent.change(screen.getByLabelText('Filtrar por prazo'), { target: { value: 'unscheduled' } });
-    expect(visibleNames()).toEqual(['Perimeter firewall']);
+    await waitFor(() => expect(visibleNames()).toEqual(['Perimeter firewall']));
     fireEvent.click(screen.getByRole('button', { name: /Limpar filtros/ }));
     fireEvent.click(within(strip).getByRole('button', { name: /Sem responsável/ }));
-    expect(visibleNames()).toEqual(['Perimeter firewall']);
+    await waitFor(() => expect(visibleNames()).toEqual(['Perimeter firewall']));
   });
 
   it('searches by hostname, IP, serial or tag and combines the toolbar filters', async () => {
     renderPage();
     await rowFor('Core switch');
     fireEvent.change(screen.getByLabelText('Pesquisa da página'), { target: { value: 'AT-device-3' } });
-    expect(visibleNames()).toEqual(['Backup array']);
+    await waitFor(() => expect(visibleNames()).toEqual(['Backup array']));
     expect(screen.getByRole('heading', { name: '1 de 4 ativos' })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Pesquisa da página'), { target: { value: '' } });
     fireEvent.change(screen.getByLabelText('Filtrar por grupo responsável'), { target: { value: 'group-2' } });
-    expect(visibleNames()).toEqual(['Edge router', 'Backup array']);
+    await waitFor(() => expect(visibleNames()).toEqual(['Edge router', 'Backup array']));
     fireEvent.change(screen.getByLabelText('Filtrar por prazo'), { target: { value: 'due_this_week' } });
-    expect(visibleNames()).toEqual(['Edge router']);
+    await waitFor(() => expect(visibleNames()).toEqual(['Edge router']));
     fireEvent.change(screen.getByLabelText('Filtrar por tipo'), { target: { value: 'STORAGE' } });
-    expect(visibleNames()).toEqual([]);
+    await waitFor(() => expect(visibleNames()).toEqual([]));
     fireEvent.click(screen.getByRole('button', { name: /Limpar filtros/ }));
-    expect(visibleNames()).toHaveLength(4);
+    await waitFor(() => expect(visibleNames()).toHaveLength(4));
     expect(screen.getByLabelText('Filtrar por tipo')).toHaveValue('');
   });
 
@@ -198,13 +226,17 @@ describe('CriticalAssetsPage', () => {
     await waitFor(() => expect(opener).toHaveFocus());
   });
 
-  it('records a correction through the notes dialog instead of window.prompt, and the note reaches the history', async () => {
+  it('records a correction through its own request dialog instead of window.prompt, and the note reaches the history', async () => {
     const prompt = vi.spyOn(window, 'prompt');
     renderPage();
     fireEvent.click(within(await rowFor('Core switch')).getByRole('button', { name: 'Pedir correção de Core switch' }));
-    const dialog = screen.getByRole('dialog', { name: 'Rever Core switch' });
+    const dialog = screen.getByRole('dialog', { name: 'Pedir correção de Core switch' });
+    expect(within(dialog).queryByRole('radio')).not.toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Registar pedido de correção' }));
     expect(apiFetch).not.toHaveBeenCalledWith(expect.stringContaining('/confirm'), expect.anything());
+    // The required field keeps the request from being sent empty.
+    expect(dialog).toBeInTheDocument();
+    expect(within(dialog).getByLabelText('Dados a corrigir (obrigatório)')).toBeRequired();
     fireEvent.change(within(dialog).getByLabelText('Dados a corrigir (obrigatório)'), { target: { value: 'Tag AT-1 is now AT-9' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Registar pedido de correção' }));
     await waitFor(() => expect(apiFetch).toHaveBeenCalledWith('/api/v1/critical-assets/a-core-5/confirm', expect.objectContaining({ method: 'POST', body: JSON.stringify({ outcome: 'NEEDS_CORRECTION', notes: 'Tag AT-1 is now AT-9' }) })));
@@ -219,8 +251,7 @@ describe('CriticalAssetsPage', () => {
     renderPage();
     fireEvent.click(await screen.findByRole('button', { name: 'Abrir histórico de Edge router' }));
     fireEvent.click(within(screen.getByRole('complementary')).getByRole('button', { name: 'Confirmar' }));
-    const dialog = screen.getByRole('dialog', { name: 'Rever Edge router' });
-    expect(within(dialog).getByRole('radio', { name: 'Dados corretos' })).toBeChecked();
+    const dialog = screen.getByRole('dialog', { name: 'Confirmar revisão de Edge router' });
     fireEvent.change(within(dialog).getByLabelText('Notas (opcional)'), { target: { value: 'Checked on site' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Registar confirmação' }));
     await waitFor(() => expect(apiFetch).toHaveBeenCalledWith('/api/v1/critical-assets/a-edge-2/confirm', expect.objectContaining({ body: JSON.stringify({ outcome: 'CONFIRMED', notes: 'Checked on site' }) })));
@@ -231,7 +262,7 @@ describe('CriticalAssetsPage', () => {
     vi.mocked(apiFetch).mockImplementation(async (url: string) => {
       if (url.endsWith('/confirm')) throw alreadyRecorded();
       if (url.includes('/settings/access-groups')) return [network, systems] as never;
-      return data as never;
+      return respond(url) as never;
     });
     renderPage();
     fireEvent.click(within(await rowFor('Edge router')).getByRole('button', { name: 'Confirmar revisão de Edge router' }));
@@ -254,7 +285,7 @@ describe('CriticalAssetsPage', () => {
         expect(JSON.parse(String(init?.body))).toEqual({ items: [{ id: 'a-core-5', outcome: 'CONFIRMED' }, { id: 'a-edge-2', outcome: 'CONFIRMED' }] });
         return { results: [{ id: 'a-core-5', ok: false, code: 'ALREADY_RECORDED', message: 'Esta revisão já foi registada.' }, { id: 'a-edge-2', ok: true, outcome: 'CONFIRMED' }], recorded: 1, failed: 1 } as never;
       }
-      return data as never;
+      return respond(url) as never;
     });
     renderPage();
     const actions = screen.getByTestId('toolbar-actions');
@@ -279,24 +310,23 @@ describe('CriticalAssetsPage', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('bulk confirms only rows on screen: a selection hidden by a filter is dropped and the count follows', async () => {
+  it('bulk confirms only the rows picked under the current filters: a filter change starts a new selection', async () => {
     const posted: string[] = [];
     vi.mocked(apiFetch).mockImplementation(async (url: string, init?: RequestInit) => {
       if (url.includes('/settings/access-groups')) return [network, systems] as never;
       if (url.endsWith('/confirm-bulk')) { posted.push(url); const body = JSON.parse(String(init?.body ?? '{}')); return { results: body.items.map((item: { id: string }) => ({ id: item.id, ok: true, outcome: 'CONFIRMED' })), recorded: body.items.length, failed: 0 } as never; }
-      return data as never;
+      return respond(url) as never;
     });
     renderPage();
     const actions = screen.getByTestId('toolbar-actions');
     fireEvent.click(within(await rowFor('Core switch')).getByRole('checkbox'));
     fireEvent.click(within(await rowFor('Edge router')).getByRole('checkbox'));
     expect(within(actions).getByRole('button', { name: /Confirmar selecionados \(2\)/ })).toBeEnabled();
-    // Filter Core switch (SWITCH) out of view: it leaves the selection and the count drops to 1.
+    // Changing the type filter clears the picks: nothing picked under the old filter is confirmed.
     fireEvent.change(screen.getByLabelText('Filtrar por tipo'), { target: { value: 'ROUTER' } });
-    expect(visibleNames()).toEqual(['Edge router']);
-    expect(within(actions).getByRole('button', { name: /Confirmar selecionados \(1\)/ })).toBeEnabled();
-    // Showing it again does not bring the hidden selection back.
-    fireEvent.change(screen.getByLabelText('Filtrar por tipo'), { target: { value: '' } });
+    await waitFor(() => expect(visibleNames()).toEqual(['Edge router']));
+    expect(within(actions).getByRole('button', { name: /Confirmar selecionados \(0\)/ })).toBeDisabled();
+    fireEvent.click(within(await rowFor('Edge router')).getByRole('checkbox'));
     expect(within(actions).getByRole('button', { name: /Confirmar selecionados \(1\)/ })).toBeEnabled();
     fireEvent.click(within(actions).getByRole('button', { name: /Confirmar selecionados \(1\)/ }));
     const dialog = screen.getByRole('dialog', { name: 'Confirmar selecionados' });
@@ -313,7 +343,7 @@ describe('CriticalAssetsPage', () => {
       const isSite2 = url.includes('site-2');
       if (isSite2) await site2Ready;
       if (url.includes('/settings/access-groups')) return (isSite2 ? [] : [network, systems]) as never;
-      return (isSite2 ? otherSite : data) as never;
+      return respond(url, isSite2 ? otherSite : data) as never;
     });
     window.history.replaceState(null, '', '/attestacao-ativos?siteId=site-1&owner=group-2');
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -355,7 +385,7 @@ describe('CriticalAssetsPage', () => {
     vi.mocked(apiFetch).mockImplementation(async (url: string) => {
       if (url.includes('/settings/access-groups')) return [network, systems] as never;
       if (url.endsWith('/confirm-bulk')) return { results: [{ id: 'a-core-5', ok: false, code: 'FORBIDDEN', message: 'Não tens acesso a esta revisão' }, { id: 'a-edge-2', ok: true, outcome: 'CONFIRMED' }], recorded: 1, failed: 1 } as never;
-      return data as never;
+      return respond(url) as never;
     });
     renderPage();
     fireEvent.click(within(await rowFor('Core switch')).getByRole('checkbox', { name: 'Selecionar ativo Core switch' }));
@@ -403,25 +433,25 @@ describe('CriticalAssetsPage', () => {
   it('sorts from the column headers, keeps the sort in the URL and returns to overdue-first on the third click', async () => {
     renderPage();
     await rowFor('Core switch');
-    expect(visibleNames()).toEqual(['Core switch', 'Edge router', 'Perimeter firewall', 'Backup array']);
+    await waitFor(() => expect(visibleNames()).toEqual(['Core switch', 'Edge router', 'Perimeter firewall', 'Backup array']));
     const equipment = screen.getByRole('columnheader', { name: /Equipamento/ });
     fireEvent.click(within(equipment).getByRole('button'));
     expect(equipment).toHaveAttribute('aria-sort', 'ascending');
-    expect(visibleNames()).toEqual(['Backup array', 'Core switch', 'Edge router', 'Perimeter firewall']);
+    await waitFor(() => expect(visibleNames()).toEqual(['Backup array', 'Core switch', 'Edge router', 'Perimeter firewall']));
     expect(new URLSearchParams(window.location.search).get('sort')).toBe('name');
     fireEvent.click(within(equipment).getByRole('button'));
-    expect(visibleNames()).toEqual(['Perimeter firewall', 'Edge router', 'Core switch', 'Backup array']);
+    await waitFor(() => expect(visibleNames()).toEqual(['Perimeter firewall', 'Edge router', 'Core switch', 'Backup array']));
     fireEvent.click(within(equipment).getByRole('button'));
     expect(equipment).not.toHaveAttribute('aria-sort');
-    expect(visibleNames()).toEqual(['Core switch', 'Edge router', 'Perimeter firewall', 'Backup array']);
+    await waitFor(() => expect(visibleNames()).toEqual(['Core switch', 'Edge router', 'Perimeter firewall', 'Backup array']));
     expect(window.location.search).toBe('');
     // Owner: groups alphabetically, the unowned asset last.
     fireEvent.click(within(screen.getByRole('columnheader', { name: /Grupo responsável/ })).getByRole('button'));
-    expect(visibleNames()).toEqual(['Core switch', 'Edge router', 'Backup array', 'Perimeter firewall']);
+    await waitFor(() => expect(visibleNames()).toEqual(['Core switch', 'Edge router', 'Backup array', 'Perimeter firewall']));
     // Prazo descending: up to date first, overdue last.
     fireEvent.click(within(screen.getByRole('columnheader', { name: /Prazo/ })).getByRole('button'));
     fireEvent.click(within(screen.getByRole('columnheader', { name: /Prazo/ })).getByRole('button'));
-    expect(visibleNames()).toEqual(['Backup array', 'Perimeter firewall', 'Edge router', 'Core switch']);
+    await waitFor(() => expect(visibleNames()).toEqual(['Backup array', 'Perimeter firewall', 'Edge router', 'Core switch']));
     expect(screen.getByRole('columnheader', { name: /Ações/ })).not.toHaveAttribute('aria-sort');
   });
 
@@ -429,7 +459,7 @@ describe('CriticalAssetsPage', () => {
     window.history.replaceState(null, '', '/attestacao-ativos?siteId=site-1&due=overdue&q=core');
     renderPage();
     await rowFor('Core switch');
-    expect(visibleNames()).toEqual(['Core switch']);
+    await waitFor(() => expect(visibleNames()).toEqual(['Core switch']));
     expect(screen.getByLabelText('Pesquisa da página')).toHaveValue('core');
     expect(screen.getByLabelText('Filtrar por prazo')).toHaveValue('overdue');
     const strip = screen.getByRole('group', { name: 'Resumo e filtros rápidos' });
@@ -439,13 +469,13 @@ describe('CriticalAssetsPage', () => {
     expect(window.location.search).toBe('?siteId=site-1&q=core');
     fireEvent.change(screen.getByLabelText('Filtrar por tipo'), { target: { value: 'ROUTER' } });
     expect(window.location.search).toBe('?siteId=site-1&q=core&type=ROUTER');
-    expect(visibleNames()).toEqual([]);
+    await waitFor(() => expect(visibleNames()).toEqual([]));
     act(() => { window.history.replaceState(null, '', '/attestacao-ativos?siteId=site-1&q=core'); window.dispatchEvent(new PopStateEvent('popstate')); });
     expect(screen.getByLabelText('Filtrar por tipo')).toHaveValue('');
-    expect(visibleNames()).toEqual(['Core switch']);
+    await waitFor(() => expect(visibleNames()).toEqual(['Core switch']));
     fireEvent.click(screen.getByRole('button', { name: /Limpar filtros/ }));
     expect(window.location.search).toBe('?siteId=site-1');
-    expect(visibleNames()).toHaveLength(4);
+    await waitFor(() => expect(visibleNames()).toHaveLength(4));
   });
 
   it('exports the filtered, sorted rows to CSV with readable values', async () => {
@@ -490,6 +520,51 @@ describe('CriticalAssetsPage', () => {
     fireEvent.click(within(screen.getByTestId('toolbar-actions')).getByRole('button', { name: /Confirmar selecionados \(1\)/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar 1 revisões' }));
     await waitFor(() => expect(apiFetch).toHaveBeenCalledWith('/api/v1/critical-assets/confirm-bulk', expect.objectContaining({ body: JSON.stringify({ items: [{ id: 'a-fw-new', outcome: 'CONFIRMED' }] }) })));
+  });
+
+  it('selects every matching asset across pages and confirms them in chunks within the server limit', async () => {
+    const many = Array.from({ length: 120 }, (_, index) => asset(`bulk-${index}`, `Switch ${String(index).padStart(3, '0')}`, { dueState: 'due_this_week', pendingCount: 1, attestations: [attestation(`a-bulk-${index}`, '2026-11-16T00:00:00.000Z')] }));
+    data = { ...pageData(), assets: many, unassigned: [] } as unknown as CriticalAssetsResult;
+    const posted: number[] = [];
+    vi.mocked(apiFetch).mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.includes('/settings/access-groups')) return [network, systems] as never;
+      if (url.endsWith('/confirm-bulk')) {
+        const body = JSON.parse(String(init?.body ?? '{}')) as { items: Array<{ id: string }> };
+        posted.push(body.items.length);
+        return { results: body.items.map((item) => ({ id: item.id, ok: true, outcome: 'CONFIRMED' })) } as never;
+      }
+      return respond(url, data) as never;
+    });
+    renderPage();
+    await waitFor(() => expect(document.querySelectorAll('.critical-assets-table tbody tr')).toHaveLength(50));
+    fireEvent.click(screen.getByRole('button', { name: 'Selecionar os 120 ativos que correspondem' }));
+    const actions = screen.getByTestId('toolbar-actions');
+    await waitFor(() => expect(within(actions).getByRole('button', { name: /Confirmar selecionados \(120\)/ })).toBeEnabled());
+    fireEvent.click(within(actions).getByRole('button', { name: /Confirmar selecionados \(120\)/ }));
+    const dialog = screen.getByRole('dialog', { name: 'Confirmar selecionados' });
+    fireEvent.click(within(dialog).getByRole('button', { name: /Confirmar 120 revis/ }));
+    await waitFor(() => expect(posted).toEqual([100, 20]));
+    expect(await within(dialog).findByText('120 de 120 registadas.')).toBeInTheDocument();
+  });
+
+  it('pages the table from the server and keeps picks across pages until the filter changes', async () => {
+    const many = Array.from({ length: 60 }, (_, index) => asset(`page-${index}`, `Router ${String(index).padStart(2, '0')}`, { dueState: 'up_to_date', pendingCount: 1, attestations: [attestation(`a-page-${index}`, '2026-11-16T00:00:00.000Z')] }));
+    data = { ...pageData(), assets: many, unassigned: [] } as unknown as CriticalAssetsResult;
+    vi.mocked(apiFetch).mockImplementation(async (url: string) => {
+      if (url.includes('/settings/access-groups')) return [network, systems] as never;
+      return respond(url, data) as never;
+    });
+    renderPage();
+    fireEvent.click(within(await rowFor('Router 00')).getByRole('checkbox'));
+    expect(screen.getByRole('navigation', { name: 'Paginação de ativos' })).toHaveTextContent('Página 1 de 2');
+    fireEvent.click(screen.getByRole('button', { name: 'Seguinte' }));
+    await waitFor(() => expect(screen.getByRole('navigation', { name: 'Paginação de ativos' })).toHaveTextContent('Página 2 de 2'));
+    await waitFor(() => expect(visibleNames()[0]).toBe('Router 50'));
+    // The pick on page 1 survives the page change.
+    expect(screen.getByTestId('toolbar-actions')).toHaveTextContent('Confirmar selecionados (1)');
+    fireEvent.click(screen.getByRole('button', { name: 'Anterior' }));
+    await waitFor(() => expect(visibleNames()[0]).toBe('Router 00'));
+    expect(within(await rowFor('Router 00')).getByRole('checkbox')).toBeChecked();
   });
 
   it('hydrates server markup without a mismatch', async () => {

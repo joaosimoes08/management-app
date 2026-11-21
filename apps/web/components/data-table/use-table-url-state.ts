@@ -53,6 +53,8 @@ export function useTableUrlState<F extends TableFilters>(config: TableStateConfi
   const setSort = useCallback((sort: SortState) => commit({ ...latest(), sort }, 'push'), [commit, latest]);
   /** Clears search and filters; keeps the chosen sort. */
   const clearFilters = useCallback(() => commit({ ...latest(), search: '', filters: { ...config.filters } }, 'push'), [commit, latest, config]);
+  /** Replaces search, filters and sort in one history entry (saved views). */
+  const applyState = useCallback((next: TableState<F>) => commit(next, 'push'), [commit]);
 
   return {
     ...state,
@@ -63,6 +65,7 @@ export function useTableUrlState<F extends TableFilters>(config: TableStateConfi
     setFilters,
     setSort,
     clearFilters,
+    applyState,
   };
 }
 

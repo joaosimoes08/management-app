@@ -31,6 +31,8 @@ const operationalFiles = [
   'apps/web/components/data-table/csv.ts',
   'apps/web/components/data-table/table-state.ts',
   'apps/web/components/data-table/use-table-url-state.ts',
+  'apps/web/components/data-table/saved-views.tsx',
+  'apps/web/features/help/articles.ts',
   'apps/web/app/ajuda/page.tsx',
   'apps/web/app/ajuda/[topic]/page.tsx',
   // Phase D front end
