@@ -1617,6 +1617,27 @@ test('Step 20 audit: reads are not audited and search skips HTTP_REQUEST rows', 
   assert.deepEqual(events.map((item) => item.title), ['STEP20_PROBE_EVENT']);
 });
 
+test('Step 20 export trail: sensitive exports write explicit audit events', async () => {
+  const term = 'step20exportprobe';
+  await prisma.auditLog.create({ data: { userId: ids.admin, action: term, entityType: 'Device', entityId: ids.deviceA } });
+
+  // The audit CSV export is a GET, so it must leave its own explicit row (no HTTP_REQUEST-only trace).
+  const csv = await request('GET', `/api/v1/audit/events/export?action=${term}`, 'qa-auditor');
+  assert.equal(csv.statusCode, 200, csv.body);
+  const exported = await prisma.auditLog.findFirst({ where: { action: 'AUDIT_EVENTS_EXPORTED', userId: ids.auditor }, orderBy: { createdAt: 'desc' } });
+  assert.ok(exported, 'AUDIT_EVENTS_EXPORTED row missing');
+  const metadata = exported.metadata as { filters: Record<string, unknown>; rowCount: number; truncated: boolean };
+  assert.equal(metadata.filters.action, term);
+  assert.equal(metadata.rowCount, 1);
+  assert.equal(metadata.truncated, false);
+
+  // Ansible inventory export and an explicit data export each record their own event.
+  assert.equal((await request('GET', '/api/v1/exports/ansible', 'qa-auditor')).statusCode, 200);
+  assert.ok(await prisma.auditLog.findFirst({ where: { action: 'ANSIBLE_INVENTORY_EXPORTED', userId: ids.auditor } }), 'ANSIBLE_INVENTORY_EXPORTED row missing');
+  assert.equal((await request('GET', '/api/v1/exports/devices/csv', 'qa-auditor')).statusCode, 200);
+  assert.ok(await prisma.auditLog.findFirst({ where: { action: 'DATA_EXPORTED', userId: ids.auditor, entityType: 'Export' } }), 'DATA_EXPORTED row missing');
+});
+
 test('Phase E portal: favourites, check-all link health and the pending role-request queue', async () => {
   const server = createServer((req, res) => { res.statusCode = req.url === '/down' ? 503 : 200; res.end(); });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
