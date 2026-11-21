@@ -2,15 +2,16 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req } from '@
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { Roles } from '../auth/roles.decorator';
-import { CalculatorDto, CreateDiscoveryJobDto, CreateHostDto, CreateIpDto, CreateIpReservationDto, CreateNatRuleDto, CreateServiceDto, CreateSiteDto, CreateSubnetDto, CreateVlanDto, CreateVrfDto, RipeImportDto, RipePreviewDto, ReviewDiscoveryResultDto, UpdateDiscoveryScheduleDto, UpdateHostDto, UpdateIpDto, UpdateNatRuleDto, UpdateServiceDto, UpdateSiteDto, UpdateSubnetDto, UpdateSubnetScanDto, UpdateVlanDto, UpdateVrfDto } from './dto';
+import { CalculatorDto, CreateDiscoveryJobDto, CreateHostDto, CreateIpDto, CreateIpReservationDto, CreateNatRuleDto, CreateServiceDto, CreateSiteDto, CreateSubnetDto, CreateVlanDto, CreateVrfDto, RipeImportDto, RipePreviewDto, ReviewDiscoveryResultDto, ReserveNextIpsDto, BulkReviewDiscoveryResultsDto, UpdateDiscoveryScheduleDto, UpdateHostDto, UpdateIpDto, UpdateNatRuleDto, UpdateServiceDto, UpdateSiteDto, UpdateSubnetDto, UpdateSubnetScanDto, UpdateVlanDto, UpdateVrfDto } from './dto';
 import { IpamService } from './ipam.service';
 import { IpamAdvancedService } from './ipam-advanced.service';
 import { IpReservationService } from './ip-reservation.service';
 import { SubnetCapacityService } from './subnet-capacity.service';
+import { IpamWorkflowsService } from './ipam-workflows.service';
 
 @ApiTags('ipam') @ApiBearerAuth() @Controller({ version: '1' })
 export class IpamController {
-  constructor(private readonly service: IpamService, private readonly advanced: IpamAdvancedService, private readonly reservations: IpReservationService, private readonly capacity: SubnetCapacityService) {}
+  constructor(private readonly service: IpamService, private readonly advanced: IpamAdvancedService, private readonly reservations: IpReservationService, private readonly capacity: SubnetCapacityService, private readonly workflows: IpamWorkflowsService) {}
   @Post('ip-reservations') @Roles('ADMIN', 'NETWORK_OPERATOR') createIpReservation(@Body() dto: CreateIpReservationDto, @Req() req: { user: AuthenticatedUser }) { return this.reservations.create(dto, req.user); }
   @Post('ip-reservations/:id/release') @Roles('ADMIN', 'NETWORK_OPERATOR') releaseIpReservation(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.reservations.release(id, req.user); }
   @Get('sites') sites(@Req() req: { user: AuthenticatedUser }, @Query('search') search?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) { return this.service.listSites(req.user, search, page, pageSize); }
@@ -22,13 +23,15 @@ export class IpamController {
   @Post('vlans') @Roles('ADMIN', 'NETWORK_OPERATOR') createVlan(@Body() dto: CreateVlanDto, @Req() req: { user: AuthenticatedUser }) { return this.service.createVlan(dto, req.user); }
   @Patch('vlans/:id') @Roles('ADMIN', 'NETWORK_OPERATOR') updateVlan(@Param('id') id: string, @Body() dto: UpdateVlanDto, @Req() req: { user: AuthenticatedUser }) { return this.service.updateVlan(id, dto, req.user); }
   @Delete('vlans/:id') @Roles('ADMIN', 'NETWORK_OPERATOR') deleteVlan(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.service.deleteVlan(id, req.user); }
-  @Get('subnets') subnets(@Req() req: { user: AuthenticatedUser }, @Query('siteId') siteId?: string, @Query('vlanId') vlanId?: string, @Query('search') search?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) { return this.service.listSubnets(req.user, siteId, vlanId, search, page, pageSize); }
+  @Get('subnets') subnets(@Req() req: { user: AuthenticatedUser }, @Query('siteId') siteId?: string, @Query('vlanId') vlanId?: string, @Query('search') search?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string, @Query('band') band?: string, @Query('minUtilization') minUtilization?: string, @Query('sort') sort?: string) { return this.service.listSubnets(req.user, siteId, vlanId, search, page, pageSize, { band, minUtilization, sort }); }
   @Post('subnets') @Roles('ADMIN', 'NETWORK_OPERATOR') createSubnet(@Body() dto: CreateSubnetDto, @Req() req: { user: AuthenticatedUser }) { return this.advanced.createSubnet(dto, req.user); }
   @Patch('subnets/:id') @Roles('ADMIN', 'NETWORK_OPERATOR') updateSubnet(@Param('id') id: string, @Body() dto: UpdateSubnetDto, @Req() req: { user: AuthenticatedUser }) { return this.advanced.updateSubnet(id, dto, req.user); }
   @Delete('subnets/:id') @Roles('ADMIN', 'NETWORK_OPERATOR') deleteSubnet(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.service.deleteSubnet(id, req.user); }
   @Get('subnets/:id') subnet(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.advanced.getSubnet(id, req.user); }
   @Get('subnets/:id/usage') subnetUsage(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.capacity.usage(id, req.user); }
   @Get('subnets/:id/capacity-history') subnetCapacityHistory(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.capacity.history(id, req.user); }
+  @Get('subnets/:id/next-free') nextFreeIps(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }, @Query('count') count?: string, @Query('from') from?: string, @Query('to') to?: string) { return this.workflows.nextFree(req.user, id, { count, from, to }); }
+  @Post('subnets/:id/reserve-next') @Roles('ADMIN', 'NETWORK_OPERATOR') reserveNextIps(@Param('id') id: string, @Body() dto: ReserveNextIpsDto, @Req() req: { user: AuthenticatedUser }) { return this.workflows.reserveNext(req.user, id, dto); }
   @Get('subnets/:id/planning') subnetPlanning(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.advanced.subnetPlanning(id, req.user); }
   @Get('subnets/:id/tree') subnetTree(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.advanced.subnetTree(id, req.user); }
   @Patch('subnets/:id/scan-config') @Roles('ADMIN', 'NETWORK_OPERATOR') updateSubnetScan(@Param('id') id: string, @Body() dto: UpdateSubnetScanDto, @Req() req: { user: AuthenticatedUser }) { return this.advanced.updateSubnetScan(id, dto, req.user); }
@@ -77,5 +80,6 @@ export class IpamController {
   @Get('subnets/:id/discovery-schedule') schedule(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.service.getDiscoverySchedule(req.user, id); }
   @Patch('subnets/:id/discovery-schedule') @Roles('ADMIN', 'NETWORK_OPERATOR') updateSchedule(@Param('id') id: string, @Body() dto: UpdateDiscoveryScheduleDto, @Req() req: { user: AuthenticatedUser }) { return this.service.updateDiscoverySchedule(id, dto, req.user); }
   @Post('subnets/:id/discovery-schedule/run') @Roles('ADMIN', 'NETWORK_OPERATOR') runSchedule(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.service.runScheduledDiscovery(id, req.user); }
+  @Post('discovery/results/bulk-review') @Roles('ADMIN', 'NETWORK_OPERATOR') bulkReview(@Body() dto: BulkReviewDiscoveryResultsDto, @Req() req: { user: AuthenticatedUser }) { return this.workflows.bulkReview(req.user, dto); }
   @Post('discovery/results/:id/review') @Roles('ADMIN', 'NETWORK_OPERATOR') review(@Param('id') id: string, @Body() dto: ReviewDiscoveryResultDto, @Req() req: { user: AuthenticatedUser }) { return this.service.reviewResult(id, dto, req.user); }
 }

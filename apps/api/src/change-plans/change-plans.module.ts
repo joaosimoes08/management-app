@@ -5,5 +5,5 @@ import { IpamModule } from '../ipam/ipam.module';
 import { ChangePlansController } from './change-plans.controller';
 import { ChangePlansService } from './change-plans.service';
 
-@Module({ imports: [AuditModule, InfrastructureModule, IpamModule], controllers: [ChangePlansController], providers: [ChangePlansService] })
+@Module({ imports: [AuditModule, InfrastructureModule, IpamModule], controllers: [ChangePlansController], providers: [ChangePlansService], exports: [ChangePlansService] })
 export class ChangePlansModule {}
