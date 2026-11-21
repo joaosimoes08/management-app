@@ -246,6 +246,7 @@ describe('device update', () => {
       device: { findUnique: async () => ({ status: 'ACTIVE', siteId: 'site-1', rackId: null, modelId: 'model-old', frontAssetId: 'asset-front', backAssetId: 'asset-rear', type: 'SWITCH', rack: null, ...current }), update: async (args: any) => { updates.push(args); return { id: 'device-1' }; } },
       deviceModel: { findUnique: async () => ({ model: 'M', supportsNetworkPorts: true, networkPortCount: 2, portCount: 2, portLayout: null, ...model }) },
       assetFile: { findUnique: async ({ where }: any) => ({ id: where.id, storageKey: `${where.id}.png`, mimeType: 'image/png' }) },
+      pduOutletAssignment: { count: async () => 0, deleteMany: async () => ({ count: 0 }), findMany: async () => [] },
     };
     prisma.$transaction = async (fn: any) => fn(prisma);
     const access = { assertDevice: async () => undefined, assertRack: async () => undefined, assertSite: async () => undefined } as any;

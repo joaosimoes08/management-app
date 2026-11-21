@@ -16,9 +16,14 @@ test('isBlockedAddress blocks loopback, RFC1918, link-local, CGNAT and IPv6 loca
   for (const address of ['8.8.8.8', '193.0.6.139', '172.32.0.1', '100.128.0.1', '2001:4860:4860::8888']) assert.equal(isBlockedAddress(address), false, address);
 });
 
+test('isBlockedAddress decodes IPv4 embedded in NAT64 and 6to4 addresses and blocks local-use NAT64', () => {
+  for (const address of ['64:ff9b::7f00:1', '64:ff9b::127.0.0.1', '64:ff9b::a9fe:a9fe', '64:ff9b::c0a8:101', '2002:7f00:1::', '2002:a00:1::1', '2002:a9fe:a9fe::', '64:ff9b:1::808:808', '64:ff9b:1:ffff::1', '::ffff:7f00:1']) assert.equal(isBlockedAddress(address), true, address);
+  for (const address of ['64:ff9b::808:808', '64:ff9b::8.8.8.8', '2002:808:808::1', '2001:db8::7f00:1', '64:ff9c::7f00:1']) assert.equal(isBlockedAddress(address), false, address);
+});
+
 test('probeLink reports BLOCKED for private literals and for names that resolve to loopback, without connecting', async () => {
   await withAllowed(undefined, async () => {
-    for (const url of ['http://10.255.255.1/', 'http://169.254.169.254/latest/meta-data/', 'http://[::1]:9/', 'http://[fd00::1]/', 'http://100.64.0.1/', 'http://localhost:9/']) {
+    for (const url of ['http://10.255.255.1/', 'http://169.254.169.254/latest/meta-data/', 'http://[::1]:9/', 'http://[fd00::1]/', 'http://100.64.0.1/', 'http://localhost:9/', 'http://[64:ff9b::7f00:1]:9/', 'http://[2002:7f00:1::]:9/']) {
       assert.equal((await probeLink(url, 1500)).code, 'BLOCKED', url);
     }
     assert.equal((await probeLink('ftp://example.com/')).code, 'INVALID_URL');

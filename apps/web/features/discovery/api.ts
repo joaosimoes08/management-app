@@ -142,8 +142,10 @@ export interface DiscoveryJobPayload {
   profileId: string;
 }
 
-export function listDiscoveryJobs(): Promise<{ items: DiscoveryJob[]; total: number }> {
-  return apiFetch<{ items: DiscoveryJob[]; total: number }>('/api/v1/discovery/jobs?pageSize=100');
+/** `status` is a comma list (e.g. `PENDING,RUNNING`); the API answers 400 with a message for unknown values. */
+export function listDiscoveryJobs(status = ''): Promise<{ items: DiscoveryJob[]; total: number }> {
+  const suffix = status ? `&status=${encodeURIComponent(status)}` : '';
+  return apiFetch<{ items: DiscoveryJob[]; total: number }>(`/api/v1/discovery/jobs?pageSize=100${suffix}`);
 }
 
 export function listDiscoverySubnets(siteId: string): Promise<{ items: DiscoverySubnet[] }> {
