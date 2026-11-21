@@ -653,3 +653,22 @@ test('marks a prefix overlapping an earlier prefix of the same paste as a confli
   assert.equal(json(imported).status, 'IMPORTED');
   assert.deepEqual(json(imported).skipped, []);
 });
+
+test('imports by the stored diff, not by the order the client sends the prefixes', async () => {
+  const preview = await request('POST', '/api/v1/ipam/ripe/preview', 'qa-admin', { prefixes: ['10.252.0.0/16\n10.252.1.0/24'], siteId: ids.siteA });
+  assert.equal(preview.statusCode, 201, preview.body);
+  const result = json(preview);
+  assert.deepEqual(result.diff.map((item: { prefix: string; status: string; importable: boolean }) => [item.prefix, item.status, item.importable]), [
+    ['10.252.0.0/16', 'new', true],
+    ['10.252.1.0/24', 'conflict', false],
+  ]);
+  // The /24 is sent first: it must still be skipped as OVERLAP and the /16 created.
+  const imported = await request('POST', '/api/v1/ipam/ripe/import', 'qa-admin', { importId: result.id, prefixes: ['10.252.1.0/24', '10.252.0.0/16'], siteId: ids.siteA });
+  assert.equal(imported.statusCode, 201, imported.body);
+  assert.equal(json(imported).status, 'PARTIAL');
+  assert.deepEqual(json(imported).created.map((item: { cidr: string }) => item.cidr), ['10.252.0.0/16']);
+  assert.deepEqual(json(imported).skipped.map((item: { cidr: string; reason: string }) => [item.cidr, item.reason]), [['10.252.1.0/24', 'OVERLAP']]);
+  assert.equal(await prisma.subnet.count({ where: { cidr: '10.252.1.0/24' } }), 0);
+  const stored = await prisma.ripeImport.findUniqueOrThrow({ where: { id: result.id } });
+  assert.equal(stored.status, 'PARTIAL');
+});

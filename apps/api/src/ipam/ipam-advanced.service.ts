@@ -197,7 +197,17 @@ export class IpamAdvancedService implements OnModuleDestroy {
     const available = new Set((preview.result as any)?.prefixes ?? []); const selected = [...new Set(dto.prefixes)].filter((prefix) => available.has(prefix));
     if (!selected.length) throw new BadRequestException('Seleciona prefixos presentes na pré-visualização');
     const created: any[] = []; const skipped: any[] = [];
-    for (const cidr of selected) { try { created.push(await this.createSubnet({ cidr, siteId: dto.siteId, vrfId: dto.vrfId, vlanId: dto.vlanId, purpose: dto.purpose, environment: dto.environment }, user)); } catch (error) { skipped.push({ cidr, reason: error instanceof Error ? error.message : 'Não importado' }); } }
+    // Diff previews: only prefixes the stored diff marked importable are created, in the
+    // preview's order, so the client's selection order cannot turn a later conflict into a
+    // create (e.g. [/24, /16] when the /24 was flagged OVERLAP of the /16). Previews without
+    // a stored diff (plain RIPEstat lookups) keep the old behaviour.
+    const storedDiff: Array<{ prefix: string; importable: boolean; reason: string; message: string }> | undefined = Array.isArray((preview.result as any)?.diff) ? (preview.result as any).diff : undefined;
+    let toCreate = selected;
+    if (storedDiff) {
+      const wanted = new Set(selected); toCreate = [];
+      for (const item of storedDiff) { if (!wanted.has(item.prefix)) continue; if (item.importable) toCreate.push(item.prefix); else skipped.push({ cidr: item.prefix, reason: item.reason, message: item.message }); }
+    }
+    for (const cidr of toCreate) { try { created.push(await this.createSubnet({ cidr, siteId: dto.siteId, vrfId: dto.vrfId, vlanId: dto.vlanId, purpose: dto.purpose, environment: dto.environment }, user)); } catch (error) { skipped.push({ cidr, reason: error instanceof Error ? error.message : 'Não importado' }); } }
     const status = created.length && skipped.length ? 'PARTIAL' : created.length ? 'IMPORTED' : 'FAILED';
     await this.prisma.ripeImport.update({ where: { id: dto.importId }, data: { status, result: { ...(preview.result as any), selected, created: created.map((item) => item.id), skipped } } });
     return { status, created, skipped };
