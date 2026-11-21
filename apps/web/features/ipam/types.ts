@@ -350,12 +350,50 @@ export interface NatRuleInput {
 
 export type RipeQueryType = 'asn' | 'prefix' | 'organisation';
 
+/** POST ipam/ripe/preview: either a RIPEstat query or the raw pasted/uploaded text in `prefixes`. */
+export interface RipePreviewInput {
+  query?: string;
+  queryType?: RipeQueryType;
+  prefixes?: string[];
+  siteId: string;
+  vrfId?: string;
+  purpose?: string;
+  environment?: string;
+}
+
+export type RipeDiffStatus = 'new' | 'changed' | 'exists' | 'conflict';
+export type RipeDiffReason = 'NEW' | 'NEW_OVERLAPS_OTHER_SCOPE' | 'EXISTS_SAME' | 'EXISTS_DIFFERENT_ATTRIBUTES' | 'OVERLAP' | 'EXISTS_OUTSIDE_SITE';
+/** A subnet the user cannot read comes back as { id: null, cidr: null, hidden: true }. */
+export type RipeSubnetRef = { id: string; cidr: string; siteId: string | null; vrfId: string | null; purpose: string | null; environment: string | null; hidden?: false } | { id: null; cidr: null; hidden: true };
+export interface RipeDiffItem {
+  prefix: string;
+  input: string;
+  version: 4 | 6;
+  status: RipeDiffStatus;
+  reason: RipeDiffReason;
+  message: string;
+  importable: boolean;
+  existing?: RipeSubnetRef;
+  changes?: Array<{ field: 'vrfId' | 'purpose' | 'environment'; current: string | null; proposed: string | null }>;
+  overlaps?: Array<{ relation: 'contains' | 'within'; sameScope: boolean; subnet: RipeSubnetRef }>;
+}
+export interface RipeInvalidPrefix { input: string; reason: string; message: string }
+export interface RipeDiffTarget { siteId: string; vrfId: string | null; purpose: string | null; environment: string | null }
+export interface RipeDiffSummary { total: number; new: number; changed: number; exists: number; conflict: number; importable: number; invalid: number; duplicates: number }
+
 export interface RipePreview {
   id: string;
   query: string;
-  queryType: RipeQueryType;
+  queryType: RipeQueryType | 'paste' | string;
+  source?: 'PASTE' | 'RIPESTAT' | string;
   prefixes: string[];
   status: string;
+  target?: RipeDiffTarget;
+  summary?: RipeDiffSummary;
+  diff?: RipeDiffItem[];
+  invalid?: RipeInvalidPrefix[];
+  duplicates?: string[];
+  normalized?: Array<{ input: string; prefix: string }>;
 }
 
 export interface RipeSkippedPrefix { cidr: string; reason: string }
@@ -366,7 +404,7 @@ export interface RipeImportRecord {
   queryType: RipeQueryType | string;
   source: string;
   status: 'PREVIEW' | 'IMPORTED' | 'PARTIAL' | 'FAILED' | string;
-  result: { prefixes?: string[]; source?: string; selected?: string[]; created?: string[]; skipped?: RipeSkippedPrefix[] } | null;
+  result: { prefixes?: string[]; source?: string; selected?: string[]; created?: string[]; skipped?: RipeSkippedPrefix[]; target?: RipeDiffTarget; diff?: RipeDiffItem[]; summary?: RipeDiffSummary; invalid?: RipeInvalidPrefix[]; duplicates?: string[] } | null;
   createdBy?: string | null;
   createdAt: string;
   updatedAt?: string;

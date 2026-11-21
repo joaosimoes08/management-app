@@ -15,8 +15,10 @@ type NatFormState = {
   id: string; name: string; type: NatRuleType; protocol: string;
   sourceAddress: string; sourcePort: string; translatedAddress: string; translatedPort: string; destinationPort: string;
   sourceSubnetId: string; vrfId: string; enabled: boolean; description: string;
+  /** Labels of the rule's current links, so they stay selectable even when the Site lists do not include them. */
+  currentSubnetLabel: string; currentVrfLabel: string;
 };
-const blankNat: NatFormState = { id: '', name: '', type: 'SNAT', protocol: '', sourceAddress: '', sourcePort: '', translatedAddress: '', translatedPort: '', destinationPort: '', sourceSubnetId: '', vrfId: '', enabled: true, description: '' };
+const blankNat: NatFormState = { id: '', name: '', type: 'SNAT', protocol: '', sourceAddress: '', sourcePort: '', translatedAddress: '', translatedPort: '', destinationPort: '', sourceSubnetId: '', vrfId: '', enabled: true, description: '', currentSubnetLabel: '', currentVrfLabel: '' };
 
 export interface NatViewProps {
   siteId: string;
@@ -63,6 +65,7 @@ export function NatView({ siteId, siteName, search, subnets, canCreate, canUpdat
       translatedAddress: rule.translatedAddress ?? '', translatedPort: rule.translatedPort ? String(rule.translatedPort) : '',
       destinationPort: rule.destinationPort ? String(rule.destinationPort) : '', sourceSubnetId: rule.sourceSubnetId ?? '', vrfId: rule.vrfId ?? '',
       enabled: rule.enabled, description: rule.description ?? '',
+      currentSubnetLabel: rule.sourceSubnet?.cidr ?? rule.sourceSubnetId ?? '', currentVrfLabel: rule.vrf?.name ?? rule.vrfId ?? '',
     } : { ...blankNat, vrfId });
   };
 
@@ -140,10 +143,10 @@ export function NatView({ siteId, siteName, search, subnets, canCreate, canUpdat
       <label>Endereço externo<input placeholder="203.0.113.10" value={form.translatedAddress} onChange={(event) => setForm({ ...form, translatedAddress: event.target.value })} /></label>
       <label>Porta externa<input type="number" value={form.translatedPort} onChange={(event) => setForm({ ...form, translatedPort: event.target.value })} /></label>
       <label>Porta de destino<input type="number" value={form.destinationPort} onChange={(event) => setForm({ ...form, destinationPort: event.target.value })} /></label>
-      <label>Subnet interna<select value={form.sourceSubnetId} onChange={(event) => setForm({ ...form, sourceSubnetId: event.target.value })}><option value="">Sem subnet associada</option>{subnets.map((subnet) => <option key={subnet.id} value={subnet.id}>{subnet.cidr}</option>)}</select></label>
-      <label>VRF<select value={form.vrfId} onChange={(event) => setForm({ ...form, vrfId: event.target.value })}><option value="">Sem VRF</option>{(vrfs ?? []).map((vrf) => <option key={vrf.id} value={vrf.id}>{vrf.name}</option>)}</select></label>
+      <label>Subnet interna<select value={form.sourceSubnetId} onChange={(event) => setForm({ ...form, sourceSubnetId: event.target.value })}><option value="">Sem subnet associada</option>{form.sourceSubnetId && !subnets.some((subnet) => subnet.id === form.sourceSubnetId) && <option value={form.sourceSubnetId}>{form.currentSubnetLabel || form.sourceSubnetId}</option>}{subnets.map((subnet) => <option key={subnet.id} value={subnet.id}>{subnet.cidr}</option>)}</select></label>
+      <label>VRF<select value={form.vrfId} onChange={(event) => setForm({ ...form, vrfId: event.target.value })}><option value="">Sem VRF</option>{form.vrfId && !(vrfs ?? []).some((vrf) => vrf.id === form.vrfId) && <option value={form.vrfId}>{form.currentVrfLabel || form.vrfId}</option>}{(vrfs ?? []).map((vrf) => <option key={vrf.id} value={vrf.id}>{vrf.name}</option>)}</select></label>
       <label>Descrição<textarea maxLength={500} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
-      <label className="checkbox-label"><input type="checkbox" checked={form.enabled} onChange={(event) => setForm({ ...form, enabled: event.target.checked })} /> Regra ativa</label>
+      <label className="settings-check"><input type="checkbox" checked={form.enabled} onChange={(event) => setForm({ ...form, enabled: event.target.checked })} /> Regra ativa</label>
       <button className="primary-button" disabled={saving}>{saving ? 'A guardar…' : form.id ? 'Guardar alterações' : 'Criar regra NAT'}</button>
     </form></IpamModal>}
   </section>;

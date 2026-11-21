@@ -27,7 +27,7 @@ import type {
   RipeImportRecord,
   RipeImportResult,
   RipePreview,
-  RipeQueryType,
+  RipePreviewInput,
   Vrf,
   VrfDetail,
   VrfInput,
@@ -49,8 +49,16 @@ export function getNetworkMap(siteId: string): Promise<{ vlans: NetworkMapVlan[]
   return apiFetch<{ vlans: NetworkMapVlan[] }>(`/api/v1/sites/${siteId}/network-map`);
 }
 
-export function listSubnets(siteId: string): Promise<PaginatedResponse<Subnet>> {
-  return apiFetch<PaginatedResponse<Subnet>>(`/api/v1/subnets?siteId=${siteId}&pageSize=200`);
+/** The API caps pageSize at 100, so every page is fetched and merged: pickers and lookups need the whole Site. */
+export const SUBNET_PAGE_SIZE = 100;
+export async function listSubnets(siteId: string): Promise<PaginatedResponse<Subnet>> {
+  const path = (page: number) => `/api/v1/subnets?siteId=${siteId}&page=${page}&pageSize=${SUBNET_PAGE_SIZE}`;
+  const first = await apiFetch<PaginatedResponse<Subnet>>(path(1));
+  const totalPages = Math.max(first.totalPages ?? 1, 1);
+  if (totalPages === 1) return first;
+  const rest = await Promise.all(Array.from({ length: totalPages - 1 }, (_, index) => apiFetch<PaginatedResponse<Subnet>>(path(index + 2))));
+  const items = [first, ...rest].flatMap((page) => page.items);
+  return { ...first, items, page: 1, pageSize: items.length, totalPages: 1 };
 }
 
 export function getSubnet(id: string): Promise<Subnet> {
@@ -208,8 +216,9 @@ export function deleteNatRule(id: string): Promise<unknown> {
 
 // ── RIPE ───────────────────────────────────────────────────────────────────
 
-export function previewRipe(query: string, queryType?: RipeQueryType): Promise<RipePreview> {
-  return apiFetch<RipePreview>('/api/v1/ipam/ripe/preview', { method: 'POST', body: JSON.stringify({ query, ...(queryType ? { queryType } : {}) }) });
+/** RIPEstat lookup (query) or pasted/uploaded list (prefixes, raw text), diffed server-side against target.siteId/vrfId. */
+export function previewRipe(body: RipePreviewInput): Promise<RipePreview> {
+  return apiFetch<RipePreview>('/api/v1/ipam/ripe/preview', { method: 'POST', body: JSON.stringify(body) });
 }
 
 export function importRipe(body: RipeImportInput): Promise<RipeImportResult> {

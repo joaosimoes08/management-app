@@ -355,7 +355,7 @@ export default function IpamPage() {
                   : tab === 'nat'
                   ? <NatView siteId={siteId} siteName={siteName} search={search} subnets={subnets} canCreate={canCreateIpam} canUpdate={canUpdateIpam} canDelete={canDeleteIpam} success={success} toastError={toastError} />
                   : tab === 'imports'
-                  ? <RipeView siteId={siteId} search={search} subnets={subnets} vlans={vlans} canPreview={roleCanEdit} canImport={canImportIpam} success={success} toastError={toastError} />
+                  ? <RipeView siteId={siteId} search={search} vlans={vlans} canPreview={roleCanEdit} canImport={canImportIpam} success={success} toastError={toastError} />
                   : tab === 'calculator'
                   ? <CalculatorView calc={calc} setCalc={setCalc} result={calcResult} clearResult={() => setCalcResult(null)} pending={calcPending} onSubmit={calculate} />
                   : <Empty title={tabLabel} text="Esta área do IPAM está preparada para a próxima configuração." />}

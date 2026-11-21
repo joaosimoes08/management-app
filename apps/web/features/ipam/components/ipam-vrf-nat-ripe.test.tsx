@@ -4,9 +4,9 @@ import { createElement, type ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { VrfsView } from './vrfs-view';
 import { NatView } from './nat-view';
-import { RipeView, classifyRipePrefixes } from './ripe-view';
-import { cidrsOverlap, sameCidr } from '../utils';
-import type { NatRule, RipeImportRecord, Subnet, Vrf, VrfDetail } from '../types';
+import { RipeView, ripeDiffDetail } from './ripe-view';
+import { ApiRequestError, apiErrorMessage } from '@/lib/api/errors';
+import type { NatRule, RipeDiffItem, RipeImportRecord, RipePreview, Subnet, Vrf, VrfDetail } from '../types';
 
 const api = vi.hoisted(() => ({
   listVrfs: vi.fn(), getVrf: vi.fn(), createVrf: vi.fn(), updateVrf: vi.fn(), deleteVrf: vi.fn(),
@@ -35,23 +35,6 @@ beforeEach(() => {
   vi.spyOn(window, 'confirm').mockReturnValue(true);
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
-
-describe('CIDR helpers used by the RIPE diff', () => {
-  it('detects IPv4 and IPv6 overlaps and canonical equality', () => {
-    expect(cidrsOverlap('10.0.0.0/16', '10.0.5.0/24')).toBe(true);
-    expect(cidrsOverlap('10.0.0.0/24', '10.0.1.0/24')).toBe(false);
-    expect(cidrsOverlap('2001:db8::/32', '2001:db8:1234::/48')).toBe(true);
-    expect(cidrsOverlap('2001:db8::/32', '10.0.0.0/8')).toBe(false);
-    expect(sameCidr('10.0.0.1/24', '10.0.0.0/24')).toBe(true);
-  });
-
-  it('classifies prefixes as new, existing or conflicting within the selected VRF', () => {
-    const rows = classifyRipePrefixes(['10.0.0.0/24', '10.0.0.0/16', '192.0.2.0/24'], [subnet], 'vrf-1');
-    expect(rows.map((row) => row.kind)).toEqual(['exists', 'conflict', 'new']);
-    // Overlap in a different VRF is allowed by the API, so it is not a conflict.
-    expect(classifyRipePrefixes(['10.0.0.0/16'], [subnet], '')[0].kind).toBe('new');
-  });
-});
 
 describe('VrfsView', () => {
   const props = (overrides = {}) => ({ siteId: 'site-1', siteName: 'Lisboa', search: '', canCreate: true, canUpdate: true, canDelete: true, openSubnet: vi.fn(), ...callbacks(), ...overrides });
@@ -140,6 +123,19 @@ describe('NatView', () => {
     await waitFor(() => expect(api.updateNatRule).toHaveBeenCalledWith('nat-1', expect.objectContaining({ name: 'web-dnat', type: 'DNAT', siteId: 'site-1', translatedPort: null, sourcePort: 443, vrfId: 'vrf-1' })));
   });
 
+  it('keeps the current subnet and VRF of a rule when they are not in the Site lists', async () => {
+    const linked: NatRule = { ...natRule, id: 'nat-2', name: 'far-snat', sourceSubnetId: 'subnet-150', sourceSubnet: { id: 'subnet-150', cidr: '10.150.0.0/24' }, vrfId: 'vrf-9', vrf: { id: 'vrf-9', name: 'LEGACY' } };
+    api.listNatRules.mockResolvedValue([linked]);
+    api.updateNatRule.mockResolvedValue(linked);
+    renderWithQuery(createElement(NatView, props()));
+    fireEvent.click(await screen.findByRole('button', { name: 'Editar regra NAT far-snat' }));
+    expect(screen.getByLabelText('Subnet interna')).toHaveValue('subnet-150');
+    expect(within(screen.getByLabelText('Subnet interna')).getByRole('option', { name: '10.150.0.0/24' })).toBeInTheDocument();
+    expect(screen.getByLabelText('VRF')).toHaveValue('vrf-9');
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar alterações' }));
+    await waitFor(() => expect(api.updateNatRule).toHaveBeenCalledWith('nat-2', expect.objectContaining({ sourceSubnetId: 'subnet-150', vrfId: 'vrf-9' })));
+  });
+
   it('hides write actions for read-only users', async () => {
     renderWithQuery(createElement(NatView, props({ canCreate: false, canUpdate: false, canDelete: false })));
     await screen.findByText('web-dnat');
@@ -148,45 +144,161 @@ describe('NatView', () => {
   });
 });
 
-describe('RipeView', () => {
-  const props = (overrides = {}) => ({ siteId: 'site-1', search: '', subnets: [subnet], vlans: [], canPreview: true, canImport: true, ...callbacks(), ...overrides });
+const diffItem = (prefix: string, overrides: Partial<RipeDiffItem> = {}): RipeDiffItem => ({ prefix, input: prefix, version: 4, status: 'new', reason: 'NEW', message: 'Prefixo novo.', importable: true, ...overrides });
+const ripePreview = (overrides: Partial<RipePreview> = {}): RipePreview => {
+  const diff = overrides.diff ?? [
+    diffItem('192.0.2.0/24'),
+    diffItem('10.0.0.0/24', { status: 'exists', reason: 'EXISTS_SAME', importable: false, existing: { id: 'subnet-1', cidr: '10.0.0.0/24', siteId: 'site-1', vrfId: null, purpose: null, environment: null } }),
+    diffItem('10.0.0.0/16', { status: 'conflict', reason: 'OVERLAP', importable: false, overlaps: [{ relation: 'contains', sameScope: true, subnet: { id: 'subnet-1', cidr: '10.0.0.0/24', siteId: 'site-1', vrfId: null, purpose: null, environment: null } }] }),
+  ];
+  const count = (status: string) => diff.filter((item) => item.status === status).length;
+  return {
+    id: 'imp-1', query: 'AS64500', queryType: 'asn', source: 'RIPESTAT', status: 'PREVIEW', prefixes: diff.map((item) => item.prefix),
+    target: { siteId: 'site-1', vrfId: null, purpose: null, environment: null },
+    summary: { total: diff.length, new: count('new'), changed: count('changed'), exists: count('exists'), conflict: count('conflict'), importable: diff.filter((item) => item.importable).length, invalid: overrides.invalid?.length ?? 0, duplicates: overrides.duplicates?.length ?? 0 },
+    invalid: [], duplicates: [], ...overrides, diff,
+  };
+};
 
-  it('previews a query as a diff and imports only the new prefixes after confirmation', async () => {
-    api.previewRipe.mockResolvedValue({ id: 'imp-1', query: 'AS64500', queryType: 'asn', prefixes: ['10.0.0.0/24', '10.0.0.0/16', '192.0.2.0/24'], status: 'PREVIEW' });
+describe('RipeView', () => {
+  const props = (overrides = {}) => ({ siteId: 'site-1', search: '', vlans: [], canPreview: true, canImport: true, ...callbacks(), ...overrides });
+
+  it('sends the Site to RIPEstat, renders the server diff and imports only importable prefixes', async () => {
+    api.previewRipe.mockResolvedValue(ripePreview());
     api.importRipe.mockResolvedValue({ status: 'IMPORTED', created: [{ id: 'new', cidr: '192.0.2.0/24', version: 4 }], skipped: [] });
     const view = props();
     renderWithQuery(createElement(RipeView, view));
-    fireEvent.change(screen.getByLabelText('Consulta'), { target: { value: 'AS64500' } });
-    fireEvent.change(screen.getByLabelText(/VRF de destino/), { target: { value: '' } });
+    fireEvent.change(screen.getByLabelText('Consulta RIPEstat'), { target: { value: 'AS64500' } });
     fireEvent.click(screen.getByRole('button', { name: /Pré-visualizar/ }));
 
-    expect(await screen.findByText('2 novos')).toBeInTheDocument();
-    expect(screen.getByText('1 já existem · 0 em conflito')).toBeInTheDocument();
+    expect(await screen.findByText('1 importáveis')).toBeInTheDocument();
+    expect(api.previewRipe).toHaveBeenCalledWith({ siteId: 'site-1', query: 'AS64500' });
+    expect(screen.getByText('1 novos · 0 alterados · 1 já existem · 1 em conflito')).toBeInTheDocument();
     expect(screen.getByLabelText('Importar 10.0.0.0/24')).toBeDisabled();
+    expect(screen.getByLabelText('Importar 10.0.0.0/16')).toBeDisabled();
+    expect(screen.getByText('Contém 10.0.0.0/24')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByLabelText('Importar 10.0.0.0/16'));
+    fireEvent.change(screen.getByLabelText('Finalidade'), { target: { value: 'Public' } });
     fireEvent.click(screen.getByRole('button', { name: /Importar 1 prefixo/ }));
-    await waitFor(() => expect(api.importRipe).toHaveBeenCalledWith({ importId: 'imp-1', prefixes: ['192.0.2.0/24'], siteId: 'site-1', vrfId: undefined, vlanId: undefined, purpose: undefined, environment: undefined }));
+    await waitFor(() => expect(api.importRipe).toHaveBeenCalledWith({ importId: 'imp-1', prefixes: ['192.0.2.0/24'], siteId: 'site-1', vrfId: undefined, vlanId: undefined, purpose: 'Public', environment: undefined }));
     expect(window.confirm).toHaveBeenCalledWith('Importar 1 prefixo(s) como subnets deste Site?');
     expect(view.success).toHaveBeenCalledWith('Importação RIPE', '1 subnet(s) criada(s).');
   });
 
-  it('shows the RIPE preview error returned by the API', async () => {
+  it('shows a CIDR that exists in another Site as a conflict without revealing a hidden subnet', async () => {
+    api.previewRipe.mockResolvedValue(ripePreview({ diff: [diffItem('10.250.2.0/24', { status: 'conflict', reason: 'EXISTS_OUTSIDE_SITE', importable: false, existing: { id: null, cidr: null, hidden: true } })] }));
+    renderWithQuery(createElement(RipeView, props()));
+    fireEvent.change(screen.getByLabelText('Consulta RIPEstat'), { target: { value: '10.250.2.0/24' } });
+    fireEvent.click(screen.getByRole('button', { name: /Pré-visualizar/ }));
+    const row = (await screen.findByText('10.250.2.0/24', { selector: 'td' })).closest('tr')!;
+    expect(within(row).getByText('Conflito')).toBeInTheDocument();
+    expect(within(row).getByText('Já existe noutro Site ou sem Site; os CIDR são únicos na aplicação.')).toBeInTheDocument();
+    expect(within(row).getByText('Subnet existente: uma subnet sem acesso de leitura')).toBeInTheDocument();
+    expect(within(row).getByRole('checkbox')).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Importar 0 prefixo/ })).toBeDisabled();
+  });
+
+  it('previews a pasted list and an uploaded file, with invalid and duplicate entries, then imports normalised prefixes', async () => {
+    api.previewRipe.mockResolvedValue(ripePreview({
+      id: 'imp-2', query: 'Ficheiro prefixos.txt', queryType: 'paste', source: 'PASTE', target: { siteId: 'site-1', vrfId: 'vrf-1', purpose: null, environment: null },
+      diff: [diffItem('10.251.20.0/24', { input: '10.251.20.1/24' }), diffItem('2001:db8:251::/48', { version: 6 }), diffItem('10.251.2.0/24', { status: 'changed', reason: 'EXISTS_DIFFERENT_ATTRIBUTES', importable: false, changes: [{ field: 'vrfId', current: 'vrf-2', proposed: 'vrf-1' }] })],
+      invalid: [{ input: 'nope', reason: 'INVALID_CIDR', message: 'x' }], duplicates: ['10.251.20.0/24'],
+    }));
+    api.importRipe.mockResolvedValue({ status: 'IMPORTED', created: [{ id: 'a' }, { id: 'b' }], skipped: [] });
+    renderWithQuery(createElement(RipeView, props()));
+    fireEvent.click(screen.getByRole('button', { name: /Colar ou carregar lista/ }));
+    const dialog = await screen.findByRole('dialog');
+    await within(dialog).findByRole('option', { name: 'CORE' });
+    fireEvent.change(within(dialog).getByLabelText(/VRF de destino/), { target: { value: 'vrf-1' } });
+    fireEvent.change(within(dialog).getByLabelText(/Prefixos/), { target: { value: 'typed' } });
+    const file = new File(['10.251.20.1/24\n2001:db8:251::/48, nope\n10.251.2.0/24'], 'prefixos.txt', { type: 'text/plain' });
+    fireEvent.change(within(dialog).getByLabelText(/Ficheiro/), { target: { files: [file] } });
+    expect(await within(dialog).findByText('Carregado: prefixos.txt')).toBeInTheDocument();
+    expect(within(dialog).getByLabelText(/Prefixos/)).toHaveValue('10.251.20.1/24\n2001:db8:251::/48, nope\n10.251.2.0/24');
+    fireEvent.click(within(dialog).getByRole('button', { name: /Pré-visualizar/ }));
+
+    await waitFor(() => expect(api.previewRipe).toHaveBeenCalledWith({ siteId: 'site-1', vrfId: 'vrf-1', prefixes: ['10.251.20.1/24\n2001:db8:251::/48, nope\n10.251.2.0/24'], query: 'Ficheiro prefixos.txt' }));
+    expect(await screen.findByText('2 importáveis')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByText('Introduzido: 10.251.20.1/24')).toBeInTheDocument();
+    expect(screen.getByText('VRF: GUEST → CORE')).toBeInTheDocument();
+    expect(screen.getByText('Inválido')).toBeInTheDocument();
+    expect(screen.getByText('Duplicados ignorados: 10.251.20.0/24')).toBeInTheDocument();
+    expect(screen.getByLabelText('Importar 10.251.2.0/24')).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: /Importar 2 prefixo/ }));
+    await waitFor(() => expect(api.importRipe).toHaveBeenCalledWith(expect.objectContaining({ importId: 'imp-2', prefixes: ['10.251.20.0/24', '2001:db8:251::/48'], siteId: 'site-1', vrfId: 'vrf-1' })));
+  });
+
+  it('asks to preview again when the target VRF changes after a preview', async () => {
+    api.previewRipe.mockResolvedValue(ripePreview());
+    renderWithQuery(createElement(RipeView, props()));
+    fireEvent.change(screen.getByLabelText('Consulta RIPEstat'), { target: { value: 'AS64500' } });
+    fireEvent.click(screen.getByRole('button', { name: /Pré-visualizar/ }));
+    await screen.findByText('1 importáveis');
+    await screen.findByRole('option', { name: 'CORE' });
+    fireEvent.change(screen.getByLabelText(/VRF de destino/), { target: { value: 'vrf-1' } });
+    expect(screen.getByText(/O Site ou o VRF de destino mudou depois da pré-visualização/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Importar 1 prefixo/ })).not.toBeInTheDocument();
+    expect(api.importRipe).not.toHaveBeenCalled();
+  });
+
+  it('explains 400 errors for pasted lists inside the modal', async () => {
+    api.previewRipe.mockRejectedValue(new ApiRequestError(apiErrorMessage({ code: 'RIPE_PASTE_TOO_MANY', message: 'No máximo 500 prefixos' }, 'pt-PT'), 400, { code: 'RIPE_PASTE_TOO_MANY' }));
+    renderWithQuery(createElement(RipeView, props()));
+    fireEvent.click(screen.getByRole('button', { name: /Colar ou carregar lista/ }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText(/Prefixos/), { target: { value: '10.0.0.0/24' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /Pré-visualizar/ }));
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('o máximo é 500 por pré-visualização');
+  });
+
+  it('drops a stale preview when the import answers RIPE_PREVIEW_TARGET_MISMATCH', async () => {
+    api.previewRipe.mockResolvedValue(ripePreview());
+    api.importRipe.mockRejectedValue(new ApiRequestError(apiErrorMessage({ code: 'RIPE_PREVIEW_TARGET_MISMATCH' }, 'pt-PT'), 400, { code: 'RIPE_PREVIEW_TARGET_MISMATCH' }));
+    const view = props();
+    renderWithQuery(createElement(RipeView, view));
+    fireEvent.change(screen.getByLabelText('Consulta RIPEstat'), { target: { value: 'AS64500' } });
+    fireEvent.click(screen.getByRole('button', { name: /Pré-visualizar/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Importar 1 prefixo/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Pré-visualiza novamente antes de importar');
+    expect(screen.queryByText('1 importáveis')).not.toBeInTheDocument();
+    expect(view.toastError).toHaveBeenCalledWith('Importação RIPE', expect.stringContaining('O Site ou VRF mudou'));
+  });
+
+  it('translates the RIPE paste error codes in Portuguese and English', () => {
+    for (const code of ['RIPE_PASTE_NO_VALID_PREFIX', 'RIPE_PASTE_TOO_MANY', 'RIPE_PREVIEW_TARGET_MISMATCH']) {
+      const pt = apiErrorMessage({ code, message: 'raw' }, 'pt-PT');
+      const en = apiErrorMessage({ code, message: 'raw' }, 'en-US');
+      expect(pt).not.toBe('raw');
+      expect(en).not.toBe('raw');
+      expect(en).not.toBe(pt);
+    }
+    expect(apiErrorMessage({ code: 'RIPE_PASTE_NO_VALID_PREFIX' }, 'en-US')).toContain('no valid prefix');
+  });
+
+  it('describes changes and overlaps of a diff row', () => {
+    const lines = ripeDiffDetail(diffItem('10.0.0.0/24', { status: 'changed', reason: 'EXISTS_DIFFERENT_ATTRIBUTES', importable: false, existing: { id: 's', cidr: '10.0.0.0/24', siteId: 'site-1', vrfId: 'vrf-1', purpose: 'Users', environment: null }, changes: [{ field: 'purpose', current: 'Users', proposed: 'Public' }, { field: 'vrfId', current: 'vrf-1', proposed: null }] }), [vrf]);
+    expect(lines).toEqual(['Subnet existente: 10.0.0.0/24', 'Finalidade: Users → Public', 'VRF: CORE → sem VRF']);
+  });
+
+  it('shows the error returned by a RIPEstat lookup', async () => {
     api.previewRipe.mockRejectedValue(new Error('Consulta RIPE falhou: RIPEstat respondeu 503'));
     renderWithQuery(createElement(RipeView, props()));
-    fireEvent.change(screen.getByLabelText('Consulta'), { target: { value: 'AS1' } });
+    fireEvent.change(screen.getByLabelText('Consulta RIPEstat'), { target: { value: 'AS1' } });
     fireEvent.click(screen.getByRole('button', { name: /Pré-visualizar/ }));
     expect(await screen.findByRole('alert')).toHaveTextContent('RIPEstat respondeu 503');
   });
 
-  it('opens import history detail with skipped reasons', async () => {
-    const record: RipeImportRecord = { id: 'imp-9', query: 'AS3243', queryType: 'asn', source: 'RIPESTAT', status: 'PARTIAL', createdAt: '2026-11-20T10:00:00Z', result: { prefixes: ['192.0.2.0/24', '198.51.100.0/24'], selected: ['192.0.2.0/24', '198.51.100.0/24'], created: ['s1'], skipped: [{ cidr: '198.51.100.0/24', reason: 'A subnet sobrepõe uma subnet existente no mesmo Site/VRF' }] } };
+  it('opens import history detail with skipped reasons and the stored diff', async () => {
+    const record: RipeImportRecord = { id: 'imp-9', query: 'AS3243', queryType: 'asn', source: 'RIPESTAT', status: 'PARTIAL', createdAt: '2026-11-20T10:00:00Z', result: { prefixes: ['192.0.2.0/24', '198.51.100.0/24'], selected: ['192.0.2.0/24', '198.51.100.0/24'], created: ['s1'], skipped: [{ cidr: '198.51.100.0/24', reason: 'A subnet sobrepõe uma subnet existente no mesmo Site/VRF' }], diff: [diffItem('192.0.2.0/24'), diffItem('198.51.100.0/24')] } };
     api.listRipeImports.mockResolvedValue([record]);
     api.getRipeImport.mockResolvedValue(record);
     renderWithQuery(createElement(RipeView, props()));
     fireEvent.click(await screen.findByRole('button', { name: 'Ver importação AS3243' }));
     const panel = await screen.findByRole('complementary', { name: 'Detalhe da importação RIPE' });
     expect(await within(panel).findByText('A subnet sobrepõe uma subnet existente no mesmo Site/VRF')).toBeInTheDocument();
+    expect(within(panel).getAllByText('Novo')).toHaveLength(2);
   });
 
   it('shows a role notice and calls nothing for users without ADMIN / NETWORK_OPERATOR', () => {
