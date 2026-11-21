@@ -4,14 +4,54 @@
  * timeline. No React here.
  */
 import type { TableStateConfig } from '@/components/data-table';
-import type { CalendarChangePlan, CalendarMaintenanceWindow, ChangeActivity, ChangeCalendar, ChangeCandidate, ChangeEntityType, ChangePlan, ChangeStatus, WindowKind } from './api';
+import type { CalendarChangePlan, CalendarMaintenanceWindow, ChangeActivity, ChangeCalendar, ChangeCandidate, ChangeEntityType, ChangePlan, ChangeStatus, CheckItemResult, ChecklistItem, CloseStatus, ConflictWarning, WindowKind } from './api';
 
-export const changeStatuses: ChangeStatus[] = ['DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED', 'CANCELLED'];
+/** Lifecycle order: drafting and review, then implementation and its outcome, cancelled last. */
+export const changeStatuses: ChangeStatus[] = ['DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED', 'IN_PROGRESS', 'COMPLETED', 'FAILED', 'ROLLED_BACK', 'CANCELLED'];
 export const changeTypes: ChangeEntityType[] = ['DEVICE', 'INTERFACE', 'VLAN', 'SUBNET', 'IP_ADDRESS', 'HOST', 'SERVICE'];
 export const typeLabels: Record<ChangeEntityType, string> = { DEVICE: 'Equipamento', INTERFACE: 'Interface', VLAN: 'VLAN', SUBNET: 'Subnet', IP_ADDRESS: 'Endereço IP', HOST: 'Host', SERVICE: 'Serviço' };
-export const statusLabels: Record<ChangeStatus, string> = { DRAFT: 'Rascunho', SUBMITTED: 'Submetida para revisão', APPROVED: 'Aprovada', REJECTED: 'Devolvida para correção', CANCELLED: 'Cancelada' };
+export const statusLabels: Record<ChangeStatus, string> = { DRAFT: 'Rascunho', SUBMITTED: 'Submetida para revisão', APPROVED: 'Aprovada', REJECTED: 'Devolvida para correção', CANCELLED: 'Cancelada', IN_PROGRESS: 'Em curso', COMPLETED: 'Concluída', FAILED: 'Falhou', ROLLED_BACK: 'Revertida' };
 /** Short labels for the status tabs. */
-export const statusTabLabels: Record<ChangeStatus, string> = { DRAFT: 'Rascunhos', SUBMITTED: 'Em revisão', APPROVED: 'Aprovadas', REJECTED: 'Devolvidas', CANCELLED: 'Canceladas' };
+export const statusTabLabels: Record<ChangeStatus, string> = { DRAFT: 'Rascunhos', SUBMITTED: 'Em revisão', APPROVED: 'Aprovadas', REJECTED: 'Devolvidas', CANCELLED: 'Canceladas', IN_PROGRESS: 'Em curso', COMPLETED: 'Concluídas', FAILED: 'Falhadas', ROLLED_BACK: 'Revertidas' };
+
+// ── Implementation and close-out (Step 30) ──────────────────────────────────
+
+export const closeStatuses: CloseStatus[] = ['COMPLETED', 'FAILED', 'ROLLED_BACK'];
+export const closedStatuses: ReadonlySet<ChangeStatus> = new Set(closeStatuses);
+/** Statuses where steps can still be added or removed (ticking needs IN_PROGRESS). */
+export const checklistEditable: ReadonlySet<ChangeStatus> = new Set(['DRAFT', 'REJECTED', 'SUBMITTED', 'APPROVED', 'IN_PROGRESS']);
+/** Statuses whose window can still clash with something, so the conflict check is worth showing. */
+export const conflictRelevant: ReadonlySet<ChangeStatus> = new Set(['DRAFT', 'REJECTED', 'SUBMITTED', 'APPROVED', 'IN_PROGRESS']);
+/** A failed or rolled-back change must say what happened. */
+export const closingNoteRequired = (status: CloseStatus) => status !== 'COMPLETED';
+export const closeLabels: Record<CloseStatus, string> = { COMPLETED: 'Concluída como planeado', FAILED: 'Falhou', ROLLED_BACK: 'Revertida' };
+
+/** Checklist lines typed one per line: trimmed, at least 2 characters, at most 240, no duplicates in the same batch. */
+export function parseChecklistLines(text: string): string[] {
+  const lines: string[] = []; const seen = new Set<string>();
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim().slice(0, 240); const key = line.toLowerCase();
+    if (line.length >= 2 && !seen.has(key)) { seen.add(key); lines.push(line); }
+  }
+  return lines;
+}
+export const checklistProgress = (items: readonly ChecklistItem[] = []) => ({ done: items.filter((item) => item.doneAt).length, total: items.length });
+
+export const checkLabels: Record<CheckItemResult, string> = { AS_PLANNED: 'Como planeado', DIFFERENT: 'Diferente', NOT_COMPARABLE: 'Sem valores para comparar', TARGET_MISSING: 'Alvo já não existe' };
+/** Badge tone per result, from the shared `.state-badge` palette. */
+export const checkTone: Record<CheckItemResult, string> = { AS_PLANNED: 'occupied', DIFFERENT: 'excluded', NOT_COMPARABLE: '', TARGET_MISSING: 'excluded' };
+/** A compared value as text ("—" when empty). */
+export function checkValue(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '—';
+  return typeof value === 'object' ? JSON.stringify(value) : String(value);
+}
+
+export const warningTitles: Record<ConflictWarning['code'], string> = {
+  OUTSIDE_MAINTENANCE_WINDOW: 'Fora das janelas de manutenção do Site',
+  TIER1_CRITICAL_ASSET: 'Afeta ativos críticos de Tier 1',
+  CRITICAL_ASSET: 'Afeta ativos críticos',
+  OVERLAPS_APPROVED_CHANGE: 'Sobrepõe-se a outra alteração aprovada ou em curso nos mesmos alvos',
+};
 
 export type ChangeView = 'list' | 'calendar';
 export type ChangeFilters = { status: string; type: string; from: string; to: string; view: string; month: string; changeId: string };
@@ -178,8 +218,18 @@ export const activityLabels: Record<string, string> = {
   CHANGE_PLAN_APPROVED: 'Aprovada',
   CHANGE_PLAN_REJECTED: 'Devolvida para correção',
   CHANGE_PLAN_CANCELLED: 'Cancelada',
+  CHANGE_PLAN_STARTED: 'Implementação iniciada',
+  CHANGE_PLAN_COMPLETED: 'Concluída',
+  CHANGE_PLAN_FAILED: 'Falhou',
+  CHANGE_PLAN_ROLLED_BACK: 'Revertida',
+  CHANGE_PLAN_CHECKLIST_ADDED: 'Passos adicionados à lista',
+  CHANGE_PLAN_CHECKLIST_TICKED: 'Passo concluído',
+  CHANGE_PLAN_CHECKLIST_UNTICKED: 'Passo desmarcado',
+  CHANGE_PLAN_CHECKLIST_REMOVED: 'Passo removido',
+  CHANGE_PLAN_SNMP_WRITE_LINKED: 'Escrita SNMP associada',
+  CHANGE_PLAN_SNMP_WRITE_UNLINKED: 'Escrita SNMP desassociada',
 };
-export const activityTone: Record<string, string> = { CHANGE_PLAN_SUBMITTED: 'pending', CHANGE_PLAN_APPROVED: 'approved', CHANGE_PLAN_REJECTED: 'rejected', CHANGE_PLAN_CANCELLED: 'excluded' };
+export const activityTone: Record<string, string> = { CHANGE_PLAN_SUBMITTED: 'pending', CHANGE_PLAN_APPROVED: 'approved', CHANGE_PLAN_REJECTED: 'rejected', CHANGE_PLAN_CANCELLED: 'excluded', CHANGE_PLAN_STARTED: 'pending', CHANGE_PLAN_COMPLETED: 'approved', CHANGE_PLAN_FAILED: 'rejected', CHANGE_PLAN_ROLLED_BACK: 'rejected' };
 
 const newestFirst = (a: TimelineEntry, b: TimelineEntry) => time(b.at) - time(a.at);
 

@@ -393,6 +393,9 @@ model Site {
   region                    String?
   country                   String?
   timezone                  String                      @default("Europe/Lisbon")
+  criticalCadenceT1Weeks    Int                         @default(1)
+  criticalCadenceT2Weeks    Int                         @default(2)
+  criticalCadenceT3Weeks    Int                         @default(4)
   buildings                 Building[]
   subnets                   Subnet[]
   vlans                     Vlan[]
@@ -566,6 +569,8 @@ model Device {
   managementIp              String?
   notes                     String?
   isCritical                Boolean                    @default(false)
+  criticalityTier           CriticalityTier?
+  criticalityTierReviewed   Boolean                    @default(false)
   source                    SourceType                 @default(MANUAL)
   status                    AssetStatus                @default(UNKNOWN)
   modelId                   String?                    @db.Uuid
@@ -1590,6 +1595,12 @@ model CriticalAssetGroupMapping {
 
   @@unique([siteId, assetType])
   @@index([groupId])
+}
+
+enum CriticalityTier {
+  T1
+  T2
+  T3
 }
 
 enum CriticalAssetOutcome {

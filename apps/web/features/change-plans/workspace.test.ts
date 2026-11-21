@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CalendarChangePlan, ChangeCalendar, ChangePlan } from './api';
-import { buildTimeline, calendarChunks, calendarRange, calendarWeeks, candidateLabels, dayBoundary, filterPlans, matchesText, mergeCalendars, monthKey, overlapsFor, parseMonth, shiftMonth, spanOf } from './workspace';
+import { activityLabels, buildTimeline, checkValue, closingNoteRequired, parseChecklistLines, calendarChunks, calendarRange, calendarWeeks, candidateLabels, dayBoundary, filterPlans, matchesText, mergeCalendars, monthKey, overlapsFor, parseMonth, shiftMonth, spanOf } from './workspace';
 
 const plan = (id: string, start: string, end: string, extra: Partial<ChangePlan> = {}): ChangePlan => ({
   id, siteId: 's1', title: `Plano ${id}`, reason: 'Motivo', plannedStartAt: start, plannedEndAt: end, status: 'DRAFT', revision: 1,
@@ -106,5 +106,23 @@ describe('buildTimeline', () => {
     expect(timeline.map((entry) => entry.id)).toEqual(['2', '1']);
     expect(timeline[0]).toMatchObject({ actor: 'Rui Admin', note: 'Falta rollback', revision: 2 });
     expect(timeline[1].actor).toBe('ana');
+  });
+});
+
+describe('implementation and close-out (Step 30)', () => {
+  it('reads checklist lines one per line, trimmed, without blanks, one-letter lines or duplicates', () => {
+    expect(parseChecklistLines('  Guardar configuração \n\nx\nReiniciar\r\nreiniciar\n')).toEqual(['Guardar configuração', 'Reiniciar']);
+    expect(parseChecklistLines('a'.repeat(300))[0]).toHaveLength(240);
+  });
+  it('needs a closing note only for failed or rolled-back changes', () => {
+    expect(closingNoteRequired('COMPLETED')).toBe(false);
+    expect(closingNoteRequired('FAILED')).toBe(true);
+    expect(closingNoteRequired('ROLLED_BACK')).toBe(true);
+  });
+  it('labels the new audit actions and shows compared values as text', () => {
+    for (const action of ['CHANGE_PLAN_STARTED', 'CHANGE_PLAN_COMPLETED', 'CHANGE_PLAN_FAILED', 'CHANGE_PLAN_ROLLED_BACK', 'CHANGE_PLAN_CHECKLIST_TICKED']) expect(activityLabels[action]).toBeTruthy();
+    expect(checkValue(null)).toBe('—');
+    expect(checkValue(24)).toBe('24');
+    expect(checkValue({ a: 1 })).toBe('{"a":1}');
   });
 });
