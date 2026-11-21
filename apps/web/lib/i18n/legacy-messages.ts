@@ -20,7 +20,7 @@ const enUS: LegacyDictionary = {
   'Pesquisa interrompida no limite de profundidade.': 'The search stopped at the depth limit.',
   'Podem existir mais equipamentos afetados para além do que é mostrado.': 'More devices may be affected than shown.',
   'Limite:': 'Limit:',
-  'Não há router nem firewall visível neste Site: os equipamentos que ficam sem caminho não foram calculados.': 'No visible router or firewall in this Site, so devices that lose every path were not calculated.',
+  'Não há router nem firewall visível neste Site: os equipamentos sem caminho foram estimados em relação ao maior segmento de rede que resta.': 'No visible router or firewall in this Site, so devices without a path were estimated against the largest remaining network segment.',
   'Equipamentos fora do teu âmbito (não mostrados):': 'Devices outside your scope (not shown):',
   'Não foram encontrados equipamentos afetados nas ligações documentadas.': 'No affected devices were found in the documented connections.',
   'saltos:': 'hops:',

@@ -149,7 +149,7 @@
 .discovery-compare-select { display:grid; gap:6px; max-width:460px; color:var(--muted); font-size:10px; }.discovery-compare-select select { padding:10px; border:1px solid var(--line); border-radius:8px; background:#fff; font-size:11px; }.discovery-comparison { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin-top:17px; }.discovery-comparison h3 { margin:0; padding-bottom:8px; border-bottom:1px solid var(--line); font-size:12px; }.discovery-comparison .no-data { margin:10px 0 0; font-size:10px; }
 @media (max-width:780px) { .discovery-comparison { grid-template-columns:1fr; }.topology-save-status { right:8px; bottom:8px; left:8px; max-width:none; } }
 
-:root { --ink:#111111; --muted:#7d7b82; --line:#e8e7e8; --surface:#f5f4f4; --panel:#ffffff; --green:#3a9a6a; --soft-green:#e4f4ea; --blue:#637ff0; --soft-blue:#eef1ff; --purple:#9a78ca; --soft-purple:#f3edfb; }
+:root { --ink:#111111; --muted:#7d7b82; --line:#e8e7e8; --surface:#f5f4f4; --panel:#ffffff; --green:#3a9a6a; --soft-green:#e4f4ea; --blue:#637ff0; --soft-blue:#eef1ff; --purple:#9a78ca; --soft-purple:#f3edfb; --red:#d84e42; --amber:#e07a26; }
 
 .toast-region { position:fixed; z-index:100; top:24px; right:24px; display:flex; flex-direction:column; gap:10px; width:min(390px,calc(100vw - 32px)); pointer-events:none; }
 .toast { position:relative; display:flex; align-items:flex-start; gap:11px; overflow:hidden; padding:14px 14px 15px; pointer-events:auto; background:#fff; border:1px solid; border-radius:13px; box-shadow:0 16px 38px rgba(28,22,22,.16); animation:toast-in .22s ease-out; }
@@ -3084,17 +3084,17 @@ a.dashboard-kpi:focus-visible { box-shadow:0 9px 24px rgba(35,55,87,.09); outlin
 /* Step 34 — impact analysis and path view */
 .impact-panel { display:grid; gap:10px; min-width:0; }
 .impact-toolbar { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
-.impact-toggle { display:inline-flex; align-items:center; gap:6px; font-size:11px; color:#45556b; }
+.impact-toggle { display:inline-flex; align-items:center; gap:6px; font-size:11px; color:var(--muted); }
 .impact-counts { grid-template-columns:repeat(auto-fill, minmax(min(100%, 130px), 1fr)); margin-top:0; }
 .impact-panel-group { padding:10px; border:1px solid var(--line); border-radius:8px; }
 .impact-panel-group h4 { margin:4px 0 6px; font-size:12px; }
 .impact-panel-group ul { display:grid; gap:8px; margin:0; padding:0; list-style:none; }
-.impact-panel-group li { display:grid; gap:3px; }.impact-panel-group li a { color:#3557a8; font-size:11px; font-weight:650; }.impact-panel-group li span { color:var(--muted); font-size:10px; line-height:1.45; }
+.impact-panel-group li { display:grid; gap:3px; }.impact-panel-group li a { color:var(--blue); font-size:11px; font-weight:650; }.impact-panel-group li span { color:var(--muted); font-size:10px; line-height:1.45; }
 .impact-device-list li { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
 .impact-meta { color:var(--muted); font-size:10px; }
 .impact-tier-row { display:contents; }
 .impact-footnote { margin:0; }
-.impact-target-picker { display:grid; gap:5px; margin-bottom:10px; color:#666269; font-size:10px; }
+.impact-target-picker { display:grid; gap:5px; margin-bottom:10px; color:var(--muted); font-size:10px; }
 .impact-target-picker select { padding:8px; border:1px solid var(--line); border-radius:8px; font-size:11px; }
 .impact-dialog { width:min(760px, 100%); }
 .device-360-impact { margin-bottom:16px; }
@@ -3103,25 +3103,19 @@ a.dashboard-kpi:focus-visible { box-shadow:0 9px 24px rgba(35,55,87,.09); outlin
 .impact-path { display:grid; gap:9px; }
 .impact-path-steps { margin:0; padding-left:20px; display:grid; gap:6px; overflow-wrap:anywhere; }
 .impact-path-steps li small { display:block; }
-.topology-impact-card { position:absolute; z-index:6; top:12px; right:12px; width:min(380px, calc(100% - 24px)); max-height:calc(100% - 24px); overflow:auto; padding:12px 14px; background:#fff; border:1px solid var(--line); border-radius:12px; box-shadow:0 12px 30px rgba(20,18,18,.12); }
+.topology-impact-card { position:absolute; z-index:6; top:12px; right:12px; width:min(380px, calc(100% - 24px)); max-height:calc(100% - 24px); overflow:auto; padding:12px 14px; background:var(--panel); border:1px solid var(--line); border-radius:12px; box-shadow:0 12px 30px rgba(20,18,18,.12); }
 .topology-impact-card > header { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; }
 .topology-impact-legend { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:0 0 8px; font-size:10px; }
-.topology-path-legend { position:absolute; z-index:6; top:12px; right:12px; padding:8px 10px; background:#fff; border:1px solid var(--line); border-radius:10px; }
-.topology-impact-key { display:inline-flex; align-items:center; gap:5px; }
-.topology-impact-key::before { content:''; width:10px; height:10px; border-radius:3px; background:currentColor; }
-.topology-impact-key--down { color:#a14c41; }
-.topology-impact-key--cut { color:#946528; }
-.topology-impact-key--degraded { color:#4768a9; }
-.topology-impact-key--path { color:#32734d; }
+.topology-path-legend { position:absolute; z-index:6; top:12px; right:12px; padding:8px 10px; background:var(--panel); border:1px solid var(--line); border-radius:10px; }
+.topology-impact-key { display:inline-flex; align-items:center; gap:5px; color:var(--ink); }
+.topology-impact-key::before { content:''; width:10px; height:10px; border-radius:3px; background:var(--impact-color, var(--muted)); }
+.topology-impact-key--down, .react-flow__node.topology-node--impact-down, .react-flow__edge.topology-edge--impact-down { --impact-color:var(--red); }
+.topology-impact-key--cut, .react-flow__node.topology-node--impact-cut, .react-flow__edge.topology-edge--impact-cut { --impact-color:var(--amber); }
+.topology-impact-key--degraded, .react-flow__node.topology-node--impact-degraded { --impact-color:var(--blue); }
+.topology-impact-key--path, .react-flow__node.topology-node--impact-path, .react-flow__edge.topology-edge--impact-path { --impact-color:var(--green); }
 .react-flow__node.topology-node--dimmed, .react-flow__edge.topology-edge--dimmed { opacity:.28; }
-.react-flow__node.topology-node--impact .topology-device-node { border-radius:12px; outline:3px solid currentColor; outline-offset:2px; }
-.react-flow__node.topology-node--impact-down { color:#df8068; }
-.react-flow__node.topology-node--impact-cut { color:#e4ad67; }
-.react-flow__node.topology-node--impact-degraded { color:#6f8cea; }
-.react-flow__node.topology-node--impact-path { color:#55b97d; }
-.react-flow__node.topology-node--impact .topology-node-label { color:#262326; }
-.react-flow__edge.topology-edge--impact .react-flow__edge-path { stroke-width:3px; }
-.react-flow__edge.topology-edge--impact-down .react-flow__edge-path { stroke:#df8068; stroke-dasharray:6 4; }
-.react-flow__edge.topology-edge--impact-cut .react-flow__edge-path { stroke:#e4ad67; }
-.react-flow__edge.topology-edge--impact-path .react-flow__edge-path { stroke:#55b97d; }
+.react-flow__node.topology-node--impact .topology-device-node { border-radius:12px; outline:3px solid var(--impact-color); outline-offset:2px; }
+.react-flow__node.topology-node--impact .topology-node-label { color:var(--ink); }
+.react-flow__edge.topology-edge--impact .react-flow__edge-path { stroke:var(--impact-color); stroke-width:3px; }
+.react-flow__edge.topology-edge--impact-down .react-flow__edge-path { stroke-dasharray:6 4; }
 @media (prefers-reduced-motion: no-preference) { .react-flow__node.topology-node--impact, .react-flow__edge.topology-edge--impact { transition:opacity .2s ease; } }

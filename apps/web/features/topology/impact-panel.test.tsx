@@ -47,7 +47,34 @@ describe('ImpactPanel', () => {
     mocks.getTopologyImpact.mockResolvedValue(impactFixture({ down: [], affected: [], powerDegraded: [], hosts: [], applications: [], anchorDeviceIds: [], critical: { T1: [], T2: [], T3: [], untiered: [] }, counts: { down: 0, affected: 0, powerDegraded: 0, hosts: 0, services: 0, applications: 0, tier1: 0 } }));
     render(<ImpactPanel target={{ kind: 'PDU', id: 'pdu-1' }} />);
     expect(await screen.findByText('Este resultado não confirma impacto zero.')).toBeInTheDocument();
-    expect(screen.getByText(/Não há router nem firewall visível/)).toBeInTheDocument();
+    expect(screen.getByTestId('impact-no-gateway')).toHaveTextContent('Não há router nem firewall visível');
+  });
+
+  it('flags the largest-segment fallback even when the API picked an anchor, but not explicit or gateway anchors', async () => {
+    mocks.getTopologyImpact.mockResolvedValue(impactFixture({ anchorMode: 'largest-segment', anchorDeviceIds: ['acc-2'] }));
+    render(<ImpactPanel target={{ kind: 'DEVICE', id: 'core' }} />);
+    expect(await screen.findByTestId('impact-no-gateway')).toHaveTextContent('maior segmento de rede');
+    cleanup();
+    for (const anchorMode of ['explicit', 'gateway-devices']) {
+      mocks.getTopologyImpact.mockResolvedValue(impactFixture({ anchorMode, anchorDeviceIds: ['fw'] }));
+      render(<ImpactPanel target={{ kind: 'DEVICE', id: `core-${anchorMode}` }} />);
+      await screen.findByRole('heading', { name: 'Vão abaixo · 1' });
+      expect(screen.queryByTestId('impact-no-gateway')).not.toBeInTheDocument();
+      cleanup();
+    }
+  });
+
+  it('calls an inline onResult once per result, not on every render', async () => {
+    mocks.getTopologyImpact.mockResolvedValue(impactFixture());
+    const seen: unknown[] = [];
+    const { rerender } = render(<ImpactPanel target={{ kind: 'DEVICE', id: 'core' }} onResult={(value) => seen.push(value)} />);
+    await screen.findByRole('heading', { name: 'Vão abaixo · 1' });
+    const calls = seen.length;
+    rerender(<ImpactPanel target={{ kind: 'DEVICE', id: 'core' }} onResult={(value) => seen.push(value)} />);
+    rerender(<ImpactPanel target={{ kind: 'DEVICE', id: 'core' }} onResult={(value) => seen.push(value)} />);
+    expect(seen).toHaveLength(calls);
+    expect(seen.at(-1)).toEqual(expect.objectContaining({ origin: expect.objectContaining({ id: 'core' }) }));
+    expect(mocks.getTopologyImpact).toHaveBeenCalledTimes(1);
   });
 
   it('shows the API error', async () => {

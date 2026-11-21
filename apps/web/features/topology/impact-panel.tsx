@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { Modal } from '@/components/ui/modal';
 import { getTopologyImpact, getTopologyPath, topologyImpactHref, type ImpactDevice, type ImpactTarget, type TopologyImpact, type TopologyPath } from './impact-api';
@@ -62,7 +62,10 @@ export interface ImpactPanelProps {
 export function ImpactPanel({ target, siteId, onMap = false, onResult, headingId }: ImpactPanelProps) {
   const [includeLogical, setIncludeLogical] = useState(false);
   const { data, error, loading } = useImpact(target, includeLogical);
-  useEffect(() => { onResult?.(data); }, [data, onResult]);
+  // Keep the latest callback without re-firing it: callers may pass an inline function.
+  const onResultRef = useRef(onResult);
+  useEffect(() => { onResultRef.current = onResult; });
+  useEffect(() => { onResultRef.current?.(data); }, [data]);
   if (!target) return null;
   const names = new Map<string, string>();
   for (const device of [...(data?.down ?? []), ...(data?.affected ?? [])]) names.set(device.id, device.name);
@@ -86,7 +89,7 @@ export function ImpactPanel({ target, siteId, onMap = false, onResult, headingId
         <div><span>Ativos Tier 1</span><strong>{data.counts.tier1}</strong></div>
       </div>
       {data.truncated && <div className="ipam-alert warning" role="status" data-testid="impact-truncated"><strong>Pesquisa interrompida no limite de profundidade.</strong> <span>Podem existir mais equipamentos afetados para além do que é mostrado.</span> <span>Limite:</span> {data.maxDepth}</div>}
-      {data.anchorMode !== 'explicit' && !data.anchorDeviceIds.length && <div className="ipam-alert warning" role="status">Não há router nem firewall visível neste Site: os equipamentos que ficam sem caminho não foram calculados.</div>}
+      {(data.anchorMode === 'largest-segment' || (data.anchorMode !== 'explicit' && !data.anchorDeviceIds.length)) && <div className="ipam-alert warning" role="status" data-testid="impact-no-gateway">Não há router nem firewall visível neste Site: os equipamentos sem caminho foram estimados em relação ao maior segmento de rede que resta.</div>}
       {data.hiddenCount > 0 && <p className="panel-description"><span>Equipamentos fora do teu âmbito (não mostrados):</span> {data.hiddenCount}</p>}
       {!total && <div className="change-empty-impact"><strong>Não foram encontrados equipamentos afetados nas ligações documentadas.</strong><span>Este resultado não confirma impacto zero.</span></div>}
 

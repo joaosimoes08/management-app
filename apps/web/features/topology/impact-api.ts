@@ -13,7 +13,7 @@ export type TopologyImpact = {
   maxDepth: number;
   includeLogical: boolean;
   truncated: boolean;
-  anchorMode: 'explicit' | 'gateway-devices' | string;
+  anchorMode: 'explicit' | 'gateway-devices' | 'largest-segment' | string;
   anchorDeviceIds: string[];
   down: ImpactDownDevice[];
   affected: ImpactAffectedDevice[];
