@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { CanActivate, ConflictException, ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { CanActivate, ConflictException, ExecutionContext, Logger, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
@@ -21,9 +21,15 @@ import { IS_PUBLIC_KEY } from '../src/auth/public.decorator';
 import { KeycloakAdminService } from '../src/settings/keycloak-admin.service';
 import { deliverLifecycleReminders } from '../src/infrastructure/lifecycle-reminders';
 import { CriticalAssetsService } from '../src/critical-assets/critical-assets.service';
+import { EmailSender } from '../src/notifications/delivery/email-sender';
+import { NotificationDeliveryService } from '../src/notifications/delivery/notification-delivery.service';
+import { OperationsService } from '../src/operations/operations.service';
 
 const databaseUrl = process.env.DATABASE_URL ?? '';
 if (!/[_-]test(?:\?|$)/i.test(databaseUrl)) throw new Error('HTTP integration tests require an isolated DATABASE_URL whose database name ends in _test.');
+
+// Step 31: the background poll is off so these tests drive delivery explicitly; the immediate kick still runs.
+process.env.NOTIFICATION_DELIVERY_DISABLED = 'true';
 
 const prisma = new PrismaClient();
 const ids = {
@@ -1771,6 +1777,487 @@ test('Step 16 NetApp trend: each refresh appends history, trend per aggregate/vo
   assert.equal((await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend?days=401`, 'qa-readonly')).statusCode, 400);
   assert.equal((await request('GET', `/api/v1/netapp/sites/${ids.siteB}/trend`, 'qa-admin')).statusCode, 404);
   assert.equal((await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend`, 'qa-network-legacy')).statusCode, 404);
+});
+
+// ----- Step 31: Microsoft Teams delivery -----
+const TEAMS_URL = 'https://contoso.webhook.office.com/webhookb2/step31-secret-token/IncomingWebhook/abc/def';
+const TEAMS_ALERTS_URL = 'https://prod-01.westeurope.logic.azure.com/workflows/step31-alerts-secret/triggers/manual/paths/invoke?sig=step31-sig';
+const SECRET_PARTS = ['step31-secret-token', 'step31-alerts-secret', 'step31-sig'];
+const assertNoSecret = (label: string, text: string) => { for (const part of SECRET_PARTS) assert.ok(!text.includes(part), `${label} leaked a webhook secret`); };
+type TeamsCall = { url: string; body: any; at: number };
+function mockTeams(statusFor: (call: TeamsCall) => number | 'network') {
+  const calls: TeamsCall[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: URL | string, init?: RequestInit) => {
+    const call = { url: String(input), body: JSON.parse(String(init?.body ?? '{}')), at: Date.now() };
+    calls.push(call);
+    const status = statusFor(call);
+    if (status === 'network') throw new TypeError(`fetch failed: ${call.url}`);
+    return new Response(status < 300 ? '1' : 'error', { status });
+  }) as typeof fetch;
+  return { calls, restore: () => { globalThis.fetch = originalFetch; } };
+}
+async function cleanTeams() {
+  await prisma.notificationDelivery.deleteMany({});
+  await prisma.notificationChannelPreference.deleteMany({});
+  await prisma.deliveryChannelConfig.deleteMany({});
+  await prisma.user.updateMany({ where: { id: { in: [ids.admin, ids.readonly, ids.auditor] } }, data: { email: null } });
+}
+
+test('Step 31: ADMIN Teams settings start off, store the webhook encrypted and never return or log it', async (context) => {
+  context.after(cleanTeams);
+  await cleanTeams();
+  const root = '/api/v1/settings/notification-channels';
+  const initial = json(await request('GET', root, 'qa-admin'));
+  assert.deepEqual(initial.channels.map((item: any) => [item.kind, item.target, item.enabled, item.configured]), [
+    ['TEAMS', 'USER_NOTIFICATIONS', false, false], ['TEAMS', 'GROUP_ALERTS', false, false], ['EMAIL', 'USER_NOTIFICATIONS', false, false], ['EMAIL', 'GROUP_ALERTS', false, false],
+  ], 'every channel starts off');
+  assert.equal(initial.keyringAvailable, true);
+  assert.equal((await request('GET', root, 'qa-auditor')).statusCode, 403);
+  assert.equal((await request('PUT', `${root}/TEAMS/USER_NOTIFICATIONS`, 'qa-network-scoped', { enabled: true, webhookUrl: TEAMS_URL })).statusCode, 403);
+
+  const invalid = await request('PUT', `${root}/TEAMS/USER_NOTIFICATIONS`, 'qa-admin', { enabled: false, webhookUrl: 'https://evil.example/step31-secret-token' });
+  assert.equal(invalid.statusCode, 400);
+  assert.equal(json(invalid).code, 'TEAMS_WEBHOOK_INVALID');
+  assertNoSecret('invalid URL response', invalid.body);
+  const notConfigured = await request('PUT', `${root}/TEAMS/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true });
+  assert.equal(notConfigured.statusCode, 409);
+  assert.equal((await request('PUT', `${root}/TEAMS/USER_NOTIFICATIONS`, 'qa-admin', { enabled: false, webhookUrl: TEAMS_URL, minSeverity: 'HIGH' })).statusCode, 400, 'minSeverity is for the group channel only');
+
+  const saved = await request('PUT', `${root}/TEAMS/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true, webhookUrl: TEAMS_URL });
+  assert.equal(saved.statusCode, 200, saved.body);
+  assert.deepEqual([json(saved).enabled, json(saved).configured], [true, true]);
+  assertNoSecret('save response', saved.body);
+  const group = await request('PUT', `${root}/TEAMS/GROUP_ALERTS`, 'qa-admin', { enabled: false, webhookUrl: TEAMS_ALERTS_URL, minSeverity: 'CRITICAL' });
+  assert.equal(json(group).minSeverity, 'CRITICAL');
+  // Re-saving without a URL keeps the stored one.
+  assert.equal(json(await request('PUT', `${root}/TEAMS/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true })).configured, true);
+  const listed = await request('GET', root, 'qa-admin');
+  assertNoSecret('channel list', listed.body);
+
+  const stored = await prisma.deliveryChannelConfig.findMany();
+  for (const row of stored) assertNoSecret('stored ciphertext', Buffer.from(row.ciphertext!).toString('latin1') + JSON.stringify({ ...row, ciphertext: undefined }));
+  const audit = await prisma.auditLog.findMany({ where: { action: { contains: 'NOTIFICATION_CHANNEL' } } });
+  assert.ok(audit.length >= 3);
+  assertNoSecret('audit log', JSON.stringify(await prisma.auditLog.findMany({ orderBy: { createdAt: 'desc' }, take: 100 })));
+
+  const cleared = await request('DELETE', `${root}/TEAMS/USER_NOTIFICATIONS`, 'qa-admin');
+  assert.deepEqual([json(cleared).enabled, json(cleared).configured], [false, false]);
+});
+
+test('Step 31: the test button sends one message, logs success or the failure reason, and failures can be retried', async (context) => {
+  await cleanTeams();
+  const service = app.get(NotificationDeliveryService);
+  let status: number | 'network' = 200;
+  const teams = mockTeams(() => status);
+  context.after(async () => { teams.restore(); await cleanTeams(); });
+  const root = '/api/v1/settings/notification-channels/TEAMS/GROUP_ALERTS';
+  assert.equal((await request('POST', `${root}/test`, 'qa-admin')).statusCode, 409, 'cannot test before a URL is saved');
+  await request('PUT', root, 'qa-admin', { enabled: false, webhookUrl: TEAMS_ALERTS_URL });
+
+  const ok = await request('POST', `${root}/test`, 'qa-admin');
+  assert.equal(ok.statusCode, 201, ok.body);
+  assert.deepEqual([json(ok).status, json(ok).failureReason], ['SENT', null]);
+  assert.equal(teams.calls.length, 1);
+  assert.equal(teams.calls[0].url, TEAMS_ALERTS_URL);
+  assert.equal(teams.calls[0].body.attachments[0].content.body[0].text, 'Mensagem de teste');
+
+  status = 'network';
+  const failed = await request('POST', `${root}/test`, 'qa-admin');
+  assert.deepEqual([json(failed).status, json(failed).failureReason], ['FAILED', 'NETWORK_ERROR']);
+  assertNoSecret('test failure response', failed.body);
+
+  const log = await request('GET', '/api/v1/settings/notification-deliveries', 'qa-admin');
+  assert.equal(log.statusCode, 200);
+  assert.deepEqual(json(log).items.map((item: any) => [item.topic, item.status, item.failureReason]), [['TEST', 'FAILED', 'NETWORK_ERROR'], ['TEST', 'SENT', null]]);
+  assert.deepEqual([json(log).counts.SENT, json(log).counts.FAILED], [1, 1]);
+  assertNoSecret('delivery log', log.body);
+  assert.equal((await request('GET', '/api/v1/settings/notification-deliveries', 'qa-readonly')).statusCode, 403);
+  assert.equal(json(await request('GET', '/api/v1/settings/notification-deliveries?status=FAILED', 'qa-admin')).items.length, 1);
+
+  status = 200;
+  const failedId = json(failed).deliveryId;
+  assert.equal((await request('POST', `/api/v1/settings/notification-deliveries/${json(ok).deliveryId}/retry`, 'qa-admin')).statusCode, 409, 'only failed deliveries can be retried');
+  const retried = await request('POST', `/api/v1/settings/notification-deliveries/${failedId}/retry`, 'qa-admin');
+  assert.equal(retried.statusCode, 201, retried.body);
+  await service.kick();
+  const row = await prisma.notificationDelivery.findUniqueOrThrow({ where: { id: failedId } });
+  assert.deepEqual([row.status, row.attempts, row.failureReason], ['SENT', 2, null], 'a manual retry keeps counting attempts');
+
+  // Manual retry never resets the bound: after 5 automatic attempts each press gives one more, up to 10 in total.
+  status = 503;
+  await prisma.notificationDelivery.update({ where: { id: failedId }, data: { status: 'FAILED', attempts: 5, failureReason: 'HTTP_503' } });
+  assert.equal((await request('POST', `/api/v1/settings/notification-deliveries/${failedId}/retry`, 'qa-admin')).statusCode, 201);
+  await service.kick();
+  const once = await prisma.notificationDelivery.findUniqueOrThrow({ where: { id: failedId } });
+  assert.deepEqual([once.status, once.attempts, once.failureReason], ['FAILED', 6, 'HTTP_503'], 'one attempt per manual retry once the automatic ones are used');
+  await prisma.notificationDelivery.update({ where: { id: failedId }, data: { attempts: 10 } });
+  const capped = await request('POST', `/api/v1/settings/notification-deliveries/${failedId}/retry`, 'qa-admin');
+  assert.deepEqual([capped.statusCode, json(capped).code], [409, 'NOTIFICATION_DELIVERY_RETRY_LIMIT']);
+  assert.equal((await prisma.notificationDelivery.findUniqueOrThrow({ where: { id: failedId } })).status, 'FAILED');
+});
+
+test('Step 31: per-user Teams opt-in queues a copy without blocking the request, retries on failure and logs the reason', async (context) => {
+  await cleanTeams();
+  const service = app.get(NotificationDeliveryService);
+  let status: number | 'network' = 503;
+  const teams = mockTeams(() => status);
+  const requests: string[] = [];
+  context.after(async () => {
+    teams.restore();
+    await prisma.notification.deleteMany({ where: { roleRequestId: { in: requests } } });
+    await prisma.roleRequest.deleteMany({ where: { id: { in: requests } } });
+    await cleanTeams();
+  });
+  const prefs = '/api/v1/notifications/preferences';
+  const unavailable = await request('PATCH', `${prefs}/ROLE_REQUEST`, 'qa-readonly', { teams: true });
+  assert.equal(unavailable.statusCode, 409, 'cannot opt in while the ADMIN channel is off');
+  assert.equal((await request('PATCH', `${prefs}/ROLE_REQUEST`, 'qa-readonly', {})).statusCode, 400);
+  assert.deepEqual(json(await request('GET', '/api/v1/notifications/channels', 'qa-readonly')), { teams: { available: false }, email: { available: false } });
+
+  await request('PUT', '/api/v1/settings/notification-channels/TEAMS/USER_NOTIFICATIONS', 'qa-admin', { enabled: true, webhookUrl: TEAMS_URL });
+  const optIn = await request('PATCH', `${prefs}/ROLE_REQUEST`, 'qa-readonly', { teams: true });
+  assert.equal(optIn.statusCode, 200, optIn.body);
+  assert.deepEqual(json(optIn), { type: 'ROLE_REQUEST', muted: false, teams: true, teamsAvailable: true, email: false, emailAvailable: false, hasEmail: false });
+  const listed = json(await request('GET', prefs, 'qa-readonly'));
+  assert.deepEqual(listed.map((item: any) => [item.type, item.teams]), [['ROLE_REQUEST', true], ['CRITICAL_ASSET_ATTESTATION', false], ['LIFECYCLE_DATE', false]]);
+  // Muting in-app and opting out of Teams are independent fields; a muted-only PATCH keeps the Teams choice.
+  assert.equal(json(await request('PATCH', `${prefs}/LIFECYCLE_DATE`, 'qa-readonly', { muted: true })).teams, false);
+
+  // Earlier tests may leave a request for these personas; one open request per user is allowed.
+  const leftovers = (await prisma.roleRequest.findMany({ where: { userId: { in: [ids.readonly, ids.auditor] } }, select: { id: true } })).map((row) => row.id);
+  await prisma.notification.deleteMany({ where: { roleRequestId: { in: leftovers } } });
+  await prisma.roleRequest.deleteMany({ where: { id: { in: leftovers } } });
+  const optedIn = await prisma.roleRequest.create({ data: { userId: ids.readonly, roles: ['SYSTEMS_OPERATOR'] } });
+  const notOpted = await prisma.roleRequest.create({ data: { userId: ids.auditor, roles: ['SYSTEMS_OPERATOR'] } });
+  requests.push(optedIn.id, notOpted.id);
+  // The webhook would hang: the decision must still return, because sending happens off the request path.
+  status = 503;
+  const started = Date.now();
+  for (const id of requests) assert.equal((await request('PATCH', `/api/v1/settings/role-requests/${id}`, 'qa-admin', { decision: 'REJECT' })).statusCode, 200);
+  assert.ok(Date.now() - started < 5_000);
+  assert.equal(teams.calls.length, 0, 'nothing is sent inside the request');
+  const queued = await prisma.notificationDelivery.findMany({ where: { target: 'USER_NOTIFICATIONS' } });
+  assert.deepEqual(queued.map((row) => [row.recipientUserId, row.topic, row.status]), [[ids.readonly, 'ROLE_REQUEST', 'PENDING']]);
+
+  const output: string[] = [];
+  const writes = [process.stdout.write, process.stderr.write];
+  process.stdout.write = ((chunk: unknown, ...rest: unknown[]) => { output.push(String(chunk)); return (writes[0] as any).call(process.stdout, chunk, ...rest); }) as typeof process.stdout.write;
+  process.stderr.write = ((chunk: unknown, ...rest: unknown[]) => { output.push(String(chunk)); return (writes[1] as any).call(process.stderr, chunk, ...rest); }) as typeof process.stderr.write;
+  // Nest may not print in test mode, so also capture what the application hands to its logger.
+  const levels = ['log', 'warn', 'error', 'debug', 'verbose'] as const;
+  const originalLogger = levels.map((level) => Logger.prototype[level]);
+  for (const level of levels) Logger.prototype[level] = function (this: Logger, ...args: unknown[]) { output.push(args.map(String).join(' ')); } as never;
+  try {
+    await service.kick();
+    let row = await prisma.notificationDelivery.findUniqueOrThrow({ where: { id: queued[0].id } });
+    assert.deepEqual([row.status, row.attempts, row.failureReason], ['PENDING', 1, 'HTTP_503']);
+    assert.ok(row.nextAttemptAt.getTime() > Date.now(), 'retry is scheduled for later');
+    assert.equal(teams.calls[0].body.attachments[0].content.body[1].text, 'Para: qa-readonly');
+
+    status = 'network';
+    await prisma.notificationDelivery.update({ where: { id: row.id }, data: { nextAttemptAt: new Date() } });
+    await service.kick();
+    row = await prisma.notificationDelivery.findUniqueOrThrow({ where: { id: row.id } });
+    assert.deepEqual([row.status, row.attempts, row.failureReason], ['PENDING', 2, 'NETWORK_ERROR']);
+
+    status = 200;
+    await prisma.notificationDelivery.update({ where: { id: row.id }, data: { nextAttemptAt: new Date() } });
+    await service.kick();
+    row = await prisma.notificationDelivery.findUniqueOrThrow({ where: { id: row.id } });
+    assert.deepEqual([row.status, row.attempts, row.failureReason], ['SENT', 3, null]);
+    assert.equal(teams.calls.length, 3);
+  } finally {
+    process.stdout.write = writes[0] as typeof process.stdout.write;
+    process.stderr.write = writes[1] as typeof process.stderr.write;
+    levels.forEach((level, index) => { Logger.prototype[level] = originalLogger[index] as never; });
+  }
+  assert.ok(output.join('').includes('HTTP_503'), 'the failure is logged');
+  assertNoSecret('process logs', output.join(''));
+  assertNoSecret('delivery log', (await request('GET', '/api/v1/settings/notification-deliveries', 'qa-admin')).body);
+
+  // A permanent failure stops immediately; a disabled channel fails queued rows with a clear reason.
+  await prisma.notificationDelivery.create({ data: { channel: 'TEAMS', target: 'USER_NOTIFICATIONS', topic: 'ROLE_REQUEST', recipientUserId: ids.readonly, title: 'x', message: 'y' } });
+  status = 404;
+  await service.kick();
+  assert.equal(await prisma.notificationDelivery.count({ where: { status: 'FAILED', failureReason: 'HTTP_404', attempts: 1 } }), 1);
+  await request('PUT', '/api/v1/settings/notification-channels/TEAMS/USER_NOTIFICATIONS', 'qa-admin', { enabled: false });
+  await prisma.notificationDelivery.create({ data: { channel: 'TEAMS', target: 'USER_NOTIFICATIONS', topic: 'ROLE_REQUEST', recipientUserId: ids.readonly, title: 'x', message: 'y' } });
+  await service.kick();
+  assert.equal(await prisma.notificationDelivery.count({ where: { status: 'FAILED', failureReason: 'CHANNEL_DISABLED' } }), 1);
+});
+
+test('Step 31: a CRITICAL operational alert reaches the Teams group channel within 1 minute, once per opening', async (context) => {
+  await cleanTeams();
+  const teams = mockTeams(() => 200);
+  const operations = app.get(OperationsService);
+  const keys = ['step31:critical', 'step31:warning', 'step31:high-maintenance'];
+  context.after(async () => {
+    teams.restore();
+    await prisma.operationalAlert.deleteMany({ where: { dedupKey: { in: keys } } });
+    await prisma.maintenanceWindow.deleteMany({ where: { name: 'Step 31 window' } });
+    await cleanTeams();
+  });
+  await request('PUT', '/api/v1/settings/notification-channels/TEAMS/GROUP_ALERTS', 'qa-admin', { enabled: true, webhookUrl: TEAMS_ALERTS_URL, minSeverity: 'HIGH' });
+  const waitForCalls = async (count: number, budgetMs: number) => {
+    const deadline = Date.now() + budgetMs;
+    while (teams.calls.length < count && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50));
+  };
+
+  const raisedAt = Date.now();
+  await operations.upsert({ dedupKey: 'step31:critical', source: 'SNMP', severity: 'CRITICAL', siteId: ids.siteA, entityType: 'Device', entityId: ids.deviceA, title: 'Core switch down', detail: 'No response to SNMP', actionHref: null } as never);
+  await waitForCalls(1, 60_000);
+  assert.equal(teams.calls.length, 1, 'CRITICAL alert was not delivered within 1 minute');
+  assert.ok(teams.calls[0].at - raisedAt < 60_000);
+  assert.equal(teams.calls[0].url, TEAMS_ALERTS_URL);
+  const card = teams.calls[0].body.attachments[0].content;
+  assert.equal(card.body[0].text, '[CRITICAL] Core switch down');
+  assert.equal(card.body[0].color, 'Attention');
+  assert.match(card.body.at(-1).text, /HTTP Site A · No response to SNMP/);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const sent = await prisma.notificationDelivery.findFirstOrThrow({ where: { topic: 'OPERATIONAL_ALERT' } });
+  assert.equal(sent.status, 'SENT');
+
+  // A repeat of the same open alert is not posted again.
+  await operations.upsert({ dedupKey: 'step31:critical', source: 'SNMP', severity: 'CRITICAL', siteId: ids.siteA, entityType: 'Device', entityId: ids.deviceA, title: 'Core switch down', detail: 'Still down', actionHref: null } as never);
+  // Below the threshold, and HIGH during a maintenance window, are not posted.
+  await operations.upsert({ dedupKey: 'step31:warning', source: 'SNMP', severity: 'WARNING', siteId: ids.siteA, title: 'Minor', detail: 'x', actionHref: null } as never);
+  await prisma.maintenanceWindow.create({ data: { name: 'Step 31 window', siteId: ids.siteA, startsAt: new Date(Date.now() - 60_000), endsAt: new Date(Date.now() + 3_600_000) } });
+  await operations.upsert({ dedupKey: 'step31:high-maintenance', source: 'SNMP', severity: 'HIGH', siteId: ids.siteA, title: 'Planned', detail: 'x', actionHref: null } as never);
+  await app.get(NotificationDeliveryService).kick();
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal(teams.calls.length, 1);
+  assert.equal(await prisma.notificationDelivery.count({ where: { topic: 'OPERATIONAL_ALERT' } }), 1);
+
+  // Resolved and reopened is a new opening and is posted again.
+  await prisma.operationalAlert.update({ where: { dedupKey: 'step31:critical' }, data: { status: 'RESOLVED', resolvedAt: new Date() } });
+  await operations.upsert({ dedupKey: 'step31:critical', source: 'SNMP', severity: 'CRITICAL', siteId: ids.siteA, entityType: 'Device', entityId: ids.deviceA, title: 'Core switch down', detail: 'Down again', actionHref: null } as never);
+  await waitForCalls(2, 60_000);
+  assert.equal(teams.calls.length, 2);
+});
+
+// ----- Step 31: Email (SMTP) delivery -----
+const SMTP_PASSWORD = 'step31-smtp-P4ss!';
+const SMTP_BODY = { host: 'smtp.example.pt', port: 587, security: 'STARTTLS', username: 'mgmt-alerts@example.pt', password: SMTP_PASSWORD, from: 'mgmt-alerts@example.pt' };
+type SmtpCall = { options: any; mail: any; at: number };
+/** Swaps the SMTP transport for a mock; nodemailer still builds the transport options and message fields. */
+function mockSmtp(outcome: (call: SmtpCall) => 'ok' | Record<string, unknown>) {
+  const calls: SmtpCall[] = [];
+  const senders = (app.get(NotificationDeliveryService) as any).senders as Map<string, unknown>;
+  const original = senders.get('EMAIL');
+  // The resolver stands in for DNS: smtp.example.pt resolves to a private (RFC 1918) relay address, which is allowed.
+  senders.set('EMAIL', new EmailSender((options) => ({
+    sendMail: async (mail) => {
+      const call = { options, mail, at: Date.now() };
+      calls.push(call);
+      const result = outcome(call);
+      if (result !== 'ok') throw Object.assign(new Error(`SMTP said no to ${String((mail as any).to)} using ${SMTP_PASSWORD}`), result);
+      return { messageId: 'x' };
+    },
+  }), async () => ['10.20.30.40']));
+  return { calls, restore: () => { senders.set('EMAIL', original); } };
+}
+const assertNoSmtpSecret = (label: string, text: string) => assert.ok(!text.includes(SMTP_PASSWORD), `${label} leaked the SMTP password`);
+
+test('Step 31 email: ADMIN SMTP settings start off, keep the password encrypted and write-only, and group alerts need recipients', async (context) => {
+  context.after(cleanTeams);
+  await cleanTeams();
+  const root = '/api/v1/settings/notification-channels';
+  assert.equal((await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-network-scoped', { enabled: false, smtp: SMTP_BODY })).statusCode, 403);
+  assert.equal((await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true })).statusCode, 409, 'cannot enable before the server is saved');
+  const plain = await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: false, smtp: { ...SMTP_BODY, security: 'NONE' } });
+  assert.equal(plain.statusCode, 400);
+  assert.equal(json(plain).code, 'SMTP_AUTH_NEEDS_TLS');
+  assertNoSmtpSecret('validation error', plain.body);
+  assert.equal(json(await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: false, smtp: { ...SMTP_BODY, from: 'x@y.pt\r\nBcc: z@evil.com' } })).code, 'SMTP_FROM_INVALID');
+  assert.equal((await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: false, webhookUrl: TEAMS_URL })).statusCode, 400, 'Teams fields do not apply to e-mail');
+  assert.equal((await request('PUT', `${root}/EMAIL/GROUP_ALERTS`, 'qa-admin', { enabled: true, recipients: ['noc@example.pt'] })).statusCode, 409, 'group alerts need the SMTP server first');
+
+  // Loopback, link-local (cloud metadata) and unspecified hosts are refused; private on-prem relays are allowed.
+  for (const host of ['127.0.0.1', '169.254.169.254', '::1', '0.0.0.0', '::ffff:127.0.0.1', 'localhost']) {
+    const refused = await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: false, smtp: { ...SMTP_BODY, host } });
+    assert.deepEqual([refused.statusCode, json(refused).code], [400, 'SMTP_HOST_NOT_ALLOWED'], host);
+  }
+  const relay = await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: false, smtp: { ...SMTP_BODY, host: '10.0.0.25' } });
+  assert.equal(relay.statusCode, 200, relay.body);
+
+  const saved = await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true, smtp: SMTP_BODY });
+  assert.equal(saved.statusCode, 200, saved.body);
+  assert.deepEqual([json(saved).enabled, json(saved).configured], [true, true]);
+  assert.deepEqual(json(saved).smtp, { host: 'smtp.example.pt', port: 587, security: 'STARTTLS', username: 'mgmt-alerts@example.pt', from: 'mgmt-alerts@example.pt', passwordSet: true });
+  assertNoSmtpSecret('save response', saved.body);
+  // Re-saving the same server and account without a password keeps the stored one (here only the sender changes).
+  const { password: _omit, ...withoutPassword } = SMTP_BODY;
+  const kept = json(await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true, smtp: { ...withoutPassword, from: 'noc-mail@example.pt' } }));
+  assert.deepEqual([kept.smtp.from, kept.smtp.passwordSet], ['noc-mail@example.pt', true]);
+  // Changing host, port, security or username never carries the password over: it must be entered again.
+  for (const change of [{ host: 'smtp2.example.pt' }, { port: 465, security: 'TLS' }, { port: 2525 }, { username: 'other@example.pt' }]) {
+    const refused = await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true, smtp: { ...withoutPassword, ...change } });
+    assert.deepEqual([refused.statusCode, json(refused).code], [400, 'SMTP_PASSWORD_REENTRY_REQUIRED'], JSON.stringify(change));
+  }
+  const unchanged = json(await request('GET', root, 'qa-admin')).channels.find((item: any) => item.kind === 'EMAIL' && item.target === 'USER_NOTIFICATIONS');
+  assert.deepEqual([unchanged.smtp.port, unchanged.smtp.security, unchanged.smtp.passwordSet], [587, 'STARTTLS', true], 'a refused change keeps the old server and its password');
+  const moved = json(await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true, smtp: { ...SMTP_BODY, port: 465, security: 'TLS' } }));
+  assert.deepEqual([moved.smtp.port, moved.smtp.security, moved.smtp.passwordSet], [465, 'TLS', true]);
+  // Dropping the username clears the password.
+  const anonymous = json(await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true, smtp: { ...withoutPassword, port: 465, security: 'TLS', username: null } }));
+  assert.deepEqual([anonymous.smtp.username, anonymous.smtp.passwordSet], [null, false]);
+  assert.equal((await prisma.deliveryChannelConfig.findUniqueOrThrow({ where: { kind_target: { kind: 'EMAIL', target: 'USER_NOTIFICATIONS' } } })).ciphertext, null);
+  assert.equal(json(await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true, smtp: SMTP_BODY })).smtp.passwordSet, true);
+
+  assert.equal(json(await request('PUT', `${root}/EMAIL/GROUP_ALERTS`, 'qa-admin', { enabled: true, recipients: ['bad'] })).code, 'EMAIL_RECIPIENTS_INVALID');
+  const group = await request('PUT', `${root}/EMAIL/GROUP_ALERTS`, 'qa-admin', { enabled: true, minSeverity: 'CRITICAL', recipients: [' NOC@example.pt ', 'oncall@example.pt'] });
+  assert.equal(group.statusCode, 200, group.body);
+  assert.deepEqual([json(group).configured, json(group).minSeverity, json(group).recipients, json(group).serverConfigured], [true, 'CRITICAL', ['noc@example.pt', 'oncall@example.pt'], true]);
+
+  const listed = await request('GET', root, 'qa-admin');
+  assertNoSmtpSecret('channel list', listed.body);
+  assert.deepEqual(json(listed).channels.filter((item: any) => item.kind === 'EMAIL').map((item: any) => [item.target, item.enabled]), [['USER_NOTIFICATIONS', true], ['GROUP_ALERTS', true]]);
+  const stored = await prisma.deliveryChannelConfig.findMany({ where: { kind: 'EMAIL' } });
+  for (const row of stored) assertNoSmtpSecret('stored row', Buffer.from(row.ciphertext ?? []).toString('latin1') + JSON.stringify({ ...row, ciphertext: undefined }));
+  assertNoSmtpSecret('audit log', JSON.stringify(await prisma.auditLog.findMany({ orderBy: { createdAt: 'desc' }, take: 100 })));
+
+  // Removing the server leaves group alerts unconfigured.
+  await request('DELETE', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin');
+  const after = json(await request('GET', root, 'qa-admin')).channels.filter((item: any) => item.kind === 'EMAIL');
+  assert.deepEqual(after.map((item: any) => [item.target, item.configured]), [['USER_NOTIFICATIONS', false], ['GROUP_ALERTS', false]]);
+});
+
+test('Step 31 email: test email to the ADMIN, per-user opt-in to the own address, retries with backoff and a secret-free log', async (context) => {
+  await cleanTeams();
+  const service = app.get(NotificationDeliveryService);
+  let result: 'ok' | Record<string, unknown> = 'ok';
+  const smtp = mockSmtp(() => result);
+  const requests: string[] = [];
+  context.after(async () => {
+    smtp.restore();
+    await prisma.notification.deleteMany({ where: { roleRequestId: { in: requests } } });
+    await prisma.roleRequest.deleteMany({ where: { id: { in: requests } } });
+    await cleanTeams();
+  });
+  const root = '/api/v1/settings/notification-channels/EMAIL/USER_NOTIFICATIONS';
+  assert.equal((await request('POST', `${root}/test`, 'qa-admin')).statusCode, 409, 'cannot test before the server is saved');
+  await request('PUT', root, 'qa-admin', { enabled: false, smtp: SMTP_BODY });
+  const noAddress = await request('POST', `${root}/test`, 'qa-admin');
+  assert.equal(json(noAddress).code, 'NOTIFICATION_TEST_NO_EMAIL');
+
+  await prisma.user.update({ where: { id: ids.admin }, data: { email: 'admin@example.pt' } });
+  const ok = await request('POST', `${root}/test`, 'qa-admin');
+  assert.equal(ok.statusCode, 201, ok.body);
+  assert.deepEqual([json(ok).status, json(ok).failureReason], ['SENT', null]);
+  assert.deepEqual([smtp.calls[0].mail.to, smtp.calls[0].mail.from, smtp.calls[0].mail.subject], [['admin@example.pt'], 'mgmt-alerts@example.pt', 'Email de teste']);
+  assert.equal(smtp.calls[0].mail.bcc, undefined, 'personal e-mail has no Bcc');
+  // Connects to the checked address; TLS still presents and verifies the configured host name.
+  assert.deepEqual([smtp.calls[0].options.host, smtp.calls[0].options.servername, smtp.calls[0].options.tls.servername, smtp.calls[0].options.requireTLS, smtp.calls[0].options.auth.pass], ['10.20.30.40', 'smtp.example.pt', 'smtp.example.pt', true, SMTP_PASSWORD]);
+
+  result = { code: 'EAUTH', responseCode: 535 };
+  const failed = await request('POST', `${root}/test`, 'qa-admin');
+  assert.deepEqual([json(failed).status, json(failed).failureReason], ['FAILED', 'SMTP_EAUTH_535']);
+  assertNoSmtpSecret('test failure response', failed.body);
+
+  // Per-user opt-in: unavailable while the channel is off, and only with an address on file.
+  const prefs = '/api/v1/notifications/preferences';
+  assert.equal((await request('PATCH', `${prefs}/ROLE_REQUEST`, 'qa-readonly', { email: true })).statusCode, 409);
+  await request('PUT', root, 'qa-admin', { enabled: true });
+  assert.deepEqual(json(await request('GET', '/api/v1/notifications/channels', 'qa-readonly')).email, { available: true });
+  assert.equal(json(await request('PATCH', `${prefs}/ROLE_REQUEST`, 'qa-readonly', { email: true })).code, 'NOTIFICATION_EMAIL_MISSING');
+  await prisma.user.update({ where: { id: ids.readonly }, data: { email: 'readonly@example.pt' } });
+  const optIn = json(await request('PATCH', `${prefs}/ROLE_REQUEST`, 'qa-readonly', { email: true }));
+  assert.deepEqual([optIn.email, optIn.emailAvailable, optIn.hasEmail, optIn.teams], [true, true, true, false]);
+  assert.deepEqual(json(await request('GET', prefs, 'qa-readonly')).map((item: any) => [item.type, item.email]), [['ROLE_REQUEST', true], ['CRITICAL_ASSET_ATTESTATION', false], ['LIFECYCLE_DATE', false]]);
+
+  const leftovers = (await prisma.roleRequest.findMany({ where: { userId: { in: [ids.readonly, ids.auditor] } }, select: { id: true } })).map((row) => row.id);
+  await prisma.notification.deleteMany({ where: { roleRequestId: { in: leftovers } } });
+  await prisma.roleRequest.deleteMany({ where: { id: { in: leftovers } } });
+  const optedIn = await prisma.roleRequest.create({ data: { userId: ids.readonly, roles: ['SYSTEMS_OPERATOR'] } });
+  const notOpted = await prisma.roleRequest.create({ data: { userId: ids.auditor, roles: ['SYSTEMS_OPERATOR'] } });
+  requests.push(optedIn.id, notOpted.id);
+  result = { code: 'ECONNECTION' };
+  const before = smtp.calls.length;
+  const started = Date.now();
+  for (const id of requests) assert.equal((await request('PATCH', `/api/v1/settings/role-requests/${id}`, 'qa-admin', { decision: 'REJECT' })).statusCode, 200);
+  assert.ok(Date.now() - started < 5_000);
+  assert.equal(smtp.calls.length, before, 'nothing is sent inside the request');
+  const queued = await prisma.notificationDelivery.findMany({ where: { target: 'USER_NOTIFICATIONS', topic: 'ROLE_REQUEST' } });
+  assert.deepEqual(queued.map((row) => [row.channel, row.recipientUserId, row.status]), [['EMAIL', ids.readonly, 'PENDING']]);
+
+  const output: string[] = [];
+  const levels = ['log', 'warn', 'error', 'debug', 'verbose'] as const;
+  const originalLogger = levels.map((level) => Logger.prototype[level]);
+  for (const level of levels) Logger.prototype[level] = function (this: Logger, ...args: unknown[]) { output.push(args.map(String).join(' ')); } as never;
+  try {
+    await service.kick();
+    let row = await prisma.notificationDelivery.findUniqueOrThrow({ where: { id: queued[0].id } });
+    assert.deepEqual([row.status, row.attempts, row.failureReason], ['PENDING', 1, 'SMTP_CONNECTION_FAILED']);
+    assert.ok(row.nextAttemptAt.getTime() - Date.now() > 20_000, 'first retry waits about 30 s');
+    assert.deepEqual(smtp.calls.at(-1)!.mail.to, ['readonly@example.pt'], 'personal e-mail goes to the user\'s own address');
+
+    result = 'ok';
+    await prisma.notificationDelivery.update({ where: { id: row.id }, data: { nextAttemptAt: new Date() } });
+    await service.kick();
+    row = await prisma.notificationDelivery.findUniqueOrThrow({ where: { id: row.id } });
+    assert.deepEqual([row.status, row.attempts, row.failureReason], ['SENT', 2, null]);
+
+    // A recipient without an address fails at once with a clear reason; a 5xx rejection is permanent.
+    await prisma.notificationDelivery.create({ data: { channel: 'EMAIL', target: 'USER_NOTIFICATIONS', topic: 'ROLE_REQUEST', recipientUserId: ids.auditor, title: 'x', message: 'y' } });
+    result = { code: 'EENVELOPE', responseCode: 550, permanent: true };
+    await prisma.notificationDelivery.create({ data: { channel: 'EMAIL', target: 'USER_NOTIFICATIONS', topic: 'ROLE_REQUEST', recipientUserId: ids.readonly, title: 'x', message: 'y' } });
+    await service.kick();
+    assert.equal(await prisma.notificationDelivery.count({ where: { status: 'FAILED', failureReason: 'RECIPIENT_NO_EMAIL', attempts: 1 } }), 1);
+    assert.equal(await prisma.notificationDelivery.count({ where: { status: 'FAILED', failureReason: 'SMTP_550', attempts: 1 } }), 1);
+  } finally {
+    levels.forEach((level, index) => { Logger.prototype[level] = originalLogger[index] as never; });
+  }
+  assert.ok(output.join(' ').includes('SMTP_CONNECTION_FAILED'), 'the failure is logged');
+  assertNoSmtpSecret('process logs', output.join(' '));
+  const log = await request('GET', '/api/v1/settings/notification-deliveries?channel=EMAIL', 'qa-admin');
+  assert.ok(json(log).items.every((item: any) => item.channel === 'EMAIL'));
+  assertNoSmtpSecret('delivery log', log.body);
+  assertNoSmtpSecret('audit log', JSON.stringify(await prisma.auditLog.findMany({ orderBy: { createdAt: 'desc' }, take: 100 })));
+});
+
+test('Step 31 email: a CRITICAL operational alert is e-mailed to the group recipients within 1 minute, once per opening', async (context) => {
+  await cleanTeams();
+  const smtp = mockSmtp(() => 'ok');
+  const teams = mockTeams(() => 200);
+  const operations = app.get(OperationsService);
+  context.after(async () => {
+    smtp.restore();
+    teams.restore();
+    await prisma.operationalAlert.deleteMany({ where: { dedupKey: { startsWith: 'step31-email:' } } });
+    await cleanTeams();
+  });
+  await request('PUT', '/api/v1/settings/notification-channels/EMAIL/USER_NOTIFICATIONS', 'qa-admin', { enabled: false, smtp: SMTP_BODY });
+  await request('PUT', '/api/v1/settings/notification-channels/EMAIL/GROUP_ALERTS', 'qa-admin', { enabled: true, minSeverity: 'CRITICAL', recipients: ['noc@example.pt', 'oncall@example.pt'] });
+  await request('PUT', '/api/v1/settings/notification-channels/TEAMS/GROUP_ALERTS', 'qa-admin', { enabled: true, webhookUrl: TEAMS_ALERTS_URL, minSeverity: 'HIGH' });
+  const waitFor = async (check: () => boolean, budgetMs: number) => {
+    const deadline = Date.now() + budgetMs;
+    while (!check() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50));
+  };
+
+  const raisedAt = Date.now();
+  await operations.upsert({ dedupKey: 'step31-email:critical', source: 'SNMP', severity: 'CRITICAL', siteId: ids.siteA, entityType: 'Device', entityId: ids.deviceA, title: 'Core router down', detail: 'No response to SNMP', actionHref: null } as never);
+  await waitFor(() => smtp.calls.length >= 1 && teams.calls.length >= 1, 60_000);
+  assert.equal(smtp.calls.length, 1, 'CRITICAL alert e-mail was not sent within 1 minute');
+  assert.ok(smtp.calls[0].at - raisedAt < 60_000);
+  // Recipients go in Bcc (To is the sender address), so they never see each other.
+  assert.deepEqual([smtp.calls[0].mail.to, smtp.calls[0].mail.bcc], ['mgmt-alerts@example.pt', ['noc@example.pt', 'oncall@example.pt']]);
+  assert.equal(smtp.calls[0].mail.subject, '[CRITICAL] Core router down');
+  assert.match(smtp.calls[0].mail.text, /HTTP Site A · No response to SNMP/);
+  assert.equal(teams.calls.length, 1, 'the Teams group channel gets its own copy');
+
+  // HIGH is below this e-mail threshold (CRITICAL only) but still goes to Teams (HIGH and above); repeats are not sent again.
+  // Site B: an earlier test leaves a maintenance window open on Site A, which would hold back HIGH.
+  await operations.upsert({ dedupKey: 'step31-email:high', source: 'SNMP', severity: 'HIGH', siteId: ids.siteB, title: 'Uplink degraded', detail: 'x', actionHref: null } as never);
+  await operations.upsert({ dedupKey: 'step31-email:critical', source: 'SNMP', severity: 'CRITICAL', siteId: ids.siteA, entityType: 'Device', entityId: ids.deviceA, title: 'Core router down', detail: 'Still down', actionHref: null } as never);
+  await app.get(NotificationDeliveryService).kick();
+  await waitFor(() => teams.calls.length >= 2, 5_000);
+  assert.equal(smtp.calls.length, 1);
+  assert.equal(teams.calls.length, 2);
+  const rows = await prisma.notificationDelivery.findMany({ where: { topic: 'OPERATIONAL_ALERT' }, orderBy: { createdAt: 'asc' } });
+  assert.deepEqual(rows.map((row) => [row.channel, row.title, row.status]).sort(), [
+    ['EMAIL', '[CRITICAL] Core router down', 'SENT'], ['TEAMS', '[CRITICAL] Core router down', 'SENT'], ['TEAMS', '[HIGH] Uplink degraded', 'SENT'],
+  ]);
 });
 
 test('Step 34 topology impact: core switch, loops, depth bound, PDU feeds, path view and the 2 s budget on a large site', async () => {

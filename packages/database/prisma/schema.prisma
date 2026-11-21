@@ -213,6 +213,8 @@ model User {
   reviewedRoleRequests        RoleRequest[]               @relation("RoleRequestReviewer")
   notifications               Notification[]
   notificationMutes           NotificationMute[]
+  notificationChannels        NotificationChannelPreference[]
+  notificationDeliveries      NotificationDelivery[]      @relation("NotificationDeliveryRecipient")
   lifecycleDatesAssigned      LifecycleDate[]             @relation("LifecycleDateResponsibleUser")
   lifecycleReminderDeliveries LifecycleReminderDelivery[]
   alertStates                 OperationalAlertUserState[]
@@ -276,6 +278,90 @@ model NotificationMute {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([userId, type])
+}
+
+/// External delivery channel (Step 31): Microsoft Teams incoming webhook or Email over SMTP.
+enum DeliveryChannelKind {
+  TEAMS
+  EMAIL
+}
+
+/// Where a channel posts: per-user notifications, or the group channel for operational alerts.
+enum DeliveryTarget {
+  USER_NOTIFICATIONS
+  GROUP_ALERTS
+}
+
+enum NotificationDeliveryStatus {
+  PENDING
+  SENDING
+  SENT
+  FAILED
+}
+
+/// ADMIN-managed destination. Secrets (Teams webhook URL, SMTP password) are kept only as a keyring envelope and never returned.
+/// EMAIL/USER_NOTIFICATIONS holds the SMTP server; EMAIL/GROUP_ALERTS holds the alert recipients and uses that server.
+model DeliveryChannelConfig {
+  id          String                    @id @default(uuid()) @db.Uuid
+  kind        DeliveryChannelKind
+  target      DeliveryTarget
+  enabled     Boolean                   @default(false)
+  /// GROUP_ALERTS only: lowest operational alert severity posted to the group channel (CRITICAL or HIGH).
+  minSeverity OperationalAlertSeverity?
+  /// Non-secret settings: SMTP host, port, security, username and from address, or the group alert recipients.
+  settings    Json?
+  ciphertext  Bytes?
+  iv          Bytes?
+  authTag     Bytes?
+  wrappedDek  Bytes?
+  wrapIv      Bytes?
+  wrapAuthTag Bytes?
+  keyId       String?
+  updatedById String?                   @db.Uuid
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
+
+  @@unique([kind, target])
+}
+
+/// A user's opt-in to an external channel for one notification topic (in-app delivery is governed by NotificationMute).
+model NotificationChannelPreference {
+  userId  String              @db.Uuid
+  type    String
+  channel DeliveryChannelKind
+  user    User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, type, channel])
+}
+
+/// One outbound message and its attempts. Copies the text so later edits or deletes do not change what was sent.
+model NotificationDelivery {
+  id              String                     @id @default(uuid()) @db.Uuid
+  channel         DeliveryChannelKind
+  target          DeliveryTarget
+  status          NotificationDeliveryStatus @default(PENDING)
+  /// ROLE_REQUEST, CRITICAL_ASSET_ATTESTATION, LIFECYCLE_DATE, OPERATIONAL_ALERT or TEST.
+  topic           String
+  recipientUserId String?                    @db.Uuid
+  alertId         String?                    @db.Uuid
+  /// Prevents the same event being queued twice (for example one alert opening).
+  dedupKey        String?                    @unique
+  title           String
+  message         String
+  href            String?
+  attempts        Int                        @default(0)
+  nextAttemptAt   DateTime                   @default(now())
+  lastAttemptAt   DateTime?
+  /// Short code only (HTTP_404, TIMEOUT, SMTP_EAUTH, ...); never the webhook URL, SMTP response, password or address.
+  failureReason   String?
+  sentAt          DateTime?
+  requestedById   String?                    @db.Uuid
+  createdAt       DateTime                   @default(now())
+  updatedAt       DateTime                   @updatedAt
+  recipient       User?                      @relation("NotificationDeliveryRecipient", fields: [recipientUserId], references: [id], onDelete: SetNull)
+
+  @@index([status, nextAttemptAt])
+  @@index([createdAt, id])
 }
 
 model UserRole {

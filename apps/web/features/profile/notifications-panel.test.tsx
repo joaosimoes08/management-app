@@ -80,4 +80,62 @@ describe('NotificationsPanel', () => {
     await waitFor(() => expect(preference).not.toBeChecked());
     expect(apiFetch).toHaveBeenCalledWith('/api/v1/notifications/preferences/LIFECYCLE_DATE', { method: 'PATCH', body: '{"muted":true}' });
   });
+
+  it('offers a Teams copy per topic only when the ADMIN channel is on and the topic is not muted', async () => {
+    let teamsAvailable = false;
+    vi.mocked(apiFetch).mockImplementation(async (path, options) => {
+      if (path.endsWith('/preferences')) return [
+        { type: 'ROLE_REQUEST', muted: false, teams: false, teamsAvailable },
+        { type: 'LIFECYCLE_DATE', muted: true, teams: false, teamsAvailable },
+      ];
+      if (path.endsWith('/preferences/ROLE_REQUEST')) return { type: 'ROLE_REQUEST', muted: false, teams: JSON.parse(String(options?.body)).teams, teamsAvailable };
+      return { items: [], nextCursor: null };
+    });
+    mount();
+    const offRole = await screen.findByRole('checkbox', { name: 'notifications.teams: notifications.type.ROLE_REQUEST' });
+    expect(offRole).toBeDisabled();
+    expect(screen.getByText('notifications.teamsUnavailable')).toBeInTheDocument();
+    cleanup();
+
+    teamsAvailable = true;
+    mount();
+    const role = await screen.findByRole('checkbox', { name: 'notifications.teams: notifications.type.ROLE_REQUEST' });
+    expect(role).toBeEnabled();
+    expect(screen.getByRole('checkbox', { name: 'notifications.teams: notifications.type.LIFECYCLE_DATE' })).toBeDisabled();
+    fireEvent.click(role);
+    await waitFor(() => expect(role).toBeChecked());
+    expect(apiFetch).toHaveBeenCalledWith('/api/v1/notifications/preferences/ROLE_REQUEST', { method: 'PATCH', body: '{"teams":true}' });
+  });
+
+  it('offers an email copy per topic only when SMTP is on, the account has an email and the topic is not muted', async () => {
+    let emailAvailable = true; let hasEmail = false;
+    vi.mocked(apiFetch).mockImplementation(async (path, options) => {
+      if (path.endsWith('/preferences')) return [
+        { type: 'ROLE_REQUEST', muted: false, teams: false, teamsAvailable: false, email: false, emailAvailable, hasEmail },
+        { type: 'LIFECYCLE_DATE', muted: true, teams: false, teamsAvailable: false, email: false, emailAvailable, hasEmail },
+      ];
+      if (path.endsWith('/preferences/ROLE_REQUEST')) return { type: 'ROLE_REQUEST', muted: false, teams: false, teamsAvailable: false, email: JSON.parse(String(options?.body)).email, emailAvailable, hasEmail };
+      return { items: [], nextCursor: null };
+    });
+    mount();
+    expect(await screen.findByRole('checkbox', { name: 'notifications.email: notifications.type.ROLE_REQUEST' })).toBeDisabled();
+    expect(screen.getByText('notifications.emailMissing')).toBeInTheDocument();
+    cleanup();
+
+    emailAvailable = false; hasEmail = true;
+    mount();
+    expect(await screen.findByRole('checkbox', { name: 'notifications.email: notifications.type.ROLE_REQUEST' })).toBeDisabled();
+    expect(screen.getByText('notifications.emailUnavailable')).toBeInTheDocument();
+    cleanup();
+
+    emailAvailable = true;
+    mount();
+    const role = await screen.findByRole('checkbox', { name: 'notifications.email: notifications.type.ROLE_REQUEST' });
+    expect(role).toBeEnabled();
+    expect(screen.getByText('notifications.emailHint')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'notifications.email: notifications.type.LIFECYCLE_DATE' })).toBeDisabled();
+    fireEvent.click(role);
+    await waitFor(() => expect(role).toBeChecked());
+    expect(apiFetch).toHaveBeenCalledWith('/api/v1/notifications/preferences/ROLE_REQUEST', { method: 'PATCH', body: '{"email":true}' });
+  });
 });
