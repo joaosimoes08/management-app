@@ -202,3 +202,15 @@ test('list returns full history with reviewer names, notes, owner and due state'
   assert.equal(storage.dueDate, null);
   assert.deepEqual(result.unassigned.map((asset: any) => [asset.id, asset.owner, asset.dueState]), [['device-b', null, 'unscheduled']]);
 });
+
+test('cycle windows work for any IANA zone, including half- and quarter-hour offsets', () => {
+  const weekStart = new Date('2026-11-23T00:00:00.000Z'); // Monday
+  const opens = (zone: string) => cycleWindow(weekStart, zone).opensAt.toISOString();
+  assert.equal(opens('America/New_York'), '2026-11-23T14:00:00.000Z');
+  assert.equal(opens('Asia/Kolkata'), '2026-11-23T03:30:00.000Z');
+  assert.equal(opens('Asia/Kathmandu'), '2026-11-23T03:15:00.000Z');
+  assert.equal(opens('Australia/Lord_Howe'), '2026-11-22T22:00:00.000Z');
+  assert.equal(opens('Pacific/Kiritimati'), '2026-11-22T19:00:00.000Z');
+  // Monday 08:00 in Kiritimati is still Sunday in UTC: the Site's week has already started.
+  assert.equal(weeklyWindow(new Date('2026-11-22T18:00:00.000Z'), 'Pacific/Kiritimati').weekStart.toISOString(), '2026-11-23T00:00:00.000Z');
+});

@@ -57,7 +57,7 @@ export const dueLabels: Record<DueState, string> = { overdue: 'Em atraso', due_t
 export const dueTone: Record<DueState, string> = { overdue: 'excluded', due_this_week: 'reserved', up_to_date: 'occupied', unscheduled: '' };
 export const outcomeLabel = (outcome?: string | null) => (outcome === 'CONFIRMED' ? 'Confirmado' : outcome === 'CORRECTION_NEEDED' ? 'Correção pedida' : 'Pendente');
 export const outcomeTone = (outcome?: string | null) => (outcome === 'CONFIRMED' ? 'occupied' : outcome === 'CORRECTION_NEEDED' ? 'excluded' : 'pending');
-const dueOrder: Record<DueState, number> = { overdue: 0, due_this_week: 1, unscheduled: 2, up_to_date: 3 };
+export const dueOrder: Record<DueState, number> = { overdue: 0, due_this_week: 1, unscheduled: 2, up_to_date: 3 };
 
 /** Admins get every asset in `assets` and the unowned ones again in `unassigned`: merge once by id. */
 export function buildRows(data: CriticalAssetsResult | undefined): AssetRow[] {

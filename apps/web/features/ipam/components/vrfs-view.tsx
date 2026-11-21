@@ -7,6 +7,7 @@ import { PageToolbarPortal } from '@/components/layout/app-shell';
 import { createVrf, deleteVrf, getVrf, listVrfs, updateVrf } from '../api';
 import type { Vrf, VrfInput } from '../types';
 import { Empty, IpamModal } from './ipam-modal';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 
 type VrfFormState = { id: string; name: string; routeDistinguisher: string; description: string; status: string };
 const blankVrf: VrfFormState = { id: '', name: '', routeDistinguisher: '', description: '', status: 'ACTIVE' };
@@ -34,6 +35,7 @@ export function filterVrfs(items: Vrf[], search: string): Vrf[] {
 
 /** VRFs of the active Site: table, create/edit/delete and the "subnets in this VRF" drill-down. */
 export function VrfsView({ siteId, siteName, search, canCreate, canUpdate, canDelete, openSubnet, success, toastError }: VrfsViewProps) {
+  const { confirm: askConfirm, confirmDialog } = useConfirm();
   const queryClient = useQueryClient();
   const [form, setForm] = useState<VrfFormState | null>(null);
   const [formError, setFormError] = useState('');
@@ -75,7 +77,7 @@ export function VrfsView({ siteId, siteName, search, canCreate, canUpdate, canDe
 
   const remove = async (item: Vrf) => {
     const subnetCount = item._count?.subnets ?? 0;
-    if (!confirm(subnetCount ? `O VRF ${item.name} tem ${subnetCount} subnet(s) associada(s). Remove-as do VRF antes de o eliminar. Tentar mesmo assim?` : `Eliminar o VRF ${item.name}?`)) return;
+    if (!(await askConfirm({ message: subnetCount ? `O VRF ${item.name} tem ${subnetCount} subnet(s) associada(s). Remove-as do VRF antes de o eliminar. Tentar mesmo assim?` : `Eliminar o VRF ${item.name}?`, destructive: true }))) return;
     try {
       await deleteVrf(item.id);
       if (detailId === item.id) setDetailId('');
@@ -86,7 +88,7 @@ export function VrfsView({ siteId, siteName, search, canCreate, canUpdate, canDe
     }
   };
 
-  return <section className="ipam-card">
+  return <>{confirmDialog}<section className="ipam-card">
     <div className="panel-heading"><div><h2>VRFs do Site</h2><p className="panel-description">Instâncias de routing do Site e as subnets que pertencem a cada uma.</p></div></div>
     {canCreate && <PageToolbarPortal><button className="primary-button" onClick={() => openForm()}><Plus size={14} /> Novo VRF</button></PageToolbarPortal>}
     {error && <div className="ipam-alert error"><X size={15} />{message(error)}</div>}
@@ -130,5 +132,5 @@ export function VrfsView({ siteId, siteName, search, canCreate, canUpdate, canDe
       <label>Estado<select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}><option value="ACTIVE">Ativo</option><option value="INACTIVE">Inativo</option></select></label>
       <button className="primary-button" disabled={saving}>{saving ? 'A guardar…' : form.id ? 'Guardar alterações' : 'Criar VRF'}</button>
     </form></IpamModal>}
-  </section>;
+  </section></>;
 }

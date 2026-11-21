@@ -1,11 +1,12 @@
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import { APPLICATION_ROLES, ApplicationRole } from '../auth/roles';
+import { IsIanaTimeZone } from '../common/time-zone';
 
 export class UpdateOrganizationSettingsDto {
   @IsOptional() @IsString() @MinLength(2) @MaxLength(120) name?: string;
   @IsOptional() @IsString() @MaxLength(30) code?: string;
-  @IsOptional() @IsIn(['Europe/Lisbon', 'UTC', 'Europe/London', 'Europe/Madrid']) timezone?: string;
+  @IsOptional() @IsIanaTimeZone() timezone?: string;
   @IsOptional() @IsIn(['pt-PT', 'en-US']) locale?: string;
 }
 

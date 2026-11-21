@@ -4,9 +4,11 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { CalendarClock, Clock3, Pause, Play, Save } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getDiscoverySchedule, updateDiscoverySchedule, type DiscoveryScheduleInput, type DiscoverySubnet } from './api';
+import { formatDateTime } from '@/lib/format/date';
+import { discoveryIntervalChoices, formatDiscoveryInterval } from './discovery-intervals';
 
 const freshForm = (): DiscoveryScheduleInput => ({ enabled: false, intervalHours: 12, methods: ['ICMP', 'TCP'], tcpPorts: [22, 80, 443, 3389], reverseDns: true });
-const dateTime = (value: string | null, timeZone: string) => value ? new Intl.DateTimeFormat('pt-PT', { dateStyle: 'medium', timeStyle: 'short', timeZone }).format(new Date(value)) : '—';
+const dateTime = (value: string | null, timeZone: string) => value ? formatDateTime(value, { dateStyle: 'medium', timeStyle: 'short', timeZone }) : '—';
 
 export function DiscoverySchedulePanel({ subnets, canEdit, onError }: { subnets: DiscoverySubnet[]; canEdit: boolean; onError: (message: string) => void }) {
   const [subnetId, setSubnetId] = useState('');
@@ -71,7 +73,7 @@ export function DiscoverySchedulePanel({ subnets, canEdit, onError }: { subnets:
           {schedule?.lastError && <p className="schedule-last-error">{schedule.lastError}</p>}
         </div>
         <form className="schedule-form" onSubmit={save}>
-          <label>Intervalo<select className="context-toolbar-selector" disabled={!canEdit} value={form.intervalHours} onChange={(event) => setForm({ ...form, intervalHours: Number(event.target.value) })}>{[1, 2, 4, 6, 8, 12, 24, 48, 72, 168].map((hours) => <option key={hours} value={hours}>{hours < 24 ? `${hours} h` : `${hours / 24} dia${hours > 24 ? 's' : ''}`}</option>)}</select></label>
+          <label>Intervalo<select className="context-toolbar-selector" disabled={!canEdit} value={form.intervalHours} onChange={(event) => setForm({ ...form, intervalHours: Number(event.target.value) })}>{discoveryIntervalChoices(form.intervalHours).map((hours) => <option key={hours} value={hours}>{formatDiscoveryInterval(hours)}</option>)}</select></label>
           <fieldset disabled={!canEdit}><legend>Métodos</legend>{(['ICMP', 'TCP'] as const).map((method) => <label key={method}><input type="checkbox" checked={form.methods.includes(method)} onChange={() => toggleMethod(method)} />{method}</label>)}</fieldset>
           <label>Portas TCP<input disabled={!canEdit || !form.methods.includes('TCP')} value={portsText} onChange={(event) => setPortsText(event.target.value)} aria-describedby="schedule-port-help" /><small id="schedule-port-help">Máximo 64 portas, entre 1 e 65535.</small></label>
           <label className="schedule-reverse-dns"><input type="checkbox" disabled={!canEdit} checked={form.reverseDns} onChange={(event) => setForm({ ...form, reverseDns: event.target.checked })} /> Resolver reverse DNS</label>

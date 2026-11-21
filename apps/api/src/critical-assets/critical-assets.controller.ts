@@ -3,12 +3,13 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { IsIn, IsOptional, IsString, IsUUID } from 'class-validator';
 import { Roles } from '../auth/roles.decorator';
 import { AuthenticatedUser } from '../auth/auth.service';
+import { IsIanaTimeZone } from '../common/time-zone';
 import { CriticalAssetsService } from './critical-assets.service';
 
 class MappingDto {
   @IsIn(['SWITCH', 'ROUTER', 'FIREWALL', 'SERVER', 'STORAGE', 'OTHER']) assetType!: string;
   @IsUUID() groupId!: string;
-  @IsString() timezone!: string;
+  @IsIanaTimeZone() timezone!: string;
 }
 class ConfirmDto {
   @IsIn(['CONFIRMED', 'CORRECTION_NEEDED']) outcome!: string;
