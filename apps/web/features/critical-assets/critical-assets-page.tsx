@@ -73,19 +73,30 @@ export function CriticalAssetsPage() {
     return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [data?.mappings, groups]);
   const eligible = (row: AssetRow) => canReview && row.pending.length > 0;
-  const selectedRows = rows.filter((row) => selected.has(row.id) && eligible(row));
+  // Only rows on screen: a selection hidden by search or filters is never part of a bulk action.
+  const selectedRows = visible.filter((row) => selected.has(row.id) && eligible(row));
   const bulkItems: BulkItem[] = selectedRows.flatMap((row) => { const attestation = currentCycle(row); return attestation ? [{ key: attestation.id, attestationId: attestation.id, assetName: row.name, weekStart: attestation.weekStart }] : []; });
   const bulkOlder = selectedRows.filter(hasOlderPending).length;
   const detail = rows.find((row) => row.id === detailId) ?? null;
   const filtering = hasActiveFilters(search, filters);
 
-  // Drop selections that are no longer reviewable (e.g. recorded elsewhere).
+  // Drop selections that are hidden by search/filters or no longer reviewable (e.g. recorded elsewhere),
+  // so the bulk button count always matches what is on screen.
   useEffect(() => {
     setSelected((current) => {
-      const next = new Set([...current].filter((id) => rows.some((row) => row.id === id && row.pending.length > 0)));
+      const next = new Set([...current].filter((id) => visible.some((row) => row.id === id && row.pending.length > 0)));
       return next.size === current.size ? current : next;
     });
-  }, [rows]);
+  }, [visible]);
+
+  // After a Site switch the owner filter may name a group of the previous Site: clear it (no history entry)
+  // once this Site's assets, and for admins its groups, have loaded, so an empty list while loading never clears it.
+  const ownersLoaded = Boolean(data) && (!isAdmin || queryGroups !== undefined);
+  useEffect(() => {
+    if (!ownersLoaded || !filters.owner || filters.owner === NO_OWNER) return;
+    const known = owners.some((group) => group.id === filters.owner) || rows.some((row) => row.owner?.id === filters.owner);
+    if (!known) setFilter('owner', '', { replace: true });
+  }, [ownersLoaded, filters.owner, owners, rows, setFilter]);
 
   const remember = () => { returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; };
   const restoreFocus = () => { const target = returnFocus.current; returnFocus.current = null; window.setTimeout(() => target?.isConnected && target.focus(), 0); };

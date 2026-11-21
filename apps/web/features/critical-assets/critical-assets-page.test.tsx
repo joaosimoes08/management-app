@@ -18,7 +18,8 @@ vi.mock('@/components/layout/app-shell', async (importOriginal) => ({
     {children}
   </>,
 }));
-vi.mock('@/lib/site-context', () => ({ useSiteContext: () => ({ siteId: 'site-1' }) }));
+const site = vi.hoisted(() => ({ current: 'site-1' }));
+vi.mock('@/lib/site-context', () => ({ useSiteContext: () => ({ siteId: site.current }) }));
 const roles = vi.hoisted(() => ({ current: ['ADMIN'] as string[] }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: (role: string) => roles.current.includes(role) }) }));
 vi.mock('@/lib/api/client', () => ({ apiFetch: vi.fn() }));
@@ -65,6 +66,7 @@ beforeEach(() => {
   // Filters, search and sort live in the URL: every test starts from a clean address.
   window.history.replaceState(null, '', '/attestacao-ativos');
   roles.current = ['ADMIN'];
+  site.current = 'site-1';
   data = pageData();
   vi.mocked(apiFetch).mockReset();
   vi.mocked(apiFetch).mockImplementation(async (url: string, init?: RequestInit) => {
@@ -267,6 +269,67 @@ describe('CriticalAssetsPage', () => {
     expect(results.getByText('Registado').closest('tr')).toHaveTextContent('Edge router');
     fireEvent.click(within(dialog.querySelector('.modal-actions') as HTMLElement).getByRole('button', { name: 'Fechar' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('bulk confirms only rows on screen: a selection hidden by a filter is dropped and the count follows', async () => {
+    const posted: string[] = [];
+    vi.mocked(apiFetch).mockImplementation(async (url: string) => {
+      if (url.includes('/settings/access-groups')) return [network, systems] as never;
+      if (url.endsWith('/confirm')) { posted.push(url); return savedReview(url.split('/').at(-2) as string, 'CONFIRMED') as never; }
+      return data as never;
+    });
+    renderPage();
+    const actions = screen.getByTestId('toolbar-actions');
+    fireEvent.click(within(await rowFor('Core switch')).getByRole('checkbox'));
+    fireEvent.click(within(await rowFor('Edge router')).getByRole('checkbox'));
+    expect(within(actions).getByRole('button', { name: /Confirmar selecionados \(2\)/ })).toBeEnabled();
+    // Filter Core switch (SWITCH) out of view: it leaves the selection and the count drops to 1.
+    fireEvent.change(screen.getByLabelText('Filtrar por tipo'), { target: { value: 'ROUTER' } });
+    expect(visibleNames()).toEqual(['Edge router']);
+    expect(within(actions).getByRole('button', { name: /Confirmar selecionados \(1\)/ })).toBeEnabled();
+    // Showing it again does not bring the hidden selection back.
+    fireEvent.change(screen.getByLabelText('Filtrar por tipo'), { target: { value: '' } });
+    expect(within(actions).getByRole('button', { name: /Confirmar selecionados \(1\)/ })).toBeEnabled();
+    fireEvent.click(within(actions).getByRole('button', { name: /Confirmar selecionados \(1\)/ }));
+    const dialog = screen.getByRole('dialog', { name: 'Confirmar selecionados' });
+    expect(within(dialog).queryByText('Core switch')).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: /Confirmar 1 revis/ }));
+    await waitFor(() => expect(posted).toEqual(['/api/v1/critical-assets/a-edge-2/confirm']));
+  });
+
+  it('clears an owner filter from the previous Site after a Site switch, without a history entry', async () => {
+    const otherSite = { ...pageData(), mappings: [], assets: [], unassigned: [] } as unknown as CriticalAssetsResult;
+    let releaseSite2: () => void = () => undefined;
+    const site2Ready = new Promise<void>((resolve) => { releaseSite2 = resolve; });
+    vi.mocked(apiFetch).mockImplementation(async (url: string) => {
+      const isSite2 = url.includes('site-2');
+      if (isSite2) await site2Ready;
+      if (url.includes('/settings/access-groups')) return (isSite2 ? [] : [network, systems]) as never;
+      return (isSite2 ? otherSite : data) as never;
+    });
+    window.history.replaceState(null, '', '/attestacao-ativos?siteId=site-1&owner=group-2');
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = renderPage(queryClient);
+    await rowFor('Edge router');
+    expect(screen.getByLabelText('Filtrar por grupo responsável')).toHaveValue('group-2');
+    const entries = window.history.length;
+    site.current = 'site-2';
+    view.rerender(<QueryClientProvider client={queryClient}><CriticalAssetsPage /></QueryClientProvider>);
+    // Still loading the new Site: the empty owner list must not clear the filter yet.
+    await act(async () => { await Promise.resolve(); });
+    expect(window.location.search).toContain('owner=group-2');
+    await act(async () => { releaseSite2(); });
+    await waitFor(() => expect(window.location.search).not.toContain('owner='));
+    expect(window.history.length).toBe(entries);
+    expect(screen.getByLabelText('Filtrar por grupo responsável')).toHaveValue('');
+  });
+
+  it('never treats the "no owner" filter as stale once the Site has loaded', async () => {
+    window.history.replaceState(null, '', `/attestacao-ativos?owner=${NO_OWNER}`);
+    renderPage();
+    await rowFor('Perimeter firewall');
+    await waitFor(() => expect(screen.getByLabelText('Filtrar por grupo responsável')).toHaveValue(NO_OWNER));
+    expect(window.location.search).toContain(`owner=${NO_OWNER}`);
   });
 
   it('uses the singular for one asset with earlier weeks and the plural otherwise, in pt-PT and English', () => {

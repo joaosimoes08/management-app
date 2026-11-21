@@ -24,6 +24,7 @@ const serverQuery = () => '';
  *
  * - Filter, sort and reset changes add a history entry (back undoes them).
  * - Typing in the search box replaces the current entry (no entry per keystroke).
+ * - `setFilter(key, value, { replace: true })` corrects a filter without adding an entry.
  * - Values equal to their default are left out of the URL.
  *
  * Pass a module-level `config` constant: a new object every render re-parses the URL each time.
@@ -46,8 +47,9 @@ export function useTableUrlState<F extends TableFilters>(config: TableStateConfi
   // Each setter reads the URL at call time, so two quick changes never overwrite each other.
   const latest = useCallback(() => parseTableState(window.location.search, config), [config]);
   const setSearch = useCallback((search: string) => commit({ ...latest(), search }, 'replace'), [commit, latest]);
-  const setFilter = useCallback(<K extends keyof F & string>(key: K, value: F[K]) => { const now = latest(); commit({ ...now, filters: { ...now.filters, [key]: value } }, 'push'); }, [commit, latest]);
-  const setFilters = useCallback((filters: Partial<F>) => { const now = latest(); commit({ ...now, filters: { ...now.filters, ...filters } }, 'push'); }, [commit, latest]);
+  /** `replace: true` corrects the URL without a history entry (e.g. clearing a filter that no longer applies). */
+  const setFilter = useCallback(<K extends keyof F & string>(key: K, value: F[K], options?: { replace?: boolean }) => { const now = latest(); commit({ ...now, filters: { ...now.filters, [key]: value } }, options?.replace ? 'replace' : 'push'); }, [commit, latest]);
+  const setFilters = useCallback((filters: Partial<F>, options?: { replace?: boolean }) => { const now = latest(); commit({ ...now, filters: { ...now.filters, ...filters } }, options?.replace ? 'replace' : 'push'); }, [commit, latest]);
   const setSort = useCallback((sort: SortState) => commit({ ...latest(), sort }, 'push'), [commit, latest]);
   /** Clears search and filters; keeps the chosen sort. */
   const clearFilters = useCallback(() => commit({ ...latest(), search: '', filters: { ...config.filters } }, 'push'), [commit, latest, config]);
