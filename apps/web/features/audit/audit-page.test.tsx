@@ -94,4 +94,23 @@ describe('AuditPage', () => {
     expect(path).not.toContain('cursor');
     expect(fileName).toMatch(/^auditoria-\d{4}-\d{2}-\d{2}\.csv$/);
   });
+
+  it('still reports the export when the browser cannot read the X-Export-* headers (CORS)', async () => {
+    window.history.replaceState(null, '', '/auditoria');
+    client.apiDownload.mockResolvedValue(new Headers());
+    renderPage();
+    await screen.findByText('2 eventos carregados');
+    fireEvent.click(screen.getByRole('button', { name: /Exportar CSV/ }));
+    expect(await screen.findByText('CSV exportado.')).toBeInTheDocument();
+    expect(screen.queryByText(/CSV exportado com/)).not.toBeInTheDocument();
+  });
+
+  it('reports a truncated export when the headers say so', async () => {
+    window.history.replaceState(null, '', '/auditoria');
+    client.apiDownload.mockResolvedValue(new Headers({ 'X-Export-Row-Count': '10000', 'X-Export-Truncated': 'true' }));
+    renderPage();
+    await screen.findByText('2 eventos carregados');
+    fireEvent.click(screen.getByRole('button', { name: /Exportar CSV/ }));
+    expect(await screen.findByText(/CSV exportado com 10000 eventos \(limite de 10 000\)/)).toBeInTheDocument();
+  });
 });
