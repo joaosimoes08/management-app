@@ -641,7 +641,7 @@ const enUS: LegacyDictionary = {
   'Todas as subnets': 'All subnets',
   'Todos os Sites': 'All Sites',
   ' · todos os Sites': ' · all Sites',
-  'Remover filtro de configuração em falta': 'Remove missing configuration filter',
+  'Remover filtro de configuração em falta': 'Remove missing-configuration filter',
   'Todos os tipos': 'All types',
   'Último avistamento': 'Last seen',
   'Uptime': 'Uptime',
