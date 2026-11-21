@@ -1,0 +1,8 @@
+load-api-end: 21:23  up 6 days, 17:32, 1 user, load averages: 4.20 7.23 12.71
+load-api-start: 21:18  up 6 days, 17:28, 1 user, load averages: 5.16 11.17 15.72
+load-browser-end: 21:34  up 6 days, 17:44, 1 user, load averages: 8.82 8.51 10.66
+load-browser-start: 21:26  up 6 days, 17:35, 1 user, load averages: 7.58 6.76 11.34
+load-search-rerun: 21:24  up 6 days, 17:34, 1 user, load averages: 5.20 6.69 11.86
+load-warmup-start: 21:17  up 6 days, 17:26, 1 user, load averages: 9.76 13.72 17.07
+browser2-start: 21:37  up 6 days, 17:46, 1 user, load averages: 5.81 7.58 9.92
+browser2-end: 21:46  up 6 days, 17:55, 1 user, load averages: 8.11 7.35 8.56
