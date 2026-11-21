@@ -1599,7 +1599,7 @@ html[lang='en-US'] .environment-trigger.operational::after { content:'· Setup c
 
 .audit-filters { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:9px; padding:12px 0; border-bottom:1px solid var(--line); }
 .audit-filters label { display:grid; gap:5px; color:var(--muted); font-size:10px; }
-.audit-filters input { min-width:0; padding:8px 9px; border:1px solid var(--line); border-radius:8px; color:var(--ink); background:#fff; font:inherit; }
+.audit-filters input,.audit-filters select { min-width:0; padding:8px 9px; border:1px solid var(--line); border-radius:8px; color:var(--ink); background:#fff; font:inherit; }
 /* Dashboard cards use content-sized rows so widget heights never create empty bands. */
 .dashboard-widget-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; align-items:start; }
 .dashboard-widget-grid > * { min-width:0; }
@@ -1889,7 +1889,7 @@ body { color:var(--ink); background:#e9eef5; }
 .context-toolbar-contribution .model-catalog-toolbar > button { flex:none; }
 .context-toolbar-contribution .audit-filters { display:grid; grid-template-columns:repeat(5,minmax(128px,1fr)); width:min(780px,calc(100vw - 70px)); padding:8px 0 0; border:0; }
 .context-toolbar-contribution .audit-filters label { font-size:11px; }
-.context-toolbar-contribution .audit-filters input { min-width:0; width:100%; min-height:38px; }
+.context-toolbar-contribution .audit-filters input,.context-toolbar-contribution .audit-filters select { min-width:0; width:100%; min-height:38px; }
 .context-toolbar-contribution .observed-device-select select,.context-toolbar-contribution .snmp-topbar-controls select { min-width:160px; }
 .snmp-topbar-controls { display:flex; align-items:center; flex-wrap:wrap; gap:9px; }
 .snmp-topbar-controls label { display:flex; align-items:center; gap:7px; color:#586982; font-size:11px; font-weight:700; }
