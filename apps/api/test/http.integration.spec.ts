@@ -280,6 +280,17 @@ test('applies scoped visibility, inherited reads, group union, and fail-closed a
 });
 
 test('enforces SNMP roles, Site isolation and disabled SET over HTTP', async () => {
+  // Any IANA time zone is accepted for the organisation; unknown ones are a 400.
+  const newYork = await request('PATCH', '/api/v1/settings/organization', 'qa-admin', { timezone: 'America/New_York' });
+  assert.equal(newYork.statusCode, 200, newYork.body);
+  assert.equal(json(newYork).timezone, 'America/New_York');
+  assert.equal((await prisma.systemSettings.findFirstOrThrow()).timezone, 'America/New_York');
+  const mars = await request('PATCH', '/api/v1/settings/organization', 'qa-admin', { timezone: 'Mars/Base' });
+  assert.equal(mars.statusCode, 400, mars.body);
+  assert.match(mars.body, /valid IANA time zone/);
+  assert.equal((await request('PATCH', '/api/v1/settings/organization', 'qa-admin', { timezone: 'europe/lisbon' })).statusCode, 400);
+  assert.equal((await prisma.systemSettings.findFirstOrThrow()).timezone, 'America/New_York');
+  assert.equal((await request('PATCH', '/api/v1/settings/organization', 'qa-admin', { timezone: 'Europe/Lisbon' })).statusCode, 200);
   assert.equal((await request('GET', '/api/v1/settings/snmp-listeners', 'qa-network-scoped')).statusCode, 403);
   assert.equal((await request('GET', '/api/v1/settings/snmp-listeners', 'qa-admin')).statusCode, 200);
   assert.equal((await request('PATCH', '/api/v1/settings/snmp-listeners', 'qa-network-scoped', { listenAll: true, interfaceIds: [] })).statusCode, 403);
