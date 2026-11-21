@@ -106,7 +106,11 @@ export function InventoryQualityPage() {
     } finally { setRunning(false); }
   };
   const acknowledge = async () => {
-    const ok = await confirm({ title: 'Reconhecer findings', message: `Reconhecer ${actionable.length} findings selecionados? Continuam na fila até deixarem de ser detetados.`, confirmLabel: `Reconhecer ${actionable.length}` });
+    const single = actionable.length === 1;
+    const message = single
+      ? 'Reconhecer 1 finding selecionado? Continua na fila até deixar de ser detetado.'
+      : `Reconhecer ${actionable.length} findings selecionados? Continuam na fila até deixarem de ser detetados.`;
+    const ok = await confirm({ title: single ? 'Reconhecer finding' : 'Reconhecer findings', message, confirmLabel: `Reconhecer ${actionable.length}` });
     if (!ok) return;
     setOutcome(null); setDialog('ACKNOWLEDGE');
     await run('ACKNOWLEDGE');
@@ -174,7 +178,7 @@ export function InventoryQualityPage() {
         {statusTabs.map((tab) => <button key={tab.value} type="button" aria-pressed={filters.status === tab.value} className={filters.status === tab.value ? 'active' : ''} onClick={() => setFilter('status', tab.value)}><strong>{tab.count}</strong><span>{tab.label}</span></button>)}
       </div>
 
-      <h2 className="critical-assets-count" aria-live="polite">{rows.length < total ? `${rows.length} de ${total} findings carregados` : `${total} findings`}{canAct && actionable.length ? ` · ${actionable.length} selecionados` : ''}</h2>
+      <h2 className="critical-assets-count" aria-live="polite">{rows.length < total ? `${rows.length} de ${total} findings carregados` : total === 1 ? '1 finding' : `${total} findings`}{canAct && actionable.length ? ` · ${actionable.length} selecionados` : ''}</h2>
       {grouped && sorted.length
         ? groups.map((group) => <section key={group.rule} className="host-section">
           <h3>{`${ruleLabel(group.rule)} (${group.rows.length})`}</h3>

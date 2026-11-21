@@ -205,6 +205,70 @@ test('enforces authentication and persona-level RBAC over HTTP', async () => {
   assert.equal((await request('POST', '/api/v1/ip-addresses', 'qa-auditor', { address: '10.250.1.21', subnetId: ids.subnetA })).statusCode, 403);
 });
 
+test('lists scoped Linux hosts and issues each agent credential once until revocation', async (context) => {
+  const host = await prisma.host.create({ data: { name: 'Step 26 host', deviceId: ids.deviceA } });
+  const hidden = await prisma.host.create({ data: { name: 'Step 26 other site', deviceId: ids.deviceB } });
+  context.after(async () => { await prisma.host.deleteMany({ where: { id: { in: [host.id, hidden.id] } } }); });
+  const inventory = '/api/v1/linux-agents/hosts';
+  const enrollments = '/api/v1/linux-agents/enrollments';
+  const all = json(await request('GET', inventory, 'qa-admin'));
+  assert.equal(all.items.some((item: { id: string }) => item.id === hidden.id), true);
+  const scoped = await request('GET', `${inventory}?siteId=${ids.siteA}`, 'qa-readonly');
+  assert.equal(scoped.statusCode, 200);
+  const items = json(scoped).items;
+  assert.equal(items.some((item: { id: string }) => item.id === hidden.id), false);
+  assert.equal(items.find((item: { id: string }) => item.id === host.id).agent, null);
+  assert.deepEqual(items.find((item: { id: string }) => item.id === ids.hostMulti).ipAddresses.map((ip: { address: string }) => ip.address), ['10.250.1.10']);
+  assert.equal((await request('GET', `${inventory}/${hidden.id}/services`, 'qa-readonly')).statusCode, 404);
+  const services = await request('GET', `${inventory}/${ids.hostManual}/services`, 'qa-readonly');
+  assert.equal(services.statusCode, 200);
+  assert.equal(json(services)[0].name, 'Manual HTTP');
+
+  assert.equal((await request('POST', enrollments, 'qa-readonly', { hostId: host.id })).statusCode, 403);
+  const responses = await Promise.all([
+    request('POST', enrollments, 'qa-admin', { hostId: host.id }),
+    request('POST', enrollments, 'qa-admin', { hostId: host.id }),
+  ]);
+  assert.deepEqual(responses.map((result) => result.statusCode), [201, 201]);
+  assert.equal(responses.every((result) => result.headers['cache-control'] === 'no-store'), true);
+  const bodies = responses.map(json);
+  assert.equal(bodies.filter((body) => typeof body.token === 'string').length, 1);
+  assert.equal(bodies.filter((body) => body.tokenAlreadyIssued === true).length, 1);
+  const { id: agentId, token } = bodies.find((body) => body.token);
+  const revoke = `/api/v1/linux-agents/${agentId}`;
+  assert.equal((await request('DELETE', revoke, 'qa-readonly')).statusCode, 403);
+
+  const heartbeat = (hostname: string) => app.inject({
+    method: 'POST',
+    url: '/api/v1/linux-agents/heartbeat',
+    headers: { authorization: `Bearer ${token}` },
+    payload: { hostname, os: 'Linux', osVersion: '6', agentVersion: '1.0.0' },
+  });
+  assert.equal((await heartbeat('step26-host')).statusCode, 200);
+  const current = () => request('GET', inventory, 'qa-admin').then(json).then((data) => data.items.find((item: { id: string }) => item.id === host.id));
+  const online = await current();
+  assert.equal(online.agent.state, 'ONLINE');
+  assert.equal('token' in online.agent || 'tokenHash' in online.agent, false);
+  assert.equal(typeof all.staleMinutes, 'number');
+  await prisma.linuxAgent.update({ where: { id: agentId }, data: { lastHeartbeatAt: new Date(Date.now() - (all.staleMinutes + 1) * 60_000) } });
+  assert.equal((await current()).agent.state, 'STALE');
+  assert.equal((await request('DELETE', revoke, 'qa-admin')).statusCode, 200);
+  assert.equal((await heartbeat('must-not-be-written')).statusCode, 401);
+  const revoked = await current();
+  assert.equal(revoked.agent.state, 'REVOKED');
+  assert.equal(revoked.hostname, 'step26-host');
+
+  const audit = await request('GET', `/api/v1/audit/events/page?entityId=${agentId}`, 'qa-auditor');
+  assert.equal(audit.statusCode, 200);
+  assert.deepEqual(json(audit).items.map((event: { action: string }) => event.action).sort(), ['LINUX_AGENT_ENROLLED', 'LINUX_AGENT_REVOKED']);
+  assert.equal(audit.body.includes(token), false);
+  const replacement = json(await request('POST', enrollments, 'qa-admin', { hostId: host.id }));
+  assert.equal(typeof replacement.token === 'string' && replacement.token !== token, true);
+  assert.equal((await heartbeat('old-token')).statusCode, 401);
+  await prisma.host.update({ where: { id: host.id }, data: { deviceId: null } });
+  assert.equal((await request('DELETE', revoke, 'qa-admin')).statusCode, 200);
+});
+
 test('requires a current planned-change impact preview before review submission', async () => {
   await prisma.deviceConnection.create({ data: { siteId: ids.siteA, type: 'PHYSICAL', source: 'SNMP', sourceDeviceId: ids.deviceA2, targetDeviceId: ids.deviceSibling, label: 'Unrelated observed link' } });
   const start = new Date(Date.now() + 60 * 60 * 1000);

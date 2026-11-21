@@ -1,5 +1,6 @@
 'use client';
 
+import { ipStateLabel } from '../ip-state';
 import { useMemo, useState } from 'react';
 import { Edit3, ListChecks, Network, Plus, Trash2 } from 'lucide-react';
 import type { IpAddressRow, ReserveNextIpsResult, Subnet, SubnetCapacityHistory, SubnetUsage } from '../types';
@@ -9,7 +10,7 @@ import { SubnetCapacityTrend } from './subnet-capacity-trend';
 import { NextFreeIpModal } from './next-free-ip-modal';
 import { formatDateTime } from '@/lib/format/date';
 import { DataTable, sortByColumns, useTableUrlState, type DataTableColumn, type TableStateConfig } from '@/components/data-table';
-import { utilizationBadge, utilizationBandOptions, utilizationSortValue } from '../utilization';
+import { formatIpamPercent, utilizationBadge, utilizationBandOptions, utilizationSortValue } from '../utilization';
 
 const subnetTableConfig: TableStateConfig<{ band: string }> = {
   filters: { band: '' },
@@ -86,7 +87,7 @@ export function SubnetsView({ selected, items, loading = false, usage, usageLoad
     <div className="usage-summary" aria-busy={usageLoading}>{usageLoading ? <div className="usage-summary-skeletons"><span className="content-skeleton usage-skeleton-primary"/><span className="content-skeleton usage-skeleton-detail"/><span className="content-skeleton usage-skeleton-detail short"/></div> : usage?.version === 6
       ? <><strong>{usage.known} endereços geridos</strong><span>{usage.occupied} ocupados · {usage.reserved} reservados · {usage.excluded} excluídos</span><span>Capacidade livre do prefixo não enumerada</span></>
       : usage?.version === 4
-        ? <><strong>{usage.free ?? '—'} livres</strong><span>{usage.occupied} ocupados · {usage.reserved} reservados · {usage.excluded} excluídos</span><span>{usage.utilizationPercent ?? 0}% capacidade alocada</span></>
+        ? <><strong>{usage.free ?? '—'} livres</strong><span>{usage.occupied} ocupados · {usage.reserved} reservados · {usage.excluded} excluídos</span><span>{formatIpamPercent(usage.utilizationPercent ?? 0)} capacidade alocada</span></>
         : <><strong>—</strong><span>Capacidade indisponível</span></>}</div>
     <SubnetCapacityTrend history={capacityHistory} loading={capacityHistoryLoading} />
     <div className="subnet-ip-toolbar"><strong>Hosts e endereços IP</strong></div>
@@ -94,7 +95,7 @@ export function SubnetsView({ selected, items, loading = false, usage, usageLoad
       <thead><tr><th>IP</th><th>Estado manual / observado</th><th>Host</th><th>Hostname</th><th>Ações</th></tr></thead>
       <tbody>{loadingIps ? [0, 1, 2].map((item) => <tr className="ip-table-skeleton-row" aria-hidden="true" key={item}><td colSpan={5}><span className="content-skeleton ip-table-skeleton-line"/></td></tr>) : ips.map((ip) => { const reservation = ip.reservation ?? ip.reservations?.find((item) => item.status === 'ACTIVE') ?? null; return <tr key={ip.id}>
         <td className="mono">{ip.address}</td>
-        <td>{reservation ? 'RESERVED' : ip.state} / {ip.observedState || '—'}{reservation && <small className="reservation-summary">Até {formatDateTime(reservation.expiresAt)} · {reservation.reason}</small>}</td>
+        <td>{ipStateLabel(reservation ? 'RESERVED' : ip.state)} / {ipStateLabel(ip.observedState)}{reservation && <small className="reservation-summary">Até {formatDateTime(reservation.expiresAt)} · {reservation.reason}</small>}</td>
         <td>{ip.host
           ? <button className="link-button" onClick={() => openHost(ip.host!.id)}>{ip.host.name} · {ip.host._count?.services ?? 0} services</button>
           : canEdit && !reservation && ip.state === 'FREE' ? <button className="secondary-button" onClick={() => createHost(ip)}><Plus size={13} /> Criar/associar Host</button> : '—'}</td>
