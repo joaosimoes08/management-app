@@ -561,7 +561,8 @@ test('persists per-user preferences and skips delivery for each muted notificati
   await app.get(CriticalAssetsService).runWeeklyChecks(due);
   await deliverLifecycleReminders(prisma, due);
   const inbox = async (persona: string) => json(await request('GET', '/api/v1/notifications', persona)).items;
-  assert.deepEqual(await inbox(muted), []);
+  // Muted topics silence incoming notices, but the requester's own role-request outcome always reaches them.
+  assert.deepEqual((await inbox(muted)).map((item: { type: string }) => item.type), ['ROLE_REQUEST_REJECTED']);
   const received = await inbox(receiver);
   assert.deepEqual(received.map((item: { type: string }) => item.type).sort(), ['CRITICAL_ASSET_ATTESTATION', 'LIFECYCLE_DATE', 'ROLE_REQUEST_REJECTED']);
   assert.ok(received.find((item: { type: string }) => item.type === 'LIFECYCLE_DATE').href.includes(`lifecycleId=${date.id}`));
@@ -572,7 +573,7 @@ test('persists per-user preferences and skips delivery for each muted notificati
   const newRequest = await prisma.roleRequest.create({ data: { userId: ids.readonly, roles: ['AUDITOR'] } });
   roleRequests.push(newRequest);
   assert.equal((await request('PATCH', `/api/v1/settings/role-requests/${newRequest.id}`, 'qa-admin', { decision: 'REJECT' })).statusCode, 200);
-  assert.equal((await inbox(muted)).length, 1);
+  assert.equal((await inbox(muted)).length, 2);
 });
 
 test('protects the last ADMIN through the HTTP settings endpoint', async () => {
