@@ -41,3 +41,19 @@ test('bulk snooze validates once and uses the same end time for every item', asy
   await assert.rejects(service.bulk({ id: 'u', roles: ['ADMIN'] } as any, { action: 'ACKNOWLEDGE', ids: ['a'], durationHours: 2 }), BadRequestException);
   await assert.rejects(service.bulk({ id: 'u', roles: ['ADMIN'] } as any, { action: 'SNOOZE', ids: ['a'], durationHours: 2, userId: null }), BadRequestException);
 });
+
+test('bulk turns an unexpected error into a per-item ERROR and keeps going', async () => {
+  const service = new InventoryQualityService({} as any, {} as any, {} as any, {} as any, {} as any);
+  const calls: string[] = [];
+  (service as any).acknowledge = async (_user: unknown, id: string) => {
+    calls.push(id);
+    if (id === 'boom') throw new Error('connection terminated: secret-host:5432');
+    return { id, status: 'ACKNOWLEDGED' };
+  };
+  const result = await service.bulk({ id: 'u', roles: ['ADMIN'] } as any, { action: 'ACKNOWLEDGE', ids: ['a', 'boom', 'b'] });
+  assert.deepEqual(calls, ['a', 'boom', 'b']);
+  assert.equal(result.succeeded, 2); assert.equal(result.failed, 1);
+  const failed = result.results[1];
+  assert.equal(failed.code, 'ERROR'); assert.equal(failed.ok, false);
+  assert.doesNotMatch(failed.message ?? '', /secret-host/);
+});
