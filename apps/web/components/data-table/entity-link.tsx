@@ -21,7 +21,7 @@ const query = (values: Record<string, string | null | undefined>) => {
 
 /**
  * Where an entity opens, using only routes that exist today:
- * - device → Mapa físico device panel (`/infraestrutura?tab=devices&deviceId=`)
+ * - device → Mapa físico device panel (`/infraestrutura?tab=devices&deviceId=&focus=device`)
  * - subnet → IPAM subnet (`/ipam?subnetId=`)
  * - ip → IPAM subnet with the IP panel open (`/ipam?subnetId=&ipId=`)
  *
@@ -33,7 +33,7 @@ const query = (values: Record<string, string | null | undefined>) => {
 export function entityHref(entity: Omit<EntityRef, 'label'> & { label?: string }): string {
   const siteId = entity.siteId ?? undefined;
   switch (entity.kind) {
-    case 'device': return `/infraestrutura${query({ siteId, tab: 'devices', deviceId: entity.id })}`;
+    case 'device': return `/infraestrutura${query({ siteId, tab: 'devices', deviceId: entity.id, focus: 'device' })}`;
     case 'subnet': return `/ipam${query({ siteId, subnetId: entity.id })}`;
     case 'ip': return entity.subnetId ? `/ipam${query({ siteId, subnetId: entity.subnetId, ipId: entity.id })}` : `/ipam${query({ siteId, q: entity.label || entity.id })}`;
     case 'change': return `/alteracoes${query({ siteId, q: entity.label || entity.id })}`;

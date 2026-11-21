@@ -7,7 +7,7 @@ afterEach(cleanup);
 
 describe('entityHref', () => {
   it('uses the existing detail routes for devices, subnets and IPs', () => {
-    expect(entityHref({ kind: 'device', id: 'd 1', siteId: 's1' })).toBe('/infraestrutura?siteId=s1&tab=devices&deviceId=d+1');
+    expect(entityHref({ kind: 'device', id: 'd 1', siteId: 's1' })).toBe('/infraestrutura?siteId=s1&tab=devices&deviceId=d+1&focus=device');
     expect(entityHref({ kind: 'subnet', id: 'n1', siteId: 's1' })).toBe('/ipam?siteId=s1&subnetId=n1');
     expect(entityHref({ kind: 'ip', id: 'ip1', subnetId: 'n1', siteId: 's1' })).toBe('/ipam?siteId=s1&subnetId=n1&ipId=ip1');
   });
@@ -17,14 +17,14 @@ describe('entityHref', () => {
     expect(entityHref({ kind: 'change', id: 'c1', label: 'Troca do core', siteId: 's1' })).toBe('/alteracoes?siteId=s1&q=Troca+do+core');
     expect(entityHref({ kind: 'change', id: 'c1' })).toBe('/alteracoes?q=c1');
     expect(entityHref({ kind: 'audit', id: 'evt-9', label: 'USER_UPDATED' })).toBe('/auditoria?q=evt-9');
-    expect(entityHref({ kind: 'device', id: 'd1' })).toBe('/infraestrutura?tab=devices&deviceId=d1');
+    expect(entityHref({ kind: 'device', id: 'd1' })).toBe('/infraestrutura?tab=devices&deviceId=d1&focus=device');
   });
 });
 
 describe('EntityLink', () => {
   it('renders a plain link with the label, or custom content and class', () => {
     render(<><EntityLink kind="device" id="d1" label="Core switch" siteId="s1" /><EntityLink kind="subnet" id="n1" label="10.0.0.0/24" className="secondary-button" aria-label="Abrir subnet 10.0.0.0/24">Abrir</EntityLink></>);
-    expect(screen.getByRole('link', { name: 'Core switch' })).toHaveAttribute('href', '/infraestrutura?siteId=s1&tab=devices&deviceId=d1');
+    expect(screen.getByRole('link', { name: 'Core switch' })).toHaveAttribute('href', '/infraestrutura?siteId=s1&tab=devices&deviceId=d1&focus=device');
     const custom = screen.getByRole('link', { name: 'Abrir subnet 10.0.0.0/24' });
     expect(custom).toHaveClass('secondary-button');
     expect(custom).toHaveTextContent('Abrir');
