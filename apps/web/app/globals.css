@@ -1807,7 +1807,8 @@ body { color:var(--ink); background:#e9eef5; }
 .context-toolbar { position:relative; z-index:8; display:flex; align-items:center; justify-content:space-between; gap:16px; min-height:68px; padding:11px 24px; background:#f4f7fc; border-bottom:1px solid #dce4ef; box-shadow:0 3px 10px rgba(33,52,83,.035); }
 .context-toolbar-navigation,.context-toolbar-actions { display:flex; align-items:center; gap:9px; min-width:0; }
 .context-toolbar-navigation { flex:1 1 auto; overflow-x:auto; scrollbar-width:thin; scrollbar-color:#bac8dd transparent; }
-.context-toolbar-actions { flex:0 1 auto; justify-content:flex-end; flex-wrap:wrap; }
+/* safe: when the actions are wider than the bar they overflow to the right (reachable), never off the left edge. */
+.context-toolbar-actions { flex:0 1 auto; justify-content:safe flex-end; flex-wrap:wrap; }
 .context-toolbar .infra-menu,.context-toolbar .ipam-tabs,.context-toolbar .settings-tabs { display:flex; flex:0 0 auto; align-items:center; gap:4px; margin:0; padding:4px; overflow:visible; border:1px solid #dce4ef; border-radius:13px; background:#eaf0f8; }
 .context-toolbar .infra-menu button,.context-toolbar .ipam-tabs button,.context-toolbar .settings-tabs button { min-height:38px; padding:0 13px; color:#586982; border:0; border-radius:9px; background:transparent; font-size:12px; font-weight:600; white-space:nowrap; transition:color .16s ease,background-color .16s ease,box-shadow .16s ease; }
 .context-toolbar .infra-menu button:hover,.context-toolbar .ipam-tabs button:hover,.context-toolbar .settings-tabs button:hover { color:#1c3152; background:rgba(255,255,255,.7); }
@@ -2303,7 +2304,9 @@ body { color:var(--ink); background:#e9eef5; }
 .app-shell-content .infrastructure-workspace:has(.rack-room-section) { padding-top:6px; }
 .app-shell-content .infrastructure-workspace .section-kicker { display:none; }
 .context-toolbar-contribution:has(.device-list-toolbar) { flex:1 1 100%; min-width:0; }
-.context-toolbar-contribution .device-list-toolbar { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:8px; width:100%; min-width:0; }
+.context-toolbar-contribution .device-list-toolbar { display:flex; align-items:center; justify-content:safe flex-end; flex-wrap:wrap; gap:8px; width:100%; min-width:0; }
+/* Infraestrutura: the tag filter and saved-view controls wrap inside the toolbar instead of pushing "Etiqueta" past the left edge and squeezing "Vista" to its arrow. */
+.context-toolbar-contribution .device-list-toolbar .interface-toolbar-controls { flex-wrap:wrap; justify-content:safe flex-end; min-width:0; row-gap:8px; }
 
 .device-selection-dropdown { position:relative; flex:none; }
 .device-selection-trigger { display:flex; align-items:center; gap:7px; min-height:35px; padding:0 10px; color:#3a506f; border:1px solid #d5deeb; border-radius:9px; background:#fff; font-size:11px; font-weight:600; cursor:pointer; transition:background-color .16s ease,border-color .16s ease,box-shadow .16s ease; }
@@ -2340,7 +2343,8 @@ body { color:var(--ink); background:#e9eef5; }
 @media (prefers-reduced-motion:reduce) { .device-selection-trigger { transition:none; }.device-selection-menu,.device-selection-menu.closing,.device-bulk-popover,.device-bulk-popover.closing { animation:none; } }
 @media (max-width:780px) {
   .context-toolbar-contribution:has(.device-list-toolbar) { width:100%; }
-  .context-toolbar-contribution .device-list-toolbar { justify-content:flex-end; flex-wrap:wrap; }
+  .context-toolbar-contribution .device-list-toolbar { justify-content:safe flex-end; flex-wrap:wrap; }
+  .context-toolbar-contribution .device-list-toolbar .interface-toolbar-controls select { min-width:90px; }
 }
 
 .modal-card.entry-motion { animation:device-edit-entry .18s cubic-bezier(.22,.61,.36,1) both; }

@@ -88,6 +88,12 @@ describe('AppShell breadcrumb', () => {
     expect(title.querySelector('span')).toBeNull();
   });
 
+  it('does not repeat the section title when the page h1 already shows it', () => {
+    render(<AppShell section="Perfil" showSectionTitle={false} context={['Perfil']}><h1>Perfil</h1></AppShell>);
+    expect((document.querySelector('.context-toolbar-title') as HTMLElement).querySelector('strong')).toBeNull();
+    expect(screen.getAllByText('Perfil')).toHaveLength(1);
+  });
+
   it('keeps a breadcrumb that names the active tab', () => {
     render(<AppShell section="Perfil" context={['Notificações']}><p>Content</p></AppShell>);
     expect((document.querySelector('.context-toolbar-title') as HTMLElement).querySelector('span')).toHaveTextContent('Notificações');
