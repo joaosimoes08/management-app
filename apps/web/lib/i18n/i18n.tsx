@@ -5,6 +5,7 @@ import { useAuth } from '@/lib/auth';
 import { translateLegacyText } from './legacy-messages';
 import { apiFetch } from '@/lib/api/client';
 import { getConfiguredLocale, hasSavedOrganizationLocale } from '@/lib/runtime-config';
+import { setFormatLocale } from '@/lib/format/date';
 
 export type AppLocale = 'pt-PT' | 'en-US';
 const messages: Record<AppLocale, Record<string, string>> = {
@@ -159,6 +160,8 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     return observeLegacyDom(locale, document.body);
   }, [locale]);
+  // Keep the shared date/number formatters on the active language before children render.
+  setFormatLocale(locale);
   const value = useMemo<I18nValue>(() => ({
     locale,
     setLocale,

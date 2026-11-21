@@ -6,11 +6,13 @@ import { Check, ChevronLeft, ChevronRight, Edit3, Plus, Trash2, Users } from 'lu
 import type { Site } from '@/features/infrastructure/types';
 import { listAccessGroups, listAccessGroupUsers, mutateSettings, settingsKeys } from '../api';
 import { PageToolbarPortal } from '@/components/layout/app-shell';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 
 const emptyForm = { id: '', name: '', description: '', siteSelection: '' };
 const membersPerPage = 8;
 
 export function AccessGroupsSettings({ sites }: { sites: Site[] }) {
+  const { confirm: askConfirm, confirmDialog } = useConfirm();
   const queryClient = useQueryClient();
   const [form, setForm] = useState(emptyForm);
   const [expandedGroupId, setExpandedGroupId] = useState('');
@@ -36,14 +38,14 @@ export function AccessGroupsSettings({ sites }: { sites: Site[] }) {
     mutate('/api/v1/settings/access-groups', 'POST', { name: form.name, description: form.description || undefined, siteIds });
   };
 
-  const toggleSite = (groupId: string, siteId: string, assigned: boolean) => {
-    if (assigned && !window.confirm('Remover este grupo do Site? As permissões IPAM desse Site também serão removidas.')) return;
+  const toggleSite = async (groupId: string, siteId: string, assigned: boolean) => {
+    if (assigned && !(await askConfirm({ title: 'Remover grupo do Site', message: 'Remover este grupo do Site? As permissões IPAM desse Site também serão removidas.', confirmLabel: 'Remover', destructive: true }))) return;
     mutate(`/api/v1/settings/access-groups/${groupId}/sites/${siteId}`, assigned ? 'DELETE' : 'PUT', assigned ? undefined : { permissions: [] });
   };
 
   const setMemberPage = (groupId: string, page: number) => setMemberPages((current) => ({ ...current, [groupId]: page }));
 
-  return <section className="ipam-card settings-panel permissions-panel">
+  return <>{confirmDialog}<section className="ipam-card settings-panel permissions-panel">
     <div className="panel-heading"><div><h2>Grupos de acesso</h2><p className="panel-description">Cria os grupos, define os membros e associa-os aos Sites. As permissões são configuradas nas tabs Permissões do IPAM e da Infraestrutura.</p></div></div>
     {error && <div className="ipam-alert error">{error}</div>}
     <form className="inline-create group-create-form" id="settings-access-groups-form" onSubmit={submit}>
@@ -67,7 +69,7 @@ export function AccessGroupsSettings({ sites }: { sites: Site[] }) {
         return <article className={`group-accordion-item ${expanded ? 'open' : ''}`} key={group.id}>
           <button type="button" className="group-accordion-trigger" aria-expanded={expanded} onClick={() => { setExpandedGroupId(expanded ? '' : group.id); setAddingGroupId(''); }}><span><ChevronRight size={16} className={expanded ? 'expanded' : ''} /><strong>{group.name}</strong></span><span>{group.members.length} {group.members.length === 1 ? 'membro' : 'membros'}</span></button>
           {expanded && <div className="group-accordion-content">
-            <div className="group-detail-head"><div><small>Descrição</small><p>{group.description || 'Sem descrição'}</p></div><div className="row-actions"><button title="Editar grupo" onClick={() => setForm({ id: group.id, name: group.name, description: group.description || '', siteSelection: '' })}><Edit3 size={14} /></button><button title="Eliminar grupo" className="danger" onClick={() => window.confirm(`Eliminar o grupo ${group.name}?`) && mutate(`/api/v1/settings/access-groups/${group.id}`, 'DELETE')}><Trash2 size={14} /></button></div></div>
+            <div className="group-detail-head"><div><small>Descrição</small><p>{group.description || 'Sem descrição'}</p></div><div className="row-actions"><button title="Editar grupo" onClick={() => setForm({ id: group.id, name: group.name, description: group.description || '', siteSelection: '' })}><Edit3 size={14} /></button><button title="Eliminar grupo" className="danger" onClick={() => void askConfirm({ message: `Eliminar o grupo ${group.name}?`, destructive: true }).then((confirmed) => { if (confirmed) mutate(`/api/v1/settings/access-groups/${group.id}`, 'DELETE'); })}><Trash2 size={14} /></button></div></div>
             <div className="group-sites"><small>Sites</small><div className="permission-matrix">{sites.map((site) => { const assigned = group.siteAssignments.some((item) => item.siteId === site.id); return <label className={`permission-chip site-toggle ${assigned ? 'assigned' : ''}`} key={site.id}><input type="checkbox" checked={assigned} disabled={saving} onChange={() => toggleSite(group.id, site.id, assigned)} />{site.name}</label>; })}</div></div>
             <div className="group-members-head"><small>Membros</small><button type="button" className="icon-button group-add-member" title="Adicionar membro" aria-label={`Adicionar membro a ${group.name}`} onClick={() => setAddingGroupId(addingGroupId === group.id ? '' : group.id)}><Plus size={15} /></button></div>
             {addingGroupId === group.id && <div className="group-member-picker">{availableUsers.map((user) => <button type="button" key={user.id} disabled={saving} onClick={() => { setAddingGroupId(''); mutate(`/api/v1/settings/access-groups/${group.id}/members`, 'POST', { userId: user.id }); }}><span className="user-status-icon"><Users size={13} /></span><span><strong>{user.displayName || user.username}</strong><small>{user.username}{user.email ? ` · ${user.email}` : ''}</small></span></button>)}{!availableUsers.length && <span>Não existem mais utilizadores disponíveis.</span>}</div>}
@@ -78,5 +80,5 @@ export function AccessGroupsSettings({ sites }: { sites: Site[] }) {
       })}
       {!groups.length && !groupsQuery.isLoading && <div className="empty-context"><Users size={22} /><strong>Ainda não existem grupos</strong></div>}
     </div>
-  </section>;
+  </section></>;
 }

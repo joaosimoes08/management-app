@@ -5,6 +5,7 @@ import { AppShell, PageToolbarPortal } from '@/components/layout/app-shell';
 import { useAuth } from '@/lib/auth';
 import { useSiteContext } from '@/lib/site-context';
 import { cancelChangePlan, createChangePlan, getChangeCandidates, getChangePlan, listChangePlans, previewChangePlan, reviewChangePlan, submitChangePlan, updateChangePlan, type ChangeCandidate, type ChangeDraft, type ChangeEntityType, type ChangeItem, type ChangePlan, type ImpactNode, type ImpactPreview } from './api';
+import { formatDateTime } from '@/lib/format/date';
 
 const types: ChangeEntityType[] = ['DEVICE', 'INTERFACE', 'VLAN', 'SUBNET', 'IP_ADDRESS', 'HOST', 'SERVICE'];
 const typeLabels: Record<ChangeEntityType, string> = { DEVICE: 'Equipamento', INTERFACE: 'Interface', VLAN: 'VLAN', SUBNET: 'Subnet', IP_ADDRESS: 'Endereço IP', HOST: 'Host', SERVICE: 'Serviço' };
@@ -12,7 +13,7 @@ const statusLabels: Record<string, string> = { DRAFT: 'Rascunho', SUBMITTED: 'Su
 const blankDraft = (): ChangeDraft => ({ siteId: '', title: '', reason: '', plannedStartAt: '', plannedEndAt: '', items: [] });
 const localInput = (value?: string) => { if (!value) return ''; const date = new Date(value); const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000); return local.toISOString().slice(0, 16); };
 const isoValue = (value: string) => value ? new Date(value).toISOString() : '';
-const dateTime = (value: string) => new Date(value).toLocaleString('pt-PT', { dateStyle: 'medium', timeStyle: 'short' });
+const dateTime = (value: string) => formatDateTime(value, { dateStyle: 'medium', timeStyle: 'short' });
 type SelectedPlan = ChangePlan & { previewUi?: { revision: number; status: 'calculating' } | { revision: number; status: 'complete'; snapshot: ImpactPreview } };
 
 export function ChangePlansPage() {

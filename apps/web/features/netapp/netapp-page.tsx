@@ -7,10 +7,11 @@ import { AppShell } from '@/components/layout/app-shell';
 import { useAuth } from '@/lib/auth';
 import { useSiteContext } from '@/lib/site-context';
 import { configureNetAppIntegration, getNetAppIntegration, refreshNetAppSnapshot, type NetAppIntegrationInput, type NetAppSnapshot } from './api';
+import { formatDateTime, formatNumber } from '@/lib/format/date';
 
 const emptyForm = { endpointUrl: '', username: '', password: '' };
-const formatBytes = (value?: number | null) => typeof value === 'number' && Number.isFinite(value) ? new Intl.NumberFormat('pt-PT', { style: 'unit', unit: 'byte', unitDisplay: 'narrow', notation: 'compact', maximumFractionDigits: 1 }).format(value) : '—';
-const dateLabel = (value?: string | null) => value ? new Date(value).toLocaleString('pt-PT') : '—';
+const formatBytes = (value?: number | null) => typeof value === 'number' && Number.isFinite(value) ? formatNumber(value, { style: 'unit', unit: 'byte', unitDisplay: 'narrow', notation: 'compact', maximumFractionDigits: 1 }) : '—';
+const dateLabel = (value?: string | null) => value ? formatDateTime(value) : '—';
 const messageOf = (value: unknown) => value instanceof Error ? value.message : 'A operação NetApp falhou.';
 
 export default function NetAppPage() {
