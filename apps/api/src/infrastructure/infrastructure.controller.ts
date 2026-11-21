@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Put, Query, Req, Res } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
+import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { Roles } from '../auth/roles.decorator';
 import { CreateAssetDto, CreateBuildingDto, CreateDeviceDto, CreateDeviceModelDto, CreateInfrastructurePermissionDto, CreateInterfaceDto, CreateRackDto, CreateRackModelDto, CreateRoomDto, DetectPortLayoutDto, SavePortLayoutFacesDto, PlaceDeviceDto, ReorderRacksDto, UpdateBuildingDto, UpdateDeviceDto, UpdateDeviceModelDto, UpdateInfrastructurePermissionDto, UpdateInterfaceDto, UpdatePortLayoutDto, UpdateRackDto, UpdateRackModelDto, UpdateRoomDto } from './dto';
@@ -12,16 +13,17 @@ import { parsePortLayoutFace } from './port-layout';
 @ApiTags('infrastructure') @ApiBearerAuth()
 @Controller({ version: '1' })
 export class InfrastructureController {
-  constructor(private readonly service: InfrastructureService, private readonly access: InfrastructureAccessService) {}
+  constructor(private readonly service: InfrastructureService, private readonly access: InfrastructureAccessService, private readonly audit: AuditService) {}
   @Get('access/effective') effectiveAccess(@Query('siteId') siteId: string, @Req() req: { user: AuthenticatedUser }) { return this.access.effectiveAccess(req.user, siteId); }
   @Get('assets') @Roles('ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR') assets(@Query('kind') kind?: string) { return this.service.listAssets(kind); }
   @Post('assets') @Roles('ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR') createAsset(@Body() dto: CreateAssetDto, @Req() req: { user: AuthenticatedUser }) { return this.service.createAsset(dto, req.user); }
   @Get('assets/:id/file') @Throttle(ASSET_FILE_THROTTLE)
-  async assetFile(@Param('id') id: string, @Headers('if-none-match') ifNoneMatch: string | undefined, @Res() reply: any) {
+  async assetFile(@Param('id') id: string, @Headers('if-none-match') ifNoneMatch: string | undefined, @Req() req: { user: AuthenticatedUser }, @Res() reply: any) {
     const result = await this.service.assetFile(id, ifNoneMatch);
     reply.header('Cache-Control', ASSET_CACHE_CONTROL);
     reply.header('ETag', result.etag);
     if (result.notModified) return reply.code(304).send();
+    await this.audit.record({ userId: req.user.id, action: 'ASSET_FILE_DOWNLOADED', entityType: 'Asset', entityId: id, metadata: { filename: result.asset.filename } });
     reply.type(result.asset.mimeType);
     reply.header('Content-Disposition', `inline; filename="${result.asset.filename.replace(/"/g, '')}"`);
     reply.header('Content-Security-Policy', "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox");

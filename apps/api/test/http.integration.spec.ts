@@ -1636,6 +1636,43 @@ test('Phase D search: opt-in types, audit only for ADMIN and AUDITOR, change pla
   assert.equal((await request('GET', '/api/v1/dashboard/search?q=Zebrafish&types=PEOPLE', 'qa-admin')).statusCode, 400);
 });
 
+test('Step 20 audit: reads are not audited and search skips HTTP_REQUEST rows', async () => {
+  // A GET is not written to AuditLog, so its URL cannot later match the search that issued it.
+  const term = 'step20probe';
+  const before = await prisma.auditLog.count({ where: { action: { contains: term } } });
+  assert.equal((await request('GET', `/api/v1/dashboard/search?q=${term}&types=AUDIT_EVENT`, 'qa-auditor')).statusCode, 200);
+  assert.equal(await prisma.auditLog.count({ where: { action: { contains: term } } }), before);
+
+  // Rows that are HTTP_REQUEST never appear as AUDIT_EVENT results, even when the term matches their action.
+  await prisma.auditLog.create({ data: { userId: ids.admin, action: 'POST /api/v1/step20probe-http', entityType: 'HTTP_REQUEST', metadata: { statusCode: 201 } } });
+  await prisma.auditLog.create({ data: { userId: ids.admin, action: 'STEP20_PROBE_EVENT', entityType: 'Device', entityId: ids.deviceA } });
+  const hits = json(await request('GET', `/api/v1/dashboard/search?q=${term}&types=AUDIT_EVENT`, 'qa-auditor')).items as Array<{ title: string }>;
+  assert.deepEqual(hits.map((item) => item.title), []);
+  const events = json(await request('GET', '/api/v1/dashboard/search?q=STEP20_PROBE&types=AUDIT_EVENT', 'qa-auditor')).items as Array<{ title: string }>;
+  assert.deepEqual(events.map((item) => item.title), ['STEP20_PROBE_EVENT']);
+});
+
+test('Step 20 export trail: sensitive exports write explicit audit events', async () => {
+  const term = 'step20exportprobe';
+  await prisma.auditLog.create({ data: { userId: ids.admin, action: term, entityType: 'Device', entityId: ids.deviceA } });
+
+  // The audit CSV export is a GET, so it must leave its own explicit row (no HTTP_REQUEST-only trace).
+  const csv = await request('GET', `/api/v1/audit/events/export?action=${term}`, 'qa-auditor');
+  assert.equal(csv.statusCode, 200, csv.body);
+  const exported = await prisma.auditLog.findFirst({ where: { action: 'AUDIT_EVENTS_EXPORTED', userId: ids.auditor }, orderBy: { createdAt: 'desc' } });
+  assert.ok(exported, 'AUDIT_EVENTS_EXPORTED row missing');
+  const metadata = exported.metadata as { filters: Record<string, unknown>; rowCount: number; truncated: boolean };
+  assert.equal(metadata.filters.action, term);
+  assert.equal(metadata.rowCount, 1);
+  assert.equal(metadata.truncated, false);
+
+  // Ansible inventory export and an explicit data export each record their own event.
+  assert.equal((await request('GET', '/api/v1/exports/ansible', 'qa-auditor')).statusCode, 200);
+  assert.ok(await prisma.auditLog.findFirst({ where: { action: 'ANSIBLE_INVENTORY_EXPORTED', userId: ids.auditor } }), 'ANSIBLE_INVENTORY_EXPORTED row missing');
+  assert.equal((await request('GET', '/api/v1/exports/devices/csv', 'qa-auditor')).statusCode, 200);
+  assert.ok(await prisma.auditLog.findFirst({ where: { action: 'DATA_EXPORTED', userId: ids.auditor, entityType: 'Export' } }), 'DATA_EXPORTED row missing');
+});
+
 test('Phase E portal: favourites, check-all link health and the pending role-request queue', async () => {
   const server = createServer((req, res) => { res.statusCode = req.url === '/down' ? 503 : 200; res.end(); });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
