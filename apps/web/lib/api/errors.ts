@@ -9,6 +9,8 @@ export type ApiErrorPayload = {
   mapped?: number;
   /** PORT_LAYOUT_CONFLICT: the current revision. */
   revision?: string;
+  /** CRITICAL_ASSET_ATTESTATION_ALREADY_RECORDED: the cycle that was already reviewed and by whom. */
+  details?: { attestationId?: string; weekStart?: string; outcome?: string | null; confirmedAt?: string | null; confirmedBy?: string | null; confirmedByName?: string | null };
 };
 
 export const localizedApiErrors: Record<string, Record<string, string>> = {
@@ -41,6 +43,7 @@ export const localizedApiErrors: Record<string, Record<string, string>> = {
     PORT_LAYOUT_TOO_MANY_PORTS: 'O mapa tem mais portas do que o modelo. Remove as portas a mais.',
     PORT_LAYOUT_CONFLICT: 'Alterado por outra pessoa — recarrega.',
     ASSET_NOT_IMAGE: 'O ficheiro escolhido não é uma imagem. Escolhe uma imagem PNG, JPG, SVG ou WebP.',
+    CRITICAL_ASSET_ATTESTATION_ALREADY_RECORDED: 'A revisão desta semana já foi registada. Não é possível registar outra para o mesmo ciclo.',
   },
   'en-US': {
     APPLICATION_ROLE_REQUIRED: 'The user must retain at least one application role.',
@@ -71,6 +74,7 @@ export const localizedApiErrors: Record<string, Record<string, string>> = {
     PORT_LAYOUT_TOO_MANY_PORTS: 'The map has more ports than the model. Remove the extra ports.',
     PORT_LAYOUT_CONFLICT: 'Changed by someone else — reload.',
     ASSET_NOT_IMAGE: 'The chosen file is not an image. Choose a PNG, JPG, SVG or WebP image.',
+    CRITICAL_ASSET_ATTESTATION_ALREADY_RECORDED: 'This week\'s review has already been recorded. Another one cannot be recorded for the same cycle.',
   },
 };
 
@@ -101,9 +105,20 @@ function portLayoutIncompleteMessage(payload: ApiErrorPayload, locale: ApiLocale
   return undefined;
 }
 
+/** The API's Portuguese text already names the week and reviewer; English is rebuilt from `details`. */
+function attestationAlreadyRecordedMessage(payload: ApiErrorPayload, locale: ApiLocale): string | undefined {
+  if (locale === 'pt-PT') return typeof payload.message === 'string' && payload.message.trim() ? payload.message : undefined;
+  const week = payload.details?.weekStart;
+  if (!week) return undefined;
+  const by = payload.details?.confirmedByName ? ` by ${payload.details.confirmedByName}` : '';
+  return `The review for the week of ${week} was already recorded${by}. Another one cannot be recorded for the same cycle.`;
+}
+
 /** Text shown for an API error: specific details first, then the translated code, then the API message. */
 export function apiErrorMessage(payload: ApiErrorPayload, locale: ApiLocale): string {
-  const specific = payload.code === 'PORT_LAYOUT_INCOMPLETE' ? portLayoutIncompleteMessage(payload, locale) : undefined;
+  const specific = payload.code === 'PORT_LAYOUT_INCOMPLETE' ? portLayoutIncompleteMessage(payload, locale)
+    : payload.code === 'CRITICAL_ASSET_ATTESTATION_ALREADY_RECORDED' ? attestationAlreadyRecordedMessage(payload, locale)
+    : undefined;
   return specific
     || (payload.code && localizedApiErrors[locale][payload.code])
     || (Array.isArray(payload.message) ? payload.message.join(', ') : payload.message ?? payload.error ?? '');

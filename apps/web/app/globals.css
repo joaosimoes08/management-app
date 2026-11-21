@@ -1890,8 +1890,6 @@ body { color:var(--ink); background:#e9eef5; }
 .context-toolbar-contribution .audit-filters { display:grid; grid-template-columns:repeat(5,minmax(128px,1fr)); width:min(780px,calc(100vw - 70px)); padding:8px 0 0; border:0; }
 .context-toolbar-contribution .audit-filters label { font-size:11px; }
 .context-toolbar-contribution .audit-filters input { min-width:0; width:100%; min-height:38px; }
-.context-toolbar-contribution .critical-assets-map-form { display:block; width:min(470px,calc(100vw - 60px)); padding:14px; }
-.context-toolbar-contribution .critical-assets-map-form .modal-form { grid-template-columns:1fr; }
 .context-toolbar-contribution .observed-device-select select,.context-toolbar-contribution .snmp-topbar-controls select { min-width:160px; }
 .snmp-topbar-controls { display:flex; align-items:center; flex-wrap:wrap; gap:9px; }
 .snmp-topbar-controls label { display:flex; align-items:center; gap:7px; color:#586982; font-size:11px; font-weight:700; }
@@ -1913,7 +1911,6 @@ body { color:var(--ink); background:#e9eef5; }
   .dashboard-workspace-control { display:grid; grid-template-columns:auto minmax(0,1fr); flex:1 1 100%; }
   .dashboard-workspace-control select { width:min(100%,260px); min-width:0; }
   .context-toolbar-contribution .audit-filters { grid-template-columns:1fr; width:100%; }
-  .context-toolbar-contribution .critical-assets-map-form { width:100%; }
 }
 
 /* Infrastructure: keep location selectors and section navigation in a compact, scannable toolbar. */
@@ -2519,10 +2516,13 @@ body { color:var(--ink); background:#e9eef5; }
 .app-shell-content .page-primary-content .ipam-card { min-width:0; padding:0; border:0; border-radius:0; background:transparent; box-shadow:none; }
 .app-shell-content .page-primary-content .panel-heading { margin-bottom:10px; }
 .critical-assets-card .critical-assets-count { margin:0; color:#20334f; font-size:13px; font-weight:600; }
-.critical-assets-card .critical-assets-unassigned { padding-bottom:12px; border-bottom:1px solid var(--line); }
-.critical-assets-card .critical-asset-card { min-width:0; }
-.critical-assets-card .critical-asset-card > strong,.critical-assets-card .critical-asset-card > small { display:block; }
-.critical-assets-card .critical-asset-card > small { overflow-wrap:anywhere; }
+/* Count tiles are the existing .summary-stats tiles rendered as filter toggles; colours reuse the toolbar's selected/focus tokens. */
+.critical-assets-counts button { padding:12px; color:inherit; border:1px solid transparent; border-radius:9px; background:#faf9f9; font:inherit; text-align:left; cursor:pointer; }
+.critical-assets-counts button:hover { background:#f0f4fa; }
+.critical-assets-counts button.active { border-color:#9ab1dc; background:#f3f7ff; }
+.critical-assets-counts button:focus-visible { outline:3px solid #4778da; outline-offset:2px; }
+.context-toolbar-contribution .critical-assets-filters { flex-wrap:wrap; }
+.critical-assets-card .table-actions .secondary-button,.critical-assets-panel .table-actions .secondary-button { padding:7px 9px; font-size:10px; }
 .change-detail-heading-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:8px; }
 .change-editor-backdrop { z-index:120; animation:change-dialog-in .18s ease-out both; }
 .change-editor { width:min(760px,100%); max-height:min(88vh,900px); overflow:auto; }
