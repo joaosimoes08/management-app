@@ -20,6 +20,8 @@ export async function configureApp(app: NestFastifyApplication, options: Configu
     origin: configuredCorsOrigins,
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept-Language', 'X-Test-User'],
+    // Lets the browser read the audit CSV export's row count / truncation headers.
+    exposedHeaders: ['X-Export-Row-Count', 'X-Export-Truncated', 'Content-Disposition'],
     credentials: true,
   });
   app.useGlobalPipes(new ValidationPipe({
