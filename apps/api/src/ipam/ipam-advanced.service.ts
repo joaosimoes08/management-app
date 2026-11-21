@@ -6,8 +6,9 @@ import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { IpamAccessService } from './ipam-access.service';
 import { assertDiscoveryAllowed, DiscoveryPolicyError } from '../discovery/discovery-policy';
-import { CalculatorDto, CreateNatRuleDto, CreateSubnetDto, CreateVrfDto, UpdateNatRuleDto, UpdateSubnetDto, UpdateSubnetScanDto, UpdateVrfDto } from './dto';
+import { CalculatorDto, CreateNatRuleDto, RIPE_PASTE_MAX_PREFIXES, RipePreviewDto, CreateSubnetDto, CreateVrfDto, UpdateNatRuleDto, UpdateSubnetDto, UpdateSubnetScanDto, UpdateVrfDto } from './dto';
 import * as net from 'node:net';
+import { countTokens, diffPrefixes, parsePrefixList, summarizeDiff } from './ripe-diff';
 
 function normalizeIpv4(address: string) { const parts = address.split('.').map(Number); if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) throw new BadRequestException('IPv4 inválido'); return parts.join('.'); }
 function ipv4Number(address: string) { return normalizeIpv4(address).split('.').reduce((n, part) => n * 256 + Number(part), 0); }
@@ -18,6 +19,10 @@ function expandIpv6(address: string) { const [left, right] = address.split('::')
 function compressIpv6(address: string) { const parts = address.split(':').map((part) => part.replace(/^0+/, '') || '0'); let bestStart = -1; let bestLength = 0; for (let i = 0; i < parts.length;) { if (parts[i] !== '0') { i++; continue; } const start = i; while (i < parts.length && parts[i] === '0') i++; if (i - start > bestLength) { bestStart = start; bestLength = i - start; } } if (bestLength > 1) { const left = parts.slice(0, bestStart).join(':'); const right = parts.slice(bestStart + bestLength).join(':'); return `${left}::${right}`; } return parts.join(':'); }
 function cidrInfo(cidr: string) { return net.isIP(cidr.split('/')[0]) === 4 ? ipv4Cidr(cidr) : ipv6Cidr(cidr); }
 function addressInCidr(address: string, cidr: string) { const info = cidrInfo(cidr); if (net.isIP(address) !== info.version) return false; if (info.version === 4) { const value = ipv4Number(address); return value >= info.network && value <= info.broadcast; } const bits = expandIpv6(address).replace(/:/g, '').split('').map((x) => parseInt(x, 16).toString(2).padStart(4, '0')).join(''); const networkBits = expandIpv6(info.network).replace(/:/g, '').split('').map((x) => parseInt(x, 16).toString(2).padStart(4, '0')).join(''); return bits.slice(0, info.prefix) === networkBits.slice(0, info.prefix); }
+
+const NAT_REF_KEYS = ['siteId', 'vrfId', 'sourceSubnetId', 'translatedSubnetId', 'sourceIpId', 'translatedIpId', 'deviceId'] as const;
+/** The links a NAT rule will have after an update: a field left out keeps its current value, null/'' clears it. */
+function natRefs(current: Record<string, unknown>, dto: Record<string, unknown>) { return Object.fromEntries(NAT_REF_KEYS.map((key) => [key, dto[key] === undefined ? current[key] : dto[key] || null])) as Record<(typeof NAT_REF_KEYS)[number], string | null>; }
 
 export function calculateIpv4SubnetPlan(cidr: string, addresses: Array<{ address: string; state: string }>) {
   const info = ipv4Cidr(cidr);
@@ -107,9 +112,9 @@ export class IpamAdvancedService implements OnModuleDestroy {
   async deleteVrf(id: string, user: AuthenticatedUser) { await this.access.assertVrf(user, 'DELETE', id); const item = await this.getVrf(id); if (item.subnets.length) throw new ConflictException('Não é possível remover um VRF com subnets'); await this.prisma.vrf.delete({ where: { id } }); await this.log(user, 'VRF_DELETED', 'Vrf', id); return { success: true }; }
   async listNatRules(user: AuthenticatedUser, siteId?: string, vrfId?: string, type?: string, search?: string) { const accessWhere = await this.access.whereFor(user, 'READ', 'nat'); return this.prisma.natRule.findMany({ where: { AND: [accessWhere, { ...(siteId ? { siteId } : {}), ...(vrfId ? { vrfId } : {}), ...(type ? { type: type as never } : {}), ...(search ? { OR: [{ name: { contains: search, mode: 'insensitive' } }, { sourceAddress: { contains: search } }, { translatedAddress: { contains: search } }] } : {}) }] }, include: { sourceSubnet: true, translatedSubnet: true, sourceIp: true, translatedIp: true, device: true, vrf: true }, orderBy: { name: 'asc' } }); }
   async getNatRule(id: string, user?: AuthenticatedUser) { const item = await this.prisma.natRule.findUnique({ where: { id }, include: { sourceSubnet: true, translatedSubnet: true, sourceIp: true, translatedIp: true, device: true, vrf: true } }); if (!item) throw new NotFoundException('Regra NAT não encontrada'); if (user) { if (item.sourceSubnetId) await this.access.assertSubnet(user, 'READ', item.sourceSubnetId); else if (item.vrfId) await this.access.assertVrf(user, 'READ', item.vrfId); else if (item.siteId) await this.access.assertSite(user, 'READ', item.siteId); } return item; }
-  async createNatRule(dto: CreateNatRuleDto, user: AuthenticatedUser) { if (dto.sourceSubnetId) await this.access.assertSubnet(user, 'CREATE', dto.sourceSubnetId); else if (dto.vrfId) await this.access.assertVrf(user, 'CREATE', dto.vrfId); else if (dto.siteId) await this.access.assertSite(user, 'CREATE', dto.siteId); const item = await this.prisma.natRule.create({ data: { ...dto, type: dto.type as never, enabled: dto.enabled ?? true } }); await this.log(user, 'NAT_RULE_CREATED', 'NatRule', item.id); return item; }
-  async updateNatRule(id: string, dto: UpdateNatRuleDto, user: AuthenticatedUser) { const current = await this.getNatRule(id, user); if (current.sourceSubnetId) await this.access.assertSubnet(user, 'UPDATE', current.sourceSubnetId); const item = await this.prisma.natRule.update({ where: { id }, data: { ...dto, type: dto.type as never } }).catch(() => { throw new NotFoundException('Regra NAT não encontrada'); }); await this.log(user, 'NAT_RULE_UPDATED', 'NatRule', id); return item; }
-  async deleteNatRule(id: string, user: AuthenticatedUser) { const current = await this.getNatRule(id, user); if (current.sourceSubnetId) await this.access.assertSubnet(user, 'DELETE', current.sourceSubnetId); await this.prisma.natRule.delete({ where: { id } }); await this.log(user, 'NAT_RULE_DELETED', 'NatRule', id); return { success: true }; }
+  async createNatRule(dto: CreateNatRuleDto, user: AuthenticatedUser) { await this.access.assertNatRule(user, 'CREATE', dto); const item = await this.prisma.natRule.create({ data: { ...dto, type: dto.type as never, enabled: dto.enabled ?? true } }); await this.log(user, 'NAT_RULE_CREATED', 'NatRule', item.id); return item; }
+  async updateNatRule(id: string, dto: UpdateNatRuleDto, user: AuthenticatedUser) { const current = await this.getNatRule(id, user); await this.access.assertNatRule(user, 'UPDATE', current); await this.access.assertNatRule(user, 'UPDATE', natRefs(current, dto)); const item = await this.prisma.natRule.update({ where: { id }, data: { ...dto, type: dto.type as never } }).catch(() => { throw new NotFoundException('Regra NAT não encontrada'); }); await this.log(user, 'NAT_RULE_UPDATED', 'NatRule', id); return item; }
+  async deleteNatRule(id: string, user: AuthenticatedUser) { const current = await this.getNatRule(id, user); await this.access.assertNatRule(user, 'DELETE', current); await this.prisma.natRule.delete({ where: { id } }); await this.log(user, 'NAT_RULE_DELETED', 'NatRule', id); return { success: true }; }
   async calculator(dto: CalculatorDto) {
     const requestedCidr = dto.cidr ?? (dto.address ? `${dto.address}/${dto.basePrefix ?? 24}` : '');
     const info = cidrInfo(requestedCidr.includes('/') ? requestedCidr : `${requestedCidr}/24`);
@@ -132,32 +137,77 @@ export class IpamAdvancedService implements OnModuleDestroy {
     }
     throw new BadRequestException('Escolhe uma netmask destino maior que a máscara da rede base.');
   }
-  async ripePreview(dto: { query: string; queryType?: string }, user: AuthenticatedUser) {
+  async ripePreview(dto: RipePreviewDto, user: AuthenticatedUser) {
+    if (dto.prefixes !== undefined) return this.ripePastePreview(dto, user);
+    const target = dto.siteId ? await this.access.assertSubnetPlacement(user, 'IMPORT', { siteId: dto.siteId, vrfId: dto.vrfId }) : null;
     const query = dto.query.trim();
     const queryType = dto.queryType ?? (query.toUpperCase().startsWith('AS') ? 'asn' : net.isIP(query.split('/')[0]) ? 'prefix' : 'organisation');
     const resource = queryType === 'asn' ? query.replace(/^AS/i, '') : query;
     const endpoint = queryType === 'asn' ? `announced-prefixes/data.json?resource=AS${encodeURIComponent(resource)}` : `whois/data.json?resource=${encodeURIComponent(resource)}`;
     const base = process.env.RIPESTAT_BASE_URL ?? 'https://stat.ripe.net/data/';
     const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 8000);
+    let ripestatPrefixes: string[] = [];
     try {
       const response = await fetch(`${base.replace(/\/$/, '/')}${endpoint}`, { signal: controller.signal, headers: { accept: 'application/json' } });
       if (!response.ok) throw new Error(`RIPEstat respondeu ${response.status}`);
       const payload: any = await response.json();
       const prefixes = queryType === 'asn' ? (payload.data?.prefixes ?? []) : (payload.data?.records ?? []).map((record: any) => record.prefix).filter(Boolean);
       const unique = [...new Set(prefixes.filter((prefix: unknown): prefix is string => typeof prefix === 'string'))];
-      const item = await this.prisma.ripeImport.create({ data: { query, queryType, status: 'PREVIEW', result: { prefixes: unique, source: 'RIPESTAT' }, createdBy: user.id } });
-      await this.log(user, 'RIPE_PREVIEW_CREATED', 'RipeImport', item.id, { query, count: unique.length });
-      return { id: item.id, query, queryType, prefixes: unique, status: item.status };
+      if (!target) {
+        const item = await this.prisma.ripeImport.create({ data: { query, queryType, status: 'PREVIEW', result: { prefixes: unique, source: 'RIPESTAT' }, createdBy: user.id } });
+        await this.log(user, 'RIPE_PREVIEW_CREATED', 'RipeImport', item.id, { query, count: unique.length });
+        return { id: item.id, query, queryType, prefixes: unique, status: item.status };
+      }
+      ripestatPrefixes = unique;
     } catch (error) { throw new BadRequestException(error instanceof Error ? `Consulta RIPE falhou: ${error.message}` : 'Consulta RIPE falhou'); } finally { clearTimeout(timer); }
+    // A Site was given: return the same diff as a pasted list, against that Site.
+    const parsed = parsePrefixList(ripestatPrefixes);
+    return this.saveRipeDiffPreview(user, { query, queryType, source: 'RIPESTAT', siteId: dto.siteId!, vrfId: dto.vrfId, purpose: dto.purpose, environment: dto.environment }, parsed);
+  }
+  /** Preview of a pasted/uploaded prefix list with a server-side diff against the Site's subnets. */
+  async ripePastePreview(dto: RipePreviewDto, user: AuthenticatedUser) {
+    await this.access.assertSubnetPlacement(user, 'IMPORT', { siteId: dto.siteId, vrfId: dto.vrfId });
+    const tokens = countTokens(dto.prefixes!);
+    if (tokens > RIPE_PASTE_MAX_PREFIXES) throw new BadRequestException({ code: 'RIPE_PASTE_TOO_MANY', message: `No máximo ${RIPE_PASTE_MAX_PREFIXES} prefixos por pré-visualização (recebidos ${tokens}).` });
+    const parsed = parsePrefixList(dto.prefixes!);
+    if (!parsed.valid.length) throw new BadRequestException({ code: 'RIPE_PASTE_NO_VALID_PREFIX', message: 'Nenhum prefixo válido na lista.', details: { invalid: parsed.invalid } });
+    const query = dto.query?.trim() || `Lista colada (${parsed.valid.length} prefixos)`;
+    return this.saveRipeDiffPreview(user, { query, queryType: 'paste', source: 'PASTE', siteId: dto.siteId!, vrfId: dto.vrfId, purpose: dto.purpose, environment: dto.environment }, parsed);
+  }
+  private async saveRipeDiffPreview(user: AuthenticatedUser, meta: { query: string; queryType: string; source: 'PASTE' | 'RIPESTAT'; siteId: string; vrfId?: string; purpose?: string; environment?: string }, parsed: ReturnType<typeof parsePrefixList>) {
+    const versions = [...new Set(parsed.valid.map((item) => item.version))];
+    const candidates = versions.length ? await this.prisma.subnet.findMany({ where: { version: { in: versions } }, select: { id: true, cidr: true, siteId: true, vrfId: true, purpose: true, environment: true } }) : [];
+    const accessWhere = await this.access.whereFor(user, 'READ', 'subnet');
+    const readable = new Set((await this.prisma.subnet.findMany({ where: { AND: [accessWhere, { id: { in: candidates.map((item) => item.id) } }] }, select: { id: true } })).map((item) => item.id));
+    const diff = diffPrefixes(parsed.valid, candidates.map((item) => ({ ...item, visible: readable.has(item.id) })), meta);
+    const summary = summarizeDiff(diff, parsed.invalid.length, parsed.duplicates.length);
+    const prefixes = parsed.valid.map((item) => item.prefix);
+    const target = { siteId: meta.siteId, vrfId: meta.vrfId ?? null, purpose: meta.purpose ?? null, environment: meta.environment ?? null };
+    const item = await this.prisma.ripeImport.create({ data: { query: meta.query, queryType: meta.queryType, source: meta.source, status: 'PREVIEW', result: { prefixes, source: meta.source, target, diff, summary, invalid: parsed.invalid, duplicates: parsed.duplicates, normalized: parsed.normalized }, createdBy: user.id } });
+    await this.log(user, 'RIPE_PREVIEW_CREATED', 'RipeImport', item.id, { query: meta.query, source: meta.source, siteId: meta.siteId, count: prefixes.length, summary });
+    return { id: item.id, query: meta.query, queryType: meta.queryType, source: meta.source, status: item.status, prefixes, target, summary, diff, invalid: parsed.invalid, duplicates: parsed.duplicates, normalized: parsed.normalized };
   }
   async listRipeImports(user: AuthenticatedUser) { return this.prisma.ripeImport.findMany({ where: user.roles.includes('ADMIN') ? {} : { createdBy: user.id }, orderBy: { createdAt: 'desc' }, take: 50 }); }
   async getRipeImport(id: string, user: AuthenticatedUser) { const item = await this.prisma.ripeImport.findFirst({ where: { id, ...(user.roles.includes('ADMIN') ? {} : { createdBy: user.id }) } }); if (!item) throw new NotFoundException('Importação RIPE não encontrada'); return item; }
   async importRipe(dto: { importId: string; prefixes: string[]; siteId: string; vrfId?: string; vlanId?: string; purpose?: string; environment?: string }, user: AuthenticatedUser) {
     await this.access.assertSite(user, 'IMPORT', dto.siteId);
-    const preview = await this.getRipeImport(dto.importId, user); const available = new Set((preview.result as any)?.prefixes ?? []); const selected = [...new Set(dto.prefixes)].filter((prefix) => available.has(prefix));
+    const preview = await this.getRipeImport(dto.importId, user);
+    const previewTarget = (preview.result as any)?.target;
+    if (previewTarget && (previewTarget.siteId !== dto.siteId || (previewTarget.vrfId ?? null) !== (dto.vrfId || null))) throw new BadRequestException({ code: 'RIPE_PREVIEW_TARGET_MISMATCH', message: 'O Site/VRF da importação tem de ser o mesmo da pré-visualização.' });
+    const available = new Set((preview.result as any)?.prefixes ?? []); const selected = [...new Set(dto.prefixes)].filter((prefix) => available.has(prefix));
     if (!selected.length) throw new BadRequestException('Seleciona prefixos presentes na pré-visualização');
     const created: any[] = []; const skipped: any[] = [];
-    for (const cidr of selected) { try { created.push(await this.createSubnet({ cidr, siteId: dto.siteId, vrfId: dto.vrfId, vlanId: dto.vlanId, purpose: dto.purpose, environment: dto.environment }, user)); } catch (error) { skipped.push({ cidr, reason: error instanceof Error ? error.message : 'Não importado' }); } }
+    // Diff previews: only prefixes the stored diff marked importable are created, in the
+    // preview's order, so the client's selection order cannot turn a later conflict into a
+    // create (e.g. [/24, /16] when the /24 was flagged OVERLAP of the /16). Previews without
+    // a stored diff (plain RIPEstat lookups) keep the old behaviour.
+    const storedDiff: Array<{ prefix: string; importable: boolean; reason: string; message: string }> | undefined = Array.isArray((preview.result as any)?.diff) ? (preview.result as any).diff : undefined;
+    let toCreate = selected;
+    if (storedDiff) {
+      const wanted = new Set(selected); toCreate = [];
+      for (const item of storedDiff) { if (!wanted.has(item.prefix)) continue; if (item.importable) toCreate.push(item.prefix); else skipped.push({ cidr: item.prefix, reason: item.reason, message: item.message }); }
+    }
+    for (const cidr of toCreate) { try { created.push(await this.createSubnet({ cidr, siteId: dto.siteId, vrfId: dto.vrfId, vlanId: dto.vlanId, purpose: dto.purpose, environment: dto.environment }, user)); } catch (error) { skipped.push({ cidr, reason: error instanceof Error ? error.message : 'Não importado' }); } }
     const status = created.length && skipped.length ? 'PARTIAL' : created.length ? 'IMPORTED' : 'FAILED';
     await this.prisma.ripeImport.update({ where: { id: dto.importId }, data: { status, result: { ...(preview.result as any), selected, created: created.map((item) => item.id), skipped } } });
     return { status, created, skipped };
