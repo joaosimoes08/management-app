@@ -46,7 +46,7 @@ describe('ScheduledReportsSettings', () => {
     expect(within(table).getByText('1 cancelou a subscrição')).toBeInTheDocument();
     expect(within(table).getByText('Email + Teams')).toBeInTheDocument();
     expect(screen.getByText(/Nenhum canal de envio está ativo/)).toBeInTheDocument();
-    expect(screen.getByText(/APP_PUBLIC_URL não está definido/)).toBeInTheDocument();
+    expect(screen.getByText(/APP_PUBLIC_URL não está definido/)).toHaveClass('ipam-alert', 'warning');
   });
 
   it('creates a monthly report with the chosen sections, Sites and recipients', async () => {

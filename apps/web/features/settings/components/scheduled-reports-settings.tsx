@@ -137,7 +137,7 @@ export function ScheduledReportsSettings() {
   return <section className="ipam-card settings-panel">
     <div className="panel-heading"><div><h2>Relatórios agendados</h2><p className="panel-description">Resumo semanal ou mensal por Site: conformidade das atestações, datas de ciclo de vida, qualidade do inventário, capacidade e alterações. Cada destinatário recebe apenas os Sites a que tem acesso. O email inclui o relatório e um CSV; o Teams recebe só um resumo com ligação, sem números.</p></div><FileText size={19} /></div>
     {state && !state.channels.email && !state.channels.teams && <div className="ipam-alert">Nenhum canal de envio está ativo. Ativa o email (servidor SMTP) ou os alertas operacionais do Teams no separador Notificações; até lá, os relatórios só podem ser descarregados.</div>}
-    {state && !state.publicLinks && <div className="ipam-alert">APP_PUBLIC_URL não está definido: os emails seguem sem ligação para a aplicação nem ligação de cancelamento (o destinatário pode cancelar em Perfil → Notificações).</div>}
+    {state && !state.publicLinks && <div className="ipam-alert warning" role="status">APP_PUBLIC_URL não está definido: os emails seguem sem ligação para a aplicação nem ligação de cancelamento (o destinatário pode cancelar em Perfil → Notificações).</div>}
     {feedback && <div className="ipam-alert error">{feedback}</div>}
 
     {editing && <form className="settings-form" id="settings-reports-form" onSubmit={(event) => void save(event)} aria-label={editing === 'new' ? 'Novo relatório' : 'Editar relatório'}>
