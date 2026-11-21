@@ -27,6 +27,8 @@ const operationalFiles = [
   'apps/web/features/ipam/utilization.ts',
   'apps/web/features/topology/filters.ts',
   'apps/web/features/topology/topology-filters-menu.tsx',
+  'apps/web/components/ui/bulk-review-dialog.tsx',
+  'apps/web/features/discovery/discovery-results.tsx',
 ];
 
 function sourceFile(relative, kind = ts.ScriptKind.TSX) {
