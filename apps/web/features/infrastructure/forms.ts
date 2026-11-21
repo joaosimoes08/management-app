@@ -74,6 +74,8 @@ export interface DeviceForm {
   modelId: string;
   status: string;
   isCritical: boolean;
+  /** '' = not critical. Source of truth; isCritical follows it. */
+  criticalityTier?: '' | 'T1' | 'T2' | 'T3';
   frontAssetId: string;
   backAssetId?: string;
   /** Image overrides stored when an existing device was opened; absent for a new device. */

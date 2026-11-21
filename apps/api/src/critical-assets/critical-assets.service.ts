@@ -23,6 +23,26 @@ export function weeklyWindow(date: Date, timezone: string) {
 
 
 const DAY_MS = 86_400_000;
+const WEEK_MS = 7 * DAY_MS;
+/** Monday 1970-01-05 (UTC midnight): the anchor for cadence periods. */
+const FIRST_MONDAY_MS = Date.UTC(1970, 0, 5);
+
+/** Index of the Monday (UTC-midnight weekStart) counted in weeks from the anchor. */
+export function weekIndex(weekStart: Date) {
+  return Math.round((weekStart.getTime() - FIRST_MONDAY_MS) / WEEK_MS);
+}
+
+/** A cadence of N weeks gets a cycle on every Monday whose week index is a multiple of N. */
+export function isCycleWeek(weekStart: Date, periodWeeks: number) {
+  return ((weekIndex(weekStart) % periodWeeks) + periodWeeks) % periodWeeks === 0;
+}
+
+/** First cycle Monday on or after `weekStart` for this cadence. */
+export function nextCycleWeek(weekStart: Date, periodWeeks: number) {
+  let candidate = new Date(weekStart);
+  while (!isCycleWeek(candidate, periodWeeks)) candidate = new Date(candidate.getTime() + WEEK_MS);
+  return candidate;
+}
 
 function timezoneOffsetMs(instant: Date, timezone: string) {
   const local = localParts(instant, timezone);
@@ -39,8 +59,8 @@ export function zonedWallClockToInstant(calendarDate: Date, hour: number, timezo
 }
 
 /** A weekly cycle opens Monday 09:00 Site-local and is due when the next cycle opens (the following Monday 09:00). */
-export function cycleWindow(weekStart: Date, timezone: string) {
-  const nextWeekStart = new Date(weekStart.getTime() + 7 * DAY_MS);
+export function cycleWindow(weekStart: Date, timezone: string, periodWeeks = 1) {
+  const nextWeekStart = new Date(weekStart.getTime() + periodWeeks * WEEK_MS);
   return { opensAt: zonedWallClockToInstant(weekStart, ATTESTATION_OPENS_AT_HOUR, timezone), dueAt: zonedWallClockToInstant(nextWeekStart, ATTESTATION_OPENS_AT_HOUR, timezone) };
 }
 
@@ -55,8 +75,8 @@ type AttestationForDue = { weekStart: Date; outcome: string | null };
  * - unscheduled: no owner group (always, even with pending rows: nobody can review them; counts are kept),
  *   or no cycle generated yet (dueDate = next cycle's due time if owned, else null)
  */
-export function computeDueState(attestations: AttestationForDue[], owned: boolean, timezone: string, now = new Date()) {
-  const pending = attestations.filter((row) => !row.outcome).map((row) => ({ row, ...cycleWindow(row.weekStart, timezone) })).sort((a, b) => a.row.weekStart.getTime() - b.row.weekStart.getTime());
+export function computeDueState(attestations: AttestationForDue[], owned: boolean, timezone: string, now = new Date(), periodWeeks = 1) {
+  const pending = attestations.filter((row) => !row.outcome).map((row) => ({ row, ...cycleWindow(row.weekStart, timezone, periodWeeks) })).sort((a, b) => a.row.weekStart.getTime() - b.row.weekStart.getTime());
   const overdue = pending.filter((item) => item.dueAt.getTime() <= now.getTime());
   const base = { pendingCount: pending.length, overdueCount: overdue.length };
   // No owner group means nobody can review it: report it under "no owner", not as overdue or due.
@@ -68,10 +88,32 @@ export function computeDueState(attestations: AttestationForDue[], owned: boolea
   // The scheduler generates a cycle only on Monday from 09:00 Site-local, so once Monday has passed without one, the next is next week's.
   const generationClosesAt = zonedWallClockToInstant(new Date(current.weekStart.getTime() + DAY_MS), 0, timezone);
   const currentGenerated = latestWeek !== null && latestWeek >= current.weekStart.getTime();
-  const nextWeekStart = !currentGenerated && now.getTime() < generationClosesAt.getTime() ? current.weekStart : new Date(current.weekStart.getTime() + 7 * DAY_MS);
-  const next = cycleWindow(nextWeekStart, timezone);
+  // Still open for generation this week: that cycle is the next one. Otherwise the cycle is the next cadence Monday after it.
+  const thisWeekOpen = isCycleWeek(current.weekStart, periodWeeks) && !currentGenerated && now.getTime() < generationClosesAt.getTime();
+  const nextWeekStart = nextCycleWeek(thisWeekOpen || !isCycleWeek(current.weekStart, periodWeeks) ? current.weekStart : new Date(current.weekStart.getTime() + WEEK_MS), periodWeeks);
+  const next = cycleWindow(nextWeekStart, timezone, periodWeeks);
   if (latestWeek === null) return { ...base, dueState: 'unscheduled' as DueState, dueDate: next.dueAt.toISOString(), dueWeekStart: nextWeekStart.toISOString().slice(0, 10) };
   return { ...base, dueState: 'up_to_date' as DueState, dueDate: next.dueAt.toISOString(), dueWeekStart: nextWeekStart.toISOString().slice(0, 10) };
+}
+
+export type CadenceSite = { criticalCadenceT1Weeks: number; criticalCadenceT2Weeks: number; criticalCadenceT3Weeks: number };
+
+/** Review cadence per tier in weeks (1 to 52). Anything else is rejected before it reaches the database. */
+export function parseCadenceWeeks(input: unknown): { T1: number; T2: number; T3: number } {
+  const body = (input ?? {}) as Record<string, unknown>;
+  const read = (key: 'T1' | 'T2' | 'T3') => {
+    const value = body[key];
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 52) throw new BadRequestException({ code: 'CRITICAL_ASSET_CADENCE_INVALID', message: `A cadência de ${key} deve ser um número de semanas entre 1 e 52.` });
+    return value;
+  };
+  return { T1: read('T1'), T2: read('T2'), T3: read('T3') };
+}
+
+/** Review cadence in weeks for a device's tier. A device without a tier falls back to T2. */
+export function cadenceWeeks(tier: string | null | undefined, site: CadenceSite) {
+  if (tier === 'T1') return site.criticalCadenceT1Weeks;
+  if (tier === 'T3') return site.criticalCadenceT3Weeks;
+  return site.criticalCadenceT2Weeks;
 }
 
 export const CRITICAL_ASSET_OUTCOMES = ['CONFIRMED', 'NEEDS_CORRECTION', 'NOT_FOUND'] as const;
@@ -146,15 +188,17 @@ export class CriticalAssetsService implements OnModuleInit, OnModuleDestroy {
   onModuleDestroy() { if (this.timer) clearInterval(this.timer); }
 
   async runWeeklyChecks(now = new Date()) {
-    const sites = await this.prisma.site.findMany({ select: { id: true, name: true, timezone: true } });
+    const sites = await this.prisma.site.findMany({ select: { id: true, name: true, timezone: true, criticalCadenceT1Weeks: true, criticalCadenceT2Weeks: true, criticalCadenceT3Weeks: true } });
     for (const site of sites) {
       let window;
       try { window = weeklyWindow(now, site.timezone); } catch { continue; }
       if (!window.due) continue;
       const weekStart = window.weekStart;
       try {
-        const devices = await this.prisma.device.findMany({ where: { siteId: site.id, isCritical: true, status: { not: 'RETIRED' } }, select: { id: true, name: true, type: true } });
+        const devices = await this.prisma.device.findMany({ where: { siteId: site.id, isCritical: true, status: { not: 'RETIRED' } }, select: { id: true, name: true, type: true, criticalityTier: true } });
         for (const device of devices) {
+          // A cycle is generated only on this device's cadence Mondays (T2 every 2 weeks, for example).
+          if (!isCycleWeek(weekStart, cadenceWeeks(device.criticalityTier, site))) continue;
           try {
             await this.prisma.$transaction(async (tx) => {
               const mapping = await tx.criticalAssetGroupMapping.findUnique({ where: { siteId_assetType: { siteId: site.id, assetType: device.type } }, include: { group: { include: { members: { select: { userId: true } } } } } });
@@ -188,8 +232,8 @@ export class CriticalAssetsService implements OnModuleInit, OnModuleDestroy {
   /** Every asset the person may see on this Site: their groups' asset types, plus assets with no owner group. */
   private async scopedAssets(siteId: string, user: AuthenticatedUser, now = new Date()) {
     await this.access.assertSite(user, 'READ', siteId, 'DEVICE');
-    const site = await this.prisma.site.findUniqueOrThrow({ where: { id: siteId }, select: { timezone: true } });
-    const devices = await this.prisma.device.findMany({ where: { isCritical: true, siteId }, select: { id: true, name: true, type: true, hostname: true, managementIp: true, serialNumber: true, assetTag: true, status: true }, orderBy: [{ type: 'asc' }, { name: 'asc' }] });
+    const site = await this.prisma.site.findUniqueOrThrow({ where: { id: siteId }, select: { timezone: true, criticalCadenceT1Weeks: true, criticalCadenceT2Weeks: true, criticalCadenceT3Weeks: true } });
+    const devices = await this.prisma.device.findMany({ where: { isCritical: true, siteId }, select: { id: true, name: true, type: true, criticalityTier: true, criticalityTierReviewed: true, hostname: true, managementIp: true, serialNumber: true, assetTag: true, status: true }, orderBy: [{ type: 'asc' }, { name: 'asc' }] });
     const mapped = await this.prisma.criticalAssetGroupMapping.findMany({ where: { siteId }, include: { group: { select: { id: true, name: true } } } });
     const mappingByType = new Map(mapped.map((mapping) => [mapping.assetType, mapping.group]));
     const groupIds = await this.userGroupIds(user);
@@ -203,7 +247,8 @@ export class CriticalAssetsService implements OnModuleInit, OnModuleDestroy {
         ...device,
         assignedGroup: owner,
         owner,
-        ...computeDueState(history, Boolean(owner), site.timezone, now),
+        cadenceWeeks: cadenceWeeks(device.criticalityTier, site),
+        ...computeDueState(history, Boolean(owner), site.timezone, now, cadenceWeeks(device.criticalityTier, site)),
         latestOutcome: latest?.outcome ?? null,
         latestConfirmedAt: latest?.confirmedAt ?? null,
         attestations: history.map((row) => withReviewer(row, reviewers)),
@@ -250,6 +295,21 @@ export class CriticalAssetsService implements OnModuleInit, OnModuleDestroy {
       await tx.site.update({ where: { id: siteId }, data: { timezone } });
       await tx.auditLog.create({ data: { userId: user.id, action: 'CRITICAL_ASSET_GROUP_MAPPING_UPDATED', entityType: 'Site', entityId: siteId, metadata: { assetType, groupId, timezone } } });
       return mapping;
+    });
+    return result;
+  }
+
+  async cadence(siteId: string, _user: AuthenticatedUser) {
+    const site = await this.prisma.site.findUniqueOrThrow({ where: { id: siteId }, select: { criticalCadenceT1Weeks: true, criticalCadenceT2Weeks: true, criticalCadenceT3Weeks: true } });
+    return { T1: site.criticalCadenceT1Weeks, T2: site.criticalCadenceT2Weeks, T3: site.criticalCadenceT3Weeks };
+  }
+
+  async saveCadence(siteId: string, input: unknown, user: AuthenticatedUser) {
+    const cadence = parseCadenceWeeks(input);
+    const result = await this.prisma.$transaction(async (tx) => {
+      const site = await tx.site.update({ where: { id: siteId }, data: { criticalCadenceT1Weeks: cadence.T1, criticalCadenceT2Weeks: cadence.T2, criticalCadenceT3Weeks: cadence.T3 }, select: { criticalCadenceT1Weeks: true, criticalCadenceT2Weeks: true, criticalCadenceT3Weeks: true } });
+      await tx.auditLog.create({ data: { userId: user.id, action: 'CRITICAL_ASSET_CADENCE_UPDATED', entityType: 'Site', entityId: siteId, metadata: cadence } });
+      return { T1: site.criticalCadenceT1Weeks, T2: site.criticalCadenceT2Weeks, T3: site.criticalCadenceT3Weeks };
     });
     return result;
   }

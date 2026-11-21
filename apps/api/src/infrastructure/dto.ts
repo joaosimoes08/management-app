@@ -44,6 +44,8 @@ export class CreateDeviceDto {
   @IsOptional() @IsString() managementIpAddressId?: string;
   @IsOptional() @IsString() notes?: string;
   @IsOptional() @IsBoolean() isCritical?: boolean;
+  /** Criticality tier (T1 vital, T2 important, T3 standard). null clears it. Source of truth; isCritical follows it. */
+  @IsOptional() @IsIn(['T1','T2','T3']) criticalityTier?: 'T1' | 'T2' | 'T3' | null;
   /** Power overrides. null = fall back to the model, then to the type default. Outlets are set via PUT devices/:id/power. */
   @IsOptional() @IsInt() @Min(MIN_POWER_PLUG_COUNT) @Max(MAX_POWER_PLUG_COUNT) powerPlugCount?: number | null;
   @IsOptional() @IsInt() @Min(0) @Max(MAX_WATTS) estimatedWatts?: number | null;
