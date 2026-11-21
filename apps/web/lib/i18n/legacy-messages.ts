@@ -24,6 +24,8 @@ const enUS: LegacyDictionary = {
   'Guardar etiquetas': 'Save tags',
   'A carregar etiquetas…': 'Loading tags…',
   'Este site ainda não tem etiquetas. Cria a primeira abaixo.': 'This site has no tags yet. Create the first one below.',
+  'Este site ainda não tem etiquetas. Um administrador pode criá-las.': 'This site has no tags yet. An administrator can create them.',
+  'Só administradores e operadores de sistemas podem criar, renomear ou eliminar etiquetas.': 'Only administrators and systems operators can create, rename or delete tags.',
   'Etiquetas do site': 'Site tags',
   'Equipamentos · Sub-redes': 'Devices · Subnets',
   'As etiquetas pertencem a este site e servem equipamentos e sub-redes. Contagem: equipamentos · sub-redes.': 'Tags belong to this site and apply to devices and subnets. Count: devices · subnets.',

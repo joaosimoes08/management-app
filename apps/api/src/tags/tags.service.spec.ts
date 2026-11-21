@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { TagsService } from './tags.service';
-import { normalizeTagColor, normalizeTagIds, normalizeTagName, parseTagFilter, withFlatTags } from './tag-rules';
+import { TAG_CATALOG_ROLES, normalizeTagColor, normalizeTagIds, normalizeTagName, parseTagFilter, withFlatTags } from './tag-rules';
 
 const SITE_A = '11111111-1111-4111-8111-111111111111';
 const SITE_B = '22222222-2222-4222-8222-222222222222';
@@ -117,6 +117,16 @@ describe('TagsService', () => {
     await assert.rejects(service.create(user, { siteId: SITE_A, name: 'x' }), ForbiddenException);
     await assert.rejects(service.remove(user, TAG_1), ForbiddenException);
     assert.equal(writes.length, 0);
+  });
+
+  it('catalog changes ignore the IPAM scope, so NETWORK_OPERATOR cannot create, rename or delete tags', async () => {
+    const { service, writes } = setup({ infraAllows: { READ: true }, ipamAllows: { READ: true, UPDATE: true } });
+    await assert.rejects(service.create(user, { siteId: SITE_A, name: 'x' }), ForbiddenException);
+    await assert.rejects(service.update(user, TAG_1, { name: 'y' }), ForbiddenException);
+    await assert.rejects(service.remove(user, TAG_1), ForbiddenException);
+    assert.equal(writes.length, 0);
+    assert.equal((await service.list(user, SITE_A)).length, 2);
+    assert.deepEqual([...TAG_CATALOG_ROLES], ['ADMIN', 'SYSTEMS_OPERATOR']);
   });
 
   it('renames with before/after in the audit, and skips a no-op', async () => {

@@ -52,6 +52,8 @@ export interface SubnetsViewProps {
   reservedNext?: (result: ReserveNextIpsResult) => void;
   /** Step 36: called after tags of a subnet or the site catalogue changed, so the page refetches subnets. */
   tagsChanged?: () => void;
+  /** Create, rename, recolour and delete tags (ADMIN / SYSTEMS_OPERATOR). NETWORK_OPERATOR only assigns existing tags. */
+  canManageTags?: boolean;
 }
 
 function UtilizationCell({ subnet }: { subnet: Subnet }) {
@@ -61,7 +63,7 @@ function UtilizationCell({ subnet }: { subnet: Subnet }) {
 }
 
 /** Site subnets as a sortable table with the utilisation band from GET /subnets. */
-function SubnetTable({ items, loading, canEdit, siteId, openSubnet, editSubnet, removeSubnet, tagsChanged }: Pick<SubnetsViewProps, 'items' | 'loading' | 'canEdit' | 'siteId' | 'openSubnet' | 'editSubnet' | 'removeSubnet' | 'tagsChanged'>) {
+function SubnetTable({ items, loading, canEdit, siteId, openSubnet, editSubnet, removeSubnet, tagsChanged, canManageTags = false }: Pick<SubnetsViewProps, 'items' | 'loading' | 'canEdit' | 'siteId' | 'openSubnet' | 'editSubnet' | 'removeSubnet' | 'tagsChanged' | 'canManageTags'>) {
   const [managingTags, setManagingTags] = useState(false);
   const table = useTableUrlState(subnetTableConfig);
   const columns = useMemo<DataTableColumn<Subnet>[]>(() => [
@@ -75,20 +77,20 @@ function SubnetTable({ items, loading, canEdit, siteId, openSubnet, editSubnet, 
   const { band, tag } = table.filters;
   const rows = useMemo(() => sortByColumns(items.filter((subnet) => (!band || (subnet.utilization?.band ?? '') === band) && hasAllTags(subnet, tag)), columns, table.sort), [band, columns, items, tag, table.sort]);
   return <>
-    <PageToolbarPortal><div className="interface-toolbar-controls"><label>Utilização<select aria-label="Filtrar subnets por utilização" value={band} onChange={(event) => table.setFilter('band', event.target.value)}><option value="">Todas</option>{utilizationBandOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>Etiqueta<TagFilter siteId={siteId} value={tag} onChange={(value) => table.setFilter('tag', value)} /></label>{canEdit && <ManageTagsButton onClick={() => setManagingTags(true)} />}<SavedViews pageId="ipam-subnets" config={subnetTableConfig} table={table} /></div></PageToolbarPortal>
+    <PageToolbarPortal><div className="interface-toolbar-controls"><label>Utilização<select aria-label="Filtrar subnets por utilização" value={band} onChange={(event) => table.setFilter('band', event.target.value)}><option value="">Todas</option>{utilizationBandOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>Etiqueta<TagFilter siteId={siteId} value={tag} onChange={(value) => table.setFilter('tag', value)} /></label>{canManageTags && <ManageTagsButton onClick={() => setManagingTags(true)} />}<SavedViews pageId="ipam-subnets" config={subnetTableConfig} table={table} /></div></PageToolbarPortal>
     <DataTable rows={rows} columns={columns} rowKey={(subnet) => subnet.id} label="Subnets do Site" sort={table.sort} onSortChange={table.setSort} defaultSort={table.defaultSort} loading={loading} empty={tag ? <Empty title="Sem subnets com esta etiqueta" text="Escolhe outra etiqueta ou limpa o filtro." /> : band ? <Empty title="Sem subnets nesta faixa de utilização" text="Escolhe outra faixa ou limpa o filtro." /> : null} />
-    {managingTags && <TagManager siteId={siteId} close={() => setManagingTags(false)} onChanged={() => tagsChanged?.()} />}
+    {managingTags && <TagManager siteId={siteId} canManage={canManageTags} close={() => setManagingTags(false)} onChanged={() => tagsChanged?.()} />}
   </>;
 }
 
 /** Subnet list of the site, or the selected subnet with its IP table. */
-export function SubnetsView({ selected, items, loading = false, usage, usageLoading = false, capacityHistory, capacityHistoryLoading = false, ips, loadingIps = false, search, setSearch, openSubnet, openHost, canEdit, canReserve, canReleaseReservations, siteId, newSubnet, editSubnet, removeSubnet, editIp, newIp, createHost, reserveIp, releaseReservation, reservedNext, tagsChanged }: SubnetsViewProps) {
+export function SubnetsView({ selected, items, loading = false, usage, usageLoading = false, capacityHistory, capacityHistoryLoading = false, ips, loadingIps = false, search, setSearch, openSubnet, openHost, canEdit, canReserve, canReleaseReservations, siteId, newSubnet, editSubnet, removeSubnet, editIp, newIp, createHost, reserveIp, releaseReservation, reservedNext, tagsChanged, canManageTags = false }: SubnetsViewProps) {
   const [nextFreeOpen, setNextFreeOpen] = useState(false);
   const [editingTags, setEditingTags] = useState(false);
 
   if (!selected) return <section className="ipam-card">
     <div className="panel-heading"><h2>Subnets do Site</h2></div>{canEdit && <PageToolbarPortal><button className="primary-button" onClick={newSubnet}><Plus size={14} /> Nova subnet</button></PageToolbarPortal>}
-    {loading ? <div className="ipam-loading-skeletons subnet-loading-skeletons" aria-label="A carregar subnets" aria-busy="true">{[0, 1, 2].map((item) => <div className="content-skeleton ipam-subnet-skeleton" key={item}/>)}</div> : items.length > 0 && <SubnetTable items={items} loading={loading} canEdit={canEdit} siteId={siteId} openSubnet={openSubnet} editSubnet={editSubnet} removeSubnet={removeSubnet} tagsChanged={tagsChanged} />}
+    {loading ? <div className="ipam-loading-skeletons subnet-loading-skeletons" aria-label="A carregar subnets" aria-busy="true">{[0, 1, 2].map((item) => <div className="content-skeleton ipam-subnet-skeleton" key={item}/>)}</div> : items.length > 0 && <SubnetTable items={items} loading={loading} canEdit={canEdit} siteId={siteId} openSubnet={openSubnet} editSubnet={editSubnet} removeSubnet={removeSubnet} tagsChanged={tagsChanged} canManageTags={canManageTags} />}
     {!loading && !items.length && <Empty title={search ? 'Sem subnets correspondentes' : 'Este Site ainda não tem subnets'} text={search ? 'Experimenta outra pesquisa.' : 'Cria uma subnet diretamente nesta página.'} />}
   </section>;
 
@@ -114,7 +116,7 @@ export function SubnetsView({ selected, items, loading = false, usage, usageLoad
       </tr>; })}</tbody>
     </table></div>
     {!loadingIps && !ips.length && <Empty title={search ? 'Sem IPs correspondentes' : 'Ainda não existem endereços nesta subnet'} text={search ? 'Experimenta outra pesquisa.' : 'Adiciona o primeiro IP ou executa Discovery.'} />}
-    {editingTags && selected.siteId && <TagEditor siteId={selected.siteId} itemLabel={selected.cidr} selected={selected.tags ?? []} save={async (tagIds) => { await setSubnetTags(selected.id, tagIds); tagsChanged?.(); }} close={() => setEditingTags(false)} />}
+    {editingTags && selected.siteId && <TagEditor siteId={selected.siteId} canCreate={canManageTags} itemLabel={selected.cidr} selected={selected.tags ?? []} save={async (tagIds) => { await setSubnetTags(selected.id, tagIds); tagsChanged?.(); }} close={() => setEditingTags(false)} />}
     {nextFreeOpen && <NextFreeIpModal subnet={selected} canReserve={canReserve} close={() => setNextFreeOpen(false)} reserved={(result) => { setNextFreeOpen(false); reservedNext?.(result); }} />}
   </section>;
 }

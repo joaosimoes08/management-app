@@ -15,7 +15,7 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock('./api', () => ({ ...api, tagsQueryKey: (siteId: string | null | undefined) => ['tags', siteId ?? null] }));
 
-import { hasAllTags, parseTagFilterValue, tagColorClass } from './types';
+import { canManageTagCatalog, hasAllTags, parseTagFilterValue, tagColorClass } from './types';
 import { TagChips, TagEditor, TagFilter, TagManager } from './tag-components';
 import { SubnetsView } from '@/features/ipam/components/subnets-view';
 
@@ -105,7 +105,7 @@ describe('TagEditor', () => {
     const lab: Tag = { id: 't-lab', siteId: 's1', name: 'lab', color: 'green', deviceCount: 0, subnetCount: 0 };
     api.createTag.mockResolvedValue(lab);
     const save = vi.fn().mockResolvedValue(undefined);
-    render(withQuery(<TagEditor siteId="s1" itemLabel="sw" selected={[]} save={save} close={vi.fn()} />));
+    render(withQuery(<TagEditor siteId="s1" itemLabel="sw" selected={[]} save={save} close={vi.fn()} canCreate />));
     await screen.findByRole('checkbox', { name: 'core' });
     fireEvent.change(screen.getByRole('textbox', { name: 'Nome da nova etiqueta' }), { target: { value: ' lab ' } });
     fireEvent.change(screen.getByRole('combobox', { name: 'Cor da nova etiqueta' }), { target: { value: 'green' } });
@@ -129,7 +129,7 @@ describe('TagManager', () => {
     api.updateTag.mockResolvedValue({ ...core, name: 'backbone' });
     api.deleteTag.mockResolvedValue({ success: true });
     const onChanged = vi.fn();
-    render(withQuery(<TagManager siteId="s1" close={vi.fn()} onChanged={onChanged} />));
+    render(withQuery(<TagManager siteId="s1" close={vi.fn()} onChanged={onChanged} canManage />));
     const names = await screen.findAllByRole('textbox', { name: 'Nome da etiqueta' });
     const row = names[0].closest('li') as HTMLElement;
     fireEvent.change(names[0], { target: { value: 'backbone' } });
@@ -141,6 +141,33 @@ describe('TagManager', () => {
     fireEvent.click(within(confirm).getByRole('button', { name: 'Eliminar' }));
     await waitFor(() => expect(api.deleteTag).toHaveBeenCalledWith('t-core'));
     expect(onChanged).toHaveBeenCalled();
+  });
+});
+
+describe('tag catalog for NETWORK_OPERATOR', () => {
+  it('only ADMIN and SYSTEMS_OPERATOR manage the catalog', () => {
+    expect(canManageTagCatalog((role) => role === 'ADMIN')).toBe(true);
+    expect(canManageTagCatalog((role) => role === 'SYSTEMS_OPERATOR')).toBe(true);
+    expect(canManageTagCatalog((role) => role === 'NETWORK_OPERATOR')).toBe(false);
+    expect(canManageTagCatalog(() => false)).toBe(false);
+  });
+
+  it('the editor assigns existing tags but cannot create new ones', async () => {
+    const save = vi.fn().mockResolvedValue(undefined);
+    render(withQuery(<TagEditor siteId="s1" itemLabel="sw" selected={[]} save={save} close={vi.fn()} />));
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'core' }));
+    expect(screen.queryByRole('textbox', { name: 'Nome da nova etiqueta' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar etiquetas' }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith(['t-core']));
+  });
+
+  it('the manager lists tags without rename, recolour, delete or create', async () => {
+    render(withQuery(<TagManager siteId="s1" close={vi.fn()} />));
+    expect(await screen.findByText('core')).toBeInTheDocument();
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Eliminar/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Criar/ })).not.toBeInTheDocument();
   });
 });
 
@@ -165,6 +192,9 @@ describe('IPAM subnets with tags', () => {
   it('restores the tag filter from a saved view', async () => {
     localStorage.setItem('management-app:saved-views:local:ipam-subnets', JSON.stringify([{ name: 'Núcleo', query: '?subnetstag=t-core' }]));
     render(withQuery(createElement(SubnetsView, { ...props, items, canEdit: true })));
+    expect(screen.queryByRole('button', { name: /Gerir etiquetas/ })).not.toBeInTheDocument();
+    cleanup();
+    render(withQuery(createElement(SubnetsView, { ...props, items, canEdit: true, canManageTags: true })));
     expect(screen.getByRole('button', { name: /Gerir etiquetas/ })).toBeInTheDocument();
     const viewSelect = screen.getAllByRole('combobox').find((node) => within(node).queryByRole('option', { name: 'Núcleo' }));
     expect(viewSelect).toBeDefined();

@@ -10,9 +10,10 @@ type CatalogAction = 'READ' | 'UPDATE';
 
 /**
  * Step 36 — site-scoped tags for devices and subnets.
- * The catalog of a Site is readable by anyone who can read the Site's devices or its IPAM, and editable by
- * anyone who can update either (the controller limits writes to ADMIN and the operator roles). Assigning tags
- * needs UPDATE on that device or subnet. Every change is audited.
+ * The catalog of a Site is readable by anyone who can read the Site's devices or its IPAM. Creating, renaming,
+ * recolouring and deleting tags needs UPDATE on every kind of device in the Site (ADMIN or SYSTEMS_OPERATOR with
+ * scope), because a catalog change reaches every tagged device. NETWORK_OPERATOR only assigns existing tags to the
+ * network devices and subnets it may update. Assigning tags needs UPDATE on that device or subnet. Every change is audited.
  */
 @Injectable()
 export class TagsService {
@@ -23,12 +24,19 @@ export class TagsService {
     private readonly ipam: IpamAccessService,
   ) {}
 
-  /** Passes when the infrastructure scope or the IPAM scope of the Site allows the action; otherwise rethrows the infrastructure error. */
+  /**
+   * READ passes when the infrastructure scope or the IPAM scope of the Site allows it. UPDATE (catalog changes) only
+   * passes the infrastructure check for any device type, so NETWORK_OPERATOR, limited to network devices, gets 403.
+   */
   private async assertCatalog(user: AuthenticatedUser, action: CatalogAction, siteId: string) {
+    if (action === 'UPDATE') {
+      await this.infrastructure.assertSite(user, 'UPDATE', siteId, 'DEVICE');
+      return;
+    }
     try {
-      await this.infrastructure.assertSite(user, action, siteId, 'DEVICE');
+      await this.infrastructure.assertSite(user, 'READ', siteId, 'DEVICE');
     } catch (infrastructureError) {
-      try { await this.ipam.assertSite(user, action, siteId); } catch { throw infrastructureError; }
+      try { await this.ipam.assertSite(user, 'READ', siteId); } catch { throw infrastructureError; }
     }
   }
 

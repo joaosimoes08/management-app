@@ -4,6 +4,8 @@ import { Prisma } from '@simoes/database';
 /** Step 36 — tag rules shared by the tags API and the device/subnet list filters. */
 export const TAG_COLORS = ['gray', 'blue', 'green', 'amber', 'red', 'purple'] as const;
 export type TagColor = (typeof TAG_COLORS)[number];
+/** Roles that may create, rename, recolour and delete a Site's tags: those that can update every kind of device. */
+export const TAG_CATALOG_ROLES = ['ADMIN', 'SYSTEMS_OPERATOR'] as const;
 export const TAG_NAME_MAX_LENGTH = 40;
 /** Most tags one device or subnet can carry. */
 export const TAGS_PER_ITEM_LIMIT = 20;

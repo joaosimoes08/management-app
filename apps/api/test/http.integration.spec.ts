@@ -2373,6 +2373,12 @@ test('Step 36 tags: site-scoped catalogue, RBAC, audit, device and subnet filter
   assert.deepEqual(json(await request('GET', `/api/v1/subnets?siteId=${ids.siteA}&tag=${core.id}`, 'qa-admin')).items, []);
   assert.deepEqual(json(await request('GET', `/api/v1/subnets/${ids.subnetA}`, 'qa-admin')).tags.map((tag: { name: string }) => tag.name), ['dmz']);
 
+  // NETWORK_OPERATOR assigns existing tags (above) but cannot change the Site catalog: deleting a tag would reach servers too.
+  assert.equal((await create(ids.siteA, 'net', 'gray', 'qa-network-scoped')).statusCode, 403, 'NETWORK_OPERATOR cannot create tags');
+  assert.equal((await request('PATCH', `/api/v1/tags/${core.id}`, 'qa-network-scoped', { name: 'hijack', color: 'red' })).statusCode, 403, 'NETWORK_OPERATOR cannot rename or recolour tags');
+  assert.equal((await request('DELETE', `/api/v1/tags/${dmz.id}`, 'qa-network-scoped')).statusCode, 403, 'NETWORK_OPERATOR cannot delete tags');
+  assert.deepEqual(json(await request('GET', `/api/v1/tags?siteId=${ids.siteA}`, 'qa-network-scoped')).map((tag: { name: string; color: string }) => `${tag.name}:${tag.color}`), ['core:blue', 'dmz:red'], 'catalog unchanged, still readable');
+
   const renamed = await request('PATCH', `/api/v1/tags/${core.id}`, 'qa-admin', { name: 'backbone', color: 'purple' });
   assert.equal(renamed.statusCode, 200, renamed.body);
   assert.equal(json(renamed).deviceCount, 2);

@@ -117,10 +117,12 @@ export interface TagEditorProps {
   selected: TagSummary[];
   save: (tagIds: string[]) => Promise<unknown>;
   close: () => void;
+  /** Show the inline "new tag" form; only for the catalog roles (ADMIN, SYSTEMS_OPERATOR). */
+  canCreate?: boolean;
 }
 
 /** Pick the tags of one device or subnet; new tags can be created inline. */
-export function TagEditor({ siteId, itemLabel, selected, save, close }: TagEditorProps) {
+export function TagEditor({ siteId, itemLabel, selected, save, close, canCreate = false }: TagEditorProps) {
   const { data: tags = [], isLoading } = useSiteTags(siteId);
   const [chosen, setChosen] = useState<Set<string>>(() => new Set(selected.map((tag) => tag.id)));
   const mutation = useMutation({ mutationFn: () => save([...chosen]), onSuccess: () => close() });
@@ -134,7 +136,7 @@ export function TagEditor({ siteId, itemLabel, selected, save, close }: TagEdito
     <Modal title={`Etiquetas · ${itemLabel}`} close={close}>
       <div className="modal-form tag-editor">
         {isLoading ? <p className="panel-description">A carregar etiquetas…</p> : null}
-        {!isLoading && !tags.length ? <p className="panel-description">Este site ainda não tem etiquetas. Cria a primeira abaixo.</p> : null}
+        {!isLoading && !tags.length ? <p className="panel-description">{canCreate ? 'Este site ainda não tem etiquetas. Cria a primeira abaixo.' : 'Este site ainda não tem etiquetas. Um administrador pode criá-las.'}</p> : null}
         {tags.length ? (
           <fieldset className="tag-editor-options" aria-label="Etiquetas do site">
             {tags.map((tag) => (
@@ -145,7 +147,7 @@ export function TagEditor({ siteId, itemLabel, selected, save, close }: TagEdito
             ))}
           </fieldset>
         ) : null}
-        <NewTagForm siteId={siteId} onCreated={(tag) => setChosen((current) => (current.size < TAGS_PER_ITEM_LIMIT ? new Set(current).add(tag.id) : current))} />
+        {canCreate ? <NewTagForm siteId={siteId} onCreated={(tag) => setChosen((current) => (current.size < TAGS_PER_ITEM_LIMIT ? new Set(current).add(tag.id) : current))} /> : null}
         {mutation.isError ? <p className="form-error" role="alert">{errorText(mutation.error)}</p> : null}
         <div className="modal-actions">
           <button type="button" className="secondary-button" onClick={close}>Cancelar</button>
@@ -187,8 +189,17 @@ function TagManagerRow({ tag, siteId, onChanged }: { tag: Tag; siteId: string; o
   );
 }
 
-/** Rename, recolour and delete the site's tags. */
-export function TagManager({ siteId, close, onChanged = () => undefined }: { siteId: string; close: () => void; onChanged?: () => void }) {
+function TagReadOnlyRow({ tag }: { tag: Tag }) {
+  return (
+    <li className="tag-manager-row">
+      <span className={`tag-chip tag-chip--${tagColorClass(tag.color)}`}>{tag.name}</span>
+      <small className="tag-manager-uses" title="Equipamentos · Sub-redes">{tag.deviceCount} · {tag.subnetCount}</small>
+    </li>
+  );
+}
+
+/** Rename, recolour and delete the site's tags; without `canManage` it only lists them. */
+export function TagManager({ siteId, close, onChanged = () => undefined, canManage = false }: { siteId: string; close: () => void; onChanged?: () => void; canManage?: boolean }) {
   const { data: tags = [], isLoading } = useSiteTags(siteId);
   const sorted = useMemo(() => [...tags].sort((a, b) => a.name.localeCompare(b.name, 'pt')), [tags]);
   return (
@@ -196,8 +207,10 @@ export function TagManager({ siteId, close, onChanged = () => undefined }: { sit
       <div className="modal-form tag-manager">
         <p className="panel-description">As etiquetas pertencem a este site e servem equipamentos e sub-redes. Contagem: equipamentos · sub-redes.</p>
         {isLoading ? <p className="panel-description">A carregar etiquetas…</p> : null}
-        {sorted.length ? <ul className="tag-manager-list">{sorted.map((tag) => <TagManagerRow key={`${tag.id}:${tag.name}:${tag.color}`} tag={tag} siteId={siteId} onChanged={onChanged} />)}</ul> : null}
-        <NewTagForm siteId={siteId} />
+        {sorted.length ? <ul className="tag-manager-list">{sorted.map((tag) => (canManage
+          ? <TagManagerRow key={`${tag.id}:${tag.name}:${tag.color}`} tag={tag} siteId={siteId} onChanged={onChanged} />
+          : <TagReadOnlyRow key={tag.id} tag={tag} />))}</ul> : null}
+        {canManage ? <NewTagForm siteId={siteId} /> : <p className="panel-description">Só administradores e operadores de sistemas podem criar, renomear ou eliminar etiquetas.</p>}
         <div className="modal-actions"><button type="button" className="secondary-button" onClick={close}>Fechar</button></div>
       </div>
     </Modal>

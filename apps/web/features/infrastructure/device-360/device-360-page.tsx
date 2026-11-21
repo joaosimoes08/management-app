@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Activity, ExternalLink, Pencil, Plus, Route, Server, Tags } from 'lucide-react';
 import { setDeviceTags } from '@/features/tags/api';
 import { TagChips, TagEditor } from '@/features/tags/tag-components';
+import { canManageTagCatalog } from '@/features/tags/types';
 import { AppShell } from '@/components/layout/app-shell';
 import { deviceEditHref, entityHref } from '@/components/data-table/entity-link';
 import { rememberRecentItem } from '@/lib/recent-items';
@@ -143,7 +144,7 @@ export function Device360Page({ deviceId }: { deviceId: string }) {
         {can('changeCreate') && <a className="secondary-button" href={`/alteracoes${q({ siteId, new: '1', deviceId: device.id })}`}><Plus size={14} aria-hidden="true" /> Criar alteração</a>}
       </div>
     </header>
-    {editingTags && device && siteId && <TagEditor siteId={siteId} itemLabel={device.name} selected={device.tags ?? []} save={async (tagIds) => { await setDeviceTags(device.id, tagIds); await queryClient.invalidateQueries({ queryKey: ['device-360', deviceId] }); void queryClient.invalidateQueries({ queryKey: ['tags', siteId] }); void queryClient.invalidateQueries({ queryKey: ['infrastructure', 'devices', siteId] }); }} close={() => setEditingTags(false)} />}
+    {editingTags && device && siteId && <TagEditor siteId={siteId} canCreate={canManageTagCatalog(hasRole)} itemLabel={device.name} selected={device.tags ?? []} save={async (tagIds) => { await setDeviceTags(device.id, tagIds); await queryClient.invalidateQueries({ queryKey: ['device-360', deviceId] }); void queryClient.invalidateQueries({ queryKey: ['tags', siteId] }); void queryClient.invalidateQueries({ queryKey: ['infrastructure', 'devices', siteId] }); }} close={() => setEditingTags(false)} />}
 
     {impactOpen && <section id="d360-impacto-section" className="ipam-card device-360-section device-360-impact" aria-labelledby="d360-impacto" data-section="impacto">
       <header className="device-360-section-head"><h2 id="d360-impacto">Impacto se este equipamento for abaixo</h2><button type="button" className="text-button" onClick={() => setImpactOpen(false)}>Fechar</button></header>

@@ -39,3 +39,9 @@ export function hasAllTags(item: { tags?: TagSummary[] }, filter: string | undef
   const own = new Set((item.tags ?? []).map((tag) => tag.id));
   return wanted.every((id) => own.has(id));
 }
+
+/** Mirrors TAG_CATALOG_ROLES in the API: creating, renaming, recolouring and deleting tags is ADMIN / SYSTEMS_OPERATOR only. */
+export const TAG_CATALOG_ROLES = ['ADMIN', 'SYSTEMS_OPERATOR'] as const;
+export function canManageTagCatalog(hasRole: (role: string) => boolean) {
+  return TAG_CATALOG_ROLES.some((role) => hasRole(role));
+}
