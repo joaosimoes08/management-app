@@ -1,3 +1,4 @@
+import { queueUserDeliveries } from '../notifications/delivery/delivery-queue';
 import { NotificationTopic, unmutedRecipients } from '../notifications/notification-preferences';
 import { PrismaClient } from '@simoes/database';
 
@@ -49,6 +50,7 @@ export async function deliverLifecycleReminders(prisma: PrismaClient, now = new 
           });
           if (item.device.siteId) source.set('siteId', item.device.siteId);
           await tx.notification.create({ data: { userId: recipientUserId, type, title, message, sourceHref: `/infraestrutura?${source}` } });
+          await queueUserDeliveries(tx, [{ userId: recipientUserId, type, title, message, href: `/infraestrutura?${source}` }]);
           return true;
         });
         if (created) delivered++;

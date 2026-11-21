@@ -71,8 +71,17 @@
 }
 
 .preference {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 16px;
   padding: 8px 0;
   font-size: 13px;
+}
+
+.channel {
+  color: var(--muted);
 }
 
 @media (max-width: 600px) {

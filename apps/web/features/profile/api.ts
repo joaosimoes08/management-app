@@ -43,7 +43,9 @@ export type NotificationItem = {
   href: string | null;
 };
 export type NotificationPage = { items: NotificationItem[]; nextCursor: string | null };
-export type NotificationPreference = { type: NotificationTopic; muted: boolean };
+/** `teams` (Step 31) is the per-topic Microsoft Teams copy; `teamsAvailable` is false until an ADMIN enables the channel. */
+export type NotificationPreference = { type: NotificationTopic; muted: boolean; teams?: boolean; teamsAvailable?: boolean };
+export type NotificationPreferenceChange = { muted?: boolean; teams?: boolean };
 
 export function listNotifications(status: 'all' | 'unread', type: string, cursor: string | null) {
   const query = new URLSearchParams({ status });
@@ -61,6 +63,6 @@ export function getNotificationPreferences() {
   return apiFetch<NotificationPreference[]>('/api/v1/notifications/preferences');
 }
 
-export function saveNotificationPreference(type: NotificationTopic, muted: boolean) {
-  return apiFetch<NotificationPreference>(`/api/v1/notifications/preferences/${type}`, { method: 'PATCH', body: JSON.stringify({ muted }) });
+export function saveNotificationPreference(type: NotificationTopic, change: NotificationPreferenceChange) {
+  return apiFetch<NotificationPreference>(`/api/v1/notifications/preferences/${type}`, { method: 'PATCH', body: JSON.stringify(change) });
 }
