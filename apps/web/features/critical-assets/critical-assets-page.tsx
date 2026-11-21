@@ -41,6 +41,8 @@ export function CriticalAssetsPage() {
   const { search, filters, setSearch, setFilter } = table;
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [detailId, setDetailId] = useState('');
+  const [linkedWeek, setLinkedWeek] = useState('');
+  const openedLink = useRef(false);
   const [review, setReview] = useState<Review | null>(null);
   const [ownerType, setOwnerType] = useState<string | null>(null);
   const [bulkPlan, setBulkPlan] = useState<{ selectedCount: number; olderCount: number; items: BulkItem[] } | null>(null);
@@ -65,6 +67,15 @@ export function CriticalAssetsPage() {
   }, [locale]);
 
   const rows = useMemo(() => buildRows(data), [data]);
+  useEffect(() => {
+    if (openedLink.current || !rows.length) return;
+    const query = new URLSearchParams(window.location.search);
+    const asset = rows.find((row) => row.id === query.get('assetId'));
+    if (!asset) return;
+    openedLink.current = true;
+    setDetailId(asset.id);
+    setLinkedWeek(query.get('week') ?? '');
+  }, [rows]);
   const counts = useMemo(() => countRows(rows), [rows]);
   const visible = useMemo(() => filterRows(rows, search, filters), [rows, search, filters]);
   const owners = useMemo(() => {
@@ -100,7 +111,7 @@ export function CriticalAssetsPage() {
 
   const remember = () => { returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; };
   const restoreFocus = () => { const target = returnFocus.current; returnFocus.current = null; window.setTimeout(() => target?.isConnected && target.focus(), 0); };
-  const openDetail = (row: AssetRow) => { remember(); setDetailId(row.id); };
+  const openDetail = (row: AssetRow) => { remember(); setLinkedWeek(''); setDetailId(row.id); };
   const closeDetail = () => { setDetailId(''); restoreFocus(); };
   const openReview = (asset: AssetRow, attestation: Attestation, outcome: Outcome) => { if (!detailId) remember(); setReview({ asset, attestation, outcome }); };
   const closeReview = () => { setReview(null); if (!detailId) restoreFocus(); };
@@ -196,7 +207,7 @@ export function CriticalAssetsPage() {
   const columns: DataTableColumn<AssetRow>[] = [
     {
       id: 'name', header: 'Equipamento', sortValue: (row) => row.name,
-      cell: (row) => <><button className="link-button" aria-label={`Abrir histórico de ${row.name}`} onClick={() => openDetail(row)}>{row.name}</button><small className="mono">{[row.hostname, row.managementIp].filter(Boolean).join(' · ') || '—'}</small></>,
+      cell: (row) => <><button className="link-button" aria-label={`Abrir histórico de ${row.name}`} onClick={() => openDetail(row)}>{row.name}</button>{row.criticalityTier && <span className="state-badge" title="Criticidade"><i />{row.criticalityTier}</span>}<small className="mono">{[row.hostname, row.managementIp].filter(Boolean).join(' · ') || '—'}</small></>,
       csv: [{ header: 'Equipamento', value: (row) => row.name }, { header: 'Hostname', value: (row) => row.hostname }, { header: 'IP de gestão', value: (row) => row.managementIp }, { header: 'Número de série', value: (row) => row.serialNumber }, { header: 'Etiqueta', value: (row) => row.assetTag }],
     },
     { id: 'type', header: 'Tipo', sortValue: (row) => row.type, cell: (row) => row.type, csv: [{ header: 'Tipo', value: (row) => row.type }] },
@@ -234,6 +245,9 @@ export function CriticalAssetsPage() {
     { label: 'Para esta semana', value: counts.dueThisWeek, key: 'due', filter: 'due_this_week' },
     { label: 'Correção pedida', value: counts.needsCorrection, key: 'outcome', filter: 'NEEDS_CORRECTION' },
     { label: 'Sem responsável', value: counts.noOwner, key: 'owner', filter: NO_OWNER },
+    { label: 'Tier 1 · Vital', value: rows.filter((row) => row.criticalityTier === 'T1').length, key: 'tier', filter: 'T1' },
+    { label: 'Tier 2 · Importante', value: rows.filter((row) => row.criticalityTier === 'T2').length, key: 'tier', filter: 'T2' },
+    { label: 'Tier 3 · Padrão', value: rows.filter((row) => row.criticalityTier === 'T3').length, key: 'tier', filter: 'T3' },
   ];
 
   const actions = <>
@@ -248,6 +262,7 @@ export function CriticalAssetsPage() {
       <label>Responsável<select aria-label="Filtrar por grupo responsável" value={filters.owner} onChange={(event) => setFilter('owner', event.target.value)}><option value="">Todos</option><option value={NO_OWNER}>Sem responsável</option>{owners.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
       <label>Último resultado<select aria-label="Filtrar por último resultado" value={filters.outcome} onChange={(event) => setFilter('outcome', event.target.value)}><option value="">Todos</option><option value="CONFIRMED">Confirmado</option><option value="NEEDS_CORRECTION">Correção pedida</option><option value={NO_OUTCOME}>Sem revisão</option></select></label>
       <label>Prazo<select aria-label="Filtrar por prazo" value={filters.due} onChange={(event) => setFilter('due', event.target.value)}><option value="">Todos</option>{(Object.keys(dueLabels) as Array<keyof typeof dueLabels>).map((state) => <option key={state} value={state}>{dueLabels[state]}</option>)}</select></label>
+      <label>Criticidade<select aria-label="Filtrar por criticidade" value={filters.tier} onChange={(event) => setFilter('tier', event.target.value)}><option value="">Todos</option><option value="T1">T1 · Vital</option><option value="T2">T2 · Importante</option><option value="T3">T3 · Padrão</option></select></label>
       {filtering && <button className="secondary-button" onClick={clearFilters}><X size={14} /> Limpar filtros</button>}
     </div></PageToolbarPortal>
     <main className="module-page aligned-workspace"><section className="ipam-card page-primary-card critical-assets-card">
@@ -300,7 +315,7 @@ export function CriticalAssetsPage() {
         empty="Ainda não existem revisões para este ativo."
         events={detail.attestations.map((attestation) => ({
           id: attestation.id,
-          title: `Semana de ${formatDate(attestation.weekStart)}`,
+          title: <>{`Semana de ${formatDate(attestation.weekStart)}`}{attestation.weekStart.slice(0, 10) === linkedWeek && <> · {translateLegacyText(locale, 'Revisão ligada à notificação')}</>}</>,
           status: <span className={`state-badge ${outcomeTone(attestation.outcome)}`}><i />{outcomeLabel(attestation.outcome)}</span>,
           at: attestation.outcome ? attestation.confirmedAt : null,
           actor: attestation.outcome ? attestation.confirmedByName ?? 'Revisor desconhecido' : null,

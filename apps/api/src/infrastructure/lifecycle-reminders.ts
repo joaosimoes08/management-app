@@ -1,3 +1,4 @@
+import { NotificationTopic, unmutedRecipients } from '../notifications/notification-preferences';
 import { PrismaClient } from '@simoes/database';
 
 const DAY_MS = 86_400_000;
@@ -18,7 +19,7 @@ export async function deliverLifecycleReminders(prisma: PrismaClient, now = new 
   const dates = await prisma.lifecycleDate.findMany({
     where: { dueDate: { gte: start, lte: end } },
     include: {
-      device: { select: { id: true, name: true } },
+      device: { select: { id: true, name: true, siteId: true } },
       responsibleUser: { select: { id: true } },
       responsibleGroup: { select: { members: { select: { userId: true } } } },
     },
@@ -34,12 +35,20 @@ export async function deliverLifecycleReminders(prisma: PrismaClient, now = new 
       const message = `${item.device.name} · ${item.dueDate.toISOString().slice(0, 10)}`;
       for (const recipientUserId of [...new Set(recipients)]) {
         const created = await prisma.$transaction(async (tx) => {
+          // Muted recipients get no delivery row, so the reminder is not recorded as delivered and
+          // will fire on a later run if they unmute before the due date's reminder window ends.
+          const type = NotificationTopic.LIFECYCLE_DATE;
+          if (!(await unmutedRecipients(tx, [recipientUserId], type)).length) return false;
           const result = await tx.lifecycleReminderDelivery.createMany({
             data: [{ lifecycleDateId: item.id, recipientUserId, reminderDays: offset, dueDate: item.dueDate }],
             skipDuplicates: true,
           });
           if (!result.count) return false;
-          await tx.notification.create({ data: { userId: recipientUserId, type: 'LIFECYCLE_DATE', title, message } });
+          const source = new URLSearchParams({
+            tab: 'lifecycle', lifecycleId: item.id, due: item.dueDate.toISOString().slice(0, 10),
+          });
+          if (item.device.siteId) source.set('siteId', item.device.siteId);
+          await tx.notification.create({ data: { userId: recipientUserId, type, title, message, sourceHref: `/infraestrutura?${source}` } });
           return true;
         });
         if (created) delivered++;

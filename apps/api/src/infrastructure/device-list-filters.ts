@@ -8,6 +8,7 @@ export type DeviceListFilterInput = {
   critical?: string;
   lifecycle?: string;
   lifecycleKind?: string;
+  tier?: string;
 };
 
 function invalid(code: string, message: string): never {
@@ -25,6 +26,7 @@ function startOfUtcDay(now: Date) {
  * - critical: true | false.
  * - lifecycle: overdue (a lifecycle date before today) or due:<days> (due between today and today + days, 1..3650).
  * - lifecycleKind: restricts the lifecycle match to one kind (e.g. SUPPORT, WARRANTY).
+ * - tier: comma list of criticality tiers (T1, T2, T3); devices without a tier never match.
  */
 export function deviceListFilterWhere(input: DeviceListFilterInput, now = new Date()): Prisma.DeviceWhereInput[] {
   const where: Prisma.DeviceWhereInput[] = [];
@@ -36,6 +38,11 @@ export function deviceListFilterWhere(input: DeviceListFilterInput, now = new Da
   if (input.critical !== undefined && input.critical !== '') {
     if (input.critical !== 'true' && input.critical !== 'false') invalid('DEVICE_CRITICAL_FILTER_INVALID', 'critical deve ser true ou false.');
     where.push({ isCritical: input.critical === 'true' });
+  }
+  if (input.tier !== undefined && input.tier !== '') {
+    const tiers = [...new Set(input.tier.split(',').map((value) => value.trim().toUpperCase()).filter(Boolean))];
+    if (!tiers.length || tiers.some((value) => !['T1', 'T2', 'T3'].includes(value))) invalid('DEVICE_TIER_FILTER_INVALID', 'tier deve ser T1, T2 ou T3.');
+    where.push({ criticalityTier: { in: tiers as ('T1' | 'T2' | 'T3')[] } });
   }
   const kind = input.lifecycleKind?.trim();
   if (input.lifecycle !== undefined && input.lifecycle !== '') {
@@ -54,4 +61,14 @@ export function deviceListFilterWhere(input: DeviceListFilterInput, now = new Da
     where.push({ lifecycleDates: { some: { kind } } });
   }
   return where;
+}
+
+/** Devices per criticality tier for the list header; `none` counts devices without a tier. */
+export function tierCountsOf(groups: Array<{ criticalityTier: string | null; _count: { _all: number } }>) {
+  const counts = { T1: 0, T2: 0, T3: 0, none: 0 };
+  for (const group of groups) {
+    const key = group.criticalityTier === 'T1' || group.criticalityTier === 'T2' || group.criticalityTier === 'T3' ? group.criticalityTier : 'none';
+    counts[key] += group._count._all;
+  }
+  return counts;
 }

@@ -158,6 +158,8 @@ export function DeviceEditor({ close, editingId, animateEntry = false, form, set
     // Power overrides follow the same rule: send only what changed (null = back to the model / default).
     delete deviceBody.powerPlugCount; delete deviceBody.estimatedWatts; delete deviceBody.savedPower;
     delete deviceBody.savedRackId; delete deviceBody.requiredMissing;
+    // Tier is the source of truth; '' means not critical (the API clears the tier and the flag together).
+    delete deviceBody.isCritical; deviceBody.criticalityTier = form.criticalityTier || null;
     // Landing in a rack (new or moved) sends `power`: the API connects the plugs to free PDU outlets in the same save.
     const powerFields = devicePowerFields(form);
     void save(editingId ? `/api/v1/devices/${editingId}` : '/api/v1/devices', {
@@ -220,7 +222,8 @@ export function DeviceEditor({ close, editingId, animateEntry = false, form, set
           </div>
           <label htmlFor="device-model">Modelo (opcional)<select id="device-model" value={form.modelId} onChange={(event) => update({ modelId: event.target.value }, 'device-model')}><option value="">Sem modelo — usar ícone genérico</option>{models.filter((item) => item.type === form.type).map((item) => <option key={item.id} value={item.id}>{item.manufacturer} {item.model}</option>)}</select></label>
           <small className="form-help">O modelo fornece imagens, fichas e consumo por omissão.</small>
-          <label className="checkbox-label"><input type="checkbox" checked={form.isCritical} onChange={(event) => update({ isCritical: event.target.checked })} /> Ativo crítico · requer confirmação semanal</label>
+          <label htmlFor="device-criticality">Criticidade<select id="device-criticality" value={form.criticalityTier ?? ''} onChange={(event) => update({ criticalityTier: event.target.value as DeviceForm['criticalityTier'], isCritical: event.target.value !== '' })}><option value="">Não crítico</option><option value="T1">T1 · Vital</option><option value="T2">T2 · Importante</option><option value="T3">T3 · Padrão</option></select></label>
+          <small className="form-help">Ativos críticos pedem revisão periódica; a cadência de cada tier está em Definições.</small>
         </>)}
 
         {panel('localizacao', <>
