@@ -9,7 +9,7 @@ import { PageToolbarPortal } from '@/components/layout/app-shell';
 import { SubnetCapacityTrend } from './subnet-capacity-trend';
 import { NextFreeIpModal } from './next-free-ip-modal';
 import { formatDateTime } from '@/lib/format/date';
-import { DataTable, sortByColumns, useTableUrlState, type DataTableColumn, type TableStateConfig } from '@/components/data-table';
+import { DataTable, SavedViews, sortByColumns, useTableUrlState, type DataTableColumn, type TableStateConfig } from '@/components/data-table';
 import { formatIpamPercent, utilizationBadge, utilizationBandOptions, utilizationSortValue } from '../utilization';
 
 const subnetTableConfig: TableStateConfig<{ band: string }> = {
@@ -67,7 +67,7 @@ function SubnetTable({ items, loading, canEdit, openSubnet, editSubnet, removeSu
   const band = table.filters.band;
   const rows = useMemo(() => sortByColumns(band ? items.filter((subnet) => (subnet.utilization?.band ?? '') === band) : items, columns, table.sort), [band, columns, items, table.sort]);
   return <>
-    <PageToolbarPortal><div className="interface-toolbar-controls"><label>Utilização<select aria-label="Filtrar subnets por utilização" value={band} onChange={(event) => table.setFilter('band', event.target.value)}><option value="">Todas</option>{utilizationBandOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div></PageToolbarPortal>
+    <PageToolbarPortal><div className="interface-toolbar-controls"><label>Utilização<select aria-label="Filtrar subnets por utilização" value={band} onChange={(event) => table.setFilter('band', event.target.value)}><option value="">Todas</option>{utilizationBandOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><SavedViews pageId="ipam-subnets" config={subnetTableConfig} table={table} /></div></PageToolbarPortal>
     <DataTable rows={rows} columns={columns} rowKey={(subnet) => subnet.id} label="Subnets do Site" sort={table.sort} onSortChange={table.setSort} defaultSort={table.defaultSort} loading={loading} empty={band ? <Empty title="Sem subnets nesta faixa de utilização" text="Escolhe outra faixa ou limpa o filtro." /> : null} />
   </>;
 }

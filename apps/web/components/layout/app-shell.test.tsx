@@ -67,3 +67,10 @@ describe('AppShell utility action alignment slot', () => {
     expect(within(actions).getByRole('button', { name: 'Atualizar' })).toBeInTheDocument();
   });
 });
+
+describe('AppShell help link', () => {
+  it('links the page title to its Ajuda article', () => {
+    render(<AppShell section="Infraestrutura"><p>Content</p></AppShell>);
+    expect(screen.getByRole('link', { name: 'Ajuda: Equipamentos' })).toHaveAttribute('href', '/ajuda/equipamentos');
+  });
+});

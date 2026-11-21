@@ -1666,6 +1666,16 @@ html[lang='en-US'] .environment-trigger.operational::after { content:'· Setup c
 .change-plan-row small,.change-target-item small,.change-summary-grid small { color:var(--muted); font-size:10px; line-height:1.45; }
 .change-status { display:inline-flex; align-items:center; width:max-content; padding:4px 8px; border-radius:20px; background:#eeeef2; color:#4d4a58; font-size:10px; font-weight:700; }
 .status-submitted { background:#fff1d4; color:#755010; }.status-approved { background:#e2f4e9; color:#215f36; }.status-rejected { background:#fae8e8; color:#853d3d; }.status-cancelled { background:#eee; color:#666; }.status-partial { background:#fff1d4; color:#755010; }.status-complete { background:#e2f4e9; color:#215f36; }
+/* Step 30: implementation and close-out states, checklist, post-change check, calendar legend. */
+.status-in_progress { background:#e6ecfb; color:#2f4b8f; }.status-completed { background:#d6efdf; color:#1b5230; }.status-failed { background:#fae8e8; color:#853d3d; }.status-rolled_back { background:#f1ecf8; color:#5d4a85; }
+.change-calendar-legend { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:8px 0 0; padding:0; list-style:none; font-size:10px; }
+.change-execution { display:grid; gap:10px; margin-top:14px; }.change-execution > .change-review:first-child { margin-top:0; }
+.change-review select { box-sizing:border-box; width:100%; min-height:38px; padding:8px 10px; border:1px solid var(--line); border-radius:7px; background:#fff; color:var(--ink); font:inherit; }
+.change-checklist ol { margin:0; padding:0; list-style:none; }
+.change-review label.change-check-step { display:flex; align-items:flex-start; gap:9px; font-weight:400; }.change-check-step input { margin-top:2px; }.change-check-step > span { display:grid; gap:3px; min-width:0; }
+.change-conflicts small { color:var(--muted); }.change-conflicts b { font-weight:650; }
+.change-post-check { display:grid; gap:7px; }.change-check-item { align-items:flex-start; }
+.change-check-fields { width:100%; margin-top:6px; border-collapse:collapse; font-size:10px; }.change-check-fields th { padding:4px 6px; color:#99959b; border-bottom:1px solid var(--line); text-align:left; font:9px 'DM Mono'; font-weight:400; }.change-check-fields td { padding:4px 6px; border-bottom:1px solid #f0eeee; overflow-wrap:anywhere; }.change-check-mismatch td { color:#a14c41; }
 .change-detail > p,.change-muted { color:var(--muted); font-size:12px; line-height:1.55; }
 .change-summary-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin:12px 0; }
 .change-summary-grid > div { display:grid; align-content:start; gap:4px; min-width:0; padding:10px; border:1px solid var(--line); border-radius:8px; background:#fbfafb; }
@@ -1906,6 +1916,7 @@ body { color:var(--ink); background:#e9eef5; }
 .context-toolbar-contribution .interface-toolbar-controls label { display:flex; align-items:center; gap:6px; color:#586982; font-size:11px; font-weight:650; white-space:nowrap; }
 .context-toolbar-contribution .interface-toolbar-controls select,.interface-toolbar-controls input[type="date"] { box-sizing:border-box; width:auto; min-width:90px; max-width:clamp(130px, 12vw, 178px); min-height:35px; height:35px; padding:0 12px; color:#20334f; border:1px solid #dce4ef; border-radius:8px; background:#fff; font-size:11px; }
 @media (max-width:780px) { .context-toolbar-contribution .interface-toolbar-controls select { width:100%; min-width:0; max-width:100%; } }
+.context-toolbar-contribution .saved-views input { box-sizing:border-box; width:150px; min-height:35px; height:35px; padding:0 12px; color:#20334f; border:1px solid #dce4ef; border-radius:8px; background:#fff; font-size:11px; }
 @media (max-width:780px) {
   .context-toolbar-contribution { width:100%; }
   .context-toolbar-contribution .observed-device-select { flex:1 1 100%; min-width:0; }
@@ -1990,6 +2001,7 @@ body { color:var(--ink); background:#e9eef5; }
 .context-toolbar-title { display:flex; flex:0 0 auto; align-items:baseline; gap:9px; min-width:130px; color:#192a43; }
 .context-toolbar-title strong { font-size:14px; font-weight:700; letter-spacing:-.02em; }
 .context-toolbar-title > span { overflow:hidden; max-width:220px; color:#738198; font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
+.context-toolbar-title > .icon-button { align-self:center; width:24px; height:24px; min-width:24px; min-height:24px; }
 .app-shell .contextual-search { display:flex; flex:0 1 270px; align-items:center; min-width:160px; min-height:36px; padding:0 10px; border:1px solid #dce2ea; border-radius:8px; background:#f8f9fb; }
 .app-shell .contextual-search input { width:100%; min-width:0; border:0; outline:0; background:transparent; color:#243650; font-size:12px; }
 .app-shell .contextual-search input:focus-visible { outline:0; }

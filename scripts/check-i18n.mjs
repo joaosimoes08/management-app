@@ -23,6 +23,7 @@ const operationalFiles = [
   'apps/web/features/critical-assets/workbench.ts',
   'apps/web/features/change-plans/change-plans-page.tsx',
   'apps/web/features/change-plans/change-calendar.tsx',
+  'apps/web/features/change-plans/change-execution.tsx',
   'apps/web/features/change-plans/workspace.ts',
   'apps/web/components/data-table/data-table.tsx',
   'apps/web/components/data-table/entity-link.tsx',
@@ -30,6 +31,8 @@ const operationalFiles = [
   'apps/web/components/data-table/csv.ts',
   'apps/web/components/data-table/table-state.ts',
   'apps/web/components/data-table/use-table-url-state.ts',
+  'apps/web/components/data-table/saved-views.tsx',
+  'apps/web/features/help/articles.ts',
   'apps/web/app/ajuda/page.tsx',
   'apps/web/app/ajuda/[topic]/page.tsx',
   // Phase D front end

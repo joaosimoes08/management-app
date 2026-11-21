@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Clock3, ExternalLink, RefreshCw, UserPlus, X } from 'lucide-react';
 import { AppShell, PageToolbarPortal } from '@/components/layout/app-shell';
-import { DataTable, sortByColumns, useTableUrlState, type DataTableColumn } from '@/components/data-table';
+import { DataTable, SavedViews, sortByColumns, useTableUrlState, type DataTableColumn } from '@/components/data-table';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useAuth } from '@/lib/auth';
 import { useSiteContext } from '@/lib/site-context';
@@ -166,6 +166,7 @@ export function InventoryQualityPage() {
       </select></label>
       <label>Agrupar<select aria-label="Agrupar findings" value={filters.group} onChange={(event) => setFilter('group', event.target.value)}><option value="">Sem agrupamento</option><option value="rule">Por regra</option></select></label>
       {filtering && <button className="secondary-button" onClick={clearFilters}><X size={14} /> Limpar filtros</button>}
+      <SavedViews pageId="quality" config={qualityTableConfig} table={table} />
     </div></PageToolbarPortal>
     <main className="module-page aligned-workspace"><section className="ipam-card page-primary-card">
       <div className="panel-heading"><div><h1>Fila do inventário</h1><p className="panel-description">Problemas detetados automaticamente. Age em cada finding na sua linha, ou seleciona findings visíveis para os reconhecer, atribuir ou adiar em conjunto.</p></div></div>

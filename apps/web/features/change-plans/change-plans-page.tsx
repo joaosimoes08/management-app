@@ -6,13 +6,14 @@ import { useEscapeClose } from '@/components/ui/use-escape-close';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, List, X } from 'lucide-react';
 import { AppShell, PageToolbarPortal } from '@/components/layout/app-shell';
-import { CsvExportButton, DataTable, EntityLink, HistoryBlock, sortByColumns, useTableUrlState, type CsvColumn, type DataTableColumn } from '@/components/data-table';
+import { CsvExportButton, DataTable, EntityLink, HistoryBlock, SavedViews, sortByColumns, useTableUrlState, type CsvColumn, type DataTableColumn } from '@/components/data-table';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useAuth } from '@/lib/auth';
 import { useSiteContext } from '@/lib/site-context';
 import { cancelChangePlan, createChangePlan, getChangeActivity, getChangeCalendar, getChangeCandidates, getChangePlan, getChangeSummary, listChangePlans, previewChangePlan, reviewChangePlan, submitChangePlan, updateChangePlan, type ChangeActivity, type ChangeCandidate, type ChangeDraft, type ChangeEntityType, type ChangeItem, type ChangePlan, type ChangeSummary, type ImpactNode, type ImpactPreview } from './api';
 import { formatDateTime } from '@/lib/format/date';
 import { ChangeCalendar } from './change-calendar';
+import { ChangeExecution } from './change-execution';
 import { activityLabels, activityTone, buildTimeline, calendarChunks, calendarRange, candidateKey, candidateLabels, changeStatuses, changeTableConfig, changeTypes, dayBoundary, emptyOverlapData, filterPlans, mergeCalendars, overlapsFor, parseMonth, personName, spanOf, statusLabels, statusTabLabels, targetLabel, typeLabels, type OverlapData } from './workspace';
 
 const blankDraft = (): ChangeDraft => ({ siteId: '', title: '', reason: '', plannedStartAt: '', plannedEndAt: '', items: [] });
@@ -33,14 +34,14 @@ function useDebounced<T>(value: T, delay = 250): T {
  * Overlaps for `[from, to)` from `GET /change-plans/calendar` (server-side, so
  * maintenance windows count too), in ≤120-day calls merged together.
  */
-function useOverlaps(siteId: string | null | undefined, range: { from: Date; to: Date } | null, refresh: number): { data: OverlapData; failed: boolean } {
-  const key = siteId && range ? `${siteId}|${range.from.toISOString()}|${range.to.toISOString()}|${refresh}` : '';
+function useOverlaps(siteId: string | null | undefined, range: { from: Date; to: Date } | null, refresh: number, includeCancelled = false): { data: OverlapData; failed: boolean } {
+  const key = siteId && range ? `${siteId}|${range.from.toISOString()}|${range.to.toISOString()}|${refresh}|${includeCancelled}` : '';
   const [state, setState] = useState<{ key: string; data: OverlapData; failed: boolean }>({ key: '', data: noOverlaps, failed: false });
   useEffect(() => {
     if (!key || !siteId || !range) return;
     let live = true;
     const chunks = calendarChunks(range.from, range.to);
-    Promise.all(chunks.map((chunk) => getChangeCalendar(siteId, chunk.from, chunk.to)))
+    Promise.all(chunks.map((chunk) => (includeCancelled ? getChangeCalendar(siteId, chunk.from, chunk.to, true) : getChangeCalendar(siteId, chunk.from, chunk.to))))
       .then((results) => { if (live) setState({ key, data: mergeCalendars(results, chunks.some((chunk) => !chunk.complete)), failed: false }); })
       .catch(() => { if (live) setState({ key, data: noOverlaps, failed: true }); });
     return () => { live = false; };
@@ -228,6 +229,11 @@ export function ChangePlansPage() {
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Não foi possível registar a revisão.'); }
     finally { setBusy(false); }
   };
+  /** Started, closed or steps changed in the implementation section. */
+  const onPlanChanged = async (plan: ChangePlan | null, message: string) => {
+    if (plan) setSelected(withSavedPreview(plan));
+    setError(''); setNotice(message); await load();
+  };
   const cancel = async () => {
     if (!selected) return;
     if (!(await confirm({ title: 'Cancelar alteração', message: `Cancelar “${selected.title}”? Uma alteração cancelada não pode voltar a ser submetida.`, confirmLabel: 'Cancelar alteração', cancelLabel: 'Manter', destructive: true }))) return;
@@ -277,7 +283,8 @@ export function ChangePlansPage() {
   // Overlaps come from the API: the calendar's grid, or the span of the listed plans.
   const listSpan = spanOf(visible);
   const overlapRange = view === 'calendar' ? calendarRange(month) : listSpan;
-  const overlaps = useOverlaps(siteId, overlapRange, refreshTick);
+  // The calendar API leaves cancelled plans out unless asked; the Canceladas tab asks.
+  const overlaps = useOverlaps(siteId, overlapRange, refreshTick, view === 'calendar' && filters.status === 'CANCELLED');
   const detailOverlaps = useOverlaps(siteId, selected ? { from: new Date(selected.plannedStartAt), to: new Date(selected.plannedEndAt) } : null, refreshTick);
   const calendarPlans = useMemo(() => {
     // Search and target type narrow the calendar to the plans the (unpaged) list kept.
@@ -295,8 +302,8 @@ export function ChangePlansPage() {
     },
     {
       id: 'status', header: 'Estado', sortValue: (plan) => changeStatuses.indexOf(plan.status),
-      cell: (plan) => { const preview = previewForPlan(withSavedPreview(plan)); return <><span className={`change-status status-${plan.status.toLowerCase()}`}>{statusLabels[plan.status]}</span><small>{preview ? `Pré-visualização ${dateTime(preview.generatedAt)}` : 'Pré-visualização por calcular'}</small></>; },
-      csv: [{ header: 'Estado', value: (plan) => statusLabels[plan.status] }, { header: 'Revisão', value: (plan) => plan.revision }],
+      cell: (plan) => { const preview = previewForPlan(withSavedPreview(plan)); return <><span className={`change-status status-${plan.status.toLowerCase()}`}>{statusLabels[plan.status]}</span><small>{plan.closedAt ? `Encerrada ${dateTime(plan.closedAt)}` : plan.startedAt ? `Iniciada ${dateTime(plan.startedAt)}` : preview ? `Pré-visualização ${dateTime(preview.generatedAt)}` : 'Pré-visualização por calcular'}</small></>; },
+      csv: [{ header: 'Estado', value: (plan) => statusLabels[plan.status] }, { header: 'Revisão', value: (plan) => plan.revision }, { header: 'Iniciada em', value: (plan) => csvDate(plan.startedAt) }, { header: 'Encerrada em', value: (plan) => csvDate(plan.closedAt) }],
     },
     {
       id: 'window', header: 'Janela planeada', sortValue: (plan) => new Date(plan.plannedStartAt),
@@ -314,7 +321,7 @@ export function ChangePlansPage() {
       csv: [{ header: 'Sobrepõe-se a', value: (plan) => planOverlaps(plan).map((other) => other.title).join('; ') }],
     },
   ];
-  const peopleCsv: CsvColumn<ChangePlan>[] = [{ header: 'Criada por', value: (plan) => personName(plan.creator) }, { header: 'Revisor', value: (plan) => personName(plan.reviewer) }, { header: 'Nota de revisão', value: (plan) => plan.reviewNote ?? '' }];
+  const peopleCsv: CsvColumn<ChangePlan>[] = [{ header: 'Criada por', value: (plan) => personName(plan.creator) }, { header: 'Revisor', value: (plan) => personName(plan.reviewer) }, { header: 'Nota de revisão', value: (plan) => plan.reviewNote ?? '' }, { header: 'Iniciada por', value: (plan) => personName(plan.startedBy) }, { header: 'Encerrada por', value: (plan) => personName(plan.closedBy) }, { header: 'Nota de encerramento', value: (plan) => plan.closingNote ?? '' }];
   const csvColumns = [...columns.flatMap((column) => column.csv ?? []), ...peopleCsv];
   const sorted = sortByColumns(visible, columns, table.sort);
   const selectedOverlaps = selected ? overlapsFor(detailOverlaps.data, selected.id) : [];
@@ -328,6 +335,7 @@ export function ChangePlansPage() {
         {filtering && <button className="secondary-button" onClick={clearFilters}><X size={14} /> Limpar filtros</button>}
         <button className="secondary-button" aria-pressed={view === 'calendar'} onClick={() => setFilter('view', view === 'calendar' ? '' : 'calendar')}>{view === 'calendar' ? <><List size={14} /> Lista</> : <><CalendarDays size={14} /> Calendário</>}</button>
         {view === 'list' && <CsvExportButton rows={sorted} columns={csvColumns} fileName="alteracoes" />}
+        <SavedViews pageId="changes" config={changeTableConfig} table={table} />
       </div>}
       <button className="secondary-button" disabled={!siteId || busy} onClick={() => void load()}>Atualizar</button>{canDraft && <button className="primary-button" disabled={!siteId || busy} onClick={openNew}>＋ Criar alteração</button>}</div></PageToolbarPortal>
     {error && <div className="ipam-alert error" role="alert">{error}</div>}{notice && <div className="ipam-alert change-success" role="status">{notice}</div>}
@@ -359,10 +367,11 @@ export function ChangePlansPage() {
       {selected && !editorOpen && <section className="ipam-card change-detail"><div className="change-section-heading panel-heading"><div><h2>{selected.title}</h2></div><div className="change-detail-heading-actions"><span className={`change-status status-${selected.status.toLowerCase()}`}>{statusLabels[selected.status]}</span><button className="secondary-button" onClick={backToList}>← Todas as alterações</button></div></div><p>{selected.reason}</p><div className="change-summary-grid"><div><small>Site</small><strong>{activeSite?.name ?? 'Site selecionado'}</strong></div><div><small>Janela planeada</small><strong>{dateTime(selected.plannedStartAt)} – {dateTime(selected.plannedEndAt)}</strong></div><div><small>Alvos</small><strong>{selected.items.length}</strong></div><div><small>Pré-visualização</small><strong>{savedPreview ? `Calculada ${dateTime(savedPreview.generatedAt)}` : currentPreviewState?.status === 'calculating' ? 'A calcular…' : 'Por calcular'}</strong></div></div><div className="change-target-list">{selected.items.map((item) => <div className="change-target-item" key={`${item.entityType}:${item.entityId}`}><span><strong>{typeLabels[item.entityType]}</strong><small><TargetLink item={item} label={targetLabel(labels, item)} siteId={selected.siteId} /> · {item.operationSummary}</small></span></div>)}</div>
         {selectedOverlaps.length > 0 && <div className="change-warning"><strong>A janela sobrepõe-se a outras alterações ou manutenções deste Site</strong>{selectedOverlaps.map((other) => <p key={`${other.kind}:${other.id}`}>{other.kind === 'CHANGE_PLAN' ? <><a href={`/alteracoes?changeId=${encodeURIComponent(other.id)}`} onClick={(event) => { event.preventDefault(); openPlan(other); }}>{other.title}</a>{other.status ? ` · ${statusLabels[other.status]}` : ''}</> : <>Manutenção: {other.title}</>} · {dateTime(other.startsAt)} – {dateTime(other.endsAt)}{other.sharedTargetCount ? ` · ${other.sharedTargetCount === 1 ? '1 alvo em comum' : `${other.sharedTargetCount} alvos em comum`}` : ''}</p>)}</div>}
         {detailOverlaps.failed && <p className="panel-description">Não foi possível verificar as sobreposições desta alteração.</p>}
-        {savedPreview && <section className="impact-preview" aria-labelledby="impact-preview-title"><div className="change-section-heading panel-heading"><div><h3 id="impact-preview-title">Impacto conhecido</h3></div><span className={`change-status status-${savedPreview.coverage.status.toLowerCase()}`}>{savedPreview.coverage.status === 'PARTIAL' ? 'Cobertura parcial' : 'Análise concluída'}</span></div><div className="change-summary-grid"><div><small>Impactos conhecidos</small><strong>{savedPreview.knownImpacts.length}</strong></div><div><small>Dados antigos (&gt;24 h)</small><strong>{savedPreview.coverage.staleItems}</strong></div><div><small>Atualização do inventário</small><strong>{savedPreview.coverage.latestInventoryUpdate ? dateTime(savedPreview.coverage.latestInventoryUpdate) : 'Sem registo'}</strong></div></div><p className={savedPreview.coverage.status === 'PARTIAL' ? 'change-warning' : 'change-muted'}>{savedPreview.coverage.reason}</p>{!savedPreview.knownImpacts.length && <div className="change-empty-impact"><strong>Não foram encontradas relações registadas.</strong><span>Este resultado não confirma impacto zero.</span></div>}{impactGroups.map(([type, items]) => <div className="impact-group" key={type}><h4>{typeLabels[type]} · {items.length}</h4><ul>{items.map((item) => <li key={`${item.entityType}:${item.entityId}`}><a href={item.href}>{item.label}</a><span>{item.depth === 1 ? 'Dependência direta' : `Dependência a ${item.depth} níveis`} · {item.dependencyPath.join(' → ')} · {item.freshness === 'STALE' ? 'Observação com mais de 24 h' : item.freshness === 'UNKNOWN' ? 'Atualização desconhecida' : 'Observado nas últimas 24 h'}{item.confidence === 'LOW' && <> · confiança baixa (SNMP)</>}</span></li>)}</ul></div>)}{savedPreview.maintenanceOverlaps.length > 0 && <div className="change-warning"><strong>Sobreposição com manutenção existente</strong>{savedPreview.maintenanceOverlaps.map((item) => <p key={item.id}>{item.name} · {dateTime(item.startsAt)} – {dateTime(item.endsAt)}{item.reason ? ` · ${item.reason}` : ''}</p>)}</div>}{savedPreview.changeOverlaps.length > 0 && <div className="change-warning"><strong>Sobreposição com alterações submetidas/aprovadas</strong>{savedPreview.changeOverlaps.map((item) => <p key={item.id}><a href={`/alteracoes?changeId=${encodeURIComponent(item.id)}`} onClick={(event) => { event.preventDefault(); openPlan(item); }}>{item.title}</a> · {dateTime(item.plannedStartAt)} – {dateTime(item.plannedEndAt)}</p>)}</div>}<p className="change-muted">A análise cobre relações registadas no inventário até {dateTime(savedPreview.generatedAt)}. Não aplica alterações nem garante que todas as dependências estejam documentadas.</p></section>}
+        {savedPreview && <section className="impact-preview" aria-labelledby="impact-preview-title"><div className="change-section-heading panel-heading"><div><h3 id="impact-preview-title">Impacto conhecido</h3></div><span className={`change-status status-${savedPreview.coverage.status.toLowerCase()}`}>{savedPreview.coverage.status === 'PARTIAL' ? 'Cobertura parcial' : 'Análise concluída'}</span></div><div className="change-summary-grid"><div><small>Impactos conhecidos</small><strong>{savedPreview.knownImpacts.length}</strong></div><div><small>Dados antigos (&gt;24 h)</small><strong>{savedPreview.coverage.staleItems}</strong></div><div><small>Atualização do inventário</small><strong>{savedPreview.coverage.latestInventoryUpdate ? dateTime(savedPreview.coverage.latestInventoryUpdate) : 'Sem registo'}</strong></div></div><p className={savedPreview.coverage.status === 'PARTIAL' ? 'change-warning' : 'change-muted'}>{savedPreview.coverage.reason}</p>{!savedPreview.knownImpacts.length && <div className="change-empty-impact"><strong>Não foram encontradas relações registadas.</strong><span>Este resultado não confirma impacto zero.</span></div>}{impactGroups.map(([type, items]) => <div className="impact-group" key={type}><h4>{typeLabels[type]} · {items.length}</h4><ul>{items.map((item) => <li key={`${item.entityType}:${item.entityId}`}><a href={item.href}>{item.label}</a><span>{item.depth === 1 ? 'Dependência direta' : `Dependência a ${item.depth} níveis`} · {item.dependencyPath.join(' → ')} · {item.freshness === 'STALE' ? 'Observação com mais de 24 h' : item.freshness === 'UNKNOWN' ? 'Atualização desconhecida' : 'Observado nas últimas 24 h'}{item.confidence === 'LOW' && <> · confiança baixa (SNMP)</>}</span></li>)}</ul></div>)}{savedPreview.maintenanceOverlaps.length > 0 && <div className="change-warning"><strong>Sobreposição com manutenção existente</strong>{savedPreview.maintenanceOverlaps.map((item) => <p key={item.id}>{item.name} · {dateTime(item.startsAt)} – {dateTime(item.endsAt)}{item.reason ? ` · ${item.reason}` : ''}</p>)}</div>}{savedPreview.changeOverlaps.length > 0 && <div className="change-warning"><strong>Sobreposição com alterações submetidas, aprovadas ou em curso</strong>{savedPreview.changeOverlaps.map((item) => <p key={item.id}><a href={`/alteracoes?changeId=${encodeURIComponent(item.id)}`} onClick={(event) => { event.preventDefault(); openPlan(item); }}>{item.title}</a> · {dateTime(item.plannedStartAt)} – {dateTime(item.plannedEndAt)}</p>)}</div>}<p className="change-muted">A análise cobre relações registadas no inventário até {dateTime(savedPreview.generatedAt)}. Não aplica alterações nem garante que todas as dependências estejam documentadas.</p></section>}
         {selected.reviewNote && <div className="change-warning"><strong>Nota de revisão:</strong> {selected.reviewNote}</div>}
         <div className="change-actions">{canEdit && <button className="secondary-button" disabled={busy} onClick={() => openEdit(selected)}>Editar rascunho</button>}{canEdit && <button className="secondary-button" disabled={busy} onClick={() => void calculate()}>{currentPreviewState?.status === 'calculating' ? 'A calcular…' : 'Recalcular pré-visualização'}</button>}{canEdit && <button className="primary-button" disabled={busy || !canSubmit} title={!canSubmit ? 'Guarda uma pré-visualização completa e atual antes de submeter.' : undefined} onClick={() => void submit()}>Submeter para revisão</button>}{canDraft && ['DRAFT', 'SUBMITTED', 'REJECTED'].includes(selected.status) && <button className="secondary-button" disabled={busy} onClick={() => void cancel()}>Cancelar alteração</button>}</div>
         {canReview && selected.status === 'SUBMITTED' && <section className="change-review"><h3>Revisão administrativa</h3><label>Nota de revisão<textarea maxLength={1000} value={reviewNote} onChange={(event) => setReviewNote(event.target.value)} placeholder="Obrigatória para devolver para correção" /></label><div className="change-actions"><button className="secondary-button" disabled={busy || !reviewNote.trim()} onClick={() => void review('REJECTED')}>Devolver para correção</button><button className="primary-button" disabled={busy} onClick={() => void review('APPROVED')}>Aprovar alteração</button></div></section>}
+        <ChangeExecution plan={selected} canAct={canDraft} confirm={confirm} targetLabel={(item) => targetLabel(labels, item)} onPlanChanged={onPlanChanged} onOpenPlan={openPlan} />
         <HistoryBlock
           heading="Atividade"
           formatDate={dateTime}

@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { Download, Eye, RefreshCw, X } from 'lucide-react';
-import { AppShell, ToolbarMore } from '@/components/layout/app-shell';
-import { DataTable, EntityLink, csvFileName, useTableUrlState, type DataTableColumn } from '@/components/data-table';
+import { AppShell, PageToolbarPortal, ToolbarMore } from '@/components/layout/app-shell';
+import { DataTable, EntityLink, SavedViews, csvFileName, useTableUrlState, type DataTableColumn } from '@/components/data-table';
 import { formatDateTime } from '@/lib/format/date';
 import { exportAuditCsv, facetWindowDays, getAuditFacets, getAuditPage, type AuditPageEvent } from './api';
 import { actorName, auditEntityRef, auditQueryFrom, auditTableConfig, dayBoundary, formatAuditValue, hasAuditFilters, metadataEntries } from './workspace';
@@ -97,6 +97,7 @@ export default function AuditPage() {
     <button className="topbar-action secondary-button" onClick={() => void download()} disabled={exporting || !count}><Download size={14} /> {exporting ? 'A exportar…' : 'Exportar CSV'}</button>
     <button className="topbar-action secondary-button" onClick={() => { void pages.refetch(); void facets.refetch(); }} disabled={pages.isFetching}><RefreshCw size={14} /> Atualizar</button>
   </>}>
+    <PageToolbarPortal><SavedViews pageId="audit" config={auditTableConfig} table={table} /></PageToolbarPortal>
     <main className="module-page aligned-workspace"><section className="ipam-card page-primary-card">
       <div className="panel-heading"><div><h1>Auditoria</h1><p className="panel-description">Eventos administrativos, alterações de inventário e execuções de discovery, do mais recente para o mais antigo.</p></div></div>
       {errorMessage && <div className="ipam-alert error" role="alert">{errorMessage}</div>}
