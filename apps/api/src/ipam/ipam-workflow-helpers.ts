@@ -31,6 +31,39 @@ export function subnetUtilization(cidr: string, gateway: string | null | undefin
   }
 }
 
+export type SubnetStateCounts = Partial<Record<'OCCUPIED' | 'UNKNOWN' | 'RESERVED' | 'EXCLUDED', number>>;
+
+/**
+ * Addresses that never count towards a subnet's usable capacity: network and broadcast (IPv4 /30 and larger)
+ * and the gateway. Rows on these addresses are subtracted from the aggregated counts. IPv6 → [].
+ */
+export function subnetNonUsableAddresses(cidr: string, gateway: string | null | undefined): string[] {
+  const [networkText, prefixText] = cidr.split('/');
+  if (isIP(networkText) !== 4) return [];
+  const prefix = Number(prefixText);
+  if (!Number.isInteger(prefix) || prefix < 0 || prefix > 32) return [];
+  const blockSize = 2 ** (32 - prefix);
+  const network = Math.floor(ipv4Number(networkText) / blockSize) * blockSize;
+  const result = new Set<string>();
+  if (prefix <= 30) { result.add(ipv4Address(network)); result.add(ipv4Address(network + blockSize - 1)); }
+  if (gateway && isIP(gateway) === 4) result.add(gateway);
+  return [...result];
+}
+
+/** Same result as `subnetUtilization`, from per-state row counts (non-FREE, usable addresses only) instead of the rows. */
+export function subnetUtilizationFromCounts(cidr: string, gateway: string | null | undefined, counts: SubnetStateCounts) {
+  const occupied = (counts.OCCUPIED ?? 0) + (counts.UNKNOWN ?? 0);
+  const reserved = counts.RESERVED ?? 0;
+  const allocated = occupied + reserved + (counts.EXCLUDED ?? 0);
+  let usableCapacity: number | null;
+  try { usableCapacity = calculateSubnetCapacity(cidr, gateway, []).usableCapacity; } catch {
+    return { usableCapacity: null, allocated: 0, occupied: 0, reserved: 0, free: null, utilizationPercent: null, band: 'UNTRACKED' as UtilizationBand };
+  }
+  if (usableCapacity === null) return { usableCapacity: null, allocated, occupied, reserved, free: null, utilizationPercent: null, band: 'UNTRACKED' as UtilizationBand };
+  const utilizationPercent = usableCapacity ? Math.round((allocated / usableCapacity) * 10000) / 100 : 0;
+  return { usableCapacity, allocated, occupied, reserved, free: Math.max(0, usableCapacity - allocated), utilizationPercent, band: utilizationBand(utilizationPercent) };
+}
+
 export type SubnetListOptions = { band?: UtilizationBand[]; minUtilization?: number; sort?: { by: 'utilization' | 'cidr'; direction: 'asc' | 'desc' } };
 
 export function parseSubnetListOptions(input: { band?: string; minUtilization?: string; sort?: string }): SubnetListOptions {
@@ -88,11 +121,18 @@ export function findFreeIpv4(cidr: string, gateway: string | null | undefined, b
     end = Math.min(end, value);
   }
   if (start > end) throw new BadRequestException({ code: 'IP_RANGE_INVALID', message: 'from tem de ser anterior a to.' });
+  // Walk the gaps between blocked addresses instead of every address, so a /8 with a dense prefix costs
+  // O(blocked · log blocked + count), not O(range).
+  const skip = new Set<number>();
+  for (const address of blocked) if (isIP(address) === 4) { const value = ipv4Number(address); if (value >= start && value <= end) skip.add(value); }
+  if (range.gatewayNumber !== null && range.gatewayNumber >= start && range.gatewayNumber <= end) skip.add(range.gatewayNumber);
+  const sorted = [...skip].sort((a, b) => a - b);
   const addresses: string[] = [];
-  for (let value = start; value <= end && addresses.length < count; value++) {
-    if (value === range.gatewayNumber) continue;
-    const address = ipv4Address(value);
-    if (!blocked.has(address)) addresses.push(address);
+  let cursor = start;
+  for (const value of [...sorted, end + 1]) {
+    for (; cursor < value && cursor <= end && addresses.length < count; cursor++) addresses.push(ipv4Address(cursor));
+    if (addresses.length >= count || cursor > end) break;
+    cursor = Math.max(cursor, value + 1);
   }
   return { supported: true as const, addresses };
 }

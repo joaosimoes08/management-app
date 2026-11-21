@@ -1,5 +1,5 @@
 import { portLayoutIncompleteMessage, portMappingStatus } from '../infrastructure/port-layout';
-import { BadRequestException, ForbiddenException, HttpException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, HttpException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@simoes/database';
 import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../auth/auth.service';
@@ -32,12 +32,15 @@ export function resolveSnoozeUntil(input: { until?: string; durationHours?: numb
 }
 
 export type BulkItemResult = { id: string; ok: boolean; code?: 'NOT_FOUND' | 'FORBIDDEN' | 'INVALID' | 'ERROR'; message?: string; status?: string };
-function bulkFailure(id: string, error: unknown): BulkItemResult {
+const bulkLogger = new Logger('InventoryQualityBulk');
+/** Maps one item's failure to a per-item result. Unexpected errors are logged here and reported generically, so the rest of the batch still runs. */
+export function bulkFailure(id: string, error: unknown): BulkItemResult {
   if (error instanceof NotFoundException) return { id, ok: false, code: 'NOT_FOUND', message: 'Finding não encontrado' };
   if (error instanceof ForbiddenException) return { id, ok: false, code: 'FORBIDDEN', message: error.message };
   if (error instanceof BadRequestException) return { id, ok: false, code: 'INVALID', message: error.message };
   if (error instanceof HttpException) return { id, ok: false, code: 'ERROR', message: error.message };
-  throw error;
+  bulkLogger.error(`Bulk action failed for finding ${id}`, error instanceof Error ? error.stack : String(error));
+  return { id, ok: false, code: 'ERROR', message: 'Erro inesperado ao processar este finding.' };
 }
 
 type Candidate = {

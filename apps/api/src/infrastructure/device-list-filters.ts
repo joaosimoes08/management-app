@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
+import { AssetStatus, Prisma } from '@simoes/database';
 
-export const DEVICE_STATUSES = ['ACTIVE', 'INACTIVE', 'MAINTENANCE', 'RETIRED', 'UNKNOWN'] as const;
+export const DEVICE_STATUSES = Object.values(AssetStatus);
 
 export type DeviceListFilterInput = {
   status?: string;
@@ -25,12 +26,12 @@ function startOfUtcDay(now: Date) {
  * - lifecycle: overdue (a lifecycle date before today) or due:<days> (due between today and today + days, 1..3650).
  * - lifecycleKind: restricts the lifecycle match to one kind (e.g. SUPPORT, WARRANTY).
  */
-export function deviceListFilterWhere(input: DeviceListFilterInput, now = new Date()) {
-  const where: Record<string, unknown>[] = [];
+export function deviceListFilterWhere(input: DeviceListFilterInput, now = new Date()): Prisma.DeviceWhereInput[] {
+  const where: Prisma.DeviceWhereInput[] = [];
   if (input.status !== undefined && input.status !== '') {
     const statuses = [...new Set(input.status.split(',').map((value) => value.trim().toUpperCase()).filter(Boolean))];
-    if (!statuses.length || statuses.some((value) => !(DEVICE_STATUSES as readonly string[]).includes(value))) invalid('DEVICE_STATUS_FILTER_INVALID', `Estado inválido. Usa ${DEVICE_STATUSES.join(', ')}.`);
-    where.push({ status: { in: statuses } });
+    if (!statuses.length || statuses.some((value) => !(DEVICE_STATUSES as string[]).includes(value))) invalid('DEVICE_STATUS_FILTER_INVALID', `Estado inválido. Usa ${DEVICE_STATUSES.join(', ')}.`);
+    where.push({ status: { in: statuses as AssetStatus[] } });
   }
   if (input.critical !== undefined && input.critical !== '') {
     if (input.critical !== 'true' && input.critical !== 'false') invalid('DEVICE_CRITICAL_FILTER_INVALID', 'critical deve ser true ou false.');
@@ -40,7 +41,7 @@ export function deviceListFilterWhere(input: DeviceListFilterInput, now = new Da
   if (input.lifecycle !== undefined && input.lifecycle !== '') {
     const today = startOfUtcDay(now);
     const value = input.lifecycle.trim().toLowerCase();
-    let dueDate: Record<string, Date>;
+    let dueDate: Prisma.DateTimeFilter;
     if (value === 'overdue') dueDate = { lt: today };
     else {
       const match = /^due:(\d{1,4})$/.exec(value);

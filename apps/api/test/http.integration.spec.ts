@@ -1307,6 +1307,13 @@ test('Phase D IPAM: utilisation on the subnet list, next free IPs and reserve-ne
   assert.equal(json(exhausted).code, 'IP_RANGE_EXHAUSTED');
   assert.equal(json(exhausted).details.available, 1);
   assert.equal((await request('POST', `/api/v1/subnets/${ids.subnetA}/reserve-next`, 'qa-network-scoped', { count: 1 })).statusCode, 400);
+  // Enum filters are validated (400) instead of reaching Prisma.
+  for (const [path, code] of [['/api/v1/discovery/jobs?status=BOGUS', 'DISCOVERY_STATUS_INVALID'], ['/api/v1/ip-addresses?state=NOPE', 'IP_STATE_INVALID']]) {
+    const response = await request('GET', path, 'qa-admin');
+    assert.equal(response.statusCode, 400, `${path} ${response.body}`);
+    assert.equal(json(response).code, code);
+  }
+  assert.equal((await request('GET', '/api/v1/discovery/jobs?status=completed', 'qa-admin')).statusCode, 200);
 });
 
 test('Phase D discovery: bulk review with per-item results, IPAM state per result and run duration', async () => {
@@ -1405,6 +1412,7 @@ test('Phase E portal: favourites, check-all link health and the pending role-req
   const server = createServer((req, res) => { res.statusCode = req.url === '/down' ? 503 : 200; res.end(); });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const previousAllowed = process.env.APPLICATION_LINK_CHECK_ALLOWED_CIDRS;
   try {
     const up = await prisma.applicationLink.create({ data: { name: 'Phase E up', url: `${base}/up`, checkAvailability: true } });
     const down = await prisma.applicationLink.create({ data: { name: 'Phase E down', url: `${base}/down`, checkAvailability: true } });
@@ -1427,6 +1435,18 @@ test('Phase E portal: favourites, check-all link health and the pending role-req
     assert.equal((await request('DELETE', `/api/v1/application-links/${down.id}/favorite`, 'qa-readonly')).statusCode, 200);
 
     assert.equal((await request('POST', '/api/v1/application-links/check-all', 'qa-readonly')).statusCode, 403);
+    // Loopback is blocked by default; the stand-in is only reachable once an operator allows it.
+    delete process.env.APPLICATION_LINK_CHECK_ALLOWED_CIDRS;
+    const blockedRun = json(await request('POST', '/api/v1/application-links/check-all', 'qa-admin'));
+    assert.equal(blockedRun.checked, 2); assert.equal(blockedRun.blocked, 2); assert.equal(blockedRun.available, 0);
+    assert.deepEqual(blockedRun.items.map((item: { code: string }) => item.code), ['BLOCKED', 'BLOCKED']);
+    const metadata = await prisma.applicationLink.create({ data: { name: 'Phase E metadata', url: 'http://169.254.169.254/latest/meta-data/', checkAvailability: true } });
+    process.env.APPLICATION_LINK_CHECK_ALLOWED_CIDRS = '127.0.0.1/32';
+    const withMetadata = json(await request('POST', '/api/v1/application-links/check-all', 'qa-admin'));
+    assert.equal(withMetadata.items.find((item: { id: string }) => item.id === metadata.id).code, 'BLOCKED');
+    assert.equal(withMetadata.nextOffset, null);
+    assert.equal((await request('POST', '/api/v1/application-links/check-all?offset=-1', 'qa-admin')).statusCode, 400);
+    await prisma.applicationLink.delete({ where: { id: metadata.id } });
     const checked = await request('POST', '/api/v1/application-links/check-all', 'qa-admin');
     assert.equal(checked.statusCode, 201, checked.body);
     const checkedBody = json(checked);
@@ -1436,6 +1456,7 @@ test('Phase E portal: favourites, check-all link health and the pending role-req
     assert.equal((await prisma.applicationLink.findUniqueOrThrow({ where: { id: up.id } })).isAvailable, true);
     assert.equal(json(await request('POST', '/api/v1/application-links/check-all?all=true', 'qa-admin')).checked, 3);
   } finally {
+    if (previousAllowed === undefined) delete process.env.APPLICATION_LINK_CHECK_ALLOWED_CIDRS; else process.env.APPLICATION_LINK_CHECK_ALLOWED_CIDRS = previousAllowed;
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 

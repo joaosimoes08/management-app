@@ -183,7 +183,7 @@ export class DashboardService implements OnModuleDestroy {
       wanted.has('AUDIT_EVENT') && canAudit
         ? this.prisma.auditLog.findMany({ where: { action: { not: 'HTTP_REQUEST' }, OR: [{ action: contains }, { entityType: contains }, { entityId: query }] }, select: { id: true, action: true, entityType: true, entityId: true, createdAt: true, user: { select: { username: true, displayName: true } } }, orderBy: { createdAt: 'desc' }, take: limit })
         : Promise.resolve([]),
-      wanted.has('QUALITY_FINDING') ? this.quality.list(user, { search: query, pageSize: limit } as never).then((result) => result.items) : Promise.resolve([]),
+      wanted.has('QUALITY_FINDING') ? this.quality.list(user, { search: query, pageSize: String(limit) }).then((result) => result.items) : Promise.resolve([]),
     ]);
     const extended: GlobalSearchResult[] = [
       ...plans.map((plan) => ({ id: plan.id, type: 'CHANGE_PLAN' as const, title: plan.title, detail: `Alteração · ${plan.status} · ${plan.site?.name ?? ''}`.trim(), href: `/alteracoes?${new URLSearchParams({ siteId: plan.siteId, planId: plan.id }).toString()}` })),
