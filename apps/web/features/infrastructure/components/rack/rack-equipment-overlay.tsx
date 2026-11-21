@@ -17,6 +17,8 @@ export interface RackEquipmentOverlayProps {
   pendingDeviceId?: string;
   /** Face drawn by this overlay; placement is shared because devices are full depth. */
   face?: RackFace;
+  /** Devices the power summary marks near the limit (warn / over); they get an amber / red outline. */
+  powerLevels?: ReadonlyMap<string, 'warn' | 'over' | 'ok'>;
 }
 
 const FACE_TEXT: Record<RackFace, { name: string; image: string; missing: string }> = {
@@ -25,7 +27,7 @@ const FACE_TEXT: Record<RackFace, { name: string; image: string; missing: string
 };
 
 /** Interactive overlay over the 42U rack picture in the rack detail view. */
-export function RackEquipmentOverlay({ rack, onSelect, onDropDevice, draggingDeviceId, onDragging, canEdit, pendingDeviceId, face = 'front' }: RackEquipmentOverlayProps) {
+export function RackEquipmentOverlay({ rack, onSelect, onDropDevice, draggingDeviceId, onDragging, canEdit, pendingDeviceId, face = 'front', powerLevels }: RackEquipmentOverlayProps) {
   const text = FACE_TEXT[face];
   // One card at a time across the front and rear overlays: the store is shared, keyed by face and device.
   const active = useActiveRackCard();
@@ -63,7 +65,7 @@ export function RackEquipmentOverlay({ rack, onSelect, onDropDevice, draggingDev
       const visual = deviceFaceImage(device, face);
       const cardId = `rack-device-card-${face}-${device.id}`;
       const showCard = active?.key === cardKey(device.id) && !draggingDeviceId;
-      return <button type="button" key={device.id} draggable={canEdit} className={`rack-overlay rack-${String(device.type || 'other').toLowerCase()}${draggingDeviceId === device.id ? ' moving' : ''}${pendingDeviceId === device.id ? ' pending-placement' : ''}`} style={{ top: `${top}%`, height: `${height}%` }} aria-describedby={showCard ? cardId : undefined} onMouseEnter={(event) => show(device.id, event.currentTarget)} onMouseLeave={() => hide(device.id)} onFocus={(event) => {
+      return <button type="button" key={device.id} draggable={canEdit} className={`rack-overlay rack-${String(device.type || 'other').toLowerCase()}${draggingDeviceId === device.id ? ' moving' : ''}${pendingDeviceId === device.id ? ' pending-placement' : ''}`} style={{ top: `${top}%`, height: `${height}%` }} data-power-level={powerLevels?.get(device.id)} aria-describedby={showCard ? cardId : undefined} onMouseEnter={(event) => show(device.id, event.currentTarget)} onMouseLeave={() => hide(device.id)} onFocus={(event) => {
         if (isFocusVisible(event.currentTarget)) show(device.id, event.currentTarget);
       }} onBlur={() => hide(device.id)} onKeyDown={(event) => {
         if (event.key === 'Escape') { hide(device.id); return; }

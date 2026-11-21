@@ -107,3 +107,17 @@ describe('legacy DOM translation updates', () => {
     });
   });
 });
+
+describe('Phase E portal and settings messages', () => {
+  it.each([
+    ['Os meus favoritos', 'My favourites'],
+    ['Adicionar Zabbix aos favoritos', 'Add Zabbix to favourites'],
+    ['3 de 120 verificadas', '3 of 120 checked'],
+    ['Bloqueado: 2', 'Blocked: 2'],
+    ['Rejeitar o pedido de roles de Ana Silva?', 'Reject the role request from Ana Silva?'],
+    ['4 pedidos por decidir', '4 requests awaiting decision'],
+    ['Limiares: aviso 80% · crítico 90%', 'Thresholds: warning 80% · critical 90%'],
+  ])('translates %s', (pt, en) => {
+    expect(translateLegacyText('en-US', pt)).toBe(en);
+  });
+});

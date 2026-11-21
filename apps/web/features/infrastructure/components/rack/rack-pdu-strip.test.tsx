@@ -10,6 +10,8 @@ import { openPduCardBoxes, placeHoverCard, racksBox } from './rack-device-hover-
 class TestResizeObserver { observe() {} disconnect() {} unobserve() {} }
 
 vi.mock('./rack-device-zoom', () => ({ RackDeviceZoom: () => null }));
+// The power summary request never settles here: these tests cover the strips drawn from the rack payload.
+vi.mock('../../api', async (importOriginal) => ({ ...(await importOriginal<typeof import('../../api')>()), getRackPowerSummary: vi.fn(() => new Promise(() => {})) }));
 // Interpolates params so badge and totals text can be asserted.
 vi.mock('@/lib/i18n', () => ({
   useI18n: () => ({
