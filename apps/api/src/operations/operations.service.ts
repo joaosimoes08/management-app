@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, MessageEvent, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { alertPolicyDecision } from './alert-policy';
 import { PrismaClient } from '@simoes/database';
 import Redis from 'ioredis';
 import { Observable, Subject } from 'rxjs';
@@ -130,17 +131,7 @@ export class OperationsService implements OnModuleInit, OnModuleDestroy {
       this.prisma.alertRule.findMany({ where: { enabled: true }, select: { source: true, siteId: true, minSeverity: true } }),
       this.prisma.maintenanceWindow.findMany({ where: { startsAt: { lte: now }, endsAt: { gt: now } }, select: { siteId: true } }),
     ]);
-    const rank: Record<string, number> = { CRITICAL: 0, HIGH: 1, WARNING: 2, INFO: 3 };
-    return items.filter((item) => {
-      // Critical alerts always bypass rule thresholds and maintenance quiet periods.
-      if (item.severity === 'CRITICAL') return true;
-      const inQuietWindow = windows.some((window) => window.siteId === null || window.siteId === item.siteId);
-      if (inQuietWindow) return false;
-      const rule = rules
-        .filter((candidate) => candidate.source === item.source && (candidate.siteId === null || candidate.siteId === item.siteId))
-        .sort((left, right) => Number(right.siteId === item.siteId) - Number(left.siteId === item.siteId) || (rank[right.minSeverity] ?? 2) - (rank[left.minSeverity] ?? 2))[0];
-      return !rule || (rank[item.severity] ?? 99) <= (rank[rule.minSeverity] ?? 2);
-    });
+    return items.filter((item) => alertPolicyDecision(rules, windows, item) === 'SHOWN');
   }
   private async canOperateSite(user: AuthenticatedUser, siteId: string) {
     if (user.roles.includes('ADMIN')) return true;
@@ -193,6 +184,31 @@ export class OperationsService implements OnModuleInit, OnModuleDestroy {
     const counts = new Map<string, { status: string; severity: string; _count: { _all: number } }>();
     for (const item of visible) { const key = `${item.status}:${item.severity}`; const group = counts.get(key) ?? { status: item.status, severity: item.severity, _count: { _all: 0 } }; group._count._all += 1; counts.set(key, group); }
     return { total: visible.length, unread: visible.filter((item) => !item.userStates[0]?.readAt).length, groups: [...counts.values()] };
+  }
+
+  /** Active and upcoming maintenance windows (global plus visible Sites) for the Alertas header. */
+  async maintenanceSummary(user: AuthenticatedUser, siteId?: string, days?: number | string) {
+    const horizonDays = Math.min(Math.max(Math.trunc(Number(days ?? 7)) || 7, 1), 90);
+    const siteIds = await this.visibleSiteIds(user);
+    if (siteId && !siteIds.includes(siteId)) throw new NotFoundException('Site não encontrado');
+    const now = new Date();
+    const horizon = new Date(now.getTime() + horizonDays * 24 * 60 * 60 * 1000);
+    const scope = siteId ? { OR: [{ siteId: null }, { siteId }] } : { OR: [{ siteId: null }, { siteId: { in: siteIds } }] };
+    const select = { id: true, name: true, reason: true, siteId: true, startsAt: true, endsAt: true, site: { select: { id: true, name: true } } } as const;
+    const [active, upcoming, upcomingTotal] = await Promise.all([
+      this.prisma.maintenanceWindow.findMany({ where: { AND: [scope, { startsAt: { lte: now } }, { endsAt: { gt: now } }] }, orderBy: { endsAt: 'asc' }, take: 50, select }),
+      this.prisma.maintenanceWindow.findMany({ where: { AND: [scope, { startsAt: { gt: now, lte: horizon } }] }, orderBy: { startsAt: 'asc' }, take: 50, select }),
+      this.prisma.maintenanceWindow.count({ where: { AND: [scope, { startsAt: { gt: now, lte: horizon } }] } }),
+    ]);
+    return {
+      generatedAt: now.toISOString(),
+      horizonDays,
+      counts: { active: active.length, upcoming: upcomingTotal },
+      nextStartsAt: upcoming[0]?.startsAt ?? null,
+      active,
+      upcoming,
+      criticalAlertsUnaffected: true,
+    };
   }
 
   async upsert(input: UpsertOperationalAlert) {
