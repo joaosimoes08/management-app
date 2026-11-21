@@ -3019,6 +3019,29 @@ a.dashboard-kpi:focus-visible { box-shadow:0 9px 24px rgba(35,55,87,.09); outlin
 .cross-site-missing-config-site { flex:none; padding:2px 8px; border-radius:999px; background:#eef2f7; color:#41526b; font-size:11px; font-weight:600; white-space:nowrap; }
 .device-power-auto { display:block; margin-top:6px; }
 
+.capacity-outlook-controls { display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px; margin-bottom:12px; }
+.capacity-outlook-controls label { display:flex; flex-wrap:wrap; align-items:center; gap:8px; color:#45556b; font-size:11px; font-weight:650; }
+.capacity-outlook-controls .panel-description { margin:0; }
+.capacity-resource { display:grid; gap:3px; min-width:0; }
+.capacity-outlook-table .capacity-resource .link-button { width:fit-content; max-width:100%; text-align:left; white-space:normal; overflow-wrap:anywhere; }
+.capacity-estimate-status { color:#586982; }
+.capacity-outlook-note { margin-top:12px; }
+@media (max-width:600px) {
+  .app-shell .global-topbar .module-tabs-slot:has(.infrastructure-tabs) {
+    flex:1 1 100%; width:100%; margin:0; padding:0; overflow:visible; background:transparent; border:0;
+  }
+  .site-capacity-card .page-primary-content { padding-inline:10px; }
+  .site-capacity-card .capacity-outlook-controls { margin-bottom:0; }
+  .site-capacity-card .ip-table-wrap { margin-top:0; }
+  .capacity-outlook-table { table-layout:fixed; min-width:0; width:100%; }
+  .capacity-outlook-table :is(th, td) { padding:8px 4px; white-space:normal; overflow-wrap:anywhere; }
+  .capacity-outlook-table th:first-child { width:29%; }
+  .capacity-outlook-table th:nth-child(2) { width:19%; }
+  .capacity-outlook-table th:nth-child(3) { width:22%; }
+  .capacity-outlook-table .state-badge { padding:3px; gap:3px; min-width:0; }
+  .capacity-outlook-table th .data-table-sort { display:grid; justify-items:start; gap:3px; text-align:left; overflow-wrap:normal; }
+  .capacity-outlook-table th .data-table-sort svg { flex:none; }
+}
 .date-time-input { display:grid; grid-template-columns:minmax(0, 1fr) minmax(76px, auto); gap:8px; min-width:0; }
 .date-time-input label { display:grid; gap:5px; min-width:0; color:#48434a; font-size:11px; font-weight:650; }
 .date-time-input input { box-sizing:border-box; width:100%; min-width:0; }

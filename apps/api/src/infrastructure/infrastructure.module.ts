@@ -10,5 +10,8 @@ import { PowerController } from './power/power.controller';
 import { RackPowerService } from './power/rack-power.service';
 import { DeviceRequiredConfigService } from './required-config/device-required-config.service';
 import { DeviceRequiredConfigController } from './required-config/device-required-config.controller';
-@Module({ imports: [AuditModule, IpamModule], controllers: [DeviceRequiredConfigController, InfrastructureController, LifecycleDatesController, PowerController], providers: [InfrastructureService, InfrastructureAccessService, LifecycleDatesService, RackPowerService, DeviceRequiredConfigService], exports: [InfrastructureAccessService, DeviceRequiredConfigService] })
+import { SiteCapacityController } from './capacity/site-capacity.controller';
+import { SiteCapacityService } from './capacity/site-capacity.service';
+import { RackCapacitySampler } from './capacity/rack-capacity-sampler.service';
+@Module({ imports: [AuditModule, IpamModule], controllers: [DeviceRequiredConfigController, InfrastructureController, LifecycleDatesController, PowerController, SiteCapacityController], providers: [InfrastructureService, InfrastructureAccessService, LifecycleDatesService, RackPowerService, DeviceRequiredConfigService, SiteCapacityService, RackCapacitySampler], exports: [InfrastructureAccessService, DeviceRequiredConfigService] })
 export class InfrastructureModule {}

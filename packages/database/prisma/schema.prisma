@@ -391,9 +391,23 @@ model Rack {
   room         Room       @relation(fields: [roomId], references: [id], onDelete: Cascade)
   devices      Device[]
   pdus         RackPdu[]
+  capacitySamples RackCapacitySample[]
 
   @@unique([roomId, name])
   @@index([roomId, displayOrder])
+}
+
+/// Daily inventory-derived capacity for rack units, rack power and individual PDUs.
+model RackCapacitySample {
+  rackId      String   @db.Uuid
+  resourceKey String
+  sampledAt   DateTime
+  used        Float
+  total       Float
+  rack        Rack     @relation(fields: [rackId], references: [id], onDelete: Cascade)
+
+  @@id([rackId, resourceKey, sampledAt])
+  @@index([sampledAt])
 }
 
 model RackModel {

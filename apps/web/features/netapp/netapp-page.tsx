@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Check, HardDrive, RefreshCw, Save, X } from 'lucide-react';
 import { AppShell } from '@/components/layout/app-shell';
@@ -79,6 +79,19 @@ export default function NetAppPage() {
 
 function SnapshotTables({ siteId, snapshot }: { siteId: string; snapshot: NetAppSnapshot }) {
   const [trendTarget, setTrendTarget] = useState<TrendTarget>({ kind: 'CLUSTER', key: null });
+  const openedFromLink = useRef(false);
+  useEffect(() => {
+    if (openedFromLink.current) return;
+    openedFromLink.current = true;
+    const params = new URLSearchParams(window.location.search);
+    const kind = params.get('trendKind');
+    const key = params.get('trendKey');
+    const objects = kind === 'VOLUME' ? snapshot.volumes : kind === 'AGGREGATE' ? snapshot.aggregates : [];
+    if ((kind === 'VOLUME' || kind === 'AGGREGATE') && key && objects.some((item) => (item.uuid || item.name) === key)) {
+      setTrendTarget({ kind, key });
+      document.getElementById('netapp-capacity-trend')?.scrollIntoView?.({ block: 'start' });
+    }
+  }, [siteId, snapshot]);
   const showTrend = (target: TrendTarget) => {
     setTrendTarget(target);
     document.getElementById('netapp-capacity-trend')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });

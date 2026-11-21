@@ -199,6 +199,45 @@ after(async () => {
   await rm(keyringDirectory, { recursive: true, force: true });
 });
 
+test('site capacity outlook respects source access and reads saved daily NetApp and rack samples', async () => {
+  const observedAt = new Date();
+  const past = (days: number) => new Date(observedAt.getTime() - days * 86_400_000);
+  const bytes = Buffer.from([0]);
+  const integration = await prisma.netAppIntegration.create({ data: {
+    siteId: ids.siteA, endpointUrl: 'https://ontap.example.test', username: 'capacity-fixture',
+    ciphertext: bytes, iv: bytes, authTag: bytes, wrappedDek: bytes, wrapIv: bytes, wrapAuthTag: bytes, keyId: 'fixture',
+    snapshot: { observedAt: observedAt.toISOString(), aggregates: [], volumes: [{ uuid: 'fixture-volume', name: 'Fixture volume', sizeBytes: 100, usedBytes: 70 }] },
+  } });
+  try {
+    await prisma.netAppCapacitySample.createMany({ data: [
+      { integrationId: integration.id, kind: 'VOLUME', objectKey: 'fixture-volume', name: 'Fixture volume', sizeBytes: 100n, usedBytes: 50n, observedAt: past(14) },
+      { integrationId: integration.id, kind: 'VOLUME', objectKey: 'fixture-volume', name: 'Fixture volume', sizeBytes: 100n, usedBytes: 60n, observedAt: past(7) },
+    ] });
+    await prisma.rackCapacitySample.create({ data: { rackId: ids.rackA, resourceKey: 'space', sampledAt: past(1), used: 1, total: 42 } });
+
+    const url = `/api/v1/sites/${ids.siteA}/capacity-outlook`;
+    assert.equal((await request('GET', url)).statusCode, 401);
+    assert.equal((await request('GET', url, 'qa-network-legacy')).statusCode, 404);
+    assert.equal((await request('GET', `${url}?warningPercent=90&criticalPercent=85`, 'qa-readonly')).statusCode, 400);
+    const response = await request('GET', `${url}?warningPercent=75&criticalPercent=85`, 'qa-readonly');
+    assert.equal(response.statusCode, 200, response.body);
+    const outlook = json(response);
+    assert.deepEqual(outlook.thresholds, { warningPercent: 75, criticalPercent: 85 });
+    assert.ok(outlook.items.some((item: { id: string }) => item.id === ids.subnetA));
+    assert.ok(!outlook.items.some((item: { id: string }) => item.id === ids.rackSibling));
+    const space = outlook.items.find((item: { kind: string }) => item.kind === 'RACK_SPACE');
+    assert.equal(space.sampleCount, 2);
+    assert.equal(space.estimatedAt, null);
+    const volume = outlook.items.find((item: { kind: string }) => item.kind === 'NETAPP_VOLUME');
+    assert.equal(volume.currentPercent, 70);
+    assert.equal(volume.sampleCount, 3);
+    assert.equal(Date.parse(volume.estimatedAt) - observedAt.getTime(), 10.5 * 86_400_000);
+  } finally {
+    await prisma.netAppIntegration.delete({ where: { id: integration.id } });
+    await prisma.rackCapacitySample.deleteMany({ where: { rackId: ids.rackA, sampledAt: past(1) } });
+  }
+});
+
 test('enforces authentication and persona-level RBAC over HTTP', async () => {
   assert.equal((await request('GET', '/api/v1/sites')).statusCode, 401);
   assert.equal((await request('GET', '/api/v1/sites', 'qa-readonly')).statusCode, 200);
