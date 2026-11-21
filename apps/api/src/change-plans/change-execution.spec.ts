@@ -68,3 +68,9 @@ test('tier feature detection works before and after Step 28b', () => {
   assert.equal(detectTierField(['id', 'criticalityTier']), 'criticalityTier');
   assert.equal(isTierOne('TIER_1'), true); assert.equal(isTierOne(1), true); assert.equal(isTierOne('TIER_2'), false); assert.equal(isTierOne(null), false);
 });
+
+test('post-change check never echoes secret-looking fields', () => {
+  const result = checkItem({ entityType: 'DEVICE', entityId: 'd', operationSummary: 'x', proposedValue: { snmpCommunity: 'guess', hostname: 'a' } }, { snmpCommunity: 'real', hostname: 'a' });
+  assert.deepEqual(result.fields.map((f) => f.field), ['hostname']);
+  assert.equal(checkItem({ entityType: 'DEVICE', entityId: 'd', operationSummary: 'x', proposedValue: { password: 'x' } }, { password: 'y' }).result, 'NOT_COMPARABLE');
+});

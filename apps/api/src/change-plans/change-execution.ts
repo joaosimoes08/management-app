@@ -73,13 +73,16 @@ function sameValue(a: unknown, b: unknown) {
  * Compares one item. Only fields named in proposedValue are checked; fields that do not exist on the
  * current record are reported as different (the plan expected something the record does not have).
  */
+/** Fields never echoed by the post-change check, whatever a plan's proposedValue names. */
+export const SENSITIVE_FIELD = /pass(word)?|secret|community|token|credential|private|apikey|api_key|authkey|privkey/i;
+
 export function checkItem(item: { entityType: string; entityId: string; operationSummary: string; currentValue?: unknown; proposedValue?: unknown }, current: Record<string, unknown> | null): ItemCheck {
   const base = { entityType: item.entityType, entityId: item.entityId, operationSummary: item.operationSummary };
   if (!current) return { ...base, result: 'TARGET_MISSING', fields: [] };
   const planned = item.proposedValue && typeof item.proposedValue === 'object' && !Array.isArray(item.proposedValue) ? item.proposedValue as Record<string, unknown> : null;
-  if (!planned || !Object.keys(planned).length) return { ...base, result: 'NOT_COMPARABLE', fields: [] };
+  if (!planned || !Object.keys(planned).some((field) => !SENSITIVE_FIELD.test(field))) return { ...base, result: 'NOT_COMPARABLE', fields: [] };
   const before = item.currentValue && typeof item.currentValue === 'object' && !Array.isArray(item.currentValue) ? item.currentValue as Record<string, unknown> : {};
-  const fields = Object.keys(planned).sort().map((field) => {
+  const fields = Object.keys(planned).filter((field) => !SENSITIVE_FIELD.test(field)).sort().map((field) => {
     const now = Object.prototype.hasOwnProperty.call(current, field) ? current[field] : undefined;
     return { field, planned: normalizeValue(planned[field]), current: normalizeValue(now), before: normalizeValue(before[field]), matches: now !== undefined && sameValue(planned[field], now) };
   });
