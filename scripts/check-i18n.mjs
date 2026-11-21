@@ -51,6 +51,7 @@ const operationalFiles = [
   'apps/web/features/snmp/snmp-page.tsx',
   'apps/web/features/snmp/snmp-drifts.tsx',
   'apps/web/features/snmp/snmp-bounds.ts',
+  'apps/web/features/snmp/snmp-change-plan-attach.tsx',
 ];
 
 function sourceFile(relative, kind = ts.ScriptKind.TSX) {
