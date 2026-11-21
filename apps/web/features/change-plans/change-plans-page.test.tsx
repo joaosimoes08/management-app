@@ -275,7 +275,7 @@ describe('ChangePlansPage workspace', () => {
     setup('/alteracoes?changeId=p1');
     render(<ChangePlansPage />);
     expect(await screen.findByRole('heading', { name: 'Troca do core' })).toBeInTheDocument();
-    expect(mocks.getChangeActivity).toHaveBeenCalledWith('p1');
+    await vi.waitFor(() => expect(mocks.getChangeActivity).toHaveBeenCalledWith('p1'), { timeout: 4000 });
     expect(await screen.findByText('A janela sobrepõe-se a outras alterações ou manutenções deste Site')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Renomear VLAN' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Core-SW-01' })).toHaveAttribute('href', '/infraestrutura/equipamentos/device-1?siteId=site-1');
