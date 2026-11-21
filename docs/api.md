@@ -82,6 +82,8 @@ Uma aprovação cria/atualiza o IP no inventário oficial; a descoberta nunca cr
 
 Os endpoints `POST`, `PATCH`, `DELETE` e `POST /:id/check` exigem a role `ADMIN`.
 
+`POST /api/v1/application-links/check-all[?all=true][&offset=N]` (`ADMIN`) verifica até 100 ligações por pedido e devolve `checked`, `available`, `unavailable`, `blocked`, `total`, `nextOffset` (ou `null`) e `items[]`. Uma ligação cujo destino (ou redirecionamento) resolve para um endereço interno devolve `code: "BLOCKED"`; ver `docs/security.md`.
+
 ### Auditoria
 
 `GET /api/v1/audit/events?limit=100` devolve eventos recentes com utilizador, entidade, ação e data. Exige `ADMIN` ou `AUDITOR`.
