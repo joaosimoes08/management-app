@@ -109,7 +109,7 @@ export function RackPowerSummaryStrip({ summary, error, onEditThresholds }: Rack
   return <div id="rack-power-summary" data-testid="rack-power-strip" data-level={level}>
     <div className="table-actions">
       <span className={`state-badge ${badge.className}`} data-testid="rack-power-level"><i />{badge.label}</span>
-      <span className="muted-cell">{`Limiares: aviso ${percent(summary.thresholds.warningPercent)} · crítico ${percent(summary.thresholds.criticalPercent)}`}</span>
+      <span className="rack-power-threshold-note">{`Limiares: aviso ${percent(summary.thresholds.warningPercent)} · crítico ${percent(summary.thresholds.criticalPercent)}`}</span>
       <button type="button" className="icon-button subtle" onClick={onEditThresholds} aria-label="Limiares de energia" title="Limiares de energia"><SlidersHorizontal size={14} aria-hidden="true" /></button>
     </div>
     <div className="detail-grid">
