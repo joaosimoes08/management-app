@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { useAuth } from '@/lib/auth';
 import { translateLegacyText } from './legacy-messages';
 import { apiFetch } from '@/lib/api/client';
+import { getSharedSetupStatus } from '@/lib/setup/shared-setup-status';
 import { getConfiguredLocale, hasSavedOrganizationLocale } from '@/lib/runtime-config';
 import { setFormatLocale } from '@/lib/format/date';
 
@@ -376,7 +377,7 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     if (!authenticated) return;
     let active = true;
     setLoading(true);
-    void apiFetch<{ setupCompleted: boolean; organizationName?: string | null }>('/api/v1/setup/status')
+    void getSharedSetupStatus()
       .then((status) => hasSavedOrganizationLocale(status) ? apiFetch<{ settings: { locale?: string } }>('/api/v1/settings/organization') : null)
       .then((result) => { if (active && result && (result.settings.locale === 'pt-PT' || result.settings.locale === 'en-US')) setLocale(result.settings.locale); })
       .catch(() => undefined)
