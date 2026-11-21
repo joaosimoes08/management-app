@@ -937,6 +937,9 @@ const enUS: LegacyDictionary = {
   'Apagar todas as permissões IPAM deste grupo nos Sites selecionados?': 'Delete all IPAM permissions of this group in the selected Sites?',
   'Apagar todas as permissões deste grupo no âmbito selecionado?': 'Delete all permissions of this group in the selected scope?',
   'Existem alterações por guardar. Queres sair sem guardar?': 'There are unsaved changes. Leave without saving?',
+  ' · todos os Sites': ' · all Sites',
+  '· todos os Sites': '· all Sites',
+  'Remover filtro de configuração em falta': 'Remove missing-configuration filter',
 };
 
 const substitutions: Array<[RegExp, string]> = [
