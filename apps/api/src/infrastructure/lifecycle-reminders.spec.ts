@@ -22,7 +22,7 @@ test('reminder delivery creates one in-app notification and deduplicates worker 
     lifecycleDate: { findMany: async () => [{ id: 'date-1', kind: 'SUPPORT', dueDate: new Date('2026-12-01T00:00:00.000Z'), reminderDays: [0], responsibleUserId: 'user-1', responsibleGroup: null, device: { id: 'device-1', name: 'Router 1' } }] },
     $transaction: async (callback: (tx: any) => Promise<boolean>) => callback({
       lifecycleReminderDelivery: { createMany: async () => { if (deliveries) return { count: 0 }; deliveries++; return { count: 1 }; } },
-      notification: { create: async () => { notifications++; return {}; } },
+      notificationMute: { findMany: async () => [] }, notification: { create: async () => { notifications++; return {}; } },
     }),
   };
   const now = new Date('2026-12-01T12:00:00.000Z');

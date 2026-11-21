@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CalendarDays, ChevronLeft, ChevronRight, List, Plus, RefreshCw, Trash2, X } from 'lucide-react';
 import { apiFetch } from '@/lib/api/client';
@@ -41,6 +41,17 @@ export function LifecycleDates({ siteId, devices, canEdit }: { siteId: string; d
   const [mode, setMode] = useState<'calendar' | 'list'>('calendar');
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState('');
+  const [linkedDateId, setLinkedDateId] = useState('');
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search);
+    const id = query.get('lifecycleId');
+    const due = query.get('due');
+    if (!id || !due || !/^\d{4}-\d{2}-\d{2}$/.test(due)) return;
+    const date = new Date(`${due}T00:00:00`);
+    if (!Number.isFinite(date.getTime())) return;
+    setMonth(startOfMonth(date));
+    setLinkedDateId(id);
+  }, []);
   const range = monthRange(month);
   const queryKey = ['infrastructure', 'lifecycle-dates', siteId, range.from, range.to];
   const datesQuery = useQuery({ queryKey, queryFn: () => fetchLifecycle(siteId, range.from, range.to), enabled: Boolean(siteId) });
@@ -64,7 +75,14 @@ export function LifecycleDates({ siteId, devices, canEdit }: { siteId: string; d
   const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
   const cells = [...Array(firstDay).fill(null), ...Array.from({ length: daysInMonth }, (_, index) => index + 1)];
   const startCreate = (dueDate = dateText(new Date())) => setDraft({ deviceId: devices[0]?.id ?? '', kind: 'WARRANTY', dueDate, reminderDays: [...defaultReminders], ownerType: 'default', ownerId: '' });
-  const edit = (item: LifecycleDate) => setDraft({ id: item.id, deviceId: item.deviceId, kind: item.kind, dueDate: item.dueDate, reminderDays: item.reminderDays ?? [...defaultReminders], ownerType: item.responsibleUserId ? 'user' : item.responsibleGroupId ? 'group' : 'default', ownerId: item.responsibleUserId ?? item.responsibleGroupId ?? '' });
+  const edit = (item: LifecycleDate) => setDraft(dateDraft(item));
+  function dateDraft(item: LifecycleDate): Draft { return { id: item.id, deviceId: item.deviceId, kind: item.kind, dueDate: item.dueDate, reminderDays: item.reminderDays ?? [...defaultReminders], ownerType: item.responsibleUserId ? 'user' : item.responsibleGroupId ? 'group' : 'default', ownerId: item.responsibleUserId ?? item.responsibleGroupId ?? '' }; }
+  useEffect(() => {
+    const linked = items.find((item) => item.id === linkedDateId);
+    if (!linked) return;
+    setDraft(dateDraft(linked));
+    setLinkedDateId('');
+  }, [items, linkedDateId]);
   const toggleReminder = (day: number) => setDraft((old) => old ? { ...old, reminderDays: old.reminderDays.includes(day) ? old.reminderDays.filter((item) => item !== day) : [...old.reminderDays, day] } : old);
 
   return <section className="lifecycle-workspace" aria-labelledby="lifecycle-heading">

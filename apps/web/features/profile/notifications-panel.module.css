@@ -1,0 +1,105 @@
+.workspace {
+  display: grid;
+  gap: 12px;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin-bottom: 14px;
+}
+
+.filters label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.filters select {
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 9px;
+  color: var(--text);
+  background: var(--surface);
+  font: inherit;
+}
+
+.list {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+.summary {
+  display: grid;
+  gap: 4px;
+}
+
+.summary button {
+  justify-self: start;
+  text-align: left;
+  font-weight: 600;
+}
+
+.summary span,
+.detail time {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.detail {
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.detail h3 {
+  margin: 0;
+}
+
+.preference {
+  padding: 8px 0;
+  font-size: 13px;
+}
+
+@media (max-width: 600px) {
+  .item {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .summary {
+    grid-column: 1 / -1;
+  }
+
+  .item > span {
+    justify-self: start;
+  }
+}
+
+@media (max-width: 560px) {
+  :global(.app-shell .global-topbar):has(.profileTabs) :global(.module-tabs-slot) {
+    flex: 1 0 100%;
+    overflow: visible;
+  }
+
+  :global(.app-shell .global-topbar):has(.profileTabs) :global(.topbar-globals) {
+    flex: none;
+  }
+
+  :global(.app-shell .global-topbar):has(.profileTabs) :global(.topbar-search-trigger) {
+    flex: 0 0 40px;
+  }
+}

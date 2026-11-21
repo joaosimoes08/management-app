@@ -3,6 +3,7 @@ import type { AppLocale } from './i18n';
 type LegacyDictionary = Record<string, string>;
 
 const enUS: LegacyDictionary = {
+  'Revisão ligada à notificação': 'Review linked to the notification',
   // Alterações (change plans) workspace
   'Pesquisar título, motivo, operação ou alvo…': 'Search title, reason, operation or target…',
   'Janela a partir de': 'Window from',
