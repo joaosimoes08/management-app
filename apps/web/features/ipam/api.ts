@@ -20,6 +20,17 @@ import type {
   ServiceInput,
   IpamAction,
   IpamPermissionGroup,
+  NatRule,
+  NatRuleInput,
+  NatRuleType,
+  RipeImportInput,
+  RipeImportRecord,
+  RipeImportResult,
+  RipePreview,
+  RipePreviewInput,
+  Vrf,
+  VrfDetail,
+  VrfInput,
 } from './types';
 
 export function listPermissionGroups(siteId?: string): Promise<IpamPermissionGroup[]> {
@@ -38,8 +49,16 @@ export function getNetworkMap(siteId: string): Promise<{ vlans: NetworkMapVlan[]
   return apiFetch<{ vlans: NetworkMapVlan[] }>(`/api/v1/sites/${siteId}/network-map`);
 }
 
-export function listSubnets(siteId: string): Promise<PaginatedResponse<Subnet>> {
-  return apiFetch<PaginatedResponse<Subnet>>(`/api/v1/subnets?siteId=${siteId}&pageSize=200`);
+/** The API caps pageSize at 100, so every page is fetched and merged: pickers and lookups need the whole Site. */
+export const SUBNET_PAGE_SIZE = 100;
+export async function listSubnets(siteId: string): Promise<PaginatedResponse<Subnet>> {
+  const path = (page: number) => `/api/v1/subnets?siteId=${siteId}&page=${page}&pageSize=${SUBNET_PAGE_SIZE}`;
+  const first = await apiFetch<PaginatedResponse<Subnet>>(path(1));
+  const totalPages = Math.max(first.totalPages ?? 1, 1);
+  if (totalPages === 1) return first;
+  const rest = await Promise.all(Array.from({ length: totalPages - 1 }, (_, index) => apiFetch<PaginatedResponse<Subnet>>(path(index + 2))));
+  const items = [first, ...rest].flatMap((page) => page.items);
+  return { ...first, items, page: 1, pageSize: items.length, totalPages: 1 };
 }
 
 export function getSubnet(id: string): Promise<Subnet> {
@@ -150,4 +169,66 @@ export function updateService(id: string, body: Partial<{ [Key in keyof Omit<Ser
 
 export function deleteService(id: string): Promise<unknown> {
   return apiFetch(`/api/v1/services/${id}`, { method: 'DELETE' });
+}
+
+// ── VRFs ───────────────────────────────────────────────────────────────────
+
+export function listVrfs(siteId: string): Promise<Vrf[]> {
+  return apiFetch<Vrf[]>(`/api/v1/vrfs?siteId=${encodeURIComponent(siteId)}`);
+}
+
+export function getVrf(id: string): Promise<VrfDetail> {
+  return apiFetch<VrfDetail>(`/api/v1/vrfs/${id}`);
+}
+
+export function createVrf(body: VrfInput): Promise<Vrf> {
+  return apiFetch<Vrf>('/api/v1/vrfs', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function updateVrf(id: string, body: VrfInput): Promise<Vrf> {
+  return apiFetch<Vrf>(`/api/v1/vrfs/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
+export function deleteVrf(id: string): Promise<unknown> {
+  return apiFetch(`/api/v1/vrfs/${id}`, { method: 'DELETE' });
+}
+
+// ── NAT rules ──────────────────────────────────────────────────────────────
+
+export function listNatRules(siteId: string, filters: { vrfId?: string; type?: NatRuleType | '' } = {}): Promise<NatRule[]> {
+  const params = new URLSearchParams({ siteId });
+  if (filters.vrfId) params.set('vrfId', filters.vrfId);
+  if (filters.type) params.set('type', filters.type);
+  return apiFetch<NatRule[]>(`/api/v1/nat-rules?${params.toString()}`);
+}
+
+export function createNatRule(body: NatRuleInput): Promise<NatRule> {
+  return apiFetch<NatRule>('/api/v1/nat-rules', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function updateNatRule(id: string, body: NatRuleInput): Promise<NatRule> {
+  return apiFetch<NatRule>(`/api/v1/nat-rules/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
+export function deleteNatRule(id: string): Promise<unknown> {
+  return apiFetch(`/api/v1/nat-rules/${id}`, { method: 'DELETE' });
+}
+
+// ── RIPE ───────────────────────────────────────────────────────────────────
+
+/** RIPEstat lookup (query) or pasted/uploaded list (prefixes, raw text), diffed server-side against target.siteId/vrfId. */
+export function previewRipe(body: RipePreviewInput): Promise<RipePreview> {
+  return apiFetch<RipePreview>('/api/v1/ipam/ripe/preview', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function importRipe(body: RipeImportInput): Promise<RipeImportResult> {
+  return apiFetch<RipeImportResult>('/api/v1/ipam/ripe/import', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function listRipeImports(): Promise<RipeImportRecord[]> {
+  return apiFetch<RipeImportRecord[]>('/api/v1/ipam/ripe/imports');
+}
+
+export function getRipeImport(id: string): Promise<RipeImportRecord> {
+  return apiFetch<RipeImportRecord>(`/api/v1/ipam/ripe/imports/${id}`);
 }

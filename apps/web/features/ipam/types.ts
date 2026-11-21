@@ -268,6 +268,168 @@ export interface IpamPermissionGroup {
   siteAssignments: { siteId: string; permissions: { permission: IpamAction }[] }[];
 }
 
+// ── VRFs (GET/POST/PATCH/DELETE /vrfs) ───────────────────────────────────────
+
+export interface Vrf {
+  id: string;
+  name: string;
+  routeDistinguisher?: string | null;
+  description?: string | null;
+  status: string;
+  siteId: string;
+  createdAt?: string;
+  updatedAt?: string;
+  _count?: { subnets?: number; natRules?: number };
+}
+
+export interface VrfDetail extends Vrf {
+  site?: Site | null;
+  subnets: Subnet[];
+  natRules: NatRule[];
+}
+
+/** PATCH uses the full create DTO on the API, so name and siteId are always sent. */
+export interface VrfInput {
+  name: string;
+  routeDistinguisher?: string | null;
+  description?: string | null;
+  siteId: string;
+  status?: string;
+}
+
+// ── NAT rules (GET/POST/PATCH/DELETE /nat-rules) ────────────────────────────
+
+export type NatRuleType = 'SNAT' | 'DNAT' | 'STATIC_1_TO_1' | 'PAT';
+
+export interface NatRule {
+  id: string;
+  name: string;
+  type: NatRuleType;
+  protocol?: string | null;
+  sourceAddress?: string | null;
+  translatedAddress?: string | null;
+  sourcePort?: number | null;
+  translatedPort?: number | null;
+  destinationPort?: number | null;
+  sourceSubnetId?: string | null;
+  translatedSubnetId?: string | null;
+  sourceIpId?: string | null;
+  translatedIpId?: string | null;
+  deviceId?: string | null;
+  vrfId?: string | null;
+  siteId?: string | null;
+  enabled: boolean;
+  description?: string | null;
+  sourceSubnet?: Pick<Subnet, 'id' | 'cidr'> | null;
+  translatedSubnet?: Pick<Subnet, 'id' | 'cidr'> | null;
+  sourceIp?: { id: string; address: string } | null;
+  translatedIp?: { id: string; address: string } | null;
+  device?: { id: string; name: string } | null;
+  vrf?: Pick<Vrf, 'id' | 'name'> | null;
+}
+
+/** PATCH uses the full create DTO on the API; null clears an optional field. */
+export interface NatRuleInput {
+  name: string;
+  type: NatRuleType;
+  protocol?: string | null;
+  sourceAddress?: string | null;
+  translatedAddress?: string | null;
+  sourcePort?: number | null;
+  translatedPort?: number | null;
+  destinationPort?: number | null;
+  sourceSubnetId?: string | null;
+  translatedSubnetId?: string | null;
+  vrfId?: string | null;
+  siteId?: string | null;
+  enabled?: boolean;
+  description?: string | null;
+}
+
+// ── RIPE imports (POST ipam/ripe/preview|import, GET ipam/ripe/imports) ───────
+
+export type RipeQueryType = 'asn' | 'prefix' | 'organisation';
+
+/** POST ipam/ripe/preview: either a RIPEstat query or the raw pasted/uploaded text in `prefixes`. */
+export interface RipePreviewInput {
+  query?: string;
+  queryType?: RipeQueryType;
+  prefixes?: string[];
+  siteId: string;
+  vrfId?: string;
+  purpose?: string;
+  environment?: string;
+}
+
+export type RipeDiffStatus = 'new' | 'changed' | 'exists' | 'conflict';
+export type RipeDiffReason = 'NEW' | 'NEW_OVERLAPS_OTHER_SCOPE' | 'EXISTS_SAME' | 'EXISTS_DIFFERENT_ATTRIBUTES' | 'OVERLAP' | 'EXISTS_OUTSIDE_SITE';
+/** A subnet the user cannot read comes back as { id: null, cidr: null, hidden: true }. */
+export type RipeSubnetRef = { id: string; cidr: string; siteId: string | null; vrfId: string | null; purpose: string | null; environment: string | null; hidden?: false } | { id: null; cidr: null; hidden: true };
+export interface RipeDiffItem {
+  prefix: string;
+  input: string;
+  version: 4 | 6;
+  status: RipeDiffStatus;
+  reason: RipeDiffReason;
+  message: string;
+  importable: boolean;
+  existing?: RipeSubnetRef;
+  changes?: Array<{ field: 'vrfId' | 'purpose' | 'environment'; current: string | null; proposed: string | null }>;
+  overlaps?: RipeOverlap[];
+}
+/** `existing`: a subnet already in the inventory (older servers omit `source`). `paste`: an earlier prefix of the same paste, with no `subnet`. */
+export type RipeOverlap =
+  | { source?: 'existing'; relation: 'contains' | 'within'; sameScope: boolean; subnet?: RipeSubnetRef }
+  | { source: 'paste'; relation: 'contains' | 'within'; sameScope: true; prefix: string };
+export interface RipeInvalidPrefix { input: string; reason: string; message: string }
+export interface RipeDiffTarget { siteId: string; vrfId: string | null; purpose: string | null; environment: string | null }
+export interface RipeDiffSummary { total: number; new: number; changed: number; exists: number; conflict: number; importable: number; invalid: number; duplicates: number }
+
+export interface RipePreview {
+  id: string;
+  query: string;
+  queryType: RipeQueryType | 'paste' | string;
+  source?: 'PASTE' | 'RIPESTAT' | string;
+  prefixes: string[];
+  status: string;
+  target?: RipeDiffTarget;
+  summary?: RipeDiffSummary;
+  diff?: RipeDiffItem[];
+  invalid?: RipeInvalidPrefix[];
+  duplicates?: string[];
+  normalized?: Array<{ input: string; prefix: string }>;
+}
+
+export interface RipeSkippedPrefix { cidr: string; reason: string }
+
+export interface RipeImportRecord {
+  id: string;
+  query: string;
+  queryType: RipeQueryType | string;
+  source: string;
+  status: 'PREVIEW' | 'IMPORTED' | 'PARTIAL' | 'FAILED' | string;
+  result: { prefixes?: string[]; source?: string; selected?: string[]; created?: string[]; skipped?: RipeSkippedPrefix[]; target?: RipeDiffTarget; diff?: RipeDiffItem[]; summary?: RipeDiffSummary; invalid?: RipeInvalidPrefix[]; duplicates?: string[] } | null;
+  createdBy?: string | null;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface RipeImportInput {
+  importId: string;
+  prefixes: string[];
+  siteId: string;
+  vrfId?: string;
+  vlanId?: string;
+  purpose?: string;
+  environment?: string;
+}
+
+export interface RipeImportResult {
+  status: 'IMPORTED' | 'PARTIAL' | 'FAILED';
+  created: Subnet[];
+  skipped: RipeSkippedPrefix[];
+}
+
 // ── Effective access (shared endpoint with infrastructure) ─────────────────
 
 export type { Site };
