@@ -741,6 +741,26 @@ const enUS: LegacyDictionary = {
   'Aviso (% do orçamento ou das tomadas)': 'Warning (% of budget or outlets)',
   'Crítico (% do orçamento ou das tomadas)': 'Critical (% of budget or outlets)',
   'Repor predefinição': 'Reset to default',
+  'Ver tendência': 'View trend',
+  '% utilizado': '% used',
+  'Utilizado': 'Used',
+  'Total': 'Total',
+  'Top 10 mais cheios': 'Top 10 fullest',
+  'CAPACIDADE': 'CAPACITY',
+  'Sem dados de capacidade neste snapshot.': 'No capacity data in this snapshot.',
+  'Não foi possível carregar a tendência.': 'Could not load the trend.',
+  'Não se prevê esgotamento ao ritmo atual.': 'No exhaustion expected at the current rate.',
+  'Sem crescimento no período observado.': 'No growth in the observed period.',
+  'Ainda não há amostras suficientes para estimar o crescimento.': 'Not enough samples yet to estimate growth.',
+  'TENDÊNCIA DE CAPACIDADE': 'CAPACITY TREND',
+  'Amostras diárias guardadas a cada atualização do snapshot.': 'Daily samples stored on every snapshot refresh.',
+  'Objeto': 'Object',
+  'Cluster (total)': 'Cluster (total)',
+  'Período': 'Period',
+  'Sem objetos com amostras': 'No objects with samples',
+  'A lista de objetos foi truncada pela API; usa “Ver tendência” nas tabelas para os restantes.': 'The API truncated the object list; use “View trend” in the tables for the rest.',
+  'A carregar a tendência…': 'Loading the trend…',
+  'Ainda não há amostras de capacidade para este objeto.': 'No capacity samples for this object yet.',
 };
 
 const substitutions: Array<[RegExp, string]> = [
@@ -874,6 +894,14 @@ const substitutions: Array<[RegExp, string]> = [
   [/( — perto do limite em: .*)potência/g, '$1power'],
   [/( — perto do limite em: .*)tomadas/g, '$1outlets'],
   [/ — perto do limite em: /g, ' — near the limit on: '],
+  [/^Ver tendência de (.+)$/g, 'View trend of $1'],
+  [/^Ao ritmo recente, ficará cheio por volta de (.+)\.$/g, 'At the recent rate, it will be full around $1.'],
+  [/^Últimos (\d+) dias$/g, 'Last $1 days'],
+  [/^(\d+) dias$/g, '$1 days'],
+  [/^([\d.,~\s]+\S*) utilizado$/g, '$1 used'],
+  [/^Tendência de capacidade de (.+)$/g, 'Capacity trend of $1'],
+  [/^Variação no período: /g, 'Change in period: '],
+  [/\/dia$/g, '/day'],
 ];
 
 export function translateLegacyText(locale: AppLocale, input: string): string {
