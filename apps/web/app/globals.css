@@ -1899,7 +1899,7 @@ body { color:var(--ink); background:#e9eef5; }
 .context-toolbar-contribution .lifecycle-toolbar-actions { display:flex; gap:8px; }
 .context-toolbar-contribution .interface-toolbar-controls { display:flex; align-items:center; gap:8px; }
 .context-toolbar-contribution .interface-toolbar-controls label { display:flex; align-items:center; gap:6px; color:#586982; font-size:11px; font-weight:650; white-space:nowrap; }
-.context-toolbar-contribution .interface-toolbar-controls select { box-sizing:border-box; width:auto; min-width:90px; max-width:clamp(130px, 12vw, 178px); min-height:35px; height:35px; padding:0 12px; color:#20334f; border:1px solid #dce4ef; border-radius:8px; background:#fff; font-size:11px; }
+.context-toolbar-contribution .interface-toolbar-controls select,.interface-toolbar-controls input[type="date"] { box-sizing:border-box; width:auto; min-width:90px; max-width:clamp(130px, 12vw, 178px); min-height:35px; height:35px; padding:0 12px; color:#20334f; border:1px solid #dce4ef; border-radius:8px; background:#fff; font-size:11px; }
 @media (max-width:780px) { .context-toolbar-contribution .interface-toolbar-controls select { width:100%; min-width:0; max-width:100%; } }
 @media (max-width:780px) {
   .context-toolbar-contribution { width:100%; }
@@ -2539,7 +2539,7 @@ body { color:var(--ink); background:#e9eef5; }
 .change-layout { grid-template-columns:minmax(0,1fr); }
 /* Alterações calendar: the month grid reuses .ip-table; cells read top-down with equal columns. */
 .change-calendar { table-layout:fixed; }
-.change-calendar td { height:88px; vertical-align:top; }
+.change-calendar td { height:88px; vertical-align:top; overflow-wrap:anywhere; }
 
 /* IPAM's topbar tabs share the complete navigation slot. The overflow component
    measures natural label widths separately, so visible tabs can safely grow. */

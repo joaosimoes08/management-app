@@ -1,10 +1,12 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChangePlansPage } from './change-plans-page';
-import type { ChangePlan, ImpactPreview } from './api';
+import type { CalendarChangePlan, ChangePlan, ImpactPreview } from './api';
 
 const mocks = vi.hoisted(() => ({
-  getChangeActivity: vi.fn(async () => null),
+  getChangeActivity: vi.fn(async () => [] as unknown[]),
+  getChangeSummary: vi.fn(),
+  getChangeCalendar: vi.fn(),
   listChangePlans: vi.fn(),
   createChangePlan: vi.fn(),
   getChangeCandidates: vi.fn(),
@@ -17,11 +19,17 @@ vi.mock('./api', () => ({
   cancelChangePlan: vi.fn(), createChangePlan: mocks.createChangePlan, getChangeCandidates: mocks.getChangeCandidates,
   getChangePlan: mocks.getChangePlan, listChangePlans: mocks.listChangePlans, previewChangePlan: mocks.previewChangePlan,
   reviewChangePlan: vi.fn(), submitChangePlan: vi.fn(), updateChangePlan: vi.fn(), getChangeActivity: mocks.getChangeActivity,
+  getChangeSummary: mocks.getChangeSummary, getChangeCalendar: mocks.getChangeCalendar,
 }));
 vi.mock('@/components/layout/app-shell', async (importOriginal) => ({ ...await importOriginal<typeof import('@/components/layout/app-shell')>(), AppShell: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: () => true }) }));
 vi.mock('@/lib/site-context', () => ({ useSiteContext: () => ({ siteId: 'site-1', activeSite: { id: 'site-1', name: 'Site One' } }) }));
 
+const emptySummary = { siteId: 'site-1', total: 0, byStatus: { DRAFT: 0, SUBMITTED: 0, APPROVED: 0, REJECTED: 0, CANCELLED: 0 }, inProgress: 0, upcoming: 0, generatedAt: '' };
+beforeEach(() => {
+  mocks.getChangeSummary.mockResolvedValue(emptySummary);
+  mocks.getChangeCalendar.mockResolvedValue({ siteId: 'site-1', from: '', to: '', changePlans: [], maintenanceWindows: [], truncated: false });
+});
 afterEach(() => { cleanup(); vi.clearAllMocks(); mocks.detail = null; });
 
 describe('ChangePlansPage impact preview transition', () => {
@@ -161,7 +169,8 @@ describe('ChangePlansPage impact preview transition', () => {
     // Reopening the plan after stale list/detail reads still uses the saved result.
     fireEvent.click(screen.getByRole('button', { name: '← Todas as alterações' }));
     fireEvent.click(await screen.findByRole('button', { name: /Calibration Change/ }));
-    await vi.waitFor(() => expect(mocks.getChangePlan).toHaveBeenCalledTimes(6));
+    // Open + the list reload's detail refresh; a superseded list load no longer refetches the detail.
+    await vi.waitFor(() => expect(mocks.getChangePlan).toHaveBeenCalledTimes(5));
     expect(screen.getByText('Pré-visualização').closest('.change-detail')).toHaveTextContent(`Calculada ${expectedTimestamp}`);
     expect(screen.getByText('Pré-visualização').closest('.change-detail')?.querySelectorAll('.impact-group li')).toHaveLength(7);
   });
@@ -175,11 +184,20 @@ describe('ChangePlansPage workspace', () => {
   const core = base('p1', 'Troca do core', '2026-11-20T10:00:00.000Z', '2026-11-20T12:00:00.000Z', { status: 'SUBMITTED' });
   const vlan = base('p2', 'Renomear VLAN', '2026-11-20T11:00:00.000Z', '2026-11-20T13:00:00.000Z', { items: [{ entityType: 'VLAN', entityId: 'vlan-1', operationSummary: 'Rename' }] });
   const old = base('p3', 'Limpeza antiga', '2026-10-01T10:00:00.000Z', '2026-10-01T11:00:00.000Z', { status: 'CANCELLED' });
+  const all = [core, vlan, old];
+  const candidates = [{ entityType: 'DEVICE' as const, entityId: 'device-1', label: 'Core-SW-01' }];
+  const asCalendar = (plan: ChangePlan, others: ChangePlan[]): CalendarChangePlan => ({ id: plan.id, title: plan.title, status: plan.status, plannedStartAt: plan.plannedStartAt, plannedEndAt: plan.plannedEndAt, revision: plan.revision, targetCount: plan.items.length, conflict: false, overlapsWith: others.map((other) => ({ kind: 'CHANGE_PLAN' as const, id: other.id, overlapStartsAt: other.plannedStartAt, overlapEndsAt: plan.plannedEndAt, sharedTargetCount: 0 })) });
   const setup = (path = '/alteracoes') => {
     window.history.replaceState(null, '', path);
-    mocks.listChangePlans.mockResolvedValue([core, vlan, old]);
-    mocks.getChangeCandidates.mockResolvedValue({ groups: [[{ entityType: 'DEVICE', entityId: 'device-1', label: 'Core-SW-01' }]], truncated: false });
-    mocks.getChangePlan.mockImplementation(async (id: string) => [core, vlan, old].find((plan) => plan.id === id)!);
+    // A small fake of the API: list filters by status and q, candidates by q, calendar by range with server overlaps (core ↔ vlan).
+    mocks.listChangePlans.mockImplementation(async (_site: string, filters: { status?: string; q?: string } = {}) => all.filter((plan) => (!filters.status || plan.status === filters.status) && (!filters.q || plan.title.toLowerCase().includes(filters.q.toLowerCase()))));
+    mocks.getChangeCandidates.mockImplementation(async (_site: string, filters: { q?: string } = {}) => ({ groups: [candidates.filter((item) => !filters.q || item.label.toLowerCase().includes(filters.q.toLowerCase()))], truncated: false }));
+    mocks.getChangeSummary.mockResolvedValue({ ...emptySummary, total: 3, byStatus: { DRAFT: 1, SUBMITTED: 1, APPROVED: 0, REJECTED: 0, CANCELLED: 1 } });
+    mocks.getChangeCalendar.mockImplementation(async (_site: string, from: string, to: string) => {
+      const inRange = all.filter((plan) => plan.status !== 'CANCELLED' && plan.plannedStartAt < to && plan.plannedEndAt > from);
+      return { siteId: 'site-1', from, to, maintenanceWindows: [], truncated: false, changePlans: inRange.map((plan) => asCalendar(plan, inRange.filter((other) => other.id !== plan.id && other.plannedStartAt < plan.plannedEndAt && other.plannedEndAt > plan.plannedStartAt))) };
+    });
+    mocks.getChangePlan.mockImplementation(async (id: string) => all.find((plan) => plan.id === id)!);
   };
   afterEach(() => { window.history.replaceState(null, '', '/'); });
 
@@ -190,8 +208,22 @@ describe('ChangePlansPage workspace', () => {
     expect(screen.queryByRole('button', { name: 'Renomear VLAN' })).not.toBeInTheDocument();
     expect(screen.getByLabelText('1 de 3 alterações')).toBeInTheDocument();
 
+    expect(mocks.listChangePlans).toHaveBeenLastCalledWith('site-1', expect.objectContaining({ q: 'Troca do core' }));
+
     act(() => { window.history.replaceState(null, '', '/alteracoes?q=core-sw'); window.dispatchEvent(new PopStateEvent('popstate')); });
-    expect(await screen.findByRole('button', { name: 'Troca do core' })).toBeInTheDocument();
+    await vi.waitFor(() => expect(mocks.getChangeCandidates).toHaveBeenCalledWith('site-1', { q: 'core-sw', type: undefined }));
+    // The search named a target: plans touching it are kept (the cancelled one too), the VLAN change is not.
+    expect(await screen.findByLabelText('2 de 3 alterações')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Troca do core' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Renomear VLAN' })).not.toBeInTheDocument();
+  });
+
+  it('flags the overlaps the API reports in the list column', async () => {
+    setup();
+    render(<ChangePlansPage />);
+    await screen.findByRole('button', { name: 'Troca do core' });
+    await vi.waitFor(() => expect(screen.getAllByText('1 sobreposição')).toHaveLength(2));
+    expect(mocks.getChangeCalendar).toHaveBeenCalledWith('site-1', core.plannedStartAt, vlan.plannedEndAt);
   });
 
   it('filters by status tab with counts and keeps the tab in the URL', async () => {
@@ -201,7 +233,8 @@ describe('ChangePlansPage workspace', () => {
     expect(screen.getByRole('button', { name: 'Todas (3)' })).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(screen.getByRole('button', { name: 'Canceladas (1)' }));
     expect(window.location.search).toContain('status=CANCELLED');
-    expect(screen.getByRole('button', { name: 'Limpeza antiga' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Limpeza antiga' })).toBeInTheDocument();
+    expect(mocks.listChangePlans).toHaveBeenLastCalledWith('site-1', expect.objectContaining({ status: 'CANCELLED' }));
     expect(screen.queryByRole('button', { name: 'Troca do core' })).not.toBeInTheDocument();
   });
 
@@ -216,28 +249,39 @@ describe('ChangePlansPage workspace', () => {
     expect(await screen.findByText('Sem janelas sobrepostas neste mês.')).toBeInTheDocument();
   });
 
-  it('opens ?changeId= directly, lists the overlap and the activity fallback, and returns to the list', async () => {
+  it('opens ?changeId= directly, lists the overlap and the activity, and returns to the list', async () => {
     setup('/alteracoes?changeId=p1');
     render(<ChangePlansPage />);
     expect(await screen.findByRole('heading', { name: 'Troca do core' })).toBeInTheDocument();
     expect(mocks.getChangeActivity).toHaveBeenCalledWith('p1');
-    expect(screen.getByText('A janela sobrepõe-se a outras alterações deste Site')).toBeInTheDocument();
+    expect(await screen.findByText('A janela sobrepõe-se a outras alterações ou manutenções deste Site')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Renomear VLAN' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Core-SW-01' })).toHaveAttribute('href', '/infraestrutura?siteId=site-1&tab=devices&deviceId=device-1&focus=device');
     expect(await screen.findByRole('heading', { name: 'Atividade' })).toBeInTheDocument();
-    expect(screen.getByText(/Mostra os marcos registados na alteração/)).toBeInTheDocument();
+    expect(screen.getByText('Ainda não há atividade registada para esta alteração.')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '← Todas as alterações' }));
     expect(window.location.search).not.toContain('changeId');
     expect(await screen.findByRole('heading', { name: 'Alterações Planeadas' })).toBeInTheDocument();
   });
 
-  it('shows the full activity log when the API provides it', async () => {
+  it('shows the activity log from the API', async () => {
     setup('/alteracoes?changeId=p1');
     mocks.getChangeActivity.mockResolvedValueOnce([{ id: 'a1', action: 'CHANGE_PLAN_UPDATED', at: '2026-11-19T09:00:00.000Z', actor: { username: 'ana', displayName: 'Ana Ops' }, revision: 2 }] as never);
     render(<ChangePlansPage />);
     expect(await screen.findByText('Rascunho editado')).toBeInTheDocument();
     expect(screen.getByText(/Ana Ops/)).toBeInTheDocument();
-    expect(screen.queryByText(/Mostra os marcos registados/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Não foi possível carregar a atividade desta alteração.')).not.toBeInTheDocument();
+  });
+
+  it('searches targets in the editor with candidates?q=&type=', async () => {
+    setup();
+    render(<ChangePlansPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /Criar alteração/ }));
+    fireEvent.change(screen.getByLabelText('Pesquisar alvo'), { target: { value: 'core' } });
+    await vi.waitFor(() => expect(mocks.getChangeCandidates).toHaveBeenCalledWith('site-1', { q: 'core', type: 'DEVICE' }));
+    expect(await screen.findByRole('option', { name: 'Core-SW-01' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Pesquisar alvo'), { target: { value: 'nada' } });
+    expect(await screen.findByText('Nenhum alvo deste tipo corresponde à pesquisa.')).toBeInTheDocument();
   });
 
   it('asks for confirmation before cancelling a change', async () => {

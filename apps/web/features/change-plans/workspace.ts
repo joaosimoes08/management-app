@@ -1,9 +1,10 @@
 /**
  * Pure helpers for the Alterações workspace: status tabs, search, overlapping
- * change windows, the month calendar and the activity timeline. No React here.
+ * change windows (computed by the API), the month calendar and the activity
+ * timeline. No React here.
  */
 import type { TableStateConfig } from '@/components/data-table';
-import type { ChangeActivity, ChangeCandidate, ChangeEntityType, ChangePlan, ChangeStatus } from './api';
+import type { CalendarChangePlan, CalendarMaintenanceWindow, ChangeActivity, ChangeCalendar, ChangeCandidate, ChangeEntityType, ChangePlan, ChangeStatus, WindowKind } from './api';
 
 export const changeStatuses: ChangeStatus[] = ['DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED', 'CANCELLED'];
 export const changeTypes: ChangeEntityType[] = ['DEVICE', 'INTERFACE', 'VLAN', 'SUBNET', 'IP_ADDRESS', 'HOST', 'SERVICE'];
@@ -13,33 +14,76 @@ export const statusLabels: Record<ChangeStatus, string> = { DRAFT: 'Rascunho', S
 export const statusTabLabels: Record<ChangeStatus, string> = { DRAFT: 'Rascunhos', SUBMITTED: 'Em revisão', APPROVED: 'Aprovadas', REJECTED: 'Devolvidas', CANCELLED: 'Canceladas' };
 
 export type ChangeView = 'list' | 'calendar';
-export type ChangeFilters = { status: string; type: string; view: string; month: string; changeId: string };
-export const emptyChangeFilters: ChangeFilters = { status: '', type: '', view: '', month: '', changeId: '' };
+export type ChangeFilters = { status: string; type: string; from: string; to: string; view: string; month: string; changeId: string };
+export const emptyChangeFilters: ChangeFilters = { status: '', type: '', from: '', to: '', view: '', month: '', changeId: '' };
 /**
- * `?q=&status=&type=&view=calendar&month=2026-11&changeId=&sort=` — no sort
+ * `?q=&status=&type=&from=2026-11-01&to=2026-11-30&view=calendar&month=2026-11&changeId=&sort=` — no sort
  * keeps the API order (latest planned start first).
  */
 export const changeTableConfig: TableStateConfig<ChangeFilters> = { filters: emptyChangeFilters, sortable: ['title', 'status', 'window', 'targets', 'overlaps'] };
 
-/** Cancelled plans never compete for a window; every other state still might run. */
-export const occupiesWindow = (plan: Pick<ChangePlan, 'status'>) => plan.status !== 'CANCELLED';
-
 const time = (value: string) => new Date(value).getTime();
-/** Half-open windows: a change ending at 10:00 does not overlap one starting at 10:00. */
-export const windowsOverlap = (a: Pick<ChangePlan, 'plannedStartAt' | 'plannedEndAt'>, b: Pick<ChangePlan, 'plannedStartAt' | 'plannedEndAt'>) => time(a.plannedStartAt) < time(b.plannedEndAt) && time(b.plannedStartAt) < time(a.plannedEndAt);
+const DAY = 24 * 60 * 60 * 1000;
 
-/** For every plan that occupies a window, the other plans whose windows overlap it (Site-wide, whatever the filters). */
-export function overlapIndex(plans: readonly ChangePlan[]): Map<string, ChangePlan[]> {
-  const active = plans.filter(occupiesWindow).sort((a, b) => time(a.plannedStartAt) - time(b.plannedStartAt));
-  const index = new Map<string, ChangePlan[]>();
-  for (let i = 0; i < active.length; i += 1) {
-    for (let j = i + 1; j < active.length && time(active[j].plannedStartAt) < time(active[i].plannedEndAt); j += 1) {
-      if (!windowsOverlap(active[i], active[j])) continue;
-      index.set(active[i].id, [...(index.get(active[i].id) ?? []), active[j]]);
-      index.set(active[j].id, [...(index.get(active[j].id) ?? []), active[i]]);
-    }
+// ── Overlaps (from GET /change-plans/calendar) ──────────────────────────────
+
+/** Plans and maintenance windows the API returned for one or more ranges, with their overlaps. */
+export type OverlapData = { plans: Map<string, CalendarChangePlan>; windows: Map<string, CalendarMaintenanceWindow>; truncated: boolean };
+export const emptyOverlapData = (): OverlapData => ({ plans: new Map(), windows: new Map(), truncated: false });
+
+/** Splits `[from, to)` into calls the API accepts (at most `maxDays` each); beyond `maxChunks` the rest is left out. */
+export function calendarChunks(from: Date, to: Date, maxDays = 120, maxChunks = 12): { from: string; to: string; complete: boolean }[] {
+  const chunks: { from: string; to: string; complete: boolean }[] = [];
+  let start = from.getTime(); const end = Math.max(to.getTime(), start + 1);
+  while (start < end && chunks.length < maxChunks) {
+    const stop = Math.min(end, start + maxDays * DAY);
+    chunks.push({ from: new Date(start).toISOString(), to: new Date(stop).toISOString(), complete: true });
+    start = stop;
   }
-  return index;
+  if (start < end && chunks.length) chunks[chunks.length - 1].complete = false;
+  return chunks;
+}
+
+/**
+ * Merges calendar responses for adjacent ranges. A plan crossing a range edge
+ * comes back in both; its overlap lists are joined without duplicates.
+ */
+export function mergeCalendars(results: readonly ChangeCalendar[], truncated = false): OverlapData {
+  const data: OverlapData = { ...emptyOverlapData(), truncated };
+  const join = <T extends { overlapsWith: CalendarChangePlan['overlapsWith']; conflict: boolean }>(map: Map<string, T>, item: T & { id: string }) => {
+    const current = map.get(item.id);
+    if (!current) { map.set(item.id, { ...item, overlapsWith: [...item.overlapsWith] }); return; }
+    const seen = new Set(current.overlapsWith.map((other) => `${other.kind}:${other.id}`));
+    map.set(item.id, { ...current, conflict: current.conflict || item.conflict, overlapsWith: [...current.overlapsWith, ...item.overlapsWith.filter((other) => !seen.has(`${other.kind}:${other.id}`))] });
+  };
+  for (const result of results) {
+    data.truncated ||= result.truncated;
+    for (const plan of result.changePlans) join(data.plans, plan);
+    for (const window of result.maintenanceWindows) join(data.windows, window);
+  }
+  return data;
+}
+
+export type OverlapEntry = { kind: WindowKind; id: string; title: string; status?: ChangeStatus; startsAt: string; endsAt: string; sharedTargetCount: number };
+
+/** What a plan's window overlaps, with titles, change plans first and then maintenance windows. */
+export function overlapsFor(data: OverlapData, planId: string): OverlapEntry[] {
+  const entries = (data.plans.get(planId)?.overlapsWith ?? []).map((other): OverlapEntry => {
+    if (other.kind === 'CHANGE_PLAN') {
+      const plan = data.plans.get(other.id);
+      return { kind: other.kind, id: other.id, title: plan?.title ?? other.id, status: plan?.status, startsAt: plan?.plannedStartAt ?? other.overlapStartsAt, endsAt: plan?.plannedEndAt ?? other.overlapEndsAt, sharedTargetCount: other.sharedTargetCount };
+    }
+    const window = data.windows.get(other.id);
+    return { kind: other.kind, id: other.id, title: window?.name ?? other.id, startsAt: window?.startsAt ?? other.overlapStartsAt, endsAt: window?.endsAt ?? other.overlapEndsAt, sharedTargetCount: other.sharedTargetCount };
+  });
+  return entries.sort((a, b) => (a.kind === b.kind ? time(a.startsAt) - time(b.startsAt) : a.kind === 'CHANGE_PLAN' ? -1 : 1));
+}
+
+/** The range covered by the plans that can overlap anything (cancelled plans never do). */
+export function spanOf(plans: readonly Pick<ChangePlan, 'plannedStartAt' | 'plannedEndAt' | 'status'>[]): { from: Date; to: Date } | null {
+  const active = plans.filter((plan) => plan.status !== 'CANCELLED');
+  if (!active.length) return null;
+  return { from: new Date(Math.min(...active.map((plan) => time(plan.plannedStartAt)))), to: new Date(Math.max(...active.map((plan) => time(plan.plannedEndAt)))) };
 }
 
 export const candidateKey = (type: ChangeEntityType, id: string) => `${type}:${id}`;
@@ -47,28 +91,31 @@ export const candidateLabels = (candidates: readonly ChangeCandidate[]) => new M
 export const targetLabel = (labels: Map<string, string>, item: { entityType: ChangeEntityType; entityId: string }) => labels.get(candidateKey(item.entityType, item.entityId)) ?? item.entityId;
 export const personName = (person?: { displayName?: string | null; username: string } | null) => (person ? person.displayName || person.username : '');
 
-const normalize = (value: string) => value.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-
-/** Search matches the id, title, reason, people and every target (label, type and operation). */
-export function matchesSearch(plan: ChangePlan, search: string, labels: Map<string, string>): boolean {
-  const terms = normalize(search).split(/\s+/).filter(Boolean);
-  if (!terms.length) return true;
-  const haystack = normalize([
-    plan.id, plan.title, plan.reason, statusLabels[plan.status], personName(plan.creator), personName(plan.reviewer),
-    ...plan.items.flatMap((item) => [targetLabel(labels, item), typeLabels[item.entityType], item.operationSummary]),
-  ].join(' '));
-  return terms.every((term) => haystack.includes(term));
+/**
+ * The API's `q` matches title, reason and operations (case-insensitive). The
+ * same rule client-side, for the rows fetched without `q` because a target
+ * matched the search.
+ */
+export function matchesText(plan: ChangePlan, search: string): boolean {
+  const term = search.trim().toLowerCase();
+  return !term || [plan.title, plan.reason, ...plan.items.map((item) => item.operationSummary)].some((value) => value.toLowerCase().includes(term));
 }
 
-/** Search and target type, but not status: the tab counts use this. */
-export function filterPlans(plans: readonly ChangePlan[], search: string, filters: Pick<ChangeFilters, 'type'>, labels: Map<string, string>): ChangePlan[] {
-  return plans.filter((plan) => (!filters.type || plan.items.some((item) => item.entityType === filters.type)) && matchesSearch(plan, search, labels));
+/**
+ * Client-side part of the list filters: the target type (the API has no type
+ * filter) and, when the search matched targets, plans touching those targets.
+ */
+export function filterPlans(plans: readonly ChangePlan[], options: { search: string; type: string; targetKeys?: ReadonlySet<string> | null }): ChangePlan[] {
+  return plans.filter((plan) => (!options.type || plan.items.some((item) => item.entityType === options.type))
+    && (!options.targetKeys || matchesText(plan, options.search) || plan.items.some((item) => options.targetKeys!.has(candidateKey(item.entityType, item.entityId)))));
 }
 
-export function countByStatus(plans: readonly ChangePlan[]): Record<ChangeStatus | 'ALL', number> {
-  const counts = { ALL: plans.length, DRAFT: 0, SUBMITTED: 0, APPROVED: 0, REJECTED: 0, CANCELLED: 0 };
-  for (const plan of plans) counts[plan.status] += 1;
-  return counts;
+/** `YYYY-MM-DD` (date input) → ISO start of that local day; `endOfDay` gives the start of the next day. */
+export function dayBoundary(value: string, endOfDay = false): string | undefined {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return undefined;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + (endOfDay ? 1 : 0));
+  return Number.isFinite(date.getTime()) ? date.toISOString() : undefined;
 }
 
 // ── Calendar ────────────────────────────────────────────────────────────────
@@ -84,31 +131,35 @@ export function parseMonth(value: string, fallback: Date = new Date()): Date {
 }
 export const shiftMonth = (month: Date, delta: number) => new Date(month.getFullYear(), month.getMonth() + delta, 1);
 
-export type CalendarDay = { date: Date; key: string; inMonth: boolean; plans: ChangePlan[] };
+type Windowed = { plannedStartAt: string; plannedEndAt: string };
+export type CalendarDay<P extends Windowed = CalendarChangePlan> = { date: Date; key: string; inMonth: boolean; plans: P[]; windows: CalendarMaintenanceWindow[] };
 
 const dayKey = (date: Date) => `${monthKey(date)}-${String(date.getDate()).padStart(2, '0')}`;
 const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+/** A window ending exactly at midnight does not spill into the next day; a zero-length one still shows. */
+const touchesDay = (start: string, end: string, dayStart: number, dayEnd: number) => time(start) < dayEnd && Math.max(time(end), time(start) + 1) > dayStart;
 
-/**
- * Monday-first weeks covering `month`. A plan appears on every local day its
- * window touches (a window ending exactly at midnight does not spill over).
- */
-export function calendarWeeks(month: Date, plans: readonly ChangePlan[]): CalendarDay[][] {
+/** First and last (exclusive) instants of the Monday-first grid that shows `month`. */
+export function calendarRange(month: Date): { from: Date; to: Date; days: number } {
   const first = new Date(month.getFullYear(), month.getMonth(), 1);
   const offset = (first.getDay() + 6) % 7;
-  const start = new Date(first.getFullYear(), first.getMonth(), 1 - offset);
   const last = new Date(month.getFullYear(), month.getMonth() + 1, 0);
   const days = Math.ceil((offset + last.getDate()) / 7) * 7;
-  const weeks: CalendarDay[][] = [];
+  return { from: new Date(first.getFullYear(), first.getMonth(), 1 - offset), to: new Date(first.getFullYear(), first.getMonth(), 1 - offset + days), days };
+}
+
+/** Monday-first weeks covering `month`; plans and maintenance windows appear on every local day they touch. */
+export function calendarWeeks<P extends Windowed>(month: Date, plans: readonly P[], windows: readonly CalendarMaintenanceWindow[] = []): CalendarDay<P>[][] {
+  const { from: start, days } = calendarRange(month);
+  const weeks: CalendarDay<P>[][] = [];
   for (let index = 0; index < days; index += 1) {
     const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + index);
     const dayStart = date.getTime();
     const dayEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1).getTime();
-    const onDay = plans
-      .filter((plan) => time(plan.plannedStartAt) < dayEnd && Math.max(time(plan.plannedEndAt), time(plan.plannedStartAt) + 1) > dayStart)
-      .sort((a, b) => time(a.plannedStartAt) - time(b.plannedStartAt));
+    const onDay = plans.filter((plan) => touchesDay(plan.plannedStartAt, plan.plannedEndAt, dayStart, dayEnd)).sort((a, b) => time(a.plannedStartAt) - time(b.plannedStartAt));
+    const windowsOnDay = windows.filter((item) => touchesDay(item.startsAt, item.endsAt, dayStart, dayEnd)).sort((a, b) => time(a.startsAt) - time(b.startsAt));
     if (index % 7 === 0) weeks.push([]);
-    weeks[weeks.length - 1].push({ date, key: dayKey(date), inMonth: date.getMonth() === month.getMonth(), plans: onDay });
+    weeks[weeks.length - 1].push({ date, key: dayKey(date), inMonth: date.getMonth() === month.getMonth(), plans: onDay, windows: windowsOnDay });
   }
   return weeks;
 }
@@ -132,14 +183,7 @@ export const activityTone: Record<string, string> = { CHANGE_PLAN_SUBMITTED: 'pe
 
 const newestFirst = (a: TimelineEntry, b: TimelineEntry) => time(b.at) - time(a.at);
 
-/** The full activity log when the API provides one; otherwise the milestones recorded on the plan itself. */
-export function buildTimeline(plan: ChangePlan, activity: readonly ChangeActivity[] | null): TimelineEntry[] {
-  if (activity) return activity.map((entry) => ({ id: entry.id, action: entry.action, at: entry.at, actor: personName(entry.actor), note: entry.note, revision: entry.revision })).sort(newestFirst);
-  const entries: TimelineEntry[] = [];
-  if (plan.createdAt) entries.push({ id: 'created', action: 'CHANGE_PLAN_CREATED', at: plan.createdAt, actor: personName(plan.creator) });
-  if (plan.previewedAt) entries.push({ id: 'previewed', action: 'CHANGE_PLAN_IMPACT_PREVIEWED', at: plan.previewedAt, actor: '', revision: plan.previewRevision });
-  if (plan.submittedAt) entries.push({ id: 'submitted', action: 'CHANGE_PLAN_SUBMITTED', at: plan.submittedAt, actor: '' });
-  if (plan.reviewedAt && (plan.status === 'APPROVED' || plan.status === 'REJECTED')) entries.push({ id: 'reviewed', action: plan.status === 'APPROVED' ? 'CHANGE_PLAN_APPROVED' : 'CHANGE_PLAN_REJECTED', at: plan.reviewedAt, actor: personName(plan.reviewer), note: plan.reviewNote });
-  if (plan.status === 'CANCELLED' && plan.updatedAt) entries.push({ id: 'cancelled', action: 'CHANGE_PLAN_CANCELLED', at: plan.updatedAt, actor: '' });
-  return entries.sort(newestFirst);
+/** The plan's audit trail, newest first. */
+export function buildTimeline(activity: readonly ChangeActivity[]): TimelineEntry[] {
+  return activity.map((entry) => ({ id: entry.id, action: entry.action, at: entry.at, actor: personName(entry.actor), note: entry.note, revision: entry.revision })).sort(newestFirst);
 }
