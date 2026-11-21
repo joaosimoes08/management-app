@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/api/client';
 import { ApiRequestError } from '@/lib/api/errors';
 import { CriticalAssetsPage } from './critical-assets-page';
+import { BulkConfirmDialog } from './critical-assets-dialogs';
+import { translateLegacyText } from '@/lib/i18n/legacy-messages';
 import { buildRows, countRows, emptyFilters, filterRows, NO_OWNER, withRecordedAttestation, type CriticalAssetsResult } from './workbench';
 
 vi.mock('@/components/layout/app-shell', async (importOriginal) => ({
@@ -252,7 +254,7 @@ describe('CriticalAssetsPage', () => {
     fireEvent.click(within(actions).getByRole('button', { name: /Confirmar selecionados \(2\)/ }));
     const dialog = screen.getByRole('dialog', { name: 'Confirmar selecionados' });
     expect(within(dialog).getByText(/2 ativos selecionados · 2 revisões da semana atual/)).toBeInTheDocument();
-    expect(within(dialog).getByRole('note')).toHaveTextContent('1 ativos têm semanas anteriores por rever. Revê-as individualmente no histórico.');
+    expect(within(dialog).getByRole('note')).toHaveTextContent('1 ativo tem semanas anteriores por rever. Revê-as individualmente no histórico.');
     expect(calls).toBe(0);
     fireEvent.click(within(dialog).getByRole('button', { name: 'Confirmar 2 revisões' }));
     expect(await within(dialog).findByText('1 de 2 registadas.')).toBeInTheDocument();
@@ -263,6 +265,17 @@ describe('CriticalAssetsPage', () => {
     expect(results.getByText('Registado').closest('tr')).toHaveTextContent('Edge router');
     fireEvent.click(within(dialog.querySelector('.modal-actions') as HTMLElement).getByRole('button', { name: 'Fechar' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('uses the singular for one asset with earlier weeks and the plural otherwise, in pt-PT and English', () => {
+    const dialog = (olderCount: number) => render(<BulkConfirmDialog selectedCount={2} olderCount={olderCount} items={[]} results={null} running={false} formatDate={(value) => value ?? ''} close={() => undefined} run={() => undefined} />);
+    const one = dialog(1);
+    expect(screen.getByRole('note')).toHaveTextContent('1 ativo tem semanas anteriores por rever. Revê-as individualmente no histórico.');
+    one.unmount();
+    dialog(3);
+    expect(screen.getByRole('note')).toHaveTextContent('3 ativos têm semanas anteriores por rever. Revê-as individualmente no histórico.');
+    expect(translateLegacyText('en-US', '1 ativo tem semanas anteriores por rever. Revê-as individualmente no histórico.')).toBe('1 asset has earlier weeks to review. Review them individually in the history.');
+    expect(translateLegacyText('en-US', '3 ativos têm semanas anteriores por rever. Revê-as individualmente no histórico.')).toBe('3 assets have earlier weeks to review. Review them individually in the history.');
   });
 
   it('reports a failed bulk item without stopping the others', async () => {

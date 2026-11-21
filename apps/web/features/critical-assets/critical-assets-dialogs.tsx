@@ -62,7 +62,7 @@ export function BulkConfirmDialog({ selectedCount, olderCount, items, results, r
   const recorded = Object.values(results ?? {}).filter((result) => result.state === 'recorded').length;
   return <IpamModal title="Confirmar selecionados" close={running ? () => undefined : close}><div className="modal-form">
     <p className="panel-description">{`${selectedCount} ativos selecionados · ${items.length} revisões da semana atual. Cada revisão é registada como “Dados corretos”, sem notas.`}</p>
-    {olderCount > 0 && <div className="ipam-alert warning" role="note">{`${olderCount} ativos têm semanas anteriores por rever. Revê-as individualmente no histórico.`}</div>}
+    {olderCount > 0 && <div className="ipam-alert warning" role="note">{olderCount === 1 ? '1 ativo tem semanas anteriores por rever. Revê-as individualmente no histórico.' : `${olderCount} ativos têm semanas anteriores por rever. Revê-as individualmente no histórico.`}</div>}
     {done && <div className={`ipam-alert ${recorded === items.length ? 'success' : 'error'}`} role="status">{recorded === items.length ? <CheckCircle2 size={15} /> : <X size={15} />}{`${recorded} de ${items.length} registadas.`}</div>}
     <div className="ip-table-wrap" role="region" aria-label="Revisões a confirmar" tabIndex={0}><table className="ip-table critical-assets-bulk-table">
       <thead><tr><th>Equipamento</th><th>Semana</th><th>Estado</th></tr></thead>

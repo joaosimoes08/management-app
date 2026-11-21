@@ -661,6 +661,7 @@ const substitutions: Array<[RegExp, string]> = [
   [/^Confirmar (\d+) revisões$/g, 'Confirm $1 reviews'],
   [/^(\d+) de (\d+) registadas\.$/g, '$1 of $2 recorded.'],
   [/^(\d+) ativos selecionados · (\d+) revisões da semana atual\. Cada revisão é registada como “Dados corretos”, sem notas\.$/g, '$1 assets selected · $2 current-week reviews. Each review is recorded as “Data is correct”, without notes.'],
+  [/^1 ativo tem semanas anteriores por rever\. Revê-as individualmente no histórico\.$/g, '1 asset has earlier weeks to review. Review them individually in the history.'],
   [/^(\d+) ativos têm semanas anteriores por rever\. Revê-as individualmente no histórico\.$/g, '$1 assets have earlier weeks to review. Review them individually in the history.'],
   [/^(\d+) pendentes, sem responsável$/g, '$1 pending, no owner'],
   [/^(\d+) semanas pendentes$/g, '$1 weeks pending'],
