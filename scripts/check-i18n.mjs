@@ -13,6 +13,12 @@ const operationalFiles = [
   'apps/web/features/critical-assets/critical-assets-page.tsx',
   'apps/web/features/critical-assets/critical-assets-dialogs.tsx',
   'apps/web/features/critical-assets/workbench.ts',
+  'apps/web/components/data-table/data-table.tsx',
+  'apps/web/components/data-table/entity-link.tsx',
+  'apps/web/components/data-table/history-block.tsx',
+  'apps/web/components/data-table/csv.ts',
+  'apps/web/components/data-table/table-state.ts',
+  'apps/web/components/data-table/use-table-url-state.ts',
   'apps/web/app/ajuda/page.tsx',
   'apps/web/app/ajuda/[topic]/page.tsx',
 ];
