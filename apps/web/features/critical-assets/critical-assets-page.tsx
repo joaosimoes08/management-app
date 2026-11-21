@@ -2,16 +2,18 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, ShieldCheck, Users, X } from 'lucide-react';
+import { CheckCircle2, Server, ShieldCheck, Users, X } from 'lucide-react';
 import { AppShell, PageToolbarPortal } from '@/components/layout/app-shell';
+import { CsvExportButton, DataTable, EntityLink, HistoryBlock, csvColumnsOf, sortByColumns, useTableUrlState, type DataTableColumn, type TableStateConfig } from '@/components/data-table';
 import { apiFetch } from '@/lib/api/client';
 import { ApiRequestError } from '@/lib/api/errors';
 import { useAuth } from '@/lib/auth';
 import { useSiteContext } from '@/lib/site-context';
 import { Empty } from '@/features/ipam/components/ipam-modal';
+import { translateLegacyText } from '@/lib/i18n/legacy-messages';
 import { BulkConfirmDialog, OwnerDialog, ReviewDialog, type BulkItem, type BulkResult } from './critical-assets-dialogs';
 import {
-  assetTypes, buildRows, countRows, dueLabels, dueTone, emptyFilters, filterRows, hasActiveFilters, NO_OUTCOME, NO_OWNER, outcomeLabel, outcomeTone, withRecordedAttestation, currentCycle, hasOlderPending,
+  assetTypes, buildRows, countRows, dueLabels, dueOrder, dueTone, emptyFilters, filterRows, hasActiveFilters, NO_OUTCOME, NO_OWNER, outcomeLabel, outcomeTone, withRecordedAttestation, currentCycle, hasOlderPending,
   type AssetRow, type Attestation, type CriticalAssetsResult, type Filters, type Group, type Outcome,
 } from './workbench';
 
@@ -23,6 +25,8 @@ type Review = { asset: AssetRow; attestation: Attestation; outcome: Outcome };
 type Notice = { tone: 'success' | 'error'; text: string } | null;
 
 const noGroups: Group[] = [];
+/** Search, filters and sort live in the URL (`?q=&type=&owner=&outcome=&due=&sort=`); no sort keeps the overdue-first order. */
+const tableConfig: TableStateConfig<Filters> = { filters: emptyFilters, sortable: ['name', 'type', 'owner', 'outcome', 'due'] };
 
 export function CriticalAssetsPage() {
   const { siteId } = useSiteContext();
@@ -33,8 +37,8 @@ export function CriticalAssetsPage() {
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => setHydrated(true), []);
 
-  const [search, setSearch] = useState('');
-  const [filters, setFilters] = useState<Filters>(emptyFilters);
+  const table = useTableUrlState(tableConfig);
+  const { search, filters, setSearch, setFilter } = table;
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [detailId, setDetailId] = useState('');
   const [review, setReview] = useState<Review | null>(null);
@@ -69,7 +73,6 @@ export function CriticalAssetsPage() {
     return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [data?.mappings, groups]);
   const eligible = (row: AssetRow) => canReview && row.pending.length > 0;
-  const visibleEligible = visible.filter(eligible);
   const selectedRows = rows.filter((row) => selected.has(row.id) && eligible(row));
   const bulkItems: BulkItem[] = selectedRows.flatMap((row) => { const attestation = currentCycle(row); return attestation ? [{ key: attestation.id, attestationId: attestation.id, assetName: row.name, weekStart: attestation.weekStart }] : []; });
   const bulkOlder = selectedRows.filter(hasOlderPending).length;
@@ -172,16 +175,45 @@ export function CriticalAssetsPage() {
     }
   };
 
-  const toggle = (id: string) => setSelected((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
-  const allVisibleSelected = visibleEligible.length > 0 && visibleEligible.every((row) => selected.has(row.id));
-  const toggleAll = () => setSelected((current) => {
-    const next = new Set(current);
-    for (const row of visibleEligible) if (allVisibleSelected) next.delete(row.id); else next.add(row.id);
-    return next;
-  });
-  const setFilter = (key: keyof Filters, value: string) => setFilters((current) => ({ ...current, [key]: value }));
-  const toggleCountFilter = (key: keyof Filters, value: string) => setFilters((current) => ({ ...current, [key]: current[key] === value ? '' : value }));
-  const clearFilters = () => { setSearch(''); setFilters(emptyFilters); };
+  const toggleCountFilter = (key: keyof Filters, value: string) => setFilter(key, filters[key] === value ? '' : value);
+  const clearFilters = table.clearFilters;
+
+  const tr = (text: string) => translateLegacyText(locale, text);
+  const columns: DataTableColumn<AssetRow>[] = [
+    {
+      id: 'name', header: 'Equipamento', sortValue: (row) => row.name,
+      cell: (row) => <><button className="link-button" aria-label={`Abrir histórico de ${row.name}`} onClick={() => openDetail(row)}>{row.name}</button><small className="mono">{[row.hostname, row.managementIp].filter(Boolean).join(' · ') || '—'}</small></>,
+      csv: [{ header: 'Equipamento', value: (row) => row.name }, { header: 'Hostname', value: (row) => row.hostname }, { header: 'IP de gestão', value: (row) => row.managementIp }, { header: 'Número de série', value: (row) => row.serialNumber }, { header: 'Etiqueta', value: (row) => row.assetTag }],
+    },
+    { id: 'type', header: 'Tipo', sortValue: (row) => row.type, cell: (row) => row.type, csv: [{ header: 'Tipo', value: (row) => row.type }] },
+    {
+      id: 'owner', header: 'Grupo responsável', sortValue: (row) => row.owner?.name,
+      cell: (row) => (row.owner ? row.owner.name : <span className="state-badge excluded"><i />Sem responsável</span>),
+      csv: [{ header: 'Grupo responsável', value: (row) => row.owner?.name ?? tr('Sem responsável') }],
+    },
+    {
+      // Groups by result, then by review date; assets never reviewed go last.
+      id: 'outcome', header: 'Último resultado', sortValue: (row) => (row.latestOutcome ? `${outcomeLabel(row.latestOutcome)}|${row.latestConfirmedAt ?? ''}` : null),
+      cell: (row) => (row.latestOutcome ? <><span className={`state-badge ${outcomeTone(row.latestOutcome)}`}><i />{outcomeLabel(row.latestOutcome)}</span><small>{formatDate(row.latestConfirmedAt, true)}{row.latestReviewer ? ` · ${row.latestReviewer}` : ''}</small></> : <span className="muted-cell">Sem revisão</span>),
+      csv: [{ header: 'Último resultado', value: (row) => tr(row.latestOutcome ? outcomeLabel(row.latestOutcome) : 'Sem revisão') }, { header: 'Data do último resultado', value: (row) => row.latestConfirmedAt }, { header: 'Revisor', value: (row) => row.latestReviewer }],
+    },
+    {
+      // Same order as the default view (overdue first), then by due date.
+      id: 'due', header: 'Prazo', sortValue: (row) => `${dueOrder[row.dueState]}|${row.dueDate ?? ''}`,
+      cell: (row) => <><span className={`state-badge ${dueTone[row.dueState]}`}><i />{dueLabels[row.dueState]}</span>{row.dueDate && <small>{row.dueState === 'up_to_date' || row.dueState === 'unscheduled' ? 'Próximo prazo' : 'Prazo'}: {formatDate(row.dueDate, true)}</small>}{!row.owner && row.pendingCount > 0 ? <small>{`${row.pendingCount} pendentes, sem responsável`}</small> : row.pendingCount > 1 && <small>{`${row.pendingCount} semanas pendentes`}</small>}</>,
+      csv: [{ header: 'Prazo', value: (row) => tr(dueLabels[row.dueState]) }, { header: 'Data do prazo', value: (row) => row.dueDate }, { header: 'Revisões pendentes', value: (row) => row.pendingCount }],
+    },
+    {
+      id: 'actions', header: 'Ações', className: 'table-actions',
+      cell: (row) => <>
+        {eligible(row) && <><button className="secondary-button" aria-label={`Confirmar revisão de ${row.name}`} onClick={() => quickConfirm(row)}>Confirmar</button><button className="secondary-button" aria-label={`Pedir correção de ${row.name}`} onClick={() => openReview(row, row.pending[0], 'CORRECTION_NEEDED')}>Pedir correção</button></>}
+        {isAdmin && !row.owner && <button className="secondary-button" aria-label={`Atribuir responsável a ${row.name}`} onClick={() => openOwner(row.type)}>Atribuir responsável</button>}
+      </>,
+    },
+  ];
+  const sorted = sortByColumns(visible, columns, table.sort);
+  // The page's text translator never sees the CSV file: headers and status labels are translated here.
+  const csvColumns = csvColumnsOf(columns).map((column) => ({ ...column, header: tr(column.header) }));
 
   const countButtons: Array<{ label: string; value: number; key: keyof Filters; filter: string }> = [
     { label: 'Em atraso', value: counts.overdue, key: 'due', filter: 'overdue' },
@@ -191,6 +223,7 @@ export function CriticalAssetsPage() {
   ];
 
   const actions = <>
+    <CsvExportButton rows={sorted} columns={csvColumns} fileName="ativos-criticos" />
     {isAdmin && <button className="secondary-button" onClick={() => openOwner(assetTypes[0])}><Users size={14} /> Responsáveis</button>}
     {canReview && <button className="primary-button" disabled={!selectedRows.length} onClick={() => { remember(); setBulkResults(null); setBulkPlan({ selectedCount: selectedRows.length, olderCount: bulkOlder, items: bulkItems }); }}><ShieldCheck size={14} /> {`Confirmar selecionados (${selectedRows.length})`}</button>}
   </>;
@@ -213,25 +246,19 @@ export function CriticalAssetsPage() {
       </div>
 
       <h2 className="critical-assets-count" aria-live="polite">{filtering ? `${visible.length} de ${rows.length} ativos` : `${rows.length} ativos críticos`}</h2>
-      <div className="ip-table-wrap" role="region" aria-label="Ativos críticos" aria-busy={loading} tabIndex={0}><table className="ip-table critical-assets-table">
-        <thead><tr>
-          <th scope="col">{canReview ? <input type="checkbox" aria-label="Selecionar todos os ativos com revisão pendente" checked={allVisibleSelected} disabled={!visibleEligible.length} onChange={toggleAll} /> : null}</th>
-          <th scope="col">Equipamento</th><th scope="col">Tipo</th><th scope="col">Grupo responsável</th><th scope="col">Último resultado</th><th scope="col">Prazo</th><th scope="col">Ações</th>
-        </tr></thead>
-        <tbody>{visible.map((row) => <tr key={row.id}>
-          <td>{canReview && <input type="checkbox" aria-label={eligible(row) ? `Selecionar ativo ${row.name}` : `${row.name} sem revisão pendente`} disabled={!eligible(row)} checked={selected.has(row.id)} onChange={() => toggle(row.id)} />}</td>
-          <td><button className="link-button" aria-label={`Abrir histórico de ${row.name}`} onClick={() => openDetail(row)}>{row.name}</button><small className="mono">{[row.hostname, row.managementIp].filter(Boolean).join(' · ') || '—'}</small></td>
-          <td>{row.type}</td>
-          <td>{row.owner ? row.owner.name : <span className="state-badge excluded"><i />Sem responsável</span>}</td>
-          <td>{row.latestOutcome ? <><span className={`state-badge ${outcomeTone(row.latestOutcome)}`}><i />{outcomeLabel(row.latestOutcome)}</span><small>{formatDate(row.latestConfirmedAt, true)}{row.latestReviewer ? ` · ${row.latestReviewer}` : ''}</small></> : <span className="muted-cell">Sem revisão</span>}</td>
-          <td><span className={`state-badge ${dueTone[row.dueState]}`}><i />{dueLabels[row.dueState]}</span>{row.dueDate && <small>{row.dueState === 'up_to_date' || row.dueState === 'unscheduled' ? 'Próximo prazo' : 'Prazo'}: {formatDate(row.dueDate, true)}</small>}{!row.owner && row.pendingCount > 0 ? <small>{`${row.pendingCount} pendentes, sem responsável`}</small> : row.pendingCount > 1 && <small>{`${row.pendingCount} semanas pendentes`}</small>}</td>
-          <td className="table-actions">
-            {eligible(row) && <><button className="secondary-button" aria-label={`Confirmar revisão de ${row.name}`} onClick={() => quickConfirm(row)}>Confirmar</button><button className="secondary-button" aria-label={`Pedir correção de ${row.name}`} onClick={() => openReview(row, row.pending[0], 'CORRECTION_NEEDED')}>Pedir correção</button></>}
-            {isAdmin && !row.owner && <button className="secondary-button" aria-label={`Atribuir responsável a ${row.name}`} onClick={() => openOwner(row.type)}>Atribuir responsável</button>}
-          </td>
-        </tr>)}</tbody>
-      </table></div>
-      {!loading && !error && !visible.length && <Empty title={filtering ? 'Sem ativos correspondentes' : 'Ainda não existem ativos críticos'} text={filtering ? 'Muda a pesquisa ou limpa os filtros.' : 'Marca equipamentos como críticos no inventário para os rever aqui.'} />}
+      <DataTable
+        rows={sorted}
+        columns={columns}
+        rowKey={(row) => row.id}
+        label="Ativos críticos"
+        className="critical-assets-table"
+        sort={table.sort}
+        onSortChange={table.setSort}
+        defaultSort={table.defaultSort}
+        loading={loading}
+        selection={canReview ? { selected, onChange: setSelected, isSelectable: eligible, rowLabel: (row, selectable) => (selectable ? `Selecionar ativo ${row.name}` : `${row.name} sem revisão pendente`), allLabel: 'Selecionar todos os ativos com revisão pendente' } : undefined}
+        empty={error ? null : <Empty title={filtering ? 'Sem ativos correspondentes' : 'Ainda não existem ativos críticos'} text={filtering ? 'Muda a pesquisa ou limpa os filtros.' : 'Marca equipamentos como críticos no inventário para os rever aqui.'} />}
+      />
     </section></main>
 
     {detail && <aside className="host-panel critical-assets-panel" aria-label={`Histórico de ${detail.name}`}>
@@ -249,22 +276,27 @@ export function CriticalAssetsPage() {
         <div><span>Estado</span><strong>{detail.status}</strong></div>
         <div><span>Grupo responsável</span><strong>{detail.owner?.name ?? 'Sem responsável'}</strong></div>
       </div>
-      {isAdmin && <div className="form-actions"><button className="secondary-button" onClick={() => openOwner(detail.type)}><Users size={14} /> {detail.owner ? 'Alterar responsável' : 'Atribuir responsável'}</button></div>}
-      <section className="host-section">
-        <h3>{`Histórico de revisões (${detail.attestations.length})`}</h3>
-        {detail.attestations.map((attestation) => <article className="host-relation" key={attestation.id}>
-          <div>
-            <strong>Semana de {formatDate(attestation.weekStart)}</strong>
-            <span><span className={`state-badge ${outcomeTone(attestation.outcome)}`}><i />{outcomeLabel(attestation.outcome)}</span>{attestation.outcome && <span>{` · ${formatDate(attestation.confirmedAt, true)} · `}{attestation.confirmedByName ?? 'Revisor desconhecido'}</span>}</span>
-            {attestation.notes && <small>Notas: {attestation.notes}</small>}
-          </div>
-          {!attestation.outcome && canReview && <div className="table-actions">
+      <div className="form-actions">
+        <EntityLink kind="device" id={detail.id} label={detail.name} siteId={siteId} className="secondary-button"><Server size={14} /> Abrir equipamento</EntityLink>
+        {isAdmin && <button className="secondary-button" onClick={() => openOwner(detail.type)}><Users size={14} /> {detail.owner ? 'Alterar responsável' : 'Atribuir responsável'}</button>}
+      </div>
+      <HistoryBlock
+        heading={`Histórico de revisões (${detail.attestations.length})`}
+        formatDate={(value) => formatDate(value, true)}
+        empty="Ainda não existem revisões para este ativo."
+        events={detail.attestations.map((attestation) => ({
+          id: attestation.id,
+          title: `Semana de ${formatDate(attestation.weekStart)}`,
+          status: <span className={`state-badge ${outcomeTone(attestation.outcome)}`}><i />{outcomeLabel(attestation.outcome)}</span>,
+          at: attestation.outcome ? attestation.confirmedAt : null,
+          actor: attestation.outcome ? attestation.confirmedByName ?? 'Revisor desconhecido' : null,
+          note: attestation.notes,
+          actions: !attestation.outcome && canReview ? <div className="table-actions">
             <button className="secondary-button" onClick={() => openReview(detail, attestation, 'CONFIRMED')}>Confirmar</button>
             <button className="secondary-button" onClick={() => openReview(detail, attestation, 'CORRECTION_NEEDED')}>Pedir correção</button>
-          </div>}
-        </article>)}
-        {!detail.attestations.length && <p className="panel-description">Ainda não existem revisões para este ativo.</p>}
-      </section>
+          </div> : null,
+        }))}
+      />
     </aside>}
 
     {review && <ReviewDialog key={review.attestation.id} asset={review.asset} attestation={review.attestation} initialOutcome={review.outcome} formatDate={formatDate} close={closeReview} submit={submitReview} />}
