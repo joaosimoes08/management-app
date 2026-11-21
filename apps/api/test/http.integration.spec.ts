@@ -772,3 +772,175 @@ test('imports by the stored diff, not by the order the client sends the prefixes
   const stored = await prisma.ripeImport.findUniqueOrThrow({ where: { id: result.id } });
   assert.equal(stored.status, 'PARTIAL');
 });
+
+test('Phase C audit: cursor paging past 200, exact filters, facets, diff and CSV export', async () => {
+  const at = new Date('2030-01-01T00:00:00.000Z');
+  // 205 events sharing one timestamp prove the id tie-breaker gives a stable, gap-free order past the old 200 cap.
+  await prisma.auditLog.createMany({ data: Array.from({ length: 205 }, (_, index) => ({ userId: ids.admin, action: 'PHASEC_PAGING', entityType: 'PhaseCTest', entityId: `row-${index}`, createdAt: at })) });
+  await prisma.auditLog.create({ data: { userId: ids.auditor, action: 'AUDIT_RETENTION_UPDATED', entityType: 'SystemSettings', entityId: 'phase-c', metadata: { previousDays: 90, nextDays: 30 } } });
+  await prisma.auditLog.create({ data: { userId: ids.admin, action: 'GET /api/v1/phase-c-noise', entityType: 'HTTP_REQUEST', metadata: { statusCode: 200 } } });
+
+  const seen = new Set<string>(); let cursor: string | null = null; let pages = 0;
+  do {
+    const response = await request('GET', `/api/v1/audit/events/page?action=PHASEC_PAGING&limit=60${cursor ? `&cursor=${cursor}` : ''}`, 'qa-auditor');
+    assert.equal(response.statusCode, 200, response.body);
+    const body = json(response);
+    for (const item of body.items) { assert.equal(seen.has(item.id), false, 'duplicate across pages'); seen.add(item.id); assert.equal(item.user.username, 'qa-admin'); }
+    cursor = body.nextCursor; pages += 1;
+    assert.equal(body.hasMore, cursor !== null);
+  } while (cursor && pages < 10);
+  assert.equal(seen.size, 205); assert.equal(pages, 4);
+
+  // Exact match: a substring of the action does not match on the paged endpoint.
+  assert.equal(json(await request('GET', '/api/v1/audit/events/page?action=PHASEC', 'qa-auditor')).items.length, 0);
+  const byActor = json(await request('GET', `/api/v1/audit/events/page?actorId=${ids.auditor}&entityType=SystemSettings`, 'qa-admin'));
+  assert.equal(byActor.items.length, 1);
+  assert.deepEqual(byActor.items[0].diff, [{ field: 'days', before: 90, after: 30 }]);
+  assert.equal(byActor.items[0].hasDiff, true);
+  // (The interceptor logs each request URL, so filter by the exact action rather than free text here.)
+  const noiseAction = encodeURIComponent('GET /api/v1/phase-c-noise');
+  assert.equal(json(await request('GET', `/api/v1/audit/events/page?action=${noiseAction}&excludeHttp=true`, 'qa-admin')).items.length, 0);
+  assert.equal(json(await request('GET', `/api/v1/audit/events/page?action=${noiseAction}`, 'qa-admin')).items.length, 1);
+  assert.equal(json(await request('GET', '/api/v1/audit/events/page?entityType=PhaseCTest&entityId=row-7', 'qa-admin')).items.length, 1);
+
+  assert.equal((await request('GET', '/api/v1/audit/events/page?cursor=garbage', 'qa-admin')).statusCode, 400);
+  assert.equal((await request('GET', '/api/v1/audit/events/page?from=yesterday', 'qa-admin')).statusCode, 400);
+  assert.equal((await request('GET', '/api/v1/audit/events/page', 'qa-readonly')).statusCode, 403);
+  assert.equal((await request('GET', '/api/v1/audit/facets', 'qa-network-scoped')).statusCode, 403);
+
+  const facets = json(await request('GET', '/api/v1/audit/facets', 'qa-auditor'));
+  assert.deepEqual(facets.actions.find((item: { value: string }) => item.value === 'PHASEC_PAGING'), { value: 'PHASEC_PAGING', count: 205 });
+  assert.equal(facets.actions.some((item: { value: string }) => item.value.startsWith('GET ')), false);
+  assert.ok(facets.entityTypes.some((item: { value: string }) => item.value === 'HTTP_REQUEST'));
+  assert.ok(facets.actors.some((item: { id: string; username: string }) => item.id === ids.auditor && item.username === 'qa-auditor'));
+
+  const csv = await request('GET', '/api/v1/audit/events/export?action=PHASEC_PAGING', 'qa-auditor');
+  assert.equal(csv.statusCode, 200);
+  assert.match(String(csv.headers['content-type']), /text\/csv/);
+  assert.equal(csv.headers['x-export-row-count'], '205');
+  assert.equal(csv.body.trim().split('\r\n').length, 206);
+
+  // The legacy list keeps its array shape and 200 cap.
+  const legacy = await request('GET', '/api/v1/audit/events?action=PHASEC&limit=500', 'qa-auditor');
+  assert.equal(legacy.statusCode, 200);
+  assert.ok(Array.isArray(json(legacy))); assert.equal(json(legacy).length, 200);
+});
+
+test('Phase C quality: bounded snooze, bulk actions with per-item permission and Site isolation, facets', async () => {
+  const make = (key: string, rule: string, siteId: string, entityId: string) => prisma.inventoryFinding.create({ data: { dedupKey: `phase-c:${key}`, siteId, rule, severity: 'WARNING', entityType: 'Device', entityId, title: `Phase C ${key}`, detail: 'Phase C finding' } });
+  const a1 = await make('a1', 'PHASEC_RULE_ONE', ids.siteA, ids.deviceA);
+  const a2 = await make('a2', 'PHASEC_RULE_TWO', ids.siteA, ids.deviceA2);
+  const hidden = await make('hidden', 'PHASEC_RULE_ONE', ids.siteA, ids.deviceSibling);
+  const b1 = await make('b1', 'PHASEC_RULE_ONE', ids.siteB, ids.deviceB);
+  const url = '/api/v1/inventory-quality/findings';
+
+  // Single snooze: duration, legacy until, and bounds.
+  const single = await request('PATCH', `${url}/${a1.id}/snooze`, 'qa-network-scoped', { durationHours: 2 });
+  assert.equal(single.statusCode, 200, single.body);
+  const delta = new Date(json(single).snoozedUntil).getTime() - Date.now();
+  assert.ok(delta > 1.9 * 3_600_000 && delta <= 2 * 3_600_000, String(delta));
+  assert.equal((await request('PATCH', `${url}/${a1.id}/snooze`, 'qa-network-scoped', { until: new Date(Date.now() + 24 * 3_600_000).toISOString() })).statusCode, 200);
+  assert.equal((await request('PATCH', `${url}/${a1.id}/snooze`, 'qa-network-scoped', { until: new Date(Date.now() + 40 * 24 * 3_600_000).toISOString() })).statusCode, 400);
+  assert.equal((await request('PATCH', `${url}/${a1.id}/snooze`, 'qa-network-scoped', { durationHours: 721 })).statusCode, 400);
+  assert.equal((await request('PATCH', `${url}/${a1.id}/snooze`, 'qa-network-scoped', {})).statusCode, 400);
+
+  // Bulk snooze: items in the operator's Site succeed, the other Site's item looks not-found.
+  const bulk = await request('POST', `${url}/bulk`, 'qa-network-scoped', { action: 'SNOOZE', ids: [a1.id, a2.id, b1.id], durationHours: 72, reason: 'Phase C' });
+  assert.equal(bulk.statusCode, 200, bulk.body);
+  const bulkBody = json(bulk);
+  assert.equal(bulkBody.succeeded, 2); assert.equal(bulkBody.failed, 1);
+  assert.deepEqual(bulkBody.results.map((item: { code?: string }) => item.code ?? 'OK'), ['OK', 'OK', 'NOT_FOUND']);
+  const stored = await prisma.inventoryFinding.findMany({ where: { id: { in: [a1.id, a2.id, b1.id] } }, orderBy: { dedupKey: 'asc' } });
+  assert.deepEqual(stored.map((item) => item.status), ['SNOOZED', 'SNOOZED', 'OPEN']);
+  assert.equal(stored[0].snoozedUntil!.toISOString(), bulkBody.snoozedUntil);
+  assert.equal(await prisma.auditLog.count({ where: { action: 'INVENTORY_FINDING_SNOOZED', entityId: { in: [a1.id, a2.id] }, metadata: { path: ['reason'], equals: 'Phase C' } } }), 2);
+
+  // Read-only member of room A: a visible item is FORBIDDEN, a sibling-room item is NOT_FOUND. Non-operator roles are rejected outright.
+  const forbidden = json(await request('POST', `${url}/bulk`, 'qa-systems-scoped', { action: 'ACKNOWLEDGE', ids: [a1.id, hidden.id] }));
+  assert.deepEqual(forbidden.results.map((item: { code: string }) => item.code), ['FORBIDDEN', 'NOT_FOUND']);
+  assert.equal((await prisma.inventoryFinding.findUniqueOrThrow({ where: { id: hidden.id } })).status, 'OPEN');
+  assert.equal((await request('POST', `${url}/bulk`, 'qa-auditor', { action: 'ACKNOWLEDGE', ids: [a1.id] })).statusCode, 403);
+  assert.equal((await request('POST', `${url}/bulk`, 'qa-network-scoped', { action: 'ACKNOWLEDGE', ids: [] })).statusCode, 400);
+  assert.equal((await request('POST', `${url}/bulk`, 'qa-network-scoped', { action: 'SNOOZE', ids: [a1.id], durationHours: 0 })).statusCode, 400);
+  assert.equal((await request('POST', `${url}/bulk`, 'qa-network-scoped', { action: 'ACKNOWLEDGE', ids: ['not-a-uuid'] })).statusCode, 400);
+
+  // Bulk assign and acknowledge, then the assignee filter and facets.
+  const assigned = json(await request('POST', `${url}/bulk`, 'qa-network-scoped', { action: 'ASSIGN', ids: [a1.id, a2.id], userId: ids.scoped }));
+  assert.equal(assigned.succeeded, 2);
+  const acknowledged = json(await request('POST', `${url}/bulk`, 'qa-admin', { action: 'ACKNOWLEDGE', ids: [a2.id, b1.id] }));
+  assert.equal(acknowledged.succeeded, 2);
+  const mine = json(await request('GET', `${url}?siteId=${ids.siteA}&assignee=me&search=Phase C`, 'qa-network-scoped'));
+  assert.deepEqual(mine.items.map((item: { id: string }) => item.id).sort(), [a1.id, a2.id].sort());
+  assert.equal((await request('GET', `${url}?assignee=someone`, 'qa-network-scoped')).statusCode, 400);
+
+  // Facets as the room-A reader: the sibling-room finding is not counted.
+  await prisma.inventoryFinding.update({ where: { id: hidden.id }, data: { status: 'SNOOZED' } });
+  const facets = json(await request('GET', `/api/v1/inventory-quality/facets?siteId=${ids.siteA}&search=Phase C&status=SNOOZED`, 'qa-systems-scoped'));
+  // byStatus ignores the status filter (tab counts); other dimensions apply it.
+  assert.deepEqual(facets.byStatus, { OPEN: 0, ACKNOWLEDGED: 1, SNOOZED: 1, RESOLVED: 0 });
+  assert.equal(facets.total, 1);
+  assert.deepEqual(facets.byRule, [{ rule: 'PHASEC_RULE_ONE', total: 1, byStatus: { SNOOZED: 1 } }]);
+  assert.deepEqual(facets.byAssignee.map((item: { userId: string | null; total: number }) => [item.userId, item.total]), [[ids.scoped, 1]]);
+  assert.equal(JSON.stringify(facets).includes(hidden.id), false);
+  assert.equal((await request('GET', `/api/v1/inventory-quality/facets?siteId=${ids.siteB}`, 'qa-network-scoped')).statusCode, 404);
+});
+
+test('Phase C changes: list filters, status summary, calendar overlaps, target search and activity', async () => {
+  const day = (offsetHours: number) => new Date(Date.UTC(2031, 0, 10, offsetHours));
+  const before = json(await request('GET', `/api/v1/change-plans/summary?siteId=${ids.siteA}`, 'qa-readonly'));
+  const approved = await prisma.changePlan.create({ data: { siteId: ids.siteA, title: 'Phase C approved core upgrade', reason: 'Phase C', plannedStartAt: day(8), plannedEndAt: day(12), status: 'APPROVED', createdById: ids.admin, items: { create: [{ entityType: 'DEVICE', entityId: ids.deviceA, operationSummary: 'Upgrade' }, { entityType: 'DEVICE', entityId: ids.deviceSibling, operationSummary: 'Hidden target' }] } } });
+  const draft = await prisma.changePlan.create({ data: { siteId: ids.siteA, title: 'Phase C draft access change', reason: 'Phase C', plannedStartAt: day(11), plannedEndAt: day(13), status: 'DRAFT', createdById: ids.admin, items: { create: [{ entityType: 'DEVICE', entityId: ids.deviceA, operationSummary: 'Ports' }, { entityType: 'DEVICE', entityId: ids.deviceSibling, operationSummary: 'Hidden target' }] } } });
+  const touching = await prisma.changePlan.create({ data: { siteId: ids.siteA, title: 'Phase C touching change', reason: 'Phase C', plannedStartAt: day(13), plannedEndAt: day(14), status: 'SUBMITTED', createdById: ids.admin, items: { create: [{ entityType: 'DEVICE', entityId: ids.deviceA2, operationSummary: 'Reboot' }] } } });
+  const cancelled = await prisma.changePlan.create({ data: { siteId: ids.siteA, title: 'Phase C cancelled', reason: 'Phase C', plannedStartAt: day(9), plannedEndAt: day(10), status: 'CANCELLED', createdById: ids.admin, items: { create: [{ entityType: 'DEVICE', entityId: ids.deviceA, operationSummary: 'Nothing' }] } } });
+  const window = await prisma.maintenanceWindow.create({ data: { name: 'Phase C global window', siteId: null, startsAt: day(12), endsAt: day(16) } });
+
+  const summary = json(await request('GET', `/api/v1/change-plans/summary?siteId=${ids.siteA}`, 'qa-readonly'));
+  assert.equal(summary.byStatus.APPROVED - before.byStatus.APPROVED, 1);
+  assert.equal(summary.byStatus.DRAFT - before.byStatus.DRAFT, 1);
+  assert.equal(summary.byStatus.CANCELLED - before.byStatus.CANCELLED, 1);
+  assert.equal(summary.total - before.total, 4);
+  assert.equal(summary.upcoming - before.upcoming, 2);
+
+  const range = `from=${day(0).toISOString()}&to=${day(24).toISOString()}`;
+  const calendarResponse = await request('GET', `/api/v1/change-plans/calendar?siteId=${ids.siteA}&${range}`, 'qa-readonly');
+  assert.equal(calendarResponse.statusCode, 200, calendarResponse.body);
+  const calendar = json(calendarResponse);
+  const plan = (id: string) => calendar.changePlans.find((item: { id: string }) => item.id === id);
+  assert.deepEqual(calendar.changePlans.map((item: { id: string }) => item.id), [approved.id, draft.id, touching.id]);
+  assert.equal(plan(draft.id).conflict, true);
+  assert.equal(plan(approved.id).conflict, false);
+  // Shared targets count only what the user can read: the hidden sibling device is shared too but not counted.
+  assert.deepEqual(plan(draft.id).overlapsWith.find((item: { id: string }) => item.id === approved.id), { kind: 'CHANGE_PLAN', id: approved.id, overlapStartsAt: day(11).toISOString(), overlapEndsAt: day(12).toISOString(), sharedTargetCount: 1 });
+  assert.equal(plan(approved.id).targetCount, 1);
+  assert.equal(plan(touching.id).overlapsWith.some((item: { id: string }) => item.id === draft.id), false);
+  assert.ok(plan(touching.id).overlapsWith.some((item: { kind: string; id: string }) => item.kind === 'MAINTENANCE_WINDOW' && item.id === window.id));
+  assert.equal(calendar.maintenanceWindows[0].global, true);
+  assert.equal(calendarResponse.body.includes(ids.deviceSibling), false);
+  const withCancelled = json(await request('GET', `/api/v1/change-plans/calendar?siteId=${ids.siteA}&${range}&includeCancelled=true`, 'qa-admin'));
+  assert.ok(withCancelled.changePlans.some((item: { id: string }) => item.id === cancelled.id));
+  assert.equal((await request('GET', `/api/v1/change-plans/calendar?siteId=${ids.siteA}&from=${day(0).toISOString()}`, 'qa-admin')).statusCode, 400);
+  assert.equal((await request('GET', `/api/v1/change-plans/calendar?siteId=${ids.siteA}&from=${day(0).toISOString()}&to=${new Date(day(0).getTime() + 121 * 86_400_000).toISOString()}`, 'qa-admin')).statusCode, 400);
+  assert.equal((await request('GET', `/api/v1/change-plans/calendar?siteId=${ids.siteB}&${range}`, 'qa-network-legacy')).statusCode, 404);
+
+  const filtered = json(await request('GET', `/api/v1/change-plans?siteId=${ids.siteA}&status=APPROVED,SUBMITTED&${range}`, 'qa-readonly'));
+  assert.deepEqual(filtered.map((item: { id: string }) => item.id).sort(), [approved.id, touching.id].sort());
+  assert.deepEqual(json(await request('GET', `/api/v1/change-plans?siteId=${ids.siteA}&q=access change`, 'qa-readonly')).map((item: { id: string }) => item.id), [draft.id]);
+  assert.equal((await request('GET', `/api/v1/change-plans?siteId=${ids.siteA}&status=DONE`, 'qa-readonly')).statusCode, 400);
+  assert.ok(json(await request('GET', `/api/v1/change-plans?siteId=${ids.siteA}`, 'qa-readonly')).length >= 4);
+
+  const search = json(await request('GET', `/api/v1/change-plans/candidates?siteId=${ids.siteA}&q=A2&type=DEVICE`, 'qa-network-scoped'));
+  assert.deepEqual(search.groups.flat().map((item: { label: string }) => item.label), ['HTTP Switch A2']);
+  const interfaces = json(await request('GET', `/api/v1/change-plans/candidates?siteId=${ids.siteA}&q=switch a2&type=INTERFACE`, 'qa-network-scoped'));
+  assert.deepEqual(interfaces.groups.flat().map((item: { label: string }) => item.label), ['HTTP Switch A2 · Gi1/0/1']);
+  assert.equal((await request('GET', `/api/v1/change-plans/candidates?siteId=${ids.siteA}&type=ROUTER`, 'qa-network-scoped')).statusCode, 400);
+
+  const created = await request('POST', '/api/v1/change-plans', 'qa-admin', { siteId: ids.siteA, title: 'Phase C activity plan', reason: 'Activity timeline', plannedStartAt: day(30).toISOString(), plannedEndAt: day(31).toISOString(), items: [{ entityType: 'DEVICE', entityId: ids.deviceA, operationSummary: 'Check' }] });
+  assert.equal(created.statusCode, 201, created.body);
+  const createdId = json(created).id;
+  assert.equal((await request('POST', `/api/v1/change-plans/${createdId}/cancel`, 'qa-admin')).statusCode, 201);
+  const activity = json(await request('GET', `/api/v1/change-plans/${createdId}/activity`, 'qa-readonly'));
+  assert.deepEqual(activity.items.map((item: { action: string }) => item.action), ['CHANGE_PLAN_CREATED', 'CHANGE_PLAN_CANCELLED']);
+  assert.equal(activity.items[0].actor.username, 'qa-admin');
+  assert.equal(activity.items[0].itemCount, 1);
+  assert.equal((await request('GET', `/api/v1/change-plans/${createdId}/activity`, 'qa-network-legacy')).statusCode, 404);
+});
