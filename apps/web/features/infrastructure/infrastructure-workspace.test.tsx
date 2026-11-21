@@ -4,7 +4,8 @@ import { InfrastructureWorkspace } from './infrastructure-workspace';
 
 const queryKeys: unknown[][] = [];
 const auth = vi.hoisted(() => ({ hasRole: vi.fn<(role: string) => boolean>(() => false) }));
-const registry = { tabs: [], configs: [{ key: 'power', kind: 'FEATURE', tab: 'energia', fields: ['power', 'powerPlugCount'], label: 'Tomadas de energia', missingMessage: '…' }] };
+const completeRegistry = { tabs: [], configs: [{ key: 'power', kind: 'FEATURE', tab: 'energia', fields: ['power', 'powerPlugCount'], label: 'Tomadas de energia', missingMessage: '…' }] };
+let registry: { tabs: unknown[]; configs?: typeof completeRegistry.configs } = completeRegistry;
 vi.mock('@tanstack/react-query', () => ({
   useQuery: ({ queryKey }: { queryKey: string[] }) => (queryKeys.push(queryKey), {
     data: queryKey[1] === 'device-required-configs' ? registry : queryKey[1] === 'effective'
@@ -45,6 +46,7 @@ afterEach(() => {
   cleanup();
   window.localStorage.clear();
   queryKeys.length = 0;
+  registry = completeRegistry;
   auth.hasRole.mockImplementation(() => false);
   window.history.replaceState({}, '', '/');
 });
@@ -62,6 +64,13 @@ describe('InfrastructureWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'linuxHosts.title' }));
     expect(screen.getByTestId('server-inventory')).toBeInTheDocument();
     expect(window.location.search).toBe('?siteId=site-1&tab=hosts');
+  });
+
+  it('uses the filter key when the registry response omits configs', () => {
+    registry = { tabs: [] };
+    window.history.replaceState({}, '', '/infraestrutura?siteId=site-1&tab=devices&missingConfig=power');
+    render(<InfrastructureWorkspace />);
+    expect(screen.getByText(/Configuração em falta: power/)).toBeInTheDocument();
   });
 
   it('does not add a recent items panel to the regular workspace view', () => {
