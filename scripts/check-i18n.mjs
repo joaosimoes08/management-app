@@ -21,6 +21,10 @@ const operationalFiles = [
   'apps/web/components/data-table/use-table-url-state.ts',
   'apps/web/app/ajuda/page.tsx',
   'apps/web/app/ajuda/[topic]/page.tsx',
+  // Phase E IPAM/Descoberta/SNMP
+  'apps/web/features/ipam/components/next-free-ip-modal.tsx',
+  'apps/web/features/ipam/components/subnets-view.tsx',
+  'apps/web/features/ipam/utilization.ts',
 ];
 
 function sourceFile(relative, kind = ts.ScriptKind.TSX) {
