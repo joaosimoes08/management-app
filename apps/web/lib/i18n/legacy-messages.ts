@@ -3,6 +3,7 @@ import type { AppLocale } from './i18n';
 type LegacyDictionary = Record<string, string>;
 
 const enUS: LegacyDictionary = {
+  'Revisão ligada à notificação': 'Review linked to the notification',
   // Step 35: SNMP device view and consistency labels
   'Operação submetida com sucesso.': 'Operation submitted successfully.',
   'A operação falhou.': 'The operation failed.',
