@@ -71,6 +71,7 @@ enum DiscoveryJobStatus {
   RUNNING
   COMPLETED
   FAILED
+  CANCELLED
 }
 
 enum DiscoveryResultStatus {
@@ -1772,6 +1773,16 @@ model DiscoveryJob {
   reachableCount     Int                @default(0)
   unreachableCount   Int                @default(0)
   resultCount        Int                @default(0)
+  /// Round 2 #10/#11: addresses to scan, addresses saved so far (resume cursor), probes sent, worker attempts.
+  totalCount         Int                @default(0)
+  processedCount     Int                @default(0)
+  probeCount         Int                @default(0)
+  attemptCount       Int                @default(0)
+  /// Limits for this scan (null = the worker's default). stopReason: CANCELLED, LIMIT_DURATION or LIMIT_PROBES.
+  maxDurationSeconds Int?
+  maxProbes          Int?
+  cancelRequestedAt  DateTime?
+  stopReason         String?
   subnet             Subnet             @relation(fields: [subnetId], references: [id], onDelete: Cascade)
   results            DiscoveryResult[]
   createdAt          DateTime           @default(now())

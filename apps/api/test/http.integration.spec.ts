@@ -1635,6 +1635,42 @@ test('Round 2 #6/#14 Desaparecidos: scoped list, Marcar livre per item with role
   assert.equal(findings.items.some((item: { entityId: string }) => item.entityId === ipA.id), false);
 });
 
+test('Round 2 #10/#11 discovery: cancel queued and running scans, retry a failed scan, limits are validated', async () => {
+  const subnet = await prisma.subnet.create({ data: { cidr: '10.250.9.0/28', version: 4, siteId: ids.siteA } });
+  const invalid = await request('POST', '/api/v1/discovery/jobs', 'qa-admin', { name: 'R2 limits', subnetId: subnet.id, methods: ['ICMP'], maxDurationSeconds: 5 });
+  assert.equal(invalid.statusCode, 400, invalid.body);
+  const created = await request('POST', '/api/v1/discovery/jobs', 'qa-admin', { name: 'R2 cancel queued', subnetId: subnet.id, methods: ['ICMP'], maxDurationSeconds: 120, maxProbes: 10 });
+  assert.equal(created.statusCode, 201, created.body);
+  const queued = json(created);
+  assert.deepEqual([queued.status, queued.maxDurationSeconds, queued.maxProbes], ['PENDING', 120, 10]);
+  assert.equal((await request('POST', `/api/v1/discovery/jobs/${queued.id}/cancel`, 'qa-auditor')).statusCode, 403);
+  const cancelled = await request('POST', `/api/v1/discovery/jobs/${queued.id}/cancel`, 'qa-network-scoped');
+  assert.equal(cancelled.statusCode, 201, cancelled.body);
+  assert.deepEqual([json(cancelled).status, json(cancelled).stopReason], ['CANCELLED', 'CANCELLED']);
+  const again = await request('POST', `/api/v1/discovery/jobs/${queued.id}/cancel`, 'qa-network-scoped');
+  assert.equal(again.statusCode, 409); assert.equal(json(again).code, 'DISCOVERY_NOT_ACTIVE');
+  assert.ok(json(await request('GET', '/api/v1/discovery/jobs?status=CANCELLED', 'qa-admin')).items.some((item: { id: string }) => item.id === queued.id));
+
+  const running = await prisma.discoveryJob.create({ data: { name: 'R2 running', subnetId: subnet.id, methods: ['ICMP'], tcpPorts: [], status: 'RUNNING', startedAt: new Date() } });
+  const requested = await request('POST', `/api/v1/discovery/jobs/${running.id}/cancel`, 'qa-network-scoped');
+  assert.equal(requested.statusCode, 201, requested.body);
+  assert.equal(json(requested).status, 'RUNNING', 'a running scan stops at its next batch');
+  assert.ok(json(requested).cancelRequestedAt);
+  await prisma.discoveryJob.update({ where: { id: running.id }, data: { status: 'FAILED', completedAt: new Date(), errorMessage: 'ECONNRESET' } });
+
+  const busy = await prisma.discoveryJob.create({ data: { name: 'R2 busy', subnetId: subnet.id, methods: ['ICMP'], tcpPorts: [], status: 'PENDING' } });
+  const blocked = await request('POST', `/api/v1/discovery/jobs/${running.id}/retry`, 'qa-network-scoped');
+  assert.equal(blocked.statusCode, 409); assert.equal(json(blocked).code, 'DISCOVERY_ALREADY_ACTIVE');
+  assert.equal((await prisma.discoveryJob.findUniqueOrThrow({ where: { id: running.id } })).status, 'FAILED');
+  await prisma.discoveryJob.delete({ where: { id: busy.id } });
+  const retried = await request('POST', `/api/v1/discovery/jobs/${running.id}/retry`, 'qa-network-scoped');
+  assert.equal(retried.statusCode, 201, retried.body);
+  assert.deepEqual([json(retried).status, json(retried).errorMessage], ['PENDING', null]);
+  const twice = await request('POST', `/api/v1/discovery/jobs/${running.id}/retry`, 'qa-network-scoped');
+  assert.equal(twice.statusCode, 409); assert.equal(json(twice).code, 'DISCOVERY_NOT_RETRYABLE');
+  await prisma.subnet.delete({ where: { id: subnet.id } });
+});
+
 test('Phase D SNMP: fleet summary, drift list and bulk drift review stay inside the visible Sites', async () => {
   const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000);
   await prisma.snmpDeviceConfig.upsert({ where: { deviceId: ids.deviceA2 }, create: { deviceId: ids.deviceA2, enabled: true, lastStatus: 'FAILED', lastPollAt: minutesAgo(5), lastErrorCode: 'TIMEOUT' }, update: { enabled: true, lastStatus: 'FAILED', lastPollAt: minutesAgo(5), lastErrorCode: 'TIMEOUT' } });

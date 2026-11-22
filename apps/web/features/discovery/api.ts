@@ -14,6 +14,16 @@ export interface DiscoveryJob {
   reachableCount?: number;
   unreachableCount?: number;
   resultCount?: number;
+  /** Round 2 #10/#11: saved progress, limits and how the scan ended. */
+  totalCount?: number;
+  processedCount?: number;
+  probeCount?: number;
+  attemptCount?: number;
+  maxDurationSeconds?: number | null;
+  maxProbes?: number | null;
+  cancelRequestedAt?: string | null;
+  stopReason?: 'CANCELLED' | 'LIMIT_DURATION' | 'LIMIT_PROBES' | null;
+  errorMessage?: string | null;
   _count: { results: number };
   subnet: {
     id: string;
@@ -159,6 +169,25 @@ export function getDiscoveryDefaults(): Promise<DiscoveryDefaults> {
 
 export function createDiscoveryJob(payload: DiscoveryJobPayload): Promise<DiscoveryJob> {
   return apiFetch<DiscoveryJob>('/api/v1/discovery/jobs', { method: 'POST', body: JSON.stringify(payload) });
+}
+
+export function cancelDiscoveryJob(id: string): Promise<DiscoveryJob> {
+  return apiFetch<DiscoveryJob>(`/api/v1/discovery/jobs/${encodeURIComponent(id)}/cancel`, { method: 'POST' });
+}
+
+export function retryDiscoveryJob(id: string): Promise<DiscoveryJob> {
+  return apiFetch<DiscoveryJob>(`/api/v1/discovery/jobs/${encodeURIComponent(id)}/retry`, { method: 'POST' });
+}
+
+/** Progress and end state shown next to a scan: `32/62 endereços`, `parado no limite de duração`, `cancelamento pedido`. */
+export function discoveryJobProgress(job: Pick<DiscoveryJob, 'status' | 'totalCount' | 'processedCount' | 'stopReason' | 'cancelRequestedAt'>): string {
+  const parts: string[] = [];
+  if (job.totalCount && (job.status === 'RUNNING' || job.status === 'PENDING' || job.stopReason || job.status === 'FAILED')) parts.push(`${job.processedCount ?? 0}/${job.totalCount} endereços`);
+  if (job.stopReason === 'LIMIT_DURATION') parts.push('parado no limite de duração');
+  else if (job.stopReason === 'LIMIT_PROBES') parts.push('parado no limite de sondas');
+  else if (job.status === 'CANCELLED') parts.push('cancelada');
+  else if (job.cancelRequestedAt && job.status === 'RUNNING') parts.push('cancelamento pedido');
+  return parts.join(' · ');
 }
 
 export function listDiscoveryResults(jobId: string): Promise<DiscoveryResult[]> {
