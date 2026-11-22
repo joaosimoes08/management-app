@@ -79,24 +79,44 @@ test('an expired lease from a crashed holder is taken over, and a failed run is 
   assert.equal(row.leaseOwner, null);
 });
 
+/**
+ * The sweep is global: it also opens cycles for critical assets that other suites (http.integration) left in the same
+ * _test database. Those cycles are not this test's, so the assertions count only this Site's rows, and the foreign
+ * cycles the sweep opened (with their notifications and queued deliveries) are removed again afterwards.
+ */
+async function removeForeignCycles(foreign: { id: string; deviceId: string; weekStart: Date }[]) {
+  if (!foreign.length) return;
+  const links = foreign.map(({ deviceId, weekStart }) => ({ AND: [{ contains: `assetId=${deviceId}` }, { contains: `week=${weekStart.toISOString().slice(0, 10)}` }] }));
+  await prisma.notification.deleteMany({ where: { type: 'CRITICAL_ASSET_ATTESTATION', OR: links.map(({ AND }) => ({ AND: AND.map((filter) => ({ sourceHref: filter })) })) } });
+  await prisma.notificationDelivery.deleteMany({ where: { topic: 'CRITICAL_ASSET_ATTESTATION', OR: links.map(({ AND }) => ({ AND: AND.map((filter) => ({ href: filter })) })) } });
+  await prisma.criticalAssetAttestation.deleteMany({ where: { id: { in: foreign.map(({ id }) => id) } } });
+}
+
 test('critical-asset sweep: two replicas at the same minute run it once; later minutes find nothing to do', async () => {
+  const existing = new Set((await prisma.criticalAssetAttestation.findMany({ select: { id: true } })).map(({ id }) => id));
+  const foreignCycles = async () => (await prisma.criticalAssetAttestation.findMany({ where: { siteId: { not: siteId } }, select: { id: true, deviceId: true, weekStart: true } })).filter(({ id }) => !existing.has(id));
   const replicaA = new CriticalAssetsService(prisma, {} as never);
   const replicaB = new CriticalAssetsService(prisma, {} as never);
-  const [a, b] = await Promise.all([replicaA.runScheduledSweep(mondayAfterNine), replicaB.runScheduledSweep(mondayAfterNine)]);
-  const ran = [a, b].filter((outcome) => outcome.ran);
-  assert.equal(ran.length, 1);
-  const summary = (ran[0] as { ran: true; result: { created: number; candidates: number } }).result;
-  assert.equal(summary.created, 5);
-  assert.equal(await prisma.criticalAssetAttestation.count({ where: { siteId } }), 5);
-  assert.equal(await prisma.notification.count({ where: { userId, type: 'CRITICAL_ASSET_ATTESTATION' } }), 5);
+  try {
+    const [a, b] = await Promise.all([replicaA.runScheduledSweep(mondayAfterNine), replicaB.runScheduledSweep(mondayAfterNine)]);
+    const ran = [a, b].filter((outcome) => outcome.ran);
+    assert.equal(ran.length, 1);
+    const summary = (ran[0] as { ran: true; result: { created: number; candidates: number } }).result;
+    // Exactly this Site's 5 routers, plus whatever other Sites' assets the same sweep opened (0 on an empty database).
+    assert.equal(summary.created, 5 + (await foreignCycles()).length);
+    assert.equal(await prisma.criticalAssetAttestation.count({ where: { siteId } }), 5);
+    assert.equal(await prisma.notification.count({ where: { userId, type: 'CRITICAL_ASSET_ATTESTATION' } }), 5);
 
-  // Same process, overlapping ticks: the second is refused before touching the database.
-  const [first, overlap] = await Promise.all([replicaA.runScheduledSweep(new Date(mondayAfterNine.getTime() + 60_000)), replicaA.runScheduledSweep(new Date(mondayAfterNine.getTime() + 60_000))]);
-  assert.deepEqual(overlap, { ran: false, reason: 'IN_PROCESS' });
-  assert.equal(first.ran, true);
-  // Steady state: the week's cycles exist, so the set-based query returns no candidates and nothing is written.
-  assert.deepEqual((first as { ran: true; result: unknown }).result, { sitesDue: (first as any).result.sitesDue, candidates: 0, created: 0, failed: 0 });
-  assert.equal(await prisma.notification.count({ where: { userId } }), 5);
-  const record = await prisma.backgroundTaskRun.findUniqueOrThrow({ where: { name: CRITICAL_ASSET_SWEEP_TASK } });
-  assert.equal(record.lastStatus, 'COMPLETED');
+    // Same process, overlapping ticks: the second is refused before touching the database.
+    const [first, overlap] = await Promise.all([replicaA.runScheduledSweep(new Date(mondayAfterNine.getTime() + 60_000)), replicaA.runScheduledSweep(new Date(mondayAfterNine.getTime() + 60_000))]);
+    assert.deepEqual(overlap, { ran: false, reason: 'IN_PROCESS' });
+    assert.equal(first.ran, true);
+    // Steady state: the week's cycles exist, so the set-based query returns no candidates and nothing is written.
+    assert.deepEqual((first as { ran: true; result: unknown }).result, { sitesDue: (first as any).result.sitesDue, candidates: 0, created: 0, failed: 0 });
+    assert.equal(await prisma.notification.count({ where: { userId } }), 5);
+    const record = await prisma.backgroundTaskRun.findUniqueOrThrow({ where: { name: CRITICAL_ASSET_SWEEP_TASK } });
+    assert.equal(record.lastStatus, 'COMPLETED');
+  } finally {
+    await removeForeignCycles(await foreignCycles());
+  }
 });
