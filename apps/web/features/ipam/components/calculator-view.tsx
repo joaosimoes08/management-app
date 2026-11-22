@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Calculator } from 'lucide-react';
 import type { CalculatorInput, CalculatorResult, CalculatorOperation } from '../types';
 import { ipv4Mask, isValidCidr, isValidIpAddress, isValidIpv4 } from '../utils';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 export interface CalculatorViewProps {
   calc: CalculatorInput;
@@ -18,6 +19,7 @@ const subnetPageSize = 16;
 
 /** IPv4 splitting and non-enumerating IPv4/IPv6 CIDR tools. */
 export function CalculatorView({ calc, setCalc, result, clearResult, pending, onSubmit }: CalculatorViewProps) {
+  const ui = useUiText();
   const [page, setPage] = useState(1);
   const [fieldErrors, setFieldErrors] = useState<{ subnet?: string; cidr?: string; address?: string; candidates?: string }>({});
   const subnets = result && 'subnets' in result ? result.subnets : [];
@@ -92,7 +94,7 @@ export function CalculatorView({ calc, setCalc, result, clearResult, pending, on
       {overlapResult && <div className="calculator-summary"><strong>{overlapResult.overlaps.length ? 'Subnets sobrepostas' : 'Sem sobreposição'}</strong>{overlapResult.overlaps.map((cidr) => <span key={cidr}><code>{cidr}</code></span>)}</div>}
       {splitResult && subnets.length > 0 && <>
         <div className="subnet-results" role="list" aria-label="Subnets calculadas">{visibleSubnets.map((subnet) => <article className="calculated-subnet" key={subnet.cidr} role="listitem"><div className="calculated-subnet-number">{subnet.number}</div><div className="calculated-subnet-content"><strong><code>{subnet.cidr}</code></strong><div><span>IPs utilizáveis</span><code>{subnet.usableRange}</code></div><div><span>Broadcast IP</span><code>{subnet.broadcast}</code></div></div></article>)}</div>
-        <nav className="calculator-pagination" aria-label="Páginas das subnets"><span>{start + 1}-{Math.min(start + subnetPageSize, subnets.length)} de {subnets.length}</span><div className="calculator-page-buttons"><button type="button" aria-label="Página anterior" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>‹</button>{pageNumbers.map((number, index) => <span key={number}>{index > 0 && number - pageNumbers[index - 1] > 1 && <em>…</em>}<button type="button" className={number === currentPage ? 'active' : ''} aria-current={number === currentPage ? 'page' : undefined} onClick={() => setPage(number)}>{number}</button></span>)}<button type="button" aria-label="Página seguinte" disabled={currentPage === totalPages} onClick={() => setPage(currentPage + 1)}>›</button></div></nav>
+        <nav className="calculator-pagination" aria-label="Páginas das subnets"><span>{start + 1}-{Math.min(start + subnetPageSize, subnets.length)} de {subnets.length}</span><div className="calculator-page-buttons"><button type="button" aria-label={ui('ui.previousPage')} disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>‹</button>{pageNumbers.map((number, index) => <span key={number}>{index > 0 && number - pageNumbers[index - 1] > 1 && <em>…</em>}<button type="button" className={number === currentPage ? 'active' : ''} aria-current={number === currentPage ? 'page' : undefined} onClick={() => setPage(number)}>{number}</button></span>)}<button type="button" aria-label={ui('ui.nextPage')} disabled={currentPage === totalPages} onClick={() => setPage(currentPage + 1)}>›</button></div></nav>
       </>}
     </div>
   </section>;

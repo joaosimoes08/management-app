@@ -7,11 +7,13 @@ import type { Site } from '@/features/infrastructure/types';
 import { listAccessGroups, listAccessGroupUsers, mutateSettings, settingsKeys } from '../api';
 import { PageToolbarPortal } from '@/components/layout/app-shell';
 import { useConfirm } from '@/components/ui/confirm-dialog';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 const emptyForm = { id: '', name: '', description: '', siteSelection: '' };
 const membersPerPage = 8;
 
 export function AccessGroupsSettings({ sites }: { sites: Site[] }) {
+  const ui = useUiText();
   const { confirm: askConfirm, confirmDialog } = useConfirm();
   const queryClient = useQueryClient();
   const [form, setForm] = useState(emptyForm);
@@ -74,7 +76,7 @@ export function AccessGroupsSettings({ sites }: { sites: Site[] }) {
             <div className="group-members-head"><small>Membros</small><button type="button" className="icon-button group-add-member" title="Adicionar membro" aria-label={`Adicionar membro a ${group.name}`} onClick={() => setAddingGroupId(addingGroupId === group.id ? '' : group.id)}><Plus size={15} /></button></div>
             {addingGroupId === group.id && <div className="group-member-picker">{availableUsers.map((user) => <button type="button" key={user.id} disabled={saving} onClick={() => { setAddingGroupId(''); mutate(`/api/v1/settings/access-groups/${group.id}/members`, 'POST', { userId: user.id }); }}><span className="user-status-icon"><Users size={13} /></span><span><strong>{user.displayName || user.username}</strong><small>{user.username}{user.email ? ` · ${user.email}` : ''}</small></span></button>)}{!availableUsers.length && <span>Não existem mais utilizadores disponíveis.</span>}</div>}
             <div className="group-member-grid">{visibleMembers.map((member) => <div className="group-member-card" key={member.userId}><span className="user-status-icon"><Users size={13} /></span><span><strong>{member.user.displayName || member.user.username}</strong><small>{member.user.username}</small></span><button type="button" aria-label={`Remover ${member.user.username}`} disabled={saving} onClick={() => mutate(`/api/v1/settings/access-groups/${group.id}/members/${member.userId}`, 'DELETE')}>×</button></div>)}{!group.members.length && <div className="group-members-empty">Este grupo ainda não tem membros.</div>}</div>
-            {pageCount > 1 && <div className="group-member-pagination"><button type="button" aria-label="Página anterior" disabled={page === 0} onClick={() => setMemberPage(group.id, page - 1)}><ChevronLeft size={15} /></button><span>{page + 1} / {pageCount}</span><button type="button" aria-label="Página seguinte" disabled={page >= pageCount - 1} onClick={() => setMemberPage(group.id, page + 1)}><ChevronRight size={15} /></button></div>}
+            {pageCount > 1 && <div className="group-member-pagination"><button type="button" aria-label={ui('ui.previousPage')} disabled={page === 0} onClick={() => setMemberPage(group.id, page - 1)}><ChevronLeft size={15} /></button><span>{page + 1} / {pageCount}</span><button type="button" aria-label={ui('ui.nextPage')} disabled={page >= pageCount - 1} onClick={() => setMemberPage(group.id, page + 1)}><ChevronRight size={15} /></button></div>}
           </div>}
         </article>;
       })}

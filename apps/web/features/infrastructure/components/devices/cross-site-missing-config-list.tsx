@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Server } from 'lucide-react';
 import { listMissingConfigDevices, type MissingConfigDevice } from '../../api';
 import { EquipmentTypeIcon } from '../equipment-type-icon';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 const PAGE_SIZE = 50;
 
@@ -19,6 +20,7 @@ function modelLabel(model: MissingConfigDevice['model']): string {
  * which switches to its Site and opens the editor on the missing tab.
  */
 export function CrossSiteMissingConfigList({ config, label }: { config: string; label: string }) {
+  const ui = useUiText();
   const [page, setPage] = useState(1);
   const { data, isLoading, isError } = useQuery({
     queryKey: ['infrastructure', 'devices', 'missing-config', config, page],
@@ -40,6 +42,6 @@ export function CrossSiteMissingConfigList({ config, label }: { config: string; 
       <em className="status-active">{item.status}</em>
     </a>)}
     {!isLoading && !isError && !items.length && <div className="empty-context"><Server size={26} /><strong>Nenhum equipamento em falta</strong></div>}
-    {totalPages > 1 && <div className="ip-history-pagination"><button type="button" className="secondary-button" disabled={page <= 1} onClick={() => setPage(page - 1)}>Anterior</button><span>{page} / {totalPages}</span><button type="button" className="secondary-button" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>Seguinte</button></div>}
+    {totalPages > 1 && <div className="ip-history-pagination"><button type="button" className="secondary-button" disabled={page <= 1} onClick={() => setPage(page - 1)}>{ui('common.previous')}</button><span>{page} / {totalPages}</span><button type="button" className="secondary-button" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>{ui('common.next')}</button></div>}
   </section>;
 }

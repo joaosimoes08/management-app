@@ -3,6 +3,7 @@
 import { AlertTriangle, CheckCircle2, Info, X, XCircle } from 'lucide-react';
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 export type ToastKind = 'error' | 'warning' | 'success';
 
@@ -29,6 +30,7 @@ const minimumDuration: Record<ToastKind, number> = { error: 15_000, warning: 10_
 const icons = { error: XCircle, warning: AlertTriangle, success: CheckCircle2 };
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
+  const ui = useUiText();
   const { locale } = useI18n();
   const [toasts, setToasts] = useState<Toast[]>([]);
 
@@ -44,13 +46,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
   return <ToastContext.Provider value={value}>
     {children}
-    <div className="toast-region" aria-live="polite" aria-label="Notificações">
+    <div className="toast-region" aria-live="polite" aria-label={ui('ui.notifications')}>
       {toasts.map((toast) => {
         const Icon = icons[toast.kind];
         return <article className={`toast toast-${toast.kind}`} key={toast.id} role={toast.kind === 'error' ? 'alert' : 'status'}>
           <div className="toast-icon"><Icon size={18} aria-hidden="true" /></div>
           <div className="toast-copy"><strong>{toast.operation}</strong><span>{toast.message}</span><small>{locale === 'en-US' ? ({ error: 'Error', warning: 'Warning', success: 'Success' } as const)[toast.kind] : ({ error: 'Erro', warning: 'Atenção', success: 'Sucesso' } as const)[toast.kind]}</small></div>
-          <button className="toast-close" onClick={() => dismiss(toast.id)} aria-label="Fechar notificação"><X size={15} /></button>
+          <button className="toast-close" onClick={() => dismiss(toast.id)} aria-label={ui('ui.closeNotification')}><X size={15} /></button>
           <i className="toast-progress" style={{ animationDuration: `${toast.duration}ms` }} />
         </article>;
       })}

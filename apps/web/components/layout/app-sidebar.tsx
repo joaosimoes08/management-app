@@ -9,6 +9,7 @@ import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
 import { navigation, settingsNavigation, helpNavigation } from './navigation';
 import { UserMenu } from './user-menu';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 export interface AppSidebarProps {
   collapsed: boolean;
@@ -18,6 +19,7 @@ export interface AppSidebarProps {
 
 /** Application sidebar: role-filtered global navigation and profile utilities. */
 export function AppSidebar({ collapsed, onToggle, onClose }: AppSidebarProps) {
+  const ui = useUiText();
   const pathname = usePathname();
   const router = useRouter();
   const { t } = useI18n();
@@ -52,7 +54,7 @@ export function AppSidebar({ collapsed, onToggle, onClose }: AppSidebarProps) {
   return (
     <m.aside
       className={`sidebar app-sidebar ${collapsed ? 'sidebar-collapsed' : ''} ${focusWithin ? 'keyboard-focus-expanded' : ''}`}
-      aria-label="Menu principal"
+      aria-label={ui('ui.mainMenu')}
       initial={false}
       animate={{ width: collapsed && !focusWithin ? 70 : expandedWidth }}
       whileHover={collapsed ? { width: expandedWidth } : undefined}
@@ -60,7 +62,7 @@ export function AppSidebar({ collapsed, onToggle, onClose }: AppSidebarProps) {
       onFocusCapture={() => { if (keyboardNavigation.current) setFocusWithin(true); }}
       onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusWithin(false); }}
     >
-      <nav className="primary-nav" aria-label="Navegação principal">
+      <nav className="primary-nav" aria-label={ui('ui.mainNavigation')}>
         {visibleNavigation.map(({ label, key, href, icon: Icon }) => {
           const translated = t(key, label);
           return (
@@ -86,7 +88,7 @@ export function AppSidebar({ collapsed, onToggle, onClose }: AppSidebarProps) {
         </button>
       </div>
       <small className="sidebar-copyright" title={t('shell.copyright')}><span className="sidebar-copyright-full">{t('shell.copyright')}</span><span className="sidebar-copyright-short" aria-hidden="true">{t('shell.copyrightShort')}</span></small>
-      <button className="mobile-close icon-button" onClick={() => onClose?.()} aria-label="Fechar menu"><X size={17} /></button>
+      <button className="mobile-close icon-button" onClick={() => onClose?.()} aria-label={ui('ui.closeMenu')}><X size={17} /></button>
     </m.aside>
   );
 }

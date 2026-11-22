@@ -8,6 +8,7 @@ import { useToast } from '@/components/ui/toast';
 import { formatDateTime } from '@/lib/format/date';
 import { useI18n } from '@/lib/i18n';
 import { decideRoleRequest, listRoleRequests, type RoleRequestItem, type RoleRequestPage } from '../api';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 const PAGE_SIZE = 20;
 
@@ -39,6 +40,7 @@ export interface RoleRequestQueueProps {
 
 /** Definições → Utilizadores: queue of role requests, pending first, with approve / reject. */
 export function RoleRequestQueue({ onDecided, reloadToken }: RoleRequestQueueProps) {
+  const ui = useUiText();
   const { t } = useI18n();
   const { success, error: toastError } = useToast();
   const { confirm: askConfirm, confirmDialog } = useConfirm();
@@ -128,7 +130,7 @@ export function RoleRequestQueue({ onDecided, reloadToken }: RoleRequestQueuePro
     {(error || actionError) && <div role="alert" className="ipam-alert error"><X size={15} />{error || actionError}</div>}
     {!loading && !error && !data.items.length && <div className="ipam-alert">{status === ROLE_REQUEST_FILTERS[0].value ? 'Não há pedidos de roles pendentes.' : 'Não há pedidos de roles neste estado.'}</div>}
     {data.items.length > 0 && <DataTable rows={sortByColumns(data.items, columns, sort)} columns={columns} rowKey={(item) => item.id} label="Pedidos de roles" sort={sort} onSortChange={setSort} defaultSort={defaultSort} />}
-    {data.totalPages > 1 && <div className="settings-pagination"><span>{data.total === 1 ? '1 pedido' : `${data.total} pedidos`}</span><div><button type="button" aria-label="Página anterior" disabled={page <= 1 || loading} onClick={() => setPage(page - 1)}><ChevronLeft size={14} /></button><b>{data.page} / {data.totalPages}</b><button type="button" aria-label="Página seguinte" disabled={page >= data.totalPages || loading} onClick={() => setPage(page + 1)}><ChevronRight size={14} /></button></div></div>}
+    {data.totalPages > 1 && <div className="settings-pagination"><span>{data.total === 1 ? '1 pedido' : `${data.total} pedidos`}</span><div><button type="button" aria-label={ui('ui.previousPage')} disabled={page <= 1 || loading} onClick={() => setPage(page - 1)}><ChevronLeft size={14} /></button><b>{data.page} / {data.totalPages}</b><button type="button" aria-label={ui('ui.nextPage')} disabled={page >= data.totalPages || loading} onClick={() => setPage(page + 1)}><ChevronRight size={14} /></button></div></div>}
     {confirmDialog}
   </section>;
 }

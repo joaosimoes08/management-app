@@ -97,6 +97,7 @@ const messages: Record<AppLocale, Record<string, string>> = {
     'settings.finish': 'Concluir',
     'profile.menu': 'Definições do perfil', 'profile.title': 'Perfil', 'profile.kicker': 'CONTA E ACESSOS', 'profile.tabs.profile': 'Perfil', 'profile.tabs.roles': 'Solicitar roles', 'profile.username': 'Utilizador', 'profile.roles': 'Roles atuais', 'profile.rolesTitle': 'Solicitar acesso adicional', 'profile.rolesDescription': 'Seleciona as roles que precisas. Um administrador irá analisar o pedido.', 'profile.submit': 'Enviar pedido', 'profile.pending': 'Pedido pendente', 'profile.processing': 'Pedido em processamento', 'profile.alreadyAssigned': 'Já atribuída', 'profile.requestSent': 'Pedido enviado', 'profile.loadError': 'Não foi possível carregar o perfil.', 'profile.submitError': 'Não foi possível enviar o pedido.', 'profile.history': 'Histórico de pedidos', 'profile.noHistory': 'Ainda não existem pedidos.', 'profile.status.PENDING': 'Pendente', 'profile.status.PROCESSING': 'Em processamento', 'profile.status.APPROVED': 'Aprovado', 'profile.status.REJECTED': 'Rejeitado', 'settings.requested': 'Solicitou', 'settings.requestProcessing': 'Pedido em processamento', 'settings.accept': 'Aceitar', 'settings.reject': 'Rejeitar', 'settings.requestApproved': 'Pedido aprovado', 'settings.requestRejected': 'Pedido rejeitado', 'settings.requestDecisionError': 'Não foi possível decidir o pedido.',
     'common.save': 'Guardar alterações', 'common.cancel': 'Cancelar', 'common.edit': 'Editar', 'common.delete': 'Eliminar', 'common.refresh': 'Atualizar', 'common.loading': 'A carregar…', 'common.previous': 'Anterior', 'common.next': 'Seguinte',
+    'ui.close': 'Fechar', 'ui.closeNotification': 'Fechar notificação', 'ui.notifications': 'Notificações', 'ui.openMenu': 'Abrir menu', 'ui.closeMenu': 'Fechar menu', 'ui.mainMenu': 'Menu principal', 'ui.mainNavigation': 'Navegação principal', 'ui.moreActions': 'Mais ações', 'ui.selectSite': 'Selecionar Site', 'ui.searchApp': 'Pesquisar na aplicação ou neste separador', 'ui.previousPage': 'Página anterior', 'ui.nextPage': 'Página seguinte', 'ui.pageOf': 'Página {page} de {total}', 'ui.confirm': 'Confirmar', 'ui.confirmDeleteTitle': 'Confirmar eliminação', 'ui.bulkReviewItems': 'Itens da revisão em massa',
     'profile.tabs.notifications': 'Notificações',
     'notifications.title': 'Notificações',
     'notifications.description': 'Consulta as notificações da tua conta.',
@@ -255,6 +256,7 @@ const messages: Record<AppLocale, Record<string, string>> = {
     'settings.finish': 'Finish',
     'profile.menu': 'Profile settings', 'profile.title': 'Profile', 'profile.kicker': 'ACCOUNT AND ACCESS', 'profile.tabs.profile': 'Profile', 'profile.tabs.roles': 'Request roles', 'profile.username': 'User', 'profile.roles': 'Current roles', 'profile.rolesTitle': 'Request additional access', 'profile.rolesDescription': 'Select the roles you need. An administrator will review your request.', 'profile.submit': 'Send request', 'profile.pending': 'Pending request', 'profile.processing': 'Request processing', 'profile.alreadyAssigned': 'Already assigned', 'profile.requestSent': 'Request sent', 'profile.loadError': 'Could not load your profile.', 'profile.submitError': 'Could not submit the request.', 'profile.history': 'Request history', 'profile.noHistory': 'No requests yet.', 'profile.status.PENDING': 'Pending', 'profile.status.PROCESSING': 'Processing', 'profile.status.APPROVED': 'Approved', 'profile.status.REJECTED': 'Rejected', 'settings.requested': 'Requested', 'settings.requestProcessing': 'Request processing', 'settings.accept': 'Accept', 'settings.reject': 'Reject', 'settings.requestApproved': 'Request approved', 'settings.requestRejected': 'Request rejected', 'settings.requestDecisionError': 'Could not decide the request.',
     'common.save': 'Save changes', 'common.cancel': 'Cancel', 'common.edit': 'Edit', 'common.delete': 'Delete', 'common.refresh': 'Refresh', 'common.loading': 'Loading…', 'common.previous': 'Previous', 'common.next': 'Next',
+    'ui.close': 'Close', 'ui.closeNotification': 'Close notification', 'ui.notifications': 'Notifications', 'ui.openMenu': 'Open menu', 'ui.closeMenu': 'Close menu', 'ui.mainMenu': 'Main menu', 'ui.mainNavigation': 'Main navigation', 'ui.moreActions': 'More actions', 'ui.selectSite': 'Select Site', 'ui.searchApp': 'Search the app or this tab', 'ui.previousPage': 'Previous page', 'ui.nextPage': 'Next page', 'ui.pageOf': 'Page {page} of {total}', 'ui.confirm': 'Confirm', 'ui.confirmDeleteTitle': 'Confirm deletion', 'ui.bulkReviewItems': 'Bulk review items',
     'profile.tabs.notifications': 'Notifications',
     'notifications.title': 'Notifications',
     'notifications.description': 'View notifications for your account.',
@@ -497,3 +499,14 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
 }
 
 export function useI18n() { const value = useContext(I18nContext); if (!value) throw new Error('useI18n must be used inside I18nProvider'); return value; }
+
+/** The provider's value, or undefined outside I18nProvider (shared UI rendered on its own, e.g. in tests). */
+export function useOptionalI18n() { return useContext(I18nContext); }
+
+/** Same lookup as the provider's t(), for a fixed locale. */
+export function translateMessage(locale: AppLocale, key: string, fallback?: string, params: MessageParams = {}) {
+  const count = typeof params.count === 'number' ? params.count : undefined;
+  const pluralKey = count === undefined ? key : `${key}.${new Intl.PluralRules(locale).select(count)}`;
+  const template = messages[locale][pluralKey] ?? messages[locale][key] ?? messages['pt-PT'][pluralKey] ?? messages['pt-PT'][key] ?? fallback ?? key;
+  return Object.entries(params).reduce((text, [name, replacement]) => text.replaceAll(`{${name}}`, String(replacement)), template);
+}

@@ -7,6 +7,7 @@ import { DataTable, sortByColumns, useTableUrlState, type DataTableColumn, type 
 import { BULK_REVIEW_MAX, BulkReviewDialog } from '@/components/ui/bulk-review-dialog';
 import { formatDateTime } from '@/lib/format/date';
 import { bulkReviewSnmpDrifts, listSnmpDrifts, reviewSnmpDrift, type SnmpFleetDrift } from './api';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 type ReviewStatus = 'ACCEPTED' | 'IGNORED';
 
@@ -40,6 +41,7 @@ type Props = { siteId: string; canReview: boolean; openDevice: (deviceId: string
 
 /** SNMP drifts across the Site's devices, with per-row and bulk accept/ignore (ADMIN / NETWORK_OPERATOR). */
 export function SnmpDriftsView({ siteId, canReview, openDevice }: Props) {
+  const ui = useUiText();
   const queryClient = useQueryClient();
   const table = useTableUrlState(driftTableConfig);
   const status = table.filters.status;
@@ -95,9 +97,9 @@ export function SnmpDriftsView({ siteId, canReview, openDevice }: Props) {
       selection={canReview ? { selected: new Set(selectedIds), onChange: setSelected, isSelectable: (drift) => drift.status === 'PENDING', rowLabel: (drift, selectable) => selectable ? `Selecionar ${drift.field} de ${drift.device?.name ?? drift.id}` : `${drift.field} de ${drift.device?.name ?? drift.id} já revista`, allLabel: 'Selecionar todas as divergências pendentes' } : undefined}
       empty={<div className="no-data">Sem divergências para este filtro.</div>} />
     {data && (data.totalPages > 1 || page > 1) && <div className="group-member-pagination">
-      <button type="button" aria-label="Página anterior" disabled={page <= 1} onClick={() => setPage(page - 1)}><ChevronLeft size={15} /></button>
+      <button type="button" aria-label={ui('ui.previousPage')} disabled={page <= 1} onClick={() => setPage(page - 1)}><ChevronLeft size={15} /></button>
       <span>{`${page} / ${totalPages} · ${data.total} divergências`}</span>
-      <button type="button" aria-label="Página seguinte" disabled={page >= totalPages} onClick={() => setPage(page + 1)}><ChevronRight size={15} /></button>
+      <button type="button" aria-label={ui('ui.nextPage')} disabled={page >= totalPages} onClick={() => setPage(page + 1)}><ChevronRight size={15} /></button>
     </div>}
     {bulk && <BulkReviewDialog
       title={bulk.status === 'ACCEPTED' ? 'Aceitar divergências selecionadas' : 'Ignorar divergências selecionadas'}

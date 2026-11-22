@@ -7,6 +7,7 @@ import { Activity, Edit3, LoaderCircle, RefreshCw, X } from 'lucide-react';
 import { checkIpAddress, getIpCheckHistory, updateIpAddress, type IpCheckHistoryEntry } from '../api';
 import type { IpAddressRow } from '../types';
 import { formatDateTime } from '@/lib/format/date';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 interface IpAddressPanelProps {
   ip: IpAddressRow;
@@ -19,6 +20,7 @@ interface IpAddressPanelProps {
 }
 
 export function IpAddressPanel({ ip, canUpdate, canCheck, close, updated, saved, error }: IpAddressPanelProps) {
+  const ui = useUiText();
   const [editing, setEditing] = useState(false);
   const [address, setAddress] = useState(ip.address);
   const [hostname, setHostname] = useState(ip.hostname ?? '');
@@ -89,7 +91,7 @@ export function IpAddressPanel({ ip, canUpdate, canCheck, close, updated, saved,
         {history?.length === 0 && <p className="ip-history-muted">Ainda não existem verificações registadas.</p>}
         {history && history.length > 0 && <>
           <ol className="ip-check-list">{history.map((entry) => <li key={entry.id}><span className={`ip-check-dot ${entry.metadata?.reachable ? 'reachable' : 'unreachable'}`} /><span><strong>{entry.metadata?.reachable ? 'Acessível' : 'Sem resposta'}</strong><small>{entry.user?.displayName || entry.user?.username || 'Sistema'}</small></span><time dateTime={entry.createdAt}>{formatDateTime(entry.createdAt)}</time></li>)}</ol>
-          {totalPages > 1 && <div className="ip-history-pagination"><button className="secondary-button" disabled={page <= 1} onClick={() => void loadHistory(page - 1)}>Anterior</button><span>{page} / {totalPages}</span><button className="secondary-button" disabled={page >= totalPages} onClick={() => void loadHistory(page + 1)}>Seguinte</button></div>}
+          {totalPages > 1 && <div className="ip-history-pagination"><button className="secondary-button" disabled={page <= 1} onClick={() => void loadHistory(page - 1)}>{ui('common.previous')}</button><span>{page} / {totalPages}</span><button className="secondary-button" disabled={page >= totalPages} onClick={() => void loadHistory(page + 1)}>{ui('common.next')}</button></div>}
         </>}
       </section>
     </aside>

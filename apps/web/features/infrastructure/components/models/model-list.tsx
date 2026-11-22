@@ -6,6 +6,7 @@ import { ChevronLeft, ChevronRight, Edit3, Filter, Plus } from 'lucide-react';
 import { EquipmentTypeIcon } from '../equipment-type-icon';
 import { EQUIPMENT_TYPES, portMappingStatus } from '../../utils';
 import type { DeviceModel } from '../../types';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 /** Port mapping status across both faces, for the model row. */
 function mappingSummary(model: DeviceModel): string {
@@ -27,6 +28,7 @@ const modelPageSize = 20;
 
 /** Device model catalog with type filter and pagination. */
 export function ModelList({ models, onEdit, onLayout, canEdit }: ModelListProps) {
+  const ui = useUiText();
   const [equipmentType, setEquipmentType] = useState('ALL');
   const [modelPage, setModelPage] = useState(0);
   const create = () => window.dispatchEvent(new Event('model-create-request'));
@@ -44,6 +46,6 @@ export function ModelList({ models, onEdit, onLayout, canEdit }: ModelListProps)
       {canEdit && <span className="row-actions"><button type="button" className="icon-button subtle" aria-label={`Editar modelo ${model.manufacturer} ${model.model}`} title="Editar modelo" onClick={() => onEdit(model)}><Edit3 size={14} aria-hidden="true" /></button><button className="secondary-button compact-button map-ports-button" onClick={() => onLayout(model)}>Mapear portas</button></span>}
     </div>)}
     {!filteredModels.length && <div className="no-data">Não existem modelos para os filtros selecionados.</div>}
-    {filteredModels.length > 0 && <div className="model-pagination"><span aria-live="polite"><span key={`${activePage}-${pageCount}`}>{`Página ${activePage + 1} de ${pageCount}`}</span></span><div><button type="button" className="icon-button subtle" aria-label="Página anterior" disabled={activePage === 0} onClick={() => setModelPage(activePage - 1)}><ChevronLeft size={14} /></button><button type="button" className="icon-button subtle" aria-label="Página seguinte" disabled={activePage >= pageCount - 1} onClick={() => setModelPage(activePage + 1)}><ChevronRight size={14} /></button></div></div>}
+    {filteredModels.length > 0 && <div className="model-pagination"><span aria-live="polite"><span key={`${activePage}-${pageCount}`}>{ui('ui.pageOf', undefined, { page: activePage + 1, total: pageCount })}</span></span><div><button type="button" className="icon-button subtle" aria-label={ui('ui.previousPage')} disabled={activePage === 0} onClick={() => setModelPage(activePage - 1)}><ChevronLeft size={14} /></button><button type="button" className="icon-button subtle" aria-label={ui('ui.nextPage')} disabled={activePage >= pageCount - 1} onClick={() => setModelPage(activePage + 1)}><ChevronRight size={14} /></button></div></div>}
   </section>;
 }

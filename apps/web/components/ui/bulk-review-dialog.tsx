@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { CheckCircle2, X } from 'lucide-react';
 import { IpamModal } from '@/features/ipam/components/ipam-modal';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 /** Most ids the bulk-review endpoints accept per request (Descoberta and SNMP). */
 export const BULK_REVIEW_MAX = 200;
@@ -42,6 +43,7 @@ type Props = {
 
 /** Bulk approve/ignore with a per-item result list (same pattern as the Qualidade bulk dialog). */
 export function BulkReviewDialog({ title, actionLabel, noun, items, run, onDone, close }: Props) {
+  const ui = useUiText();
   const [running, setRunning] = useState(false);
   const [response, setResponse] = useState<BulkReviewResponse | null>(null);
   const [error, setError] = useState('');
@@ -74,7 +76,7 @@ export function BulkReviewDialog({ title, actionLabel, noun, items, run, onDone,
     {tooMany && <div className="ipam-alert warning" role="note">{`Seleciona no máximo ${BULK_REVIEW_MAX} itens por pedido.`}</div>}
     {error && <div className="ipam-alert error" role="alert"><X size={15} />{error}</div>}
     {done && <div className={`ipam-alert ${succeeded === total ? 'success' : 'error'}`} role="status">{succeeded === total ? <CheckCircle2 size={15} /> : <X size={15} />}{`${succeeded} de ${total} aplicados.`}</div>}
-    <div className="ip-table-wrap" role="region" aria-label="Itens da revisão em massa" tabIndex={0}><table className="ip-table">
+    <div className="ip-table-wrap" role="region" aria-label={ui('ui.bulkReviewItems')} tabIndex={0}><table className="ip-table">
       <thead><tr><th>Item</th><th>Resultado</th></tr></thead>
       <tbody>{rows.map((item) => {
         const result = byId.get(item.id);
