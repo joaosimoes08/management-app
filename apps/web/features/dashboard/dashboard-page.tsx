@@ -103,6 +103,8 @@ export default function DashboardPage() {
     setLayoutBeforeEdit(layout);
     setEditingLayout(true);
   };
+  // If editing started before the saved layout arrived, keep the first loaded layout for Cancel.
+  useEffect(() => { if (editingLayout && layout && !layoutBeforeEdit) setLayoutBeforeEdit(layout); }, [editingLayout, layout, layoutBeforeEdit]);
   const cancelLayoutEditing = () => {
     if (layoutBeforeEdit) setLayout(layoutBeforeEdit);
     setLayoutBeforeEdit(null);
