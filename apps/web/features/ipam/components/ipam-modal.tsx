@@ -1,6 +1,7 @@
 'use client';
 
 import { useEscapeClose } from '@/components/ui/use-escape-close';
+import { useDialogFocusRef } from '@/components/ui/use-dialog-focus';
 import type { ReactNode } from 'react';
 import { Network, X } from 'lucide-react';
 
@@ -13,8 +14,9 @@ export interface IpamModalProps {
 /** IPAM-local modal (narrower than the shared wide modal). */
 export function IpamModal({ title, children, close }: IpamModalProps) {
   useEscapeClose(close);
+  const dialogRef = useDialogFocusRef<HTMLElement>();
   return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && close()}>
-    <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="ipam-modal-title">
+    <section ref={dialogRef} className="modal-card" role="dialog" aria-modal="true" aria-labelledby="ipam-modal-title">
       <div className="modal-heading"><h2 id="ipam-modal-title">{title}</h2><button type="button" className="icon-button subtle" onClick={close} aria-label="Fechar"><X size={16} /></button></div>
       {children}
     </section>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEscapeClose } from '@/components/ui/use-escape-close';
+import { useDialogFocusRef } from '@/components/ui/use-dialog-focus';
 import { useMemo, useState } from 'react';
 import { apiFetch } from '@/lib/api/client';
 import type { DeviceModel } from '../../types';
@@ -56,6 +57,7 @@ export function DeviceImport({ siteId, models, close, onComplete }: { siteId: st
   const [busy, setBusy] = useState(false);
   const mappedRows = useMemo(() => mapDeviceImportRows(values, mapping, models), [values, mapping, models]);
   useEscapeClose(close);
+  const dialogRef = useDialogFocusRef<HTMLElement>();
 
   async function readFile(file?: File) {
     if (!file) return;
@@ -79,7 +81,7 @@ export function DeviceImport({ siteId, models, close, onComplete }: { siteId: st
     catch (cause) { setError(cause instanceof Error ? cause.message : 'A importação falhou. Valida novamente o ficheiro.'); setPreview(null); }
     finally { setBusy(false); }
   }
-  return <>{confirmDialog}<div className="modal-backdrop" role="presentation"><section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="device-import-title"><header className="modal-header"><div><span className="section-kicker">IMPORTAÇÃO COM VALIDAÇÃO</span><h2 id="device-import-title">Importar equipamentos CSV</h2></div><button className="icon-button" onClick={close} aria-label="Fechar">×</button></header>
+  return <>{confirmDialog}<div className="modal-backdrop" role="presentation"><section ref={dialogRef} className="modal-card" role="dialog" aria-modal="true" aria-labelledby="device-import-title"><header className="modal-header"><div><span className="section-kicker">IMPORTAÇÃO COM VALIDAÇÃO</span><h2 id="device-import-title">Importar equipamentos CSV</h2></div><button className="icon-button" onClick={close} aria-label="Fechar">×</button></header>
     <label>Ficheiro CSV<input type="file" accept=".csv,text/csv" onChange={(event) => void readFile(event.target.files?.[0])} /></label>{fileName && <p>{fileName} · {Math.max(0, values.length - 1)} linhas</p>}
     {columns.length > 0 && <fieldset><legend>Associar colunas</legend>{deviceImportFields.map((field) => <label key={field} style={{ display: 'inline-flex', gap: 8, margin: 6 }}>{field}<select value={mapping[field] ?? ''} onChange={(event) => { setMapping({ ...mapping, [field]: event.target.value ? Number(event.target.value) : undefined }); setPreview(null); }}><option value="">Ignorar</option>{columns.map((column, index) => <option key={index} value={index}>{column}</option>)}</select></label>)}</fieldset>}
     {mapping.modelId !== undefined && <p>O modelo pode ser identificado pelo nome e fabricante, ou pelo ID.</p>}
