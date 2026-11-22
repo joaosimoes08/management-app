@@ -41,6 +41,10 @@ const pathTopics: Array<[string, string]> = [
 ];
 
 /** The article for the page at `pathname`, or null when the page has none. */
+/** Help article for each Infraestrutura tab (`?tab=`). Tabs without an article of their own use Equipamentos. */
+const infrastructureTabTopics: Record<string, string> = { sites: 'equipamentos', racks: 'equipamentos', devices: 'equipamentos', hosts: 'servidores', lifecycle: 'equipamentos', models: 'equipamentos', interfaces: 'equipamentos', assets: 'equipamentos', permissions: 'equipamentos' };
+export const infrastructureHelpTopic = (tab: string | null | undefined) => infrastructureTabTopics[tab ?? ''] ?? 'equipamentos';
+
 export function helpArticleForPath(pathname: string | null | undefined): HelpArticle | null {
   if (!pathname) return null;
   const match = pathTopics.filter(([prefix]) => pathname === prefix.replace(/\/$/, '') || pathname.startsWith(prefix.endsWith('/') ? prefix : `${prefix}/`)).sort((a, b) => b[0].length - a[0].length)[0];

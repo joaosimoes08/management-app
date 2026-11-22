@@ -1894,7 +1894,8 @@ body { color:var(--ink); background:#e9eef5; }
   .context-toolbar *, .app-shell .nav-item { scroll-behavior:auto; transition:none !important; }
   .dashboard-quick-link:hover { transform:none; }
 }
-.context-toolbar:has(.context-toolbar-navigation:empty):has(.context-toolbar-actions:empty) { display:none; }
+/* An empty bar hides, unless it carries the page Help link (e.g. Infraestrutura → Permissões): Help must stay reachable. */
+.context-toolbar:has(.context-toolbar-navigation:empty):has(.context-toolbar-actions:empty):not(:has(.context-toolbar-help)) { display:none; }
 .context-toolbar-contribution { display:flex; align-items:center; gap:9px; min-width:0; }
 .context-toolbar .infra-menu { flex:none; margin-bottom:0; white-space:nowrap; }
 .topology-toolbar-summary { flex:1 1 180px; min-width:180px; color:#586982; font-size:11px; text-align:right; }
