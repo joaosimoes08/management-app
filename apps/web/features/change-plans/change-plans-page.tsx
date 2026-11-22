@@ -329,7 +329,7 @@ export function ChangePlansPage() {
   const timeline = activity?.key === activityKey ? buildTimeline(activity.entries) : [];
   const listing = !selected && !editorOpen;
 
-  return <AppShell section="Alterações" search={{ value: search, onChange: setSearch, placeholder: 'Pesquisar título, motivo, operação ou alvo…', ariaLabel: 'Pesquisar alterações' }}><main className="module-page change-plans-page aligned-workspace">{confirmDialog}<PageToolbarPortal><div className="change-page-actions">
+  return <AppShell section="Alterações" search={{ value: search, onChange: setSearch, placeholder: 'Pesquisar título, motivo, operação ou alvo…', ariaLabel: 'Pesquisar alterações' }}><div className="module-page change-plans-page aligned-workspace">{confirmDialog}<PageToolbarPortal><div className="change-page-actions">
       {siteId && listing && <div className="interface-toolbar-controls">
         <label>Tipo de alvo<select aria-label="Filtrar por tipo de alvo" value={filters.type} onChange={(event) => setFilter('type', event.target.value)}><option value="">Todos</option>{changeTypes.map((type) => <option key={type} value={type}>{typeLabels[type]}</option>)}</select></label>
         {view === 'list' && <><label>De<input type="date" aria-label="Janela a partir de" value={filters.from} max={filters.to || undefined} onChange={(event) => setFilter('from', event.target.value)} /></label><label>Até<input type="date" aria-label="Janela até" value={filters.to} min={filters.from || undefined} onChange={(event) => setFilter('to', event.target.value)} /></label></>}
@@ -391,5 +391,5 @@ export function ChangePlansPage() {
         {activity?.key === activityKey && activity.failed && <p className="panel-description">Não foi possível carregar a atividade desta alteração.</p>}
       </section>}
       </div></div>}
-    </main></AppShell>;
+    </div></AppShell>;
 }

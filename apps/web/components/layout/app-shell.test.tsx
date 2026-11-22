@@ -7,6 +7,7 @@ vi.mock('./app-header', () => ({ AppHeader: () => <header /> }));
 vi.mock('./app-sidebar', () => ({ AppSidebar: ({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) => <aside className={`sidebar app-sidebar${collapsed ? ' sidebar-collapsed' : ''}`}><button onClick={onToggle}>{collapsed ? 'Expandir' : 'Recolher'}</button></aside> }));
 vi.mock('./global-search', () => ({ GlobalSearchPalette: () => null }));
 vi.mock('./user-menu', () => ({ UserMenu: () => null }));
+vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ locale: 'pt-PT', t: (key: string) => ({ 'shell.skipToContent': 'Saltar para o conteúdo', 'shell.closeMenu': 'Fechar menu', 'shell.pageControls': 'Controlos da página' } as Record<string, string>)[key] ?? key }) }));
 
 afterEach(() => { cleanup(); localStorage.clear(); });
 
@@ -97,5 +98,29 @@ describe('AppShell breadcrumb', () => {
   it('keeps a breadcrumb that names the active tab', () => {
     render(<AppShell section="Perfil" context={['Notificações']}><p>Content</p></AppShell>);
     expect((document.querySelector('.context-toolbar-title') as HTMLElement).querySelector('span')).toHaveTextContent('Notificações');
+  });
+});
+
+describe('AppShell landmarks and skip link', () => {
+  it('renders one main landmark that holds only the page content', () => {
+    render(<AppShell section="Infraestrutura"><p>Page body</p></AppShell>);
+    const mains = screen.getAllByRole('main');
+    expect(mains).toHaveLength(1);
+    expect(mains[0]).toHaveAttribute('id', 'main-content');
+    expect(within(mains[0]).getByText('Page body')).toBeInTheDocument();
+    // The app header and sidebar sit outside main, so the header is the page banner.
+    expect(mains[0].querySelector('header, aside')).toBeNull();
+    expect(screen.getByRole('banner')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Controlos da página' })).toBeInTheDocument();
+  });
+
+  it('offers a skip link as the first focusable element and moves focus to the content', () => {
+    const { container } = render(<AppShell section="Infraestrutura"><button>Primeira ação</button></AppShell>);
+    const skip = screen.getByRole('link', { name: 'Saltar para o conteúdo' });
+    expect(skip).toHaveAttribute('href', '#main-content');
+    expect(container.querySelector('a, button, input, select, textarea, [tabindex]:not([tabindex="-1"])')).toBe(skip);
+    skip.focus();
+    fireEvent.click(skip);
+    expect(document.activeElement).toBe(screen.getByRole('main'));
   });
 });

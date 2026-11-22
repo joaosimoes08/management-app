@@ -112,8 +112,8 @@ export function Device360Page({ deviceId }: { deviceId: string }) {
   } });
   const audit = useQuery({ queryKey: ['device-360', deviceId, 'audit'], queryFn: async () => itemsOf<AuditEvent>(await apiFetch(`/api/v1/audit/events/page${q({ entityType: 'Device', entityId: deviceId, limit: '10' })}`)), enabled: ready && can('audit') });
 
-  if (!deviceId || deviceQuery.error) return <AppShell section="Mapa físico"><main className="module-page device-360"><section className="ipam-card empty-context" role="alert"><Server size={28} /><strong>Equipamento não encontrado</strong><span>Não foi possível abrir este equipamento ou não tens acesso a ele.</span><a className="secondary-button" href="/infraestrutura?tab=devices">Voltar à lista de equipamentos</a></section></main></AppShell>;
-  if (!device) return <AppShell section="Mapa físico"><main className="module-page device-360"><EmptyLine>A carregar equipamento…</EmptyLine></main></AppShell>;
+  if (!deviceId || deviceQuery.error) return <AppShell section="Mapa físico"><div className="module-page device-360"><section className="ipam-card empty-context" role="alert"><Server size={28} /><strong>Equipamento não encontrado</strong><span>Não foi possível abrir este equipamento ou não tens acesso a ele.</span><a className="secondary-button" href="/infraestrutura?tab=devices">Voltar à lista de equipamentos</a></section></div></AppShell>;
+  if (!device) return <AppShell section="Mapa físico"><div className="module-page device-360"><EmptyLine>A carregar equipamento…</EmptyLine></div></AppShell>;
 
   const rack = device.rack;
   const location = [device.site?.name, rack?.room?.building?.name, rack?.room?.name, rack?.name, device.rackUnitStart ? `U${device.rackUnitStart}${device.rackUnitSize && device.rackUnitSize > 1 ? `–${device.rackUnitStart + device.rackUnitSize - 1}` : ''}` : null].filter(Boolean).join(' · ');
@@ -124,7 +124,7 @@ export function Device360Page({ deviceId }: { deviceId: string }) {
   const rackHref = rack ? `/infraestrutura${q({ siteId, buildingId: rack.room?.building?.id, roomId: rack.room?.id, rackId: rack.id })}` : null;
   const outlets = (device.power as { outlets?: Array<{ pduName?: string; outletIndex?: number; pduId?: string }> } | null | undefined)?.outlets ?? [];
 
-  return <AppShell section="Mapa físico"><main className="module-page device-360">
+  return <AppShell section="Mapa físico"><div className="module-page device-360">
     <header className="workspace-head device-360-head">
       {/* eslint-disable-next-line @next/next/no-img-element -- API asset URL, same as the rack views */}
       {image && <img className="device-360-image" src={image} alt={`Frente de ${modelName || device.name}`} />}
@@ -204,5 +204,5 @@ export function Device360Page({ deviceId }: { deviceId: string }) {
         <SectionBody query={audit} empty={(list) => (list.length ? null : 'Sem eventos de auditoria.')}>{(list) => <ul className="device-360-list">{list.map((e) => { const who = e.user ?? e.actor; return <li key={e.id}><time dateTime={e.createdAt}>{fmt(e.createdAt)}</time> · {e.action}{who ? ` · ${who.displayName || who.username}` : ''}</li>; })}</ul>}</SectionBody>
       </Section>}
     </div>
-  </main></AppShell>;
+  </div></AppShell>;
 }

@@ -385,7 +385,7 @@ export function CriticalAssetsPage() {
       <label>Criticidade<select aria-label="Filtrar por criticidade" value={filters.tier} onChange={(event) => changeFilter('tier', event.target.value)}><option value="">Todos</option><option value="T1">T1 · Vital</option><option value="T2">T2 · Importante</option><option value="T3">T3 · Padrão</option></select></label>
       {filtering && <button className="secondary-button" onClick={clearFilters}><X size={14} /> Limpar filtros</button>}
     </div></PageToolbarPortal>
-    <main className="module-page aligned-workspace"><section className="ipam-card page-primary-card critical-assets-card">
+    <div className="module-page aligned-workspace"><section className="ipam-card page-primary-card critical-assets-card">
       <div className="panel-heading"><div><h1>Ativos críticos</h1><p className="panel-description">Revisão semanal dos dados de inventário dos ativos críticos do Site.</p></div></div>
       {error && <div className="ipam-alert error" role="alert"><X size={15} />Não foi possível carregar os ativos críticos.</div>}
       {notice && <div className={`ipam-alert ${notice.tone}`} role={notice.tone === 'error' ? 'alert' : 'status'}>{notice.tone === 'success' ? <CheckCircle2 size={15} /> : <X size={15} />}{notice.text}</div>}
@@ -434,7 +434,7 @@ export function CriticalAssetsPage() {
         <div className="table-actions"><CsvExportButton rows={compliance.cells} columns={complianceCsvColumns} fileName="conformidade-ativos-criticos" /></div>
         <DataTable rows={compliance.groups} columns={complianceColumns} rowKey={(group) => group} label="Conformidade" className="critical-assets-table" empty={<Empty title="Sem revisões para medir" text="A conformidade aparece quando existirem revisões semanais." />} />
       </>}
-    </section></main>
+    </section></div>
 
     {detail && <aside className="host-panel critical-assets-panel" aria-label={`Histórico de ${detail.name}`}>
       <div className="host-panel-head"><div><span className="section-kicker">ATIVO CRÍTICO</span><h2>{detail.name}</h2><span>{detail.type} · {detail.owner?.name ?? 'Sem responsável'}</span></div><button ref={panelClose} className="icon-button" onClick={closeDetail} aria-label="Fechar"><X size={18} /></button></div>
