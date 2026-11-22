@@ -34,7 +34,7 @@ export class IpamController {
   @Get('subnets/:id/capacity-history') subnetCapacityHistory(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.capacity.history(id, req.user); }
   @Get('subnets/:id/next-free') nextFreeIps(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }, @Query('count') count?: string, @Query('from') from?: string, @Query('to') to?: string) { return this.workflows.nextFree(req.user, id, { count, from, to }); }
   @Post('subnets/:id/reserve-next') @Roles('ADMIN', 'NETWORK_OPERATOR') reserveNextIps(@Param('id') id: string, @Body() dto: ReserveNextIpsDto, @Req() req: { user: AuthenticatedUser }) { return this.workflows.reserveNext(req.user, id, dto); }
-  @Get('subnets/:id/planning') subnetPlanning(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.advanced.subnetPlanning(id, req.user); }
+  @Get('subnets/:id/planning') subnetPlanning(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }, @Query('prefix') prefix?: string, @Query('count') count?: string) { return this.advanced.subnetPlanning(id, req.user, prefix, count); }
   @Get('subnets/:id/tree') subnetTree(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.advanced.subnetTree(id, req.user); }
   @Patch('subnets/:id/scan-config') @Roles('ADMIN', 'NETWORK_OPERATOR') updateSubnetScan(@Param('id') id: string, @Body() dto: UpdateSubnetScanDto, @Req() req: { user: AuthenticatedUser }) { return this.advanced.updateSubnetScan(id, dto, req.user); }
   @Post('subnets/:id/scan') @Roles('ADMIN', 'NETWORK_OPERATOR') scanSubnet(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.advanced.scanSubnet(id, req.user); }

@@ -12,6 +12,7 @@ import { CalculatorDto, CreateNatRuleDto, RIPE_PASTE_MAX_PREFIXES, RipePreviewDt
 import * as net from 'node:net';
 import { countTokens, diffPrefixes, extractRipestatPrefixes, parsePrefixList, summarizeDiff } from './ripe-diff';
 import { DISCOVERY_JOB_OPTIONS } from '../discovery/discovery-scan';
+import { collectAllocations, parsePlanningQuery, planIpv4Subnet, type PlanningAddressRow, type PlanningRequest, type PlanningSubnetRow } from './subnet-planning';
 
 function normalizeIpv4(address: string) { const parts = address.split('.').map(Number); if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) throw new BadRequestException('IPv4 inválido'); return parts.join('.'); }
 function ipv4Number(address: string) { return normalizeIpv4(address).split('.').reduce((n, part) => n * 256 + Number(part), 0); }
@@ -27,17 +28,14 @@ const NAT_REF_KEYS = ['siteId', 'vrfId', 'sourceSubnetId', 'translatedSubnetId',
 /** The links a NAT rule will have after an update: a field left out keeps its current value, null/'' clears it. */
 function natRefs(current: Record<string, unknown>, dto: Record<string, unknown>) { return Object.fromEntries(NAT_REF_KEYS.map((key) => [key, dto[key] === undefined ? current[key] : dto[key] || null])) as Record<(typeof NAT_REF_KEYS)[number], string | null>; }
 
-export function calculateIpv4SubnetPlan(cidr: string, addresses: Array<{ address: string; state: string }>) {
+/**
+ * Planning preview for an IPv4 parent. Kept under its original name so existing
+ * callers keep working; the arithmetic lives in ./subnet-planning.
+ */
+export function calculateIpv4SubnetPlan(cidr: string, addresses: PlanningAddressRow[], options: { subnets?: PlanningSubnetRow[]; gateway?: string | null; requests?: PlanningRequest[] } = {}) {
   const info = ipv4Cidr(cidr);
-  const first = info.prefix >= 31 ? info.network : info.network + 1;
-  const last = info.prefix >= 31 ? info.broadcast : info.broadcast - 1;
-  const unavailable = [...new Set(addresses.filter((item) => item.state !== 'FREE').map((item) => ipv4Number(item.address)).filter((value) => value >= first && value <= last))].sort((a, b) => a - b);
-  const usableGaps: Array<{ start: string; end: string; count: number }> = [];
-  let cursor = first;
-  for (const value of unavailable) { if (value > cursor) usableGaps.push({ start: ipv4Address(cursor), end: ipv4Address(value - 1), count: value - cursor }); cursor = value + 1; }
-  if (cursor <= last) usableGaps.push({ start: ipv4Address(cursor), end: ipv4Address(last), count: last - cursor + 1 });
-  const usableTotal = Math.max(0, last - first + 1);
-  return { network: ipv4Address(info.network), broadcast: ipv4Address(info.broadcast), usableRange: usableTotal ? { start: ipv4Address(first), end: ipv4Address(last) } : null, usableTotal, unavailable: unavailable.length, free: Math.max(0, usableTotal - unavailable.length), utilizationPercent: usableTotal ? Math.round((unavailable.length / usableTotal) * 10000) / 100 : 0, usableGaps, unavailableAddresses: unavailable.map((value) => ipv4Address(value)) };
+  const allocations = collectAllocations({ network: info.network, broadcast: info.broadcast, cidr: info.cidr }, { addresses, subnets: options.subnets, gateway: options.gateway });
+  return planIpv4Subnet(info.cidr, allocations, options.requests ?? []);
 }
 
 @Injectable()
@@ -48,11 +46,32 @@ export class IpamAdvancedService implements OnModuleDestroy {
   private redisConnection() { const url = new URL(process.env.REDIS_URL ?? 'redis://localhost:6379'); return { host: url.hostname, port: Number(url.port || 6379), ...(url.password ? { password: url.password } : {}) }; }
   private async log(user: AuthenticatedUser, action: string, entityType: string, entityId: string, metadata?: unknown) { await this.audit.record({ userId: user.id, action, entityType, entityId, metadata }); }
   async getSubnet(id: string, user?: AuthenticatedUser) { if (user) await this.access.assertSubnet(user, 'READ', id); const item = await this.prisma.subnet.findUnique({ where: { id }, include: { site: true, vlan: true, vrf: true, parentSubnet: true, childSubnets: true, discoverySchedule: true, ...tagsInclude } }); if (!item) throw new NotFoundException('Subnet não encontrada'); return withFlatTags(item); }
-  async subnetPlanning(id: string, user: AuthenticatedUser) {
+  /**
+   * Read-only planning preview: never writes. Taken space inside the parent is
+   * its child subnets, every other IPv4 subnet in the same address scope that
+   * lies inside it (same VRF when the parent has one, otherwise the global
+   * table: subnets with no VRF), its non-free IP rows and its gateway.
+   */
+  async subnetPlanning(id: string, user: AuthenticatedUser, prefix?: string, count?: string) {
     const subnet = await this.getSubnet(id, user);
     if (subnet.version !== 4) return { subnet, version: 6, usableGaps: [], utilizationPercent: null, message: 'O planeamento por intervalos está disponível para IPv4.' };
-    const rows = await this.prisma.ipAddress.findMany({ where: { subnetId: id }, select: { address: true, state: true }, orderBy: { address: 'asc' } });
-    return { subnet, version: 4, ...calculateIpv4SubnetPlan(subnet.cidr, rows) };
+    const query = parsePlanningQuery(prefix, count);
+    if ('error' in query) throw new BadRequestException({ code: 'INVALID_PLANNING_REQUEST', message: query.error });
+    const info = ipv4Cidr(subnet.cidr);
+    const [rows, scoped] = await Promise.all([
+      this.prisma.ipAddress.findMany({ where: { subnetId: id }, select: { address: true, state: true, deviceId: true, interfaceId: true, hostId: true }, orderBy: { address: 'asc' } }),
+      this.prisma.subnet.findMany({ where: { version: 4, id: { not: id }, OR: [{ parentSubnetId: id }, { vrfId: subnet.vrfId ?? null }] }, select: { id: true, cidr: true, purpose: true, parentSubnetId: true, siteId: true, vlanId: true, vrfId: true } }),
+    ]);
+    const inside = scoped.filter((item) => { try { const child = ipv4Cidr(item.cidr); return child.network <= info.broadcast && child.broadcast >= info.network && child.prefix > info.prefix; } catch { return false; } });
+    // Subnets the user cannot read still block space (planning must never overlap them), but their purpose and id are not shown.
+    const subnets: PlanningSubnetRow[] = [];
+    for (const item of inside) {
+      let hidden = false;
+      if (item.parentSubnetId !== id) { try { await this.access.assertContext(user, 'READ', { siteId: item.siteId, vrfId: item.vrfId, vlanId: item.vlanId, subnetId: item.id }); } catch { hidden = true; } }
+      subnets.push({ id: item.id, cidr: item.cidr, purpose: item.purpose, hidden });
+    }
+    const plan = calculateIpv4SubnetPlan(subnet.cidr, rows, { subnets, gateway: subnet.gateway, requests: query.requests });
+    return { subnet, version: 4, scope: { vrfId: subnet.vrfId ?? null, vrfName: subnet.vrf?.name ?? null }, ...plan };
   }
   async subnetTree(id: string, user?: AuthenticatedUser) { const subnet = await this.getSubnet(id, user); return { root: subnet, children: subnet.childSubnets }; }
   async createSubnet(dto: CreateSubnetDto, user: AuthenticatedUser) {

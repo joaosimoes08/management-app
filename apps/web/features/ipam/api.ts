@@ -79,9 +79,25 @@ export function getSubnetCapacityHistory(id: string): Promise<SubnetCapacityHist
   return apiFetch<SubnetCapacityHistory>(`/api/v1/subnets/${id}/capacity-history`);
 }
 
-export type SubnetPlanning = { subnet: Subnet; version: number; network?: string; broadcast?: string; usableRange?: { start: string; end: string } | null; usableTotal?: number; unavailable?: number; free?: number; utilizationPercent: number | null; usableGaps: Array<{ start: string; end: string; count: number }>; unavailableAddresses?: string[]; message?: string };
-export function getSubnetPlanning(id: string): Promise<SubnetPlanning> {
-  return apiFetch<SubnetPlanning>(`/api/v1/subnets/${id}/planning`);
+export type SubnetPlanningAllocationKind = 'SUBNET' | 'HOST' | 'RESERVED' | 'GATEWAY';
+export type SubnetPlannedBlock = { cidr: string; prefix: number; start: string; end: string; size: number; usable: number };
+export type SubnetPlanningSegment = { status: 'FREE' | 'TAKEN' | 'PLANNED'; start: string; end: string; count: number; cidrs: string[]; kinds?: SubnetPlanningAllocationKind[]; label?: string | null; subnetId?: string };
+export type SubnetPlanningShortfall = { prefix: number; requested: number | null; planned: number; missing: number | null; reason: 'PREFIX_SHORTER_THAN_PARENT' | 'NO_FREE_ALIGNED_BLOCK' | 'NOT_ENOUGH_FREE_SPACE' | 'TRUNCATED' };
+export type SubnetPlanning = {
+  subnet: Subnet; version: number; network?: string; broadcast?: string; prefix?: number; size?: number;
+  usableRange?: { start: string; end: string } | null; usableTotal?: number; unavailable?: number; free?: number; utilizationPercent: number | null;
+  usableGaps: Array<{ start: string; end: string; count: number }>; unavailableAddresses?: string[]; message?: string;
+  scope?: { vrfId: string | null; vrfName: string | null }; childSubnets?: number;
+  addressSpace?: { total: number; taken: number; planned: number; freeAfterPlan: number };
+  planned?: SubnetPlannedBlock[]; shortfalls?: SubnetPlanningShortfall[]; segments?: SubnetPlanningSegment[]; segmentsTruncated?: boolean;
+};
+/** Read-only planning preview. `prefix` asks for aligned blocks of that size; `count` empty means as many as fit. */
+export function getSubnetPlanning(id: string, request: { prefix?: number | null; count?: number | null } = {}): Promise<SubnetPlanning> {
+  const params = new URLSearchParams();
+  if (request.prefix !== undefined && request.prefix !== null) params.set('prefix', String(request.prefix));
+  if (request.prefix !== undefined && request.prefix !== null && request.count) params.set('count', String(request.count));
+  const query = params.toString();
+  return apiFetch<SubnetPlanning>(`/api/v1/subnets/${id}/planning${query ? `?${query}` : ''}`);
 }
 export function getIpAddress(id: string): Promise<IpAddressRow> {
   return apiFetch<IpAddressRow>(`/api/v1/ip-addresses/${id}`);
