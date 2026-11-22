@@ -29,7 +29,12 @@ export type PlanningRequest = { prefix: number; count?: number | null };
 
 export type PlannedBlock = { cidr: string; prefix: number; start: string; end: string; size: number; usable: number };
 export type PlanningMapSegment = {
-  status: 'FREE' | 'TAKEN' | 'PLANNED';
+  /**
+   * RESERVED: the parent's own network or broadcast address (parents up to /30), counted as unavailable like Utilização does.
+   * CONFLICT: an aligned candidate block of the requested size that the plan skipped; `conflicts` says why and
+   * `breakdown` splits its addresses so the map's free total still matches `addressSpace.freeAfterPlan`.
+   */
+  status: 'FREE' | 'TAKEN' | 'PLANNED' | 'RESERVED' | 'CONFLICT';
   start: string;
   end: string;
   count: number;
@@ -39,7 +44,17 @@ export type PlanningMapSegment = {
   kinds?: PlanningAllocationKind[];
   label?: string | null;
   subnetId?: string | null;
+  conflicts?: PlanningConflict[];
+  breakdown?: { taken: number; reserved: number; free: number };
 };
+/**
+ * An aligned candidate the plan passed over, with the reason. `insideExisting` means the candidate lies inside an
+ * existing subnet (then `cidr` is that subnet and `blocks` how many candidates it holds), so the map keeps the
+ * subnet's own row instead of drawing a conflict row.
+ */
+export type SkippedBlock = { cidr: string; prefix: number; start: string; end: string; size: number; blocks: number; insideExisting: boolean; conflicts: PlanningConflict[] };
+/** The most skipped rows one preview returns. */
+export const MAX_SKIPPED_BLOCKS = 256;
 export type PlanningShortfall = { prefix: number; requested: number | null; planned: number; missing: number | null; reason: 'PREFIX_SHORTER_THAN_PARENT' | 'NO_FREE_ALIGNED_BLOCK' | 'NOT_ENOUGH_FREE_SPACE' | 'TRUNCATED' };
 
 // ---------------------------------------------------------------- primitives
@@ -176,6 +191,45 @@ export function collectAllocations(parent: { network: number; broadcast: number;
   return out;
 }
 
+function overlapCount(items: Interval[], start: number, end: number) {
+  return items.reduce((sum, item) => sum + Math.max(0, Math.min(item.end, end) - Math.max(item.start, start) + 1), 0);
+}
+
+/**
+ * Aligned candidates of `prefix` inside the parent that overlap a blocker and start at or below `maxStart`.
+ * A blocker subnet at least as large as a candidate becomes one grouped row (all the candidates it holds);
+ * smaller blockers (hosts, the gateway, small subnets) mark the single candidate that contains them.
+ * Works per blocker, so a large parent is never walked block by block.
+ */
+function skippedCandidates(network: number, broadcast: number, prefix: number, blockers: PlanningAllocation[], maxStart: number, cap: number) {
+  const size = blockSize(prefix);
+  const rows: Array<{ start: number; size: number; prefix: number; blocks: number; insideExisting: boolean; conflicts: PlanningConflict[] }> = [];
+  if (cap <= 0) return { rows, truncated: blockers.length > 0 };
+  // Outermost subnets only: a subnet nested in another one is already part of that group.
+  const groups: Interval[] = [];
+  for (const item of blockers.filter((b) => b.kind === 'SUBNET' && b.end - b.start + 1 >= size).sort((a, b) => (b.end - b.start) - (a.end - a.start) || a.start - b.start)) {
+    if (!groups.some((group) => item.start >= group.start && item.end <= group.end)) groups.push({ start: item.start, end: item.end });
+  }
+  const inGroup = (start: number) => groups.some((group) => start >= group.start && start + size - 1 <= group.end);
+  const singles = new Set<number>();
+  for (const item of blockers) {
+    if (item.kind === 'SUBNET' && item.end - item.start + 1 >= size) continue;
+    for (let start = Math.floor(item.start / size) * size; start <= item.end; start += size) if (start >= network && start + size - 1 <= broadcast && !inGroup(start)) singles.add(start);
+  }
+  const entries: Array<{ start: number; group?: Interval }> = [...groups.map((group) => ({ start: group.start, group })), ...[...singles].map((start) => ({ start }))].sort((a, b) => a.start - b.start);
+  let truncated = false;
+  for (const entry of entries) {
+    if (entry.start > maxStart) break;
+    if (rows.length >= cap) { truncated = true; break; }
+    if (entry.group) {
+      const groupSize = entry.group.end - entry.group.start + 1;
+      const conflicts = blockConflicts(entry.group.start, entry.group.end, blockers).filter((item) => item.kind === 'SUBNET');
+      rows.push({ start: entry.group.start, size: groupSize, prefix, blocks: groupSize / size, insideExisting: true, conflicts });
+    } else rows.push({ start: entry.start, size, prefix, blocks: 1, insideExisting: false, conflicts: blockConflicts(entry.start, entry.start + size - 1, blockers) });
+  }
+  return { rows, truncated };
+}
+
 // ---------------------------------------------------------------- plan
 
 /**
@@ -215,6 +269,8 @@ export function planIpv4Subnet(cidr: string, allocations: PlanningAllocation[], 
   const ordered = requests
     .map((request, index) => ({ ...request, index }))
     .sort((a, b) => a.prefix - b.prefix || a.index - b.index);
+  const skippedRaw: Array<{ start: number; size: number; prefix: number; blocks: number; insideExisting: boolean; conflicts: PlanningConflict[] }> = [];
+  let skippedTruncated = false;
   for (const request of ordered) {
     const requested = request.count ?? null;
     if (request.prefix < parentPrefix) { shortfalls.push({ prefix: request.prefix, requested, planned: 0, missing: requested, reason: 'PREFIX_SHORTER_THAN_PARENT' }); continue; }
@@ -224,9 +280,18 @@ export function planIpv4Subnet(cidr: string, allocations: PlanningAllocation[], 
     // Ask for one more than the limit so a capped "as many as fit" run knows it was cut short.
     const starts = placeAligned(free, request.prefix, limit + 1);
     const placed = starts.slice(0, limit);
+    // What this request had to step over: existing allocations plus blocks planned by earlier (larger) requests.
+    const blockers: PlanningAllocation[] = [...clipped, ...planned.map((block) => ({ kind: 'SUBNET' as const, start: block.start, end: block.start + blockSize(block.prefix) - 1, label: `${formatIpv4(block.start)}/${block.prefix} (planeado)` }))];
     for (const start of placed) planned.push({ start, prefix: request.prefix });
     occupied = mergeIntervals([...occupied, ...placed.map((start) => ({ start, end: start + blockSize(request.prefix) - 1 }))]);
     const truncated = starts.length > limit && (requested === null || requested > remaining);
+    // Skipped candidates: all of them when the request was not fully met (or had no count), otherwise only those
+    // below the last placed block, the ones placement actually passed over.
+    const exhaustive = !truncated && (requested === null || placed.length < requested);
+    const below = exhaustive ? broadcast : placed.length ? placed[placed.length - 1] - 1 : network - 1;
+    const found = skippedCandidates(network, broadcast, request.prefix, blockers, below, MAX_SKIPPED_BLOCKS - skippedRaw.length);
+    skippedRaw.push(...found.rows);
+    if (found.truncated) skippedTruncated = true;
     if (truncated) shortfalls.push({ prefix: request.prefix, requested, planned: placed.length, missing: requested === null ? null : requested - placed.length, reason: 'TRUNCATED' });
     else if (requested !== null && placed.length < requested) shortfalls.push({ prefix: request.prefix, requested, planned: placed.length, missing: requested - placed.length, reason: placed.length ? 'NOT_ENOUGH_FREE_SPACE' : 'NO_FREE_ALIGNED_BLOCK' });
     else if (requested === null && placed.length === 0) shortfalls.push({ prefix: request.prefix, requested, planned: 0, missing: null, reason: 'NO_FREE_ALIGNED_BLOCK' });
@@ -238,7 +303,7 @@ export function planIpv4Subnet(cidr: string, allocations: PlanningAllocation[], 
   });
 
   // --- the parent map: every address of the parent in order, as FREE / TAKEN / PLANNED rows.
-  const marks: Array<Interval & { status: 'TAKEN' | 'PLANNED'; kinds?: PlanningAllocationKind[]; label?: string | null; subnetId?: string | null }> = [];
+  const marks: Array<Interval & { status: 'TAKEN' | 'PLANNED' | 'RESERVED'; kinds?: PlanningAllocationKind[]; label?: string | null; subnetId?: string | null }> = [];
   for (const block of planned) marks.push({ start: block.start, end: block.start + blockSize(block.prefix) - 1, status: 'PLANNED' });
   // Subnets keep their own row; host-level rows next to each other are merged into one run.
   const subnets = clipped.filter((item) => item.kind === 'SUBNET').sort((a, b) => a.start - b.start);
@@ -253,19 +318,42 @@ export function planIpv4Subnet(cidr: string, allocations: PlanningAllocation[], 
       if (item.kind === 'GATEWAY') lastMark.label = item.label ?? lastMark.label;
     } else marks.push({ start: item.start, end: item.end, status: 'TAKEN', kinds: [item.kind], label: item.kind === 'GATEWAY' ? item.label ?? null : null });
   }
+  // The parent's network and broadcast addresses (parents up to /30) count as unavailable in Utilização, so the map
+  // shows them as reserved rather than free, unless something else (a subnet, a host, a planned block) already covers them.
+  const plannedIntervals = planned.map((block) => ({ start: block.start, end: block.start + blockSize(block.prefix) - 1 }));
+  const covered = (value: number) => taken.some((item) => value >= item.start && value <= item.end) || plannedIntervals.some((item) => value >= item.start && value <= item.end);
+  const edges = parentPrefix >= 31 ? [] : [{ value: network, label: 'Endereço de rede' }, { value: broadcast, label: 'Endereço de broadcast' }].filter((edge) => !covered(edge.value));
+  for (const edge of edges) marks.push({ start: edge.value, end: edge.value, status: 'RESERVED', label: edge.label });
   marks.sort((a, b) => a.start - b.start || b.end - a.end);
+
+  // Skipped candidates that do not sit inside an existing subnet get one conflict row covering the whole block.
+  const conflictRows = skippedRaw.filter((item) => !item.insideExisting && !plannedIntervals.some((p) => p.start <= item.start + item.size - 1 && item.start <= p.end)).sort((a, b) => a.start - b.start);
   const segments: PlanningMapSegment[] = [];
-  let cursor = network;
   const pushFree = (start: number, end: number) => { if (start <= end) segments.push({ status: 'FREE', start: formatIpv4(start), end: formatIpv4(end), count: end - start + 1, cidrs: rangeToCidrs(start, end) }); };
-  for (const mark of marks) {
-    if (mark.end < cursor) continue; // fully covered by an earlier (overlapping) subnet row
-    const start = Math.max(mark.start, cursor);
-    pushFree(cursor, start - 1);
-    const exact = rangeToCidrs(start, mark.end);
-    segments.push({ status: mark.status, start: formatIpv4(start), end: formatIpv4(mark.end), count: mark.end - start + 1, cidrs: exact.length === 1 ? exact : [], ...(mark.kinds ? { kinds: mark.kinds } : {}), ...(mark.label !== undefined ? { label: mark.label } : {}), ...(mark.subnetId ? { subnetId: mark.subnetId } : {}) });
-    cursor = mark.end + 1;
+  const emitRange = (from: number, to: number) => {
+    let cursor = from;
+    for (const mark of marks) {
+      if (mark.end < cursor || mark.start > to) continue; // outside the range, or fully covered by an earlier (overlapping) subnet row
+      const start = Math.max(mark.start, cursor);
+      const end = Math.min(mark.end, to);
+      pushFree(cursor, start - 1);
+      const exact = rangeToCidrs(start, end);
+      segments.push({ status: mark.status, start: formatIpv4(start), end: formatIpv4(end), count: end - start + 1, cidrs: exact.length === 1 && mark.status !== 'RESERVED' ? exact : [], ...(mark.kinds ? { kinds: mark.kinds } : {}), ...(mark.label !== undefined ? { label: mark.label } : {}), ...(mark.subnetId ? { subnetId: mark.subnetId } : {}) });
+      cursor = end + 1;
+      if (cursor > to) return;
+    }
+    pushFree(cursor, to);
+  };
+  let from = network;
+  for (const row of conflictRows) {
+    const end = row.start + row.size - 1;
+    if (row.start > from) emitRange(from, row.start - 1);
+    const takenHere = overlapCount(taken, row.start, end);
+    const reservedHere = edges.filter((edge) => edge.value >= row.start && edge.value <= end).length;
+    segments.push({ status: 'CONFLICT', start: formatIpv4(row.start), end: formatIpv4(end), count: row.size, cidrs: [`${formatIpv4(row.start)}/${row.prefix}`], label: row.conflicts.map((item) => item.label).join(' · '), conflicts: row.conflicts, breakdown: { taken: takenHere, reserved: reservedHere, free: row.size - takenHere - reservedHere } });
+    from = end + 1;
   }
-  pushFree(cursor, broadcast);
+  if (from <= broadcast) emitRange(from, broadcast);
   const segmentsTruncated = segments.length > MAX_MAP_SEGMENTS;
 
   const parentSize = blockSize(parentPrefix);
@@ -285,9 +373,13 @@ export function planIpv4Subnet(cidr: string, allocations: PlanningAllocation[], 
     usableGaps: usableGapsRaw.map((gap) => ({ start: formatIpv4(gap.start), end: formatIpv4(gap.end), count: gap.end - gap.start + 1 })),
     unavailableAddresses: [...new Set(unavailableAddresses)].sort((a, b) => a - b).map(formatIpv4),
     childSubnets: subnets.length,
-    addressSpace: { total: parentSize, taken: takenCount, planned: plannedCount, freeAfterPlan: parentSize - takenCount - plannedCount },
+    // reserved: the parent's network/broadcast not already covered by an allocation or a planned block. With no plan,
+    // freeAfterPlan equals `free` (Utilização); the map's FREE rows plus each CONFLICT row's breakdown.free add up to it.
+    addressSpace: { total: parentSize, taken: takenCount, reserved: edges.length, planned: plannedCount, freeAfterPlan: parentSize - takenCount - edges.length - plannedCount },
     requests: requests.map((request) => ({ prefix: request.prefix, count: request.count ?? null })),
     planned: plannedBlocks,
+    skipped: skippedRaw.sort((a, b) => a.start - b.start).map((item): SkippedBlock => ({ cidr: rangeToCidrs(item.start, item.start + item.size - 1)[0], prefix: item.prefix, start: formatIpv4(item.start), end: formatIpv4(item.start + item.size - 1), size: item.size, blocks: item.blocks, insideExisting: item.insideExisting, conflicts: item.conflicts })),
+    skippedTruncated,
     shortfalls,
     segments: segmentsTruncated ? segments.slice(0, MAX_MAP_SEGMENTS) : segments,
     segmentsTruncated,

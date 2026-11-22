@@ -81,15 +81,18 @@ export function getSubnetCapacityHistory(id: string): Promise<SubnetCapacityHist
 
 export type SubnetPlanningAllocationKind = 'SUBNET' | 'HOST' | 'RESERVED' | 'GATEWAY';
 export type SubnetPlannedBlock = { cidr: string; prefix: number; start: string; end: string; size: number; usable: number };
-export type SubnetPlanningSegment = { status: 'FREE' | 'TAKEN' | 'PLANNED'; start: string; end: string; count: number; cidrs: string[]; kinds?: SubnetPlanningAllocationKind[]; label?: string | null; subnetId?: string };
+/** RESERVED: the parent's network/broadcast address. CONFLICT: an aligned candidate the plan skipped, with why and how its addresses split. */
+export type SubnetPlanningSegment = { status: 'FREE' | 'TAKEN' | 'PLANNED' | 'RESERVED' | 'CONFLICT'; start: string; end: string; count: number; cidrs: string[]; kinds?: SubnetPlanningAllocationKind[]; label?: string | null; subnetId?: string; conflicts?: SubnetPlanningConflict[]; breakdown?: { taken: number; reserved: number; free: number } };
+/** A candidate block the plan passed over. `insideExisting`: `cidr` is the existing subnet holding `blocks` candidates. */
+export type SubnetSkippedBlock = { cidr: string; prefix: number; start: string; end: string; size: number; blocks: number; insideExisting: boolean; conflicts: SubnetPlanningConflict[] };
 export type SubnetPlanningShortfall = { prefix: number; requested: number | null; planned: number; missing: number | null; reason: 'PREFIX_SHORTER_THAN_PARENT' | 'NO_FREE_ALIGNED_BLOCK' | 'NOT_ENOUGH_FREE_SPACE' | 'TRUNCATED' };
 export type SubnetPlanning = {
   subnet: Subnet; version: number; network?: string; broadcast?: string; prefix?: number; size?: number;
   usableRange?: { start: string; end: string } | null; usableTotal?: number; unavailable?: number; free?: number; utilizationPercent: number | null;
   usableGaps: Array<{ start: string; end: string; count: number }>; unavailableAddresses?: string[]; message?: string;
   scope?: { vrfId: string | null; vrfName: string | null; siteId?: string | null; siteName?: string | null }; childSubnets?: number;
-  addressSpace?: { total: number; taken: number; planned: number; freeAfterPlan: number };
-  planned?: SubnetPlannedBlock[]; shortfalls?: SubnetPlanningShortfall[]; segments?: SubnetPlanningSegment[]; segmentsTruncated?: boolean;
+  addressSpace?: { total: number; taken: number; reserved?: number; planned: number; freeAfterPlan: number };
+  planned?: SubnetPlannedBlock[]; skipped?: SubnetSkippedBlock[]; skippedTruncated?: boolean; shortfalls?: SubnetPlanningShortfall[]; segments?: SubnetPlanningSegment[]; segmentsTruncated?: boolean;
   split?: { rows: SubnetSplitRow[]; total: number; truncated: boolean };
 };
 export type SubnetPlanningConflict = { kind: SubnetPlanningAllocationKind; start: string; end: string; count: number; label: string; subnetId?: string };

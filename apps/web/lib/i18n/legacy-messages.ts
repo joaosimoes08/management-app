@@ -1019,6 +1019,7 @@ const enUS: LegacyDictionary = {
   'Pesquisar VRF ou route distinguisher…': 'Search VRF or route distinguisher…',
   'Pesquisar regra NAT ou endereço…': 'Search NAT rule or address…',
   'Pesquisar importações RIPE…': 'Search RIPE imports…',
+  'Pesquisar subnet, VRF ou Site…': 'Search subnet, VRF or Site…',
   'VRFs do Site': 'Site VRFs',
   'Instâncias de routing do Site e as subnets que pertencem a cada uma.': 'Routing instances of the Site and the subnets that belong to each one.',
   'Novo VRF': 'New VRF',
