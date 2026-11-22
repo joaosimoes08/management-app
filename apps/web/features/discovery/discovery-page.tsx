@@ -16,6 +16,7 @@ import {
   type DiscoveryComparison, type DiscoveryComparisonItem, type DiscoveryDefaults, type DiscoveryJobPayload, type DiscoveryResult, type SnmpPreRegistration, type SnmpPreRegistrationInput,
 } from './api';
 import { DiscoverySchedulePanel } from './discovery-schedule-panel';
+import { DiscoveryMissingSection } from './discovery-missing';
 import { DiscoveryResultsTable, formatDurationMs } from './discovery-results';
 import type { BulkReviewResponse } from '@/components/ui/bulk-review-dialog';
 import { useConfirm } from '@/components/ui/confirm-dialog';
@@ -72,7 +73,7 @@ export default function DiscoveryPage() {
     {error && <div className="ipam-alert error"><X size={15} />{error}</div>}
     {tab === 'network' && jobsError && <div className="ipam-alert error" role="alert"><X size={15} />{jobsError instanceof Error ? jobsError.message : 'Não foi possível carregar as execuções.'}</div>}
     {tab === 'network' && jobStatus && <p className="ipam-scope-note" role="status">Filtros aplicados: <strong>Estado: {jobStatus.split(',').map((value) => discoveryStatusLabels[value.trim().toUpperCase()] ?? value.trim()).join(', ')}</strong> <button type="button" className="text-button" onClick={clearJobStatus}><X size={12} /> Limpar filtros</button></p>}
-    {tab === 'network' ? <><NetworkDiscovery jobs={visibleJobs} allJobs={jobs} results={results} selectedJob={selectedJob} selectJob={setSelectedJob} canEdit={canEdit} review={review} bulkDone={bulkDone} searching={Boolean(normalized)} /><DiscoverySchedulePanel subnets={subnets} canEdit={canEdit} onError={setError} /></> : <SnmpDiscovery devices={snmpDevices} siteId={siteId} waiting={waiting} discovered={discovered} admin={admin} canEdit={canEdit} renew={renew} cancel={cancel} accept={openCandidate} searching={Boolean(normalized)} />}
+    {tab === 'network' ? <><NetworkDiscovery jobs={visibleJobs} allJobs={jobs} results={results} selectedJob={selectedJob} selectJob={setSelectedJob} canEdit={canEdit} review={review} bulkDone={bulkDone} searching={Boolean(normalized)} /><DiscoveryMissingSection siteId={siteId} canEdit={canEdit} searching={Boolean(normalized)} search={normalized} /><DiscoverySchedulePanel subnets={subnets} canEdit={canEdit} onError={setError} /></> : <SnmpDiscovery devices={snmpDevices} siteId={siteId} waiting={waiting} discovered={discovered} admin={admin} canEdit={canEdit} renew={renew} cancel={cancel} accept={openCandidate} searching={Boolean(normalized)} />}
     {networkModal && <NetworkModal form={networkForm} setForm={setNetworkForm} subnets={subnets} profiles={defaults?.profiles ?? []} close={() => setNetworkModal(false)} submit={createNetwork} />}
     {enrollmentModal && <EnrollmentModal form={enrollmentForm} setForm={setEnrollmentForm} close={() => setEnrollmentModal(false)} submit={saveEnrollment} />}
     {candidate && <AcceptModal candidate={candidate} form={acceptForm} setForm={setAcceptForm} models={models.filter((model) => model.type === acceptForm.type)} close={() => setCandidate(null)} submit={accept} />}

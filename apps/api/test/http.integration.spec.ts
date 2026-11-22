@@ -1597,6 +1597,44 @@ test('Phase D discovery: bulk review with per-item results, IPAM state per resul
   assert.equal((await request('POST', '/api/v1/discovery/results/bulk-review', 'qa-network-scoped', { ids: [known.id], status: 'PENDING' })).statusCode, 400);
 });
 
+test('Round 2 #6/#14 Desaparecidos: scoped list, Marcar livre per item with roles and validation, Qualidade rule', async () => {
+  const dayAgo = new Date(Date.now() - 86_400_000);
+  const ipA = await prisma.ipAddress.create({ data: { subnetId: ids.subnetA, address: '10.250.1.233', state: 'OCCUPIED' } });
+  const ipB = await prisma.ipAddress.create({ data: { subnetId: ids.subnetB, address: '10.250.2.233', state: 'OCCUPIED' } });
+  await prisma.$executeRaw`UPDATE "IpAddress" SET "updatedAt" = now() - interval '10 days' WHERE "id" IN (${ipA.id}::uuid, ${ipB.id}::uuid)`;
+  for (const subnetId of [ids.subnetA, ids.subnetB]) await prisma.discoveryJob.create({ data: { name: 'R2 missing scan', subnetId, methods: ['ICMP'], status: 'COMPLETED', startedAt: dayAgo, completedAt: new Date(dayAgo.getTime() + 30_000), createdAt: dayAgo } });
+
+  const addresses = (response: { body: string }) => json(response).items.map((item: { address: string }) => item.address).filter((address: string) => address.endsWith('.233'));
+  assert.deepEqual(addresses(await request('GET', '/api/v1/discovery/missing', 'qa-network-scoped')), ['10.250.1.233']);
+  assert.deepEqual(addresses(await request('GET', `/api/v1/discovery/missing?subnetId=${ids.subnetB}`, 'qa-network-scoped')), []);
+  assert.deepEqual(addresses(await request('GET', '/api/v1/discovery/missing', 'qa-admin')), ['10.250.1.233', '10.250.2.233']);
+  assert.deepEqual(addresses(await request('GET', `/api/v1/discovery/missing?siteId=${ids.siteB}`, 'qa-admin')), ['10.250.2.233']);
+  assert.equal((await request('GET', '/api/v1/discovery/missing?siteId=nope', 'qa-admin')).statusCode, 400);
+
+  assert.equal((await request('POST', '/api/v1/discovery/missing/mark-free', 'qa-auditor', { ipIds: [ipA.id] })).statusCode, 403);
+  for (const payload of [{ ipIds: [] }, { ipIds: [ipA.id, ipA.id] }, { ipIds: ['nope'] }, {}]) assert.equal((await request('POST', '/api/v1/discovery/missing/mark-free', 'qa-network-scoped', payload)).statusCode, 400, JSON.stringify(payload));
+
+  const marked = await request('POST', '/api/v1/discovery/missing/mark-free', 'qa-network-scoped', { ipIds: [ipA.id, ipB.id] });
+  assert.equal(marked.statusCode, 201, marked.body);
+  const body = json(marked);
+  assert.deepEqual(body.results.map((item: { ipId: string; ok: boolean }) => [item.ipId, item.ok]), [[ipA.id, true], [ipB.id, false]]);
+  assert.ok(['FORBIDDEN', 'NOT_FOUND'].includes(body.results[1].code));
+  assert.equal((await prisma.ipAddress.findUniqueOrThrow({ where: { id: ipA.id } })).state, 'FREE');
+  assert.equal((await prisma.ipAddress.findUniqueOrThrow({ where: { id: ipB.id } })).state, 'OCCUPIED');
+  assert.equal(await prisma.auditLog.count({ where: { action: 'IP_ADDRESS_MARKED_FREE', entityId: ipA.id, userId: ids.scoped } }), 1);
+  const again = json(await request('POST', '/api/v1/discovery/missing/mark-free', 'qa-network-scoped', { ipIds: [ipA.id] }));
+  assert.deepEqual(again.results.map((item: { code: string }) => item.code), ['NOT_MISSING']);
+
+  // Qualidade: the address still missing appears as an IP_OCCUPIED_NOT_SEEN finding with a link to IPAM.
+  assert.equal((await request('POST', '/api/v1/inventory-quality/reconcile', 'qa-admin', {})).statusCode, 201);
+  const findings = json(await request('GET', '/api/v1/inventory-quality/findings?rule=IP_OCCUPIED_NOT_SEEN&pageSize=100', 'qa-admin'));
+  const finding = findings.items.find((item: { entityId: string }) => item.entityId === ipB.id);
+  assert.ok(finding, 'missing IP finding');
+  assert.equal(finding.severity, 'WARNING');
+  assert.equal(finding.actionHref, `/ipam?siteId=${ids.siteB}&subnetId=${ids.subnetB}&ipId=${ipB.id}`);
+  assert.equal(findings.items.some((item: { entityId: string }) => item.entityId === ipA.id), false);
+});
+
 test('Phase D SNMP: fleet summary, drift list and bulk drift review stay inside the visible Sites', async () => {
   const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000);
   await prisma.snmpDeviceConfig.upsert({ where: { deviceId: ids.deviceA2 }, create: { deviceId: ids.deviceA2, enabled: true, lastStatus: 'FAILED', lastPollAt: minutesAgo(5), lastErrorCode: 'TIMEOUT' }, update: { enabled: true, lastStatus: 'FAILED', lastPollAt: minutesAgo(5), lastErrorCode: 'TIMEOUT' } });

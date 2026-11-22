@@ -1564,6 +1564,8 @@ model IpAddress {
   interface          DeviceInterface? @relation(fields: [interfaceId], references: [id], onDelete: SetNull)
   host               Host?            @relation(fields: [hostId], references: [id], onDelete: SetNull)
   reservations       IpReservation[]
+  /// Round 2 #6/#14: when the record last changed, so drift rules only compare it with scans that ran after the change.
+  updatedAt          DateTime         @default(now()) @updatedAt
 
   @@unique([subnetId, address])
   @@index([hostname])
