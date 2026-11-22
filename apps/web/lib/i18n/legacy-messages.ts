@@ -302,6 +302,8 @@ const enUS: LegacyDictionary = {
   'Sobreposição com manutenção existente': 'Overlaps existing maintenance',
   'Sobreposição com alterações submetidas/aprovadas': 'Overlaps submitted/approved changes',
   'Editar rascunho': 'Edit draft',
+  'Duplicar plano': 'Duplicate plan',
+  'Cópia de': 'Copy of',
   'Recalcular pré-visualização': 'Recalculate preview',
   'Submeter para revisão': 'Submit for review',
   'Guarda uma pré-visualização completa e atual antes de submeter.': 'Save a complete, current preview before submitting.',
