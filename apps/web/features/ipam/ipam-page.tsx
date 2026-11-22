@@ -18,9 +18,6 @@ import {
   getHost,
   getNetworkMap,
   getSubnet,
-  getSubnetCapacityHistory,
-  getSubnetUsage,
-  listIpAddresses,
   listSubnets,
   listVrfs,
   releaseIpReservation,
@@ -36,6 +33,7 @@ import type {
   SubnetInput,
   VlanInput,
 } from './types';
+import { prefetchSubnetDetail, subnetDetailQueries } from './subnet-detail-queries';
 import { Empty, IpamModal } from './components/ipam-modal';
 import { CalculatorView } from './components/calculator-view';
 import { SubnetPlanningView } from './components/subnet-planning-view';
@@ -150,24 +148,10 @@ export default function IpamPage() {
     queryFn: () => getSubnet(selectedSubnetId),
     enabled: Boolean(selectedSubnetId),
   });
-  const { data: usage, isLoading: loadingUsage } = useQuery({
-    queryKey: ['ipam', 'usage', selectedSubnetId],
-    queryFn: () => getSubnetUsage(selectedSubnetId),
-    enabled: Boolean(selectedSubnetId),
-  });
-  const { data: capacityHistory, isLoading: loadingCapacityHistory } = useQuery({
-    queryKey: ['ipam', 'capacity-history', selectedSubnetId],
-    queryFn: () => getSubnetCapacityHistory(selectedSubnetId),
-    enabled: Boolean(selectedSubnetId),
-  });
-  const { data: ipsData, isLoading: loadingIps } = useQuery({
-    queryKey: ['ipam', 'ips', selectedSubnetId, search],
-    queryFn: async () => {
-      const requestEpoch = reservationMutationEpoch.current;
-      return { ...await listIpAddresses(selectedSubnetId, search), reservationRequestEpoch: requestEpoch };
-    },
-    enabled: Boolean(selectedSubnetId),
-  });
+  const subnetQueries = subnetDetailQueries(selectedSubnetId, search, reservationMutationEpoch);
+  const { data: usage, isLoading: loadingUsage } = useQuery({ ...subnetQueries.usage, enabled: Boolean(selectedSubnetId) });
+  const { data: capacityHistory, isLoading: loadingCapacityHistory } = useQuery({ ...subnetQueries.capacityHistory, enabled: Boolean(selectedSubnetId) });
+  const { data: ipsData, isLoading: loadingIps } = useQuery({ ...subnetQueries.ips, enabled: Boolean(selectedSubnetId) });
   const { data: hostDetail } = useQuery({
     queryKey: ['ipam', 'host', hostDetailId],
     queryFn: () => getHost(hostDetailId),
@@ -224,6 +208,7 @@ export default function IpamPage() {
 
   const openSubnet = async (id: string, preserveIp = false) => {
     try {
+      prefetchSubnetDetail(queryClient, id, search, reservationMutationEpoch);
       const detail = await getSubnet(id);
       queryClient.setQueryData(['ipam', 'subnet', id], detail);
       setSelectedSubnetId(id);

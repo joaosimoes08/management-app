@@ -22,8 +22,9 @@ vi.mock('@/lib/api/client', () => ({
 }));
 
 function SiteConsumer() {
-  const { activeSite, activateSite } = useSiteContext();
+  const { activeSite, activateSite, resolved, siteId } = useSiteContext();
   return createElement(Fragment, null,
+    createElement('span', { 'data-testid': 'resolved' }, resolved ? `resolved:${siteId}` : 'pending'),
     createElement('span', { 'data-testid': 'active-site' }, activeSite?.name),
     createElement('button', { onClick: () => activateSite('beta') }, 'Escolher Beta'),
   );
@@ -73,5 +74,14 @@ describe('SiteProvider', () => {
     expect(window.location.search).toBe('?siteId=beta');
     expect(navigation.replace).toHaveBeenCalledWith('/ipam?siteId=beta', { scroll: false });
     expect(within(switcher).queryByText('Todos os Sites')).not.toBeInTheDocument();
+  });
+
+  it('reports the site as resolved only together with the resolved siteId', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const seen: string[] = [];
+    function Recorder() { const { resolved, siteId } = useSiteContext(); seen.push(resolved ? `resolved:${siteId}` : `pending:${siteId}`); return null; }
+    render(createElement(QueryClientProvider, { client: queryClient }, createElement(SiteProvider, null, createElement(Recorder))));
+    await waitFor(() => expect(seen.at(-1)).toBe('resolved:alpha'));
+    expect(seen.filter((entry) => entry.startsWith('resolved:')).every((entry) => entry === 'resolved:alpha')).toBe(true);
   });
 });

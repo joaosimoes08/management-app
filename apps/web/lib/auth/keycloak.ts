@@ -1,5 +1,6 @@
 import Keycloak from 'keycloak-js';
 import { getPublicRuntimeConfig } from '@/lib/runtime-config';
+import { skipThirdPartyCookieCheckOnSameHost } from './third-party-cookie-check';
 
 let keycloak: Keycloak | null = null;
 
@@ -7,11 +8,13 @@ let keycloakInitPromise: Promise<boolean> | null = null;
 
 function createKeycloak(): Keycloak {
   const publicConfig = getPublicRuntimeConfig();
-  return new Keycloak({
+  const instance = new Keycloak({
     url: publicConfig.keycloakUrl,
     realm: publicConfig.keycloakRealm,
     clientId: publicConfig.keycloakClientId,
   });
+  skipThirdPartyCookieCheckOnSameHost(instance, publicConfig.keycloakUrl, window.location.href);
+  return instance;
 }
 
 function initInstance(instance: Keycloak): Promise<boolean> {

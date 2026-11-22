@@ -2,10 +2,10 @@
 
 import type { KeycloakProfile } from 'keycloak-js';
 import { createContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { setApiTokenProvider, setApiUnauthorizedHandler } from '@/lib/api/client';
+import { apiFetch, setApiTokenProvider, setApiUnauthorizedHandler } from '@/lib/api/client';
 import { getPublicRuntimeConfig } from '@/lib/runtime-config';
 import { getKeycloakInstance, initializeKeycloak } from './keycloak';
-import type { ApiUser, AuthContextValue } from './types';
+import type { ApiUser, AuthContextValue, SetupStatus } from './types';
 
 export const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
@@ -16,6 +16,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<ApiUser | null>(null);
   const [profile, setProfile] = useState<KeycloakProfile | null>(null);
   const [token, setToken] = useState<string>();
+  const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null);
+  const [setupStatusError, setSetupStatusError] = useState<string | null>(null);
   const refreshTimer = useRef<number | undefined>(undefined);
   const tokenRefreshPromise = useRef<Promise<string> | null>(null);
   const keycloakRef = useRef<ReturnType<typeof getKeycloakInstance> | null>(null);
@@ -88,20 +90,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setAuthenticated(isAuthenticated);
         setToken(keycloak.token);
         if (isAuthenticated) {
-          try {
-            setProfile(await keycloak.loadUserProfile());
-          } catch {
-            // The API identity is authoritative for application access. A
-            // profile endpoint failure must not turn a valid Keycloak session
-            // into a login loop.
-            setProfile(null);
-          }
-          try {
-            if (!keycloak.token) throw new Error('O Keycloak não devolveu um access token.');
-            await loadIdentity(keycloak.token);
-          } catch {
+          // Profile, API identity and setup status only need the access token, so they load
+          // together instead of one after another. `loading` stays true until all three settle,
+          // which keeps the gate and the locale on one decision and mounts the app once.
+          const accessToken = keycloak.token;
+          const [profileResult, identityResult, setupResult] = await Promise.allSettled([
+            keycloak.loadUserProfile(),
+            accessToken ? loadIdentity(accessToken) : Promise.reject(new Error('O Keycloak não devolveu um access token.')),
+            accessToken ? apiFetch<SetupStatus>('/api/v1/setup/status') : Promise.reject(new Error('O Keycloak não devolveu um access token.')),
+          ]);
+          if (!active) return;
+          // The API identity is authoritative for application access. A profile endpoint
+          // failure must not turn a valid Keycloak session into a login loop.
+          setProfile(profileResult.status === 'fulfilled' ? profileResult.value : null);
+          if (identityResult.status === 'rejected') {
             setAuthenticated(false);
             setUser(null);
+          } else if (setupResult.status === 'fulfilled') {
+            setSetupStatus(setupResult.value);
+            setSetupStatusError(null);
+          } else {
+            setSetupStatus(null);
+            setSetupStatusError(setupResult.reason instanceof Error ? setupResult.reason.message : 'Não foi possível validar o setup inicial.');
           }
         }
       })
@@ -129,6 +139,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const retry = useCallback(() => window.location.reload(), []);
   const hasRole = useCallback((role: string) => user?.roles.includes(role) ?? false, [user]);
 
-  const value = useMemo(() => ({ keycloak: keycloakRef.current, user, profile, token, loading, authError, authenticated, login, logout, retry, hasRole }), [user, profile, token, loading, authError, authenticated, login, logout, retry, hasRole]);
+  const value = useMemo(() => ({ keycloak: keycloakRef.current, user, profile, token, loading, authError, authenticated, setupStatus, setupStatusError, login, logout, retry, hasRole }), [user, profile, token, loading, authError, authenticated, setupStatus, setupStatusError, login, logout, retry, hasRole]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

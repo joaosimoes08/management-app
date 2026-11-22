@@ -3,8 +3,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/lib/auth';
 import { translateLegacyText } from './legacy-messages';
-import { apiFetch } from '@/lib/api/client';
-import { getSharedSetupStatus } from '@/lib/setup/shared-setup-status';
 import { getConfiguredLocale, hasSavedOrganizationLocale } from '@/lib/runtime-config';
 import { setFormatLocale } from '@/lib/format/date';
 
@@ -402,22 +400,30 @@ export function observeLegacyDom(locale: AppLocale, root: Node) {
   return () => observer.disconnect();
 }
 
+/** The organization locale to apply, or null when setup has not saved one (same rule as before). */
+export function organizationLocaleFrom(status: { setupCompleted: boolean; organizationName?: string | null; locale?: string | null } | null | undefined): AppLocale | null {
+  if (!status || !hasSavedOrganizationLocale(status)) return null;
+  return status.locale === 'pt-PT' || status.locale === 'en-US' ? status.locale : null;
+}
+
 export function I18nProvider({ children }: { children: React.ReactNode }) {
-  const { authenticated, loading: authLoading } = useAuth();
-  const [locale, setLocaleState] = useState<AppLocale>('pt-PT'); const [loading, setLoading] = useState(false);
+  const { setupStatus } = useAuth();
+  const [locale, setLocaleState] = useState<AppLocale>('pt-PT');
   const setLocale = useCallback((next: AppLocale) => { setLocaleState(next); if (typeof window !== 'undefined') window.localStorage.setItem('cociber.locale', next); }, []);
   useEffect(() => { const stored = window.localStorage.getItem('cociber.locale'); setLocaleState(stored === 'pt-PT' || stored === 'en-US' ? stored : getConfiguredLocale()); }, []);
+  // The organization's saved locale comes with the setup status that AuthProvider loads with the
+  // identity, before the app renders. It used to be a second request (/settings/organization)
+  // made only after /setup/status answered, with the whole app held behind a spinner meanwhile.
+  const organizationLocale = organizationLocaleFrom(setupStatus);
+  const [appliedOrganizationLocale, setAppliedOrganizationLocale] = useState<AppLocale | null>(null);
+  if (organizationLocale && organizationLocale !== appliedOrganizationLocale) {
+    // Adjust state while rendering, so the first render of the app already uses this locale.
+    setAppliedOrganizationLocale(organizationLocale);
+    setLocaleState(organizationLocale);
+  }
   useEffect(() => {
-    if (!authenticated) return;
-    let active = true;
-    setLoading(true);
-    void getSharedSetupStatus()
-      .then((status) => hasSavedOrganizationLocale(status) ? apiFetch<{ settings: { locale?: string } }>('/api/v1/settings/organization') : null)
-      .then((result) => { if (active && result && (result.settings.locale === 'pt-PT' || result.settings.locale === 'en-US')) setLocale(result.settings.locale); })
-      .catch(() => undefined)
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [apiFetch, authenticated, setLocale]);
+    if (organizationLocale) window.localStorage.setItem('cociber.locale', organizationLocale);
+  }, [organizationLocale]);
   useEffect(() => {
     document.documentElement.lang = locale;
     const applyMetadata = () => {
@@ -445,7 +451,6 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     formatDate: (input) => input ? new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(input)) : '—',
     formatNumber: (input) => new Intl.NumberFormat(locale).format(input),
   }), [locale, setLocale]);
-  if (!authLoading && authenticated && loading) return <div className="auth-loading"><div className="auth-spinner" /><span>{messages[locale]['common.loading']}</span></div>;
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }
 
