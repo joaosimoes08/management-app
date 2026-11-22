@@ -225,3 +225,26 @@ test('security: commit rechecks with the same rule and names an unreadable child
   });
   assert.equal(h.created.length, 0);
 });
+
+test('security: the preview hides a parent supernet the user cannot read, keeping only its range', async () => {
+  const supernet = { id: 'super-secret', cidr: '10.0.0.0/16', purpose: 'Backbone reservado', siteId: 'site-hq', vrfId: 'vrf-core', vlanId: 'vlan-42', parentSubnetId: null };
+  const h = harness({ unreadable: ['super-secret'] });
+  (h.service as any).getSubnet = async () => ({ ...h.state.subnets[0], parentSubnetId: supernet.id, parentSubnet: supernet });
+  const plan: any = await h.service.subnetPlanning('p', user, '26', '');
+  assert.deepEqual(plan.subnet.parentSubnet, { id: null, cidr: '10.0.0.0/16', hidden: true, label: 'Subnet sem acesso' });
+  assert.equal(plan.subnet.parentSubnetId, null, 'the planned subnet must not carry the hidden parent id');
+  const body = JSON.stringify(plan);
+  for (const leaked of ['super-secret', 'Backbone reservado', 'vrf-core', 'site-hq', 'vlan-42']) assert.ok(!body.includes(leaked), `${leaked} must not appear in the preview`);
+
+  const v6 = harness({ unreadable: ['super-secret'] });
+  (v6.service as any).getSubnet = async () => ({ ...v6.state.subnets[0], version: 6, cidr: '2001:db8::/64', parentSubnetId: supernet.id, parentSubnet: { ...supernet, cidr: '2001:db8::/48' } });
+  const v6Plan: any = await v6.service.subnetPlanning('p', user);
+  assert.deepEqual(v6Plan.subnet.parentSubnet, { id: null, cidr: '2001:db8::/48', hidden: true, label: 'Subnet sem acesso' });
+  for (const leaked of ['super-secret', 'Backbone reservado', 'vrf-core', 'site-hq', 'vlan-42']) assert.ok(!JSON.stringify(v6Plan).includes(leaked), `${leaked} must not appear in the IPv6 preview`);
+
+  const readable = harness();
+  (readable.service as any).getSubnet = async () => ({ ...readable.state.subnets[0], parentSubnetId: supernet.id, parentSubnet: supernet });
+  const readablePlan: any = await readable.service.subnetPlanning('p', user, '26', '');
+  assert.deepEqual(readablePlan.subnet.parentSubnet, supernet, 'a readable parent is returned unchanged');
+  assert.equal(readablePlan.subnet.parentSubnetId, 'super-secret');
+});

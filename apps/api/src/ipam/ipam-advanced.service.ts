@@ -74,10 +74,20 @@ export class IpamAdvancedService implements OnModuleDestroy {
     return { rows, subnets };
   }
 
+  /** The supernet shown in a planning preview: a parent the user cannot read keeps only its range, like hidden children. */
+  private async planningParentView(parent: { id: string; cidr: string; siteId?: string | null; vrfId?: string | null; vlanId?: string | null } | null | undefined, user: AuthenticatedUser) {
+    if (!parent) return parent ?? null;
+    try { await this.access.assertContext(user, 'READ', { siteId: parent.siteId, vrfId: parent.vrfId, vlanId: parent.vlanId, subnetId: parent.id }); return parent; }
+    catch { return { id: null, cidr: parent.cidr, hidden: true, label: HIDDEN_SUBNET_LABEL }; }
+  }
+
   /** Read-only planning preview: never writes. See planningInputs for what counts as taken. */
   async subnetPlanning(id: string, user: AuthenticatedUser, prefix?: string, count?: string) {
     const subnet = await this.getSubnet(id, user);
-    if (subnet.version !== 4) return { subnet, version: 6, usableGaps: [], utilizationPercent: null, message: 'O planeamento por intervalos está disponível para IPv4.' };
+    const parentSubnet = await this.planningParentView(subnet.parentSubnet, user);
+    // A hidden parent's id must not come back through the planned subnet's own foreign key either.
+    const parentSubnetId = parentSubnet?.id === null ? null : subnet.parentSubnetId;
+    if (subnet.version !== 4) return { subnet: { ...subnet, parentSubnetId, parentSubnet }, version: 6, usableGaps: [], utilizationPercent: null, message: 'O planeamento por intervalos está disponível para IPv4.' };
     const query = parsePlanningQuery(prefix, count);
     if ('error' in query) throw new BadRequestException({ code: 'INVALID_PLANNING_REQUEST', message: query.error });
     const { rows, subnets } = await this.planningInputs(this.prisma, subnet, user);
@@ -85,7 +95,7 @@ export class IpamAdvancedService implements OnModuleDestroy {
     // The parent's own child list must not reveal what planningInputs hid: unreadable children keep only their range.
     const hiddenCidrs = new Set(subnets.filter((item) => item.hidden).map((item) => item.cidr));
     const childSubnets = (subnet.childSubnets ?? []).map((child: { cidr: string }) => hiddenCidrs.has(child.cidr) ? { id: null, cidr: child.cidr, hidden: true, label: HIDDEN_SUBNET_LABEL } : child);
-    return { subnet: { ...subnet, childSubnets }, version: 4, scope: { vrfId: subnet.vrfId ?? null, vrfName: subnet.vrf?.name ?? null, siteId: subnet.siteId ?? null, siteName: subnet.site?.name ?? null }, ...plan };
+    return { subnet: { ...subnet, parentSubnetId, parentSubnet, childSubnets }, version: 4, scope: { vrfId: subnet.vrfId ?? null, vrfName: subnet.vrf?.name ?? null, siteId: subnet.siteId ?? null, siteName: subnet.site?.name ?? null }, ...plan };
   }
 
   /**
