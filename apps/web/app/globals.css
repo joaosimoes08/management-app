@@ -3231,3 +3231,9 @@ a.dashboard-kpi:focus-visible { box-shadow:0 9px 24px rgba(35,55,87,.09); outlin
   .context-toolbar .interface-toolbar-controls > label:has(> input[type="date"]) { gap:5px; }
   .context-toolbar .interface-toolbar-controls > label > input[type="date"] { width:112px; min-width:0; padding-right:6px; padding-left:6px; }
 }
+
+@media (min-width:781px) and (max-width:1300px) {
+  .context-toolbar .toolbar-action-count { display:none; }
+  .context-toolbar .interface-toolbar-controls > label > select,
+  .context-toolbar .saved-views > label > select { max-width:100px; }
+}

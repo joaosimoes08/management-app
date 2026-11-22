@@ -144,9 +144,9 @@ export function InventoryQualityPage() {
   const disabled = running || !actionable.length || overLimit;
   const actions = <>
     {canAct && <>
-      <button className="topbar-action secondary-button" disabled={disabled} aria-label={`Reconhecer (${actionable.length})`} title="Reconhecer" onClick={() => void acknowledge()}><Check size={14} /> <span className="toolbar-action-label">Reconhecer</span> {`(${actionable.length})`}</button>
-      <button className="topbar-action secondary-button" disabled={disabled} aria-label={`Atribuir… (${actionable.length})`} title="Atribuir…" onClick={() => openDialog('ASSIGN')}><UserPlus size={14} /> <span className="toolbar-action-label">Atribuir…</span> {`(${actionable.length})`}</button>
-      <button className="topbar-action secondary-button" disabled={disabled} aria-label={`Adiar… (${actionable.length})`} title="Adiar…" onClick={() => openDialog('SNOOZE')}><Clock3 size={14} /> <span className="toolbar-action-label">Adiar…</span> {`(${actionable.length})`}</button>
+      <button className="topbar-action secondary-button" disabled={disabled} aria-label={`Reconhecer (${actionable.length})`} title={`Reconhecer (${actionable.length})`} onClick={() => void acknowledge()}><Check size={14} /> <span className="toolbar-action-label">Reconhecer</span> <span className="toolbar-action-count">{`(${actionable.length})`}</span></button>
+      <button className="topbar-action secondary-button" disabled={disabled} aria-label={`Atribuir… (${actionable.length})`} title={`Atribuir… (${actionable.length})`} onClick={() => openDialog('ASSIGN')}><UserPlus size={14} /> <span className="toolbar-action-label">Atribuir…</span> <span className="toolbar-action-count">{`(${actionable.length})`}</span></button>
+      <button className="topbar-action secondary-button" disabled={disabled} aria-label={`Adiar… (${actionable.length})`} title={`Adiar… (${actionable.length})`} onClick={() => openDialog('SNOOZE')}><Clock3 size={14} /> <span className="toolbar-action-label">Adiar…</span> <span className="toolbar-action-count">{`(${actionable.length})`}</span></button>
     </>}
     <button className="topbar-action secondary-button" onClick={() => void queryClient.invalidateQueries({ queryKey: ['inventory-quality'] })} disabled={pages.isFetching} aria-label="Atualizar" title="Atualizar"><RefreshCw size={14} /> <span className="toolbar-action-label">Atualizar</span></button>
   </>;
