@@ -40,6 +40,10 @@ const pathTopics: Array<[string, string]> = [
   ['/snmp', 'snmp'],
 ];
 
+/** Help article for each Infraestrutura tab (`?tab=`). Tabs without an article of their own use Equipamentos. */
+const infrastructureTabTopics: Record<string, string> = { sites: 'equipamentos', racks: 'equipamentos', devices: 'equipamentos', hosts: 'servidores', lifecycle: 'equipamentos', models: 'equipamentos', interfaces: 'equipamentos', assets: 'equipamentos', permissions: 'equipamentos' };
+export const infrastructureHelpTopic = (tab: string | null | undefined) => infrastructureTabTopics[tab ?? ''] ?? 'equipamentos';
+
 /** The article for the page at `pathname`, or null when the page has none. */
 export function helpArticleForPath(pathname: string | null | undefined): HelpArticle | null {
   if (!pathname) return null;

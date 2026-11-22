@@ -3,6 +3,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppShell, PageToolbarPortal } from './app-shell';
 
 vi.mock('next/navigation', () => ({ usePathname: () => '/infraestrutura' }));
+const linkClicks = vi.hoisted(() => [] as string[]);
+// Stand-in for next/link: client-side navigation instead of a full document load.
+vi.mock('next/link', () => ({ default: ({ href, children, ...props }: { href: string; children: React.ReactNode } & React.AnchorHTMLAttributes<HTMLAnchorElement>) => <a {...props} href={href} data-next-link="" onClick={(event) => { event.preventDefault(); linkClicks.push(href); }}>{children}</a> }));
 vi.mock('./app-header', () => ({ AppHeader: () => <header /> }));
 vi.mock('./app-sidebar', () => ({ AppSidebar: ({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) => <aside className={`sidebar app-sidebar${collapsed ? ' sidebar-collapsed' : ''}`}><button onClick={onToggle}>{collapsed ? 'Expandir' : 'Recolher'}</button></aside> }));
 vi.mock('./global-search', () => ({ GlobalSearchPalette: () => null }));
@@ -73,6 +76,23 @@ describe('AppShell help link', () => {
   it('links the page title to its Ajuda article', () => {
     render(<AppShell section="Infraestrutura"><p>Content</p></AppShell>);
     expect(screen.getByRole('link', { name: 'Ajuda: Equipamentos' })).toHaveAttribute('href', '/ajuda/equipamentos');
+  });
+
+  it('keeps a toolbar that only holds the title and Help visible, so Help is reachable on every tab (item 8)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const css = readFileSync(`${process.cwd()}/app/globals.css`, 'utf8');
+    expect(css).toContain('.context-toolbar:has(.context-toolbar-navigation:empty):has(.context-toolbar-actions:empty):not(:has(.context-toolbar-help)) { display:none; }');
+    render(<AppShell section="Mapa físico" helpTopic="equipamentos"><p>Content</p></AppShell>);
+    expect(screen.getByRole('link', { name: 'Ajuda: Equipamentos' })).toHaveClass('context-toolbar-help');
+  });
+
+  it('opens Help with client-side navigation, not a full page load (item 8)', () => {
+    linkClicks.length = 0;
+    render(<AppShell section="Mapa físico" helpTopic="equipamentos"><p>Content</p></AppShell>);
+    const link = screen.getByRole('link', { name: 'Ajuda: Equipamentos' });
+    expect(link).toHaveAttribute('data-next-link');
+    fireEvent.click(link);
+    expect(linkClicks).toEqual(['/ajuda/equipamentos']);
   });
 
   it('opens the Servidores Linux article when the page names a help topic (Servidores tab)', () => {

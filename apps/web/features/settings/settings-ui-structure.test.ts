@@ -5,12 +5,16 @@ import { describe, expect, it } from 'vitest';
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
 const settings = read('features/settings/settings-page.tsx');
 const groups = read('features/settings/components/access-groups-settings.tsx');
-const directory = read('features/settings/components/directory-federation-settings.tsx');
 const backup = read('features/settings/components/backup-export-panel.tsx');
 
 describe('Settings page structure', () => {
+  it('omits the LDAP settings panel from the web UI', () => {
+    expect(settings).not.toContain('directory-federation-settings');
+    expect(settings).not.toContain('Diretório LDAP');
+  });
+
   it('removes panel eyebrows and exposes configuration saves in the utility bar', () => {
-    expect([settings, groups, directory, backup].join('\n')).not.toContain('section-kicker');
+    expect([settings, groups, backup].join('\n')).not.toContain('section-kicker');
 
     for (const formId of [
       'settings-organization-form',
@@ -18,10 +22,9 @@ describe('Settings page structure', () => {
       'settings-snmp-form',
       'settings-audit-form',
       'settings-access-groups-form',
-      'settings-directory-form',
     ]) {
-      expect(settings + groups + directory).toContain(`form="${formId}"`);
-      expect(settings + groups + directory).toContain(`id="${formId}"`);
+      expect(settings + groups).toContain(`form="${formId}"`);
+      expect(settings + groups).toContain(`id="${formId}"`);
     }
   });
 
@@ -42,7 +45,6 @@ describe('Settings page structure', () => {
     expect(settings).not.toContain("className=\"spin\"/>");
     expect(backup).toContain('settings-loading-value');
     expect(groups).toContain('settings-group-skeletons');
-    expect(directory).toContain('settings-status-skeleton');
   });
 
   it('links site counts to the Site in Infraestrutura / IPAM and shows the role-request queue to admins', () => {

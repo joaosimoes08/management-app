@@ -204,7 +204,7 @@ button { cursor:pointer; }
 .auth-panel { display:flex; flex-direction:column; justify-content:center; padding:60px 54px; background:rgba(255,255,255,.96); }.auth-panel .section-kicker { margin-bottom:15px; color:#8d9298; }.auth-panel h1 { margin:0; color:#252a2f; font-size:30px; letter-spacing:-1.3px; }.auth-panel p { margin:13px 0 28px; color:#92979c; font-size:11px; line-height:1.7; }.auth-panel .auth-login { color:#fff; border-color:#1997d5; background:#1997d5; box-shadow:0 8px 16px rgba(25,151,213,.2); }.auth-panel .auth-login:hover { background:#1388c2; }.auth-panel-note { display:flex; align-items:center; gap:7px; margin-top:22px; color:#a6abb0; font-size:9px; }.auth-panel-note svg { color:#62a7c4; }.auth-panel-icon { display:grid; place-items:center; width:43px; height:43px; margin-bottom:20px; color:#fff; border-radius:12px; background:#b86351; }.auth-layout-error .auth-panel h1 { font-size:25px; }.auth-layout-error .auth-panel .auth-login { background:#202020; border-color:#202020; box-shadow:none; }.auth-layout-error .auth-panel p { margin-bottom:23px; }.auth-layout-error .auth-visual { filter:saturate(.65); }
 @media (max-width:700px) { .auth-screen { padding:0; }.auth-card.auth-layout { display:block; min-height:100vh; border-radius:0; }.auth-visual { min-height:245px; }.auth-visual-copy { top:24px; left:24px; }.auth-visual-copy strong { display:none; }.auth-scene { top:70%; left:54%; transform:translate(-50%,-45%) scale(.62); }.auth-visual-foot { right:24px; bottom:20px; left:24px; }.auth-panel { min-height:calc(100vh - 245px); padding:42px 27px; }.auth-panel h1 { font-size:27px; }.auth-actions { flex-direction:column; }.auth-actions button { width:100%; }.auth-layout-error .auth-visual { min-height:210px; }.auth-layout-error .auth-panel { min-height:calc(100vh - 210px); } }
 .dashboard-search { position:relative; }.dashboard-search .search-field { width:260px; }.search-results { position:absolute; z-index:30; top:43px; right:0; width:320px; padding:6px; background:#fff; border:1px solid var(--line); border-radius:11px; box-shadow:0 15px 35px rgba(25,20,20,.12); }.search-results a { display:flex; align-items:center; gap:8px; padding:9px; color:#222; border-radius:7px; text-decoration:none; }.search-results a:hover { background:#f6f5f5; }.search-results a > span:nth-child(2) { flex:1; min-width:0; }.search-results strong,.search-results small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.search-results strong { font-size:10px; }.search-results small { margin-top:2px; color:var(--muted); font-size:9px; }.search-result-icon { display:grid; place-items:center; width:25px; height:25px; color:#fff; background:#222; border-radius:7px; }.search-empty { padding:15px 10px; color:var(--muted); font-size:10px; text-align:center; }
-.user-menu { position:relative; }.user-menu .profile-mini { width:100%; }.user-menu.compact .top-user { padding:0; }.user-menu-label { flex:1; min-width:0; }.user-dropdown { position:absolute; z-index:40; right:0; bottom:43px; width:190px; padding:6px; background:#fff; border:1px solid var(--line); border-radius:11px; box-shadow:0 15px 35px rgba(25,20,20,.12); }.user-menu.compact .user-dropdown { top:42px; bottom:auto; }.user-dropdown-head { padding:9px; border-bottom:1px solid #f0eeee; }.user-dropdown-head strong,.user-dropdown-head small { display:block; }.user-dropdown-head strong { font-size:11px; }.user-dropdown-head small { margin-top:2px; color:var(--muted); font-size:9px; }.user-dropdown button { display:block; width:100%; padding:9px; color:#555158; border:0; border-radius:7px; background:transparent; text-align:left; font-size:10px; }.user-dropdown button:hover { background:#f5f4f4; color:#111; }.user-dropdown button.danger { color:#b86351; }.sidebar-note-button { width:100%; border:1px solid #f6e8c7; cursor:pointer; text-align:left; }
+.user-menu { position:relative; }.user-menu .profile-mini { width:100%; }.user-menu.compact .top-user { padding:0; }.user-menu-label { flex:1; min-width:0; }.user-dropdown { position:absolute; z-index:40; right:0; bottom:43px; width:190px; padding:6px; background:#fff; border:1px solid var(--line); border-radius:11px; box-shadow:0 15px 35px rgba(25,20,20,.12); }.user-menu.compact .user-dropdown { top:42px; bottom:auto; }/* Rendered in a portal and anchored to the account button so no sidebar overflow clips it. */.user-dropdown.user-dropdown-floating { position:fixed; right:auto; bottom:auto; z-index:130; box-sizing:border-box; max-width:calc(100vw - 16px); max-height:calc(100vh - 16px); overflow-y:auto; }.user-dropdown-head { padding:9px; border-bottom:1px solid #f0eeee; }.user-dropdown-head strong,.user-dropdown-head small { display:block; }.user-dropdown-head strong { font-size:11px; }.user-dropdown-head small { margin-top:2px; color:var(--muted); font-size:9px; }.user-dropdown button { display:block; width:100%; padding:9px; color:#555158; border:0; border-radius:7px; background:transparent; text-align:left; font-size:10px; }.user-dropdown button:hover { background:#f5f4f4; color:#111; }.user-dropdown button.danger { color:#b86351; }.sidebar-note-button { width:100%; border:1px solid #f6e8c7; cursor:pointer; text-align:left; }
 .app-shell { padding:24px; }.app-shell .dashboard-frame { min-height:calc(100vh - 48px); }.app-shell-content { min-height:calc(100vh - 123px); }.mobile-close { display:none; }.module-page { max-width:1100px; margin:0 auto; padding:38px 40px 55px; }.module-hero { margin-bottom:28px; }.module-icon { display:grid; place-items:center; width:52px; height:52px; margin-bottom:22px; color:#fff; background:#202020; border-radius:15px; }.module-hero h1 { margin:7px 0 0; font-size:29px; letter-spacing:-1.3px; }.module-hero p { max-width:680px; margin:8px 0 0; color:var(--muted); font-size:12px; line-height:1.6; }.roadmap-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }.roadmap-card { display:flex; gap:12px; min-height:150px; padding:18px; background:#fff; border:1px solid var(--line); border-radius:15px; }.roadmap-card-icon { display:grid; place-items:center; width:31px; height:31px; flex:none; color:#6b6770; background:#f3f2f2; border-radius:9px; }.roadmap-card h2 { margin:1px 0 7px; font-size:13px; }.roadmap-card p { margin:0 0 12px; color:var(--muted); font-size:10px; line-height:1.5; }.roadmap-card a,.module-callout a { display:inline-flex; align-items:center; gap:5px; color:#222; font-size:10px; font-weight:600; text-decoration:none; }.module-callout { display:flex; align-items:center; gap:10px; margin-top:12px; padding:15px 17px; background:#fff7e8; border:1px solid #f4e5c5; border-radius:12px; }.module-callout > span { flex:1; }.module-callout strong,.module-callout small { display:block; }.module-callout strong { color:#624c22; font-size:10px; }.module-callout small { margin-top:3px; color:#927a4c; font-size:10px; }.audit-table { margin-top:5px; }.audit-list { margin-top:13px; }.audit-row { display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid #f0eeee; }.audit-row:last-child { border:0; }.audit-row > span:nth-child(2) { flex:1; }.audit-row strong,.audit-row small { display:block; }.audit-row strong { font-size:11px; }.audit-row small { margin-top:3px; color:var(--muted); font-size:9px; }.audit-user { color:#77737a; text-align:right; font-size:10px; }.audit-user small { color:#aaa7ab; }
 .sidebar-collapse-toggle { position:absolute; top:20px; right:12px; z-index:2; width:27px; height:27px; }.sidebar { position:sticky; top:34px; height:calc(100vh - 68px); align-self:flex-start; overflow:visible; }.app-shell .sidebar { top:24px; height:calc(100vh - 48px); }.sidebar-collapsed .sidebar { width:70px; }.sidebar-collapsed .sidebar:hover { width:232px; }.sidebar-collapsed .sidebar .brand-block > div:last-child,.sidebar-collapsed .sidebar .workspace-switcher > div:nth-child(2),.sidebar-collapsed .sidebar .workspace-switcher > svg,.sidebar-collapsed .sidebar .nav-label,.sidebar-collapsed .sidebar .sidebar-note > span,.sidebar-collapsed .sidebar .sidebar-note > svg:last-child,.sidebar-collapsed .sidebar .profile-mini > svg { display:none; }.sidebar-collapsed .sidebar .brand-block { justify-content:center; padding-right:0; }.sidebar-collapsed .sidebar .workspace-switcher { justify-content:center; }.sidebar-collapsed .sidebar .nav-item { justify-content:center; padding-right:0; padding-left:0; font-size:0; }.sidebar-collapsed .sidebar .nav-item .nav-badge { display:none; }.sidebar-collapsed .sidebar .sidebar-note { justify-content:center; padding:12px 0; }.sidebar-collapsed .sidebar .user-menu { width:100%; }.sidebar-collapsed .sidebar .profile-mini { width:100%; justify-content:center; padding-right:0; padding-left:0; }.sidebar-collapsed .sidebar .user-menu-label { display:none; }.sidebar-collapsed .sidebar:hover .brand-block > div:last-child,.sidebar-collapsed .sidebar:hover .workspace-switcher > div:nth-child(2),.sidebar-collapsed .sidebar:hover .workspace-switcher > svg,.sidebar-collapsed .sidebar:hover .nav-label,.sidebar-collapsed .sidebar:hover .sidebar-note > span,.sidebar-collapsed .sidebar:hover .sidebar-note > svg:last-child,.sidebar-collapsed .sidebar:hover .profile-mini > svg { display:block; }.sidebar-collapsed .sidebar:hover .workspace-switcher > svg { display:block; }.sidebar-collapsed .sidebar:hover .brand-block { justify-content:flex-start; padding-right:10px; }.sidebar-collapsed .sidebar:hover .workspace-switcher { justify-content:flex-start; }.sidebar-collapsed .sidebar:hover .nav-item { justify-content:flex-start; padding-right:11px; padding-left:11px; font-size:12px; }.sidebar-collapsed .sidebar:hover .nav-item .nav-badge { display:grid; }.sidebar-collapsed .sidebar:hover .sidebar-note { justify-content:flex-start; padding:12px 10px; }.sidebar-collapsed .sidebar:hover .profile-mini { justify-content:flex-start; padding-right:5px; padding-left:5px; }.sidebar-collapsed .sidebar:hover .user-menu-label { display:block; }
 .simple-portal-grid { max-width:1100px; margin:0 auto; grid-template-columns:repeat(3,1fr); }.simple-portal-card { min-height:205px; }.simple-portal-card.not-configured { opacity:.68; }.portal-category-tag { padding:5px 7px; color:#858188; background:#f5f4f4; border-radius:6px; font-size:9px; }.portal-config-note { display:flex; align-items:center; gap:5px; color:#aaa7ab; font-size:10px; }
@@ -1894,7 +1894,8 @@ body { color:var(--ink); background:#e9eef5; }
   .context-toolbar *, .app-shell .nav-item { scroll-behavior:auto; transition:none !important; }
   .dashboard-quick-link:hover { transform:none; }
 }
-.context-toolbar:has(.context-toolbar-navigation:empty):has(.context-toolbar-actions:empty) { display:none; }
+/* An empty bar hides, unless it carries the page Help link (e.g. Infraestrutura → Permissões): Help must stay reachable. */
+.context-toolbar:has(.context-toolbar-navigation:empty):has(.context-toolbar-actions:empty):not(:has(.context-toolbar-help)) { display:none; }
 .context-toolbar-contribution { display:flex; align-items:center; gap:9px; min-width:0; }
 .context-toolbar .infra-menu { flex:none; margin-bottom:0; white-space:nowrap; }
 .topology-toolbar-summary { flex:1 1 180px; min-width:180px; color:#586982; font-size:11px; text-align:right; }
@@ -2411,8 +2412,6 @@ body { color:var(--ink); background:#e9eef5; }
 .app-shell.sidebar-collapsed .sidebar-bottom-row .sidebar-collapse-toggle { position:absolute; right:0; box-sizing:border-box; flex-basis:27px; width:27px; min-width:0; height:27px; min-height:27px; }
 .app-shell.sidebar-collapsed .sidebar-help-link { margin-bottom:0; }
 .app-shell.sidebar-collapsed .sidebar-bottom-row { padding-top:6px; }
-.app-shell.sidebar-collapsed .sidebar-bottom-row .user-dropdown { left:calc(100% + 6px); bottom:0; top:auto; }
-.app-shell.sidebar-collapsed .sidebar-bottom-row .user-dropdown { z-index:130; }
 .app-shell.sidebar-collapsed .sidebar-bottom-row .sidebar-collapse-toggle { visibility:hidden; opacity:0; pointer-events:none; transition:opacity .12s ease,visibility 0s linear .12s; }
 .app-shell.sidebar-collapsed .sidebar-bottom-row .sidebar-collapse-toggle:hover { color:#fff; background:#2a4162; }
 .app-shell.sidebar-collapsed .sidebar-bottom-row .sidebar-profile-control { overflow:visible; }
@@ -2547,14 +2546,19 @@ body { color:var(--ink); background:#e9eef5; }
 .critical-assets-counts button:hover,.critical-assets-counts button.active { background:var(--soft-blue); }
 .critical-assets-counts button.active { border-color:var(--blue); }
 .critical-assets-counts button:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
-/* Five filters do not fit beside the title and actions: they take their own full-width row under the actions (flex and grid toolbars alike). */
+/* Desktop: the five filters share the title row with the actions. Each select names its filter (empty option = the filter name,
+   aria-label kept), so the visible label text is hidden like the rack toolbar labels, and the secondary actions show icons only (title + aria-label). */
 .app-shell .context-toolbar-actions:has(> .context-toolbar-contribution .critical-assets-filters) { flex-wrap:wrap; row-gap:8px; }
 .context-toolbar-actions > .context-toolbar-contribution:has(.critical-assets-filters) { flex:1 1 100%; grid-column:1 / -1; min-width:0; }
 .context-toolbar-contribution .critical-assets-filters { flex:1 1 auto; flex-wrap:wrap; justify-content:flex-end; min-width:0; }
-/* Zero basis: the filters share the row and wrap only once each is down to its label plus the 90px select minimum. */
 @media (min-width:781px) {
-  .context-toolbar-contribution .critical-assets-filters > label { flex:1 1 0; min-width:min-content; }
-  .context-toolbar-contribution .critical-assets-filters > label > select { flex:1 1 auto; width:0; max-width:none; }
+  .app-shell .context-toolbar-actions:has(> .context-toolbar-contribution .critical-assets-filters) { flex-wrap:nowrap; }
+  .context-toolbar-actions:has(.critical-assets-filters) { flex:1 1 auto; min-width:0; }
+  .context-toolbar-actions:has(.critical-assets-filters) > .responsive-toolbar-actions { flex:0 0 var(--toolbar-actions-width, auto); }
+  .context-toolbar-actions > .context-toolbar-contribution:has(.critical-assets-filters) { flex:1 1 0; }
+  .context-toolbar-contribution .critical-assets-filters { flex-wrap:nowrap; gap:6px; }
+  .context-toolbar-contribution .critical-assets-filters > label { flex:1 1 0; min-width:84px; max-width:150px; }
+  .context-toolbar-contribution .critical-assets-filters > label > select { width:100%; min-width:0; text-overflow:ellipsis; }
 }
 /* On the phone grid the actions get the whole row too, so the primary button is never squeezed into one 130px column. */
 .context-toolbar-actions:has(> .context-toolbar-contribution .critical-assets-filters) > .responsive-toolbar-actions { grid-column:1 / -1; }
@@ -3192,3 +3196,44 @@ a.dashboard-kpi:focus-visible { box-shadow:0 9px 24px rgba(35,55,87,.09); outlin
 .skip-link:focus,.skip-link:focus-visible { transform:none; outline:3px solid #637ff0; outline-offset:2px; }
 /* The main landmark takes focus from the skip link; it is a region, not a control, so no ring. */
 .app-shell-content:focus { outline:none; }
+/* Rack overview: rack info and the power status on the left, the power grids on the right, so the rack itself starts higher. */
+.rack-overview-row { display:grid; grid-template-columns:minmax(260px,.85fr) minmax(0,1.6fr); column-gap:16px; align-items:start; }
+.rack-overview-row > .panel-heading { grid-column:1; grid-row:1; }
+.rack-overview-row > #rack-power-summary { display:contents; }
+.rack-overview-row > #rack-power-summary > .table-actions { grid-column:1; grid-row:2; align-self:start; }
+.rack-overview-row > #rack-power-summary > .detail-grid { grid-column:2; grid-row:1 / span 2; margin-top:0; }
+.rack-overview-row > #rack-power-summary > .ipam-alert,.rack-overview-row > .ipam-alert { grid-column:1 / -1; }
+@media (max-width:1100px) { .rack-overview-row { grid-template-columns:1fr; } .rack-overview-row > .panel-heading,.rack-overview-row > #rack-power-summary > .table-actions,.rack-overview-row > #rack-power-summary > .detail-grid { grid-column:auto; grid-row:auto; } }
+
+/* Item 1: from 1181px to 1440px the module tabs and the global controls share one top-bar row without "Mais secções".
+   The site picker and search narrow (the search hides its shortcut hint, as at 1180px and below) and the tabs tighten. */
+.app-shell .global-topbar .module-tabs-slot .responsive-tab-navigation > nav.infra-menu.natural-width-tabs > button { flex:0 1 auto; padding-right:6px; padding-left:6px; }
+@media (min-width:1181px) and (max-width:1440px) {
+  .app-shell .global-site-switcher { flex:0 0 200px; }
+  .app-shell .global-topbar .topbar-globals { flex:0 0 auto; }
+  .app-shell .global-topbar .topbar-search-trigger { flex:0 0 150px; width:150px; }
+  .app-shell .global-topbar .topbar-search-trigger kbd { display:none; }
+  .app-shell .global-topbar .module-tabs-slot nav,
+  .app-shell .global-topbar .module-tabs-slot .responsive-tab-navigation > nav.infra-menu { gap:2px; }
+  .app-shell .global-topbar .module-tabs-slot nav button { gap:5px; padding-right:6px; padding-left:6px; }
+}
+@media (min-width:1181px) and (max-width:1366px) {
+  .app-shell .global-topbar .module-tabs-slot nav.settings-tabs button > svg { display:none; }
+}
+/* Page toolbars: a filter whose select names itself (empty option = filter name, aria-label kept) clips its visible label,
+   like the rack toolbar labels; up to 1440px secondary actions show icons only (each keeps aria-label and title). */
+.context-toolbar .toolbar-filter-label { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+@media (min-width:781px) and (max-width:1440px) {
+  .context-toolbar .toolbar-action-label { display:none; }
+  .context-toolbar .interface-toolbar-controls > label > select,
+  .context-toolbar .saved-views > label > select { max-width:124px; text-overflow:ellipsis; }
+  .context-toolbar .interface-toolbar-controls { gap:6px; }
+  .context-toolbar .interface-toolbar-controls > label:has(> input[type="date"]) { gap:5px; }
+  .context-toolbar .interface-toolbar-controls > label > input[type="date"] { width:112px; min-width:0; padding-right:6px; padding-left:6px; }
+}
+
+@media (min-width:781px) and (max-width:1300px) {
+  .context-toolbar .toolbar-action-count { display:none; }
+  .context-toolbar .interface-toolbar-controls > label > select,
+  .context-toolbar .saved-views > label > select { max-width:100px; }
+}

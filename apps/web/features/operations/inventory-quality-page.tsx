@@ -144,11 +144,11 @@ export function InventoryQualityPage() {
   const disabled = running || !actionable.length || overLimit;
   const actions = <>
     {canAct && <>
-      <button className="topbar-action secondary-button" disabled={disabled} onClick={() => void acknowledge()}><Check size={14} /> {`Reconhecer (${actionable.length})`}</button>
-      <button className="topbar-action secondary-button" disabled={disabled} onClick={() => openDialog('ASSIGN')}><UserPlus size={14} /> {`Atribuir… (${actionable.length})`}</button>
-      <button className="topbar-action secondary-button" disabled={disabled} onClick={() => openDialog('SNOOZE')}><Clock3 size={14} /> {`Adiar… (${actionable.length})`}</button>
+      <button className="topbar-action secondary-button" disabled={disabled} aria-label={`Reconhecer (${actionable.length})`} title={`Reconhecer (${actionable.length})`} onClick={() => void acknowledge()}><Check size={14} /> <span className="toolbar-action-label">Reconhecer</span> <span className="toolbar-action-count">{`(${actionable.length})`}</span></button>
+      <button className="topbar-action secondary-button" disabled={disabled} aria-label={`Atribuir… (${actionable.length})`} title={`Atribuir… (${actionable.length})`} onClick={() => openDialog('ASSIGN')}><UserPlus size={14} /> <span className="toolbar-action-label">Atribuir…</span> <span className="toolbar-action-count">{`(${actionable.length})`}</span></button>
+      <button className="topbar-action secondary-button" disabled={disabled} aria-label={`Adiar… (${actionable.length})`} title={`Adiar… (${actionable.length})`} onClick={() => openDialog('SNOOZE')}><Clock3 size={14} /> <span className="toolbar-action-label">Adiar…</span> <span className="toolbar-action-count">{`(${actionable.length})`}</span></button>
     </>}
-    <button className="topbar-action secondary-button" onClick={() => void queryClient.invalidateQueries({ queryKey: ['inventory-quality'] })} disabled={pages.isFetching}><RefreshCw size={14} /> Atualizar</button>
+    <button className="topbar-action secondary-button" onClick={() => void queryClient.invalidateQueries({ queryKey: ['inventory-quality'] })} disabled={pages.isFetching} aria-label="Atualizar" title="Atualizar"><RefreshCw size={14} /> <span className="toolbar-action-label">Atualizar</span></button>
   </>;
 
   const selection = canAct ? { selected, onChange: setSelected, isSelectable: isActionable, rowLabel: (row: InventoryFinding, selectable: boolean) => (selectable ? `Selecionar ${row.title}` : `${row.title} resolvido`), allLabel: 'Selecionar todos os findings visíveis' } : undefined;
@@ -157,16 +157,16 @@ export function InventoryQualityPage() {
 
   return <>{confirmDialog}<AppShell section="Qualidade do inventário" search={{ value: search, onChange: setSearch, placeholder: 'Pesquisar título, detalhe ou correção…', ariaLabel: 'Pesquisar findings', scopeLabel: 'Qualidade do inventário' }} actions={actions}>
     <PageToolbarPortal><div className="interface-toolbar-controls">
-      <label>Severidade<select aria-label="Filtrar por severidade" value={filters.severity} onChange={(event) => setFilter('severity', event.target.value)}><option value="">Todas</option>{findingSeverities.map((severity) => <option key={severity} value={severity}>{withCount(severityLabels[severity], facetData?.bySeverity[severity] ?? (facetData ? 0 : undefined))}</option>)}</select></label>
-      <label>Regra<select aria-label="Filtrar por regra" value={filters.rule} onChange={(event) => setFilter('rule', event.target.value)}><option value="">Todas</option>{(facetData?.byRule ?? []).map((item) => <option key={item.rule} value={item.rule}>{withCount(ruleLabel(item.rule), item.total)}</option>)}{filters.rule && !facetData?.byRule.some((item) => item.rule === filters.rule) && <option value={filters.rule}>{ruleLabel(filters.rule)}</option>}</select></label>
-      <label>Responsável<select aria-label="Filtrar por responsável" value={filters.assignee} onChange={(event) => setFilter('assignee', event.target.value)}>
-        <option value="">Todos</option>
+      <label><span className="toolbar-filter-label">Severidade</span><select aria-label="Filtrar por severidade" title="Filtrar por severidade" value={filters.severity} onChange={(event) => setFilter('severity', event.target.value)}><option value="">Severidade</option>{findingSeverities.map((severity) => <option key={severity} value={severity}>{withCount(severityLabels[severity], facetData?.bySeverity[severity] ?? (facetData ? 0 : undefined))}</option>)}</select></label>
+      <label><span className="toolbar-filter-label">Regra</span><select aria-label="Filtrar por regra" title="Filtrar por regra" value={filters.rule} onChange={(event) => setFilter('rule', event.target.value)}><option value="">Regra</option>{(facetData?.byRule ?? []).map((item) => <option key={item.rule} value={item.rule}>{withCount(ruleLabel(item.rule), item.total)}</option>)}{filters.rule && !facetData?.byRule.some((item) => item.rule === filters.rule) && <option value={filters.rule}>{ruleLabel(filters.rule)}</option>}</select></label>
+      <label><span className="toolbar-filter-label">Responsável</span><select aria-label="Filtrar por responsável" title="Filtrar por responsável" value={filters.assignee} onChange={(event) => setFilter('assignee', event.target.value)}>
+        <option value="">Responsável</option>
         <option value="me">{withCount('Atribuídos a mim', facetData ? myCount ?? 0 : undefined)}</option>
         <option value="unassigned">{withCount('Sem responsável', unassignedCount ?? (facetData ? 0 : undefined))}</option>
         {(facetData?.byAssignee ?? []).filter((item) => item.userId && item.userId !== user?.id).map((item) => <option key={item.userId} value={item.userId ?? ''}>{withCount(personName(item), item.total)}</option>)}
       </select></label>
-      <label>Agrupar<select aria-label="Agrupar findings" value={filters.group} onChange={(event) => setFilter('group', event.target.value)}><option value="">Sem agrupamento</option><option value="rule">Por regra</option></select></label>
-      {filtering && <button className="secondary-button" onClick={clearFilters}><X size={14} /> Limpar filtros</button>}
+      <label><span className="toolbar-filter-label">Agrupar</span><select aria-label="Agrupar findings" title="Agrupar findings" value={filters.group} onChange={(event) => setFilter('group', event.target.value)}><option value="">Sem agrupamento</option><option value="rule">Por regra</option></select></label>
+      {filtering && <button className="secondary-button" aria-label="Limpar filtros" title="Limpar filtros" onClick={clearFilters}><X size={14} /> <span className="toolbar-action-label">Limpar filtros</span></button>}
       <SavedViews pageId="quality" config={qualityTableConfig} table={table} />
     </div></PageToolbarPortal>
     <div className="module-page aligned-workspace"><section className="ipam-card page-primary-card">

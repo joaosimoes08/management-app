@@ -59,7 +59,7 @@ export function TagFilter({ siteId, value, onChange, className = '' }: TagFilter
   const known = !current || tags.some((tag) => tag.id === current);
   if (!siteId) return null;
   return (
-    <select className={`tag-filter${className ? ` ${className}` : ''}`} aria-label="Filtrar por etiqueta" value={current} onChange={(event) => onChange(event.target.value)}>
+    <select className={`tag-filter${className ? ` ${className}` : ''}`} aria-label="Filtrar por etiqueta" title="Filtrar por etiqueta" value={current} onChange={(event) => onChange(event.target.value)}>
       <option value="">Todas as etiquetas</option>
       {!known ? <option value={current}>Etiqueta removida</option> : null}
       {tags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}
@@ -218,5 +218,5 @@ export function TagManager({ siteId, close, onChanged = () => undefined, canMana
 }
 
 export function ManageTagsButton({ onClick }: { onClick: () => void }) {
-  return <button type="button" className="secondary-button" onClick={onClick}><Tags size={14} /> Gerir etiquetas</button>;
+  return <button type="button" className="secondary-button" aria-label="Gerir etiquetas" title="Gerir etiquetas" onClick={onClick}><Tags size={14} /> <span className="toolbar-action-label">Gerir etiquetas</span></button>;
 }

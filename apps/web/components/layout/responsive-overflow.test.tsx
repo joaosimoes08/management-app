@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { flattenToolbarChildren, ResponsiveOverflowMenu, ResponsiveToolbarActions, visibleActionIndexes, visibleEqualSlotIndexes, visibleOverflowIndexes } from './responsive-overflow';
+import { flattenToolbarChildren, ResponsiveOverflowMenu, ResponsiveToolbarActions, visibleActionIndexes, visibleEqualSlotIndexes, visibleOverflowIndexes, visibleTabLayout } from './responsive-overflow';
 
 afterEach(cleanup);
 
@@ -34,6 +34,18 @@ describe('responsive shell overflow priorities', () => {
   it('keeps a wider active label visible when earlier tabs must move to overflow', () => {
     const labelWidths = [56, 69.7, 60, 48, 59, 40, 54];
     expect(visibleEqualSlotIndexes(labelWidths, 1, 394, 36, 4, 6, 4)).toContain(1);
+  });
+
+  it('keeps every Infraestrutura tab visible at natural widths when equal slots do not fit but the labels do (item 1)', () => {
+    const infraTabs = [54, 85, 105, 85, 96, 73, 82, 64, 89];
+    const natural = infraTabs.reduce((sum, width) => sum + width, 0) + 8 * 2 + 6;
+    expect(visibleTabLayout(infraTabs, 0, natural, true, 2, 6)).toEqual({ visible: [0, 1, 2, 3, 4, 5, 6, 7, 8], naturalWidths: true });
+    expect(visibleTabLayout(infraTabs, 0, 105 * 9 + 16 + 6, true, 2, 6)).toEqual({ visible: [0, 1, 2, 3, 4, 5, 6, 7, 8], naturalWidths: false });
+    const narrow = visibleTabLayout(infraTabs, 8, natural - 1, true, 2, 6);
+    expect(narrow.naturalWidths).toBe(false);
+    expect(narrow.visible).toContain(8);
+    expect(narrow.visible.length).toBeLessThan(infraTabs.length);
+    expect(visibleTabLayout(infraTabs, 0, natural, false, 2, 6)).toEqual({ visible: [0, 1, 2, 3, 4, 5, 6, 7, 8], naturalWidths: false });
   });
 
   it('includes restored tab icons in each equal-slot minimum width at the boundary', () => {

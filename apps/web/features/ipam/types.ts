@@ -30,6 +30,8 @@ export interface Subnet {
   siteId?: string | null;
   vlanId?: string | null;
   vrfId?: string | null;
+  /** Planning selector: the VRF name, when the list endpoint includes it. */
+  vrf?: { id: string; name: string } | null;
   vlan?: Vlan | null;
   site?: Site | null;
   _count?: { ips?: number; discoveryJobs?: number };

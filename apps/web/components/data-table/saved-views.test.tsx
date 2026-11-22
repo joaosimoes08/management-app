@@ -1,8 +1,12 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ToastProvider } from '@/components/ui/toast';
 import { SavedViews, readSavedViews, removeSavedView, savedViewsKey, tableQueryOf, upsertSavedView } from './saved-views';
 import { useTableUrlState } from './use-table-url-state';
 import type { TableStateConfig } from './table-state';
+
+vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ locale: 'pt-PT', t: (key: string) => key }) }));
+vi.mock('@/components/ui/use-ui-text', () => ({ useUiText: () => (key: string) => key }));
 
 const config: TableStateConfig<{ status: string }> = { filters: { status: '' }, sortable: ['name'], defaultSort: { column: 'name', direction: 'asc' } };
 
@@ -67,5 +71,35 @@ describe('SavedViews', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Apagar vista Abertos' }));
     expect(readSavedViews(savedViewsKey(undefined, 'test'))).toEqual([]);
     expect(screen.queryByRole('button', { name: 'Apagar vista Abertos' })).not.toBeInTheDocument();
+  });
+
+  it('confirms "Copiar ligação desta vista" with a toast, not inline text (item 5)', async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    window.history.replaceState(null, '', '/page?status=OPEN');
+    render(<ToastProvider><Harness /></ToastProvider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Copiar ligação desta vista' }));
+    const toast = await screen.findByText('Ligação copiada');
+    expect(writeText).toHaveBeenCalledWith(window.location.href);
+    expect(toast.closest('.toast-region')).not.toBeNull();
+    expect(document.querySelector('.form-help')).toBeNull();
+  });
+
+  it('shows the error toast when the clipboard refuses the link', async () => {
+    const writeText = vi.fn(() => Promise.reject(new Error('denied')));
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    render(<ToastProvider><Harness /></ToastProvider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Copiar ligação desta vista' }));
+    const toast = await screen.findByText('Não foi possível copiar a ligação');
+    expect(toast.closest('.toast-error')).not.toBeNull();
+    expect(screen.queryByText('Ligação copiada')).not.toBeInTheDocument();
+  });
+
+  it('keeps a name and a tooltip on every control whose visible label can be hidden', () => {
+    render(<Harness />);
+    for (const control of document.querySelectorAll('.saved-views select, .saved-views button')) {
+      expect(control.getAttribute('aria-label')).toBeTruthy();
+      expect(control.getAttribute('title')).toBeTruthy();
+    }
   });
 });

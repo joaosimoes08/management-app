@@ -22,7 +22,7 @@ vi.mock('@/lib/auth', () => ({ useAuth: () => ({ user: { id: 'user-1' }, hasRole
 vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }));
 vi.mock('@/lib/site-context', () => ({ useSiteContext: () => ({ siteId: 'site-1' }) }));
 vi.mock('@/components/layout/app-shell', () => ({
-  AppShell: ({ children, moduleTabs }: { children: React.ReactNode; moduleTabs?: React.ReactNode }) => <div>{moduleTabs}{children}</div>,
+  AppShell: ({ children, moduleTabs, helpTopic }: { children: React.ReactNode; moduleTabs?: React.ReactNode; helpTopic?: string }) => <div data-testid="shell" data-help-topic={helpTopic}>{moduleTabs}{children}</div>,
 }));
 vi.mock('./components/rack/rack-workspace', () => ({ RackWorkspace: () => <div /> }));
 vi.mock('./components/devices/deep-link-device-loader', () => ({ DeepLinkDeviceLoader: ({ deviceId }: { deviceId: string | null }) => (deviceId ? <span data-testid="deep-link">{deviceId}</span> : null) }));
@@ -117,5 +117,29 @@ describe('InfrastructureWorkspace', () => {
     window.history.replaceState({}, '', '/infraestrutura?siteId=site-1&tab=devices&deviceId=dev-9');
     render(<InfrastructureWorkspace />);
     expect(screen.queryByTestId('deep-link')).not.toBeInTheDocument();
+  });
+
+  it('keeps every tab in ?tab= and names its Help topic, so returning from Help restores the tab (item 8)', () => {
+    window.history.replaceState({}, '', '/infraestrutura?siteId=site-1');
+    render(<InfrastructureWorkspace />);
+    fireEvent.click(screen.getByRole('button', { name: 'Ciclo de vida' }));
+    expect(window.location.search).toBe('?siteId=site-1&tab=lifecycle');
+    expect(screen.getByTestId('shell')).toHaveAttribute('data-help-topic', 'equipamentos');
+    fireEvent.click(screen.getByRole('button', { name: 'Equipamentos' }));
+    expect(window.location.search).toBe('?siteId=site-1&tab=devices');
+    fireEvent.click(screen.getByRole('button', { name: 'Bastidores' }));
+    expect(window.location.search).toBe('?siteId=site-1');
+    cleanup();
+    // Back from /ajuda remounts the page on the URL it left: the tab comes back from ?tab=.
+    window.history.replaceState({}, '', '/infraestrutura?siteId=site-1&tab=lifecycle');
+    render(<InfrastructureWorkspace />);
+    expect(screen.getByRole('button', { name: 'Ciclo de vida' })).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('points Help at Servidores Linux on the Servidores tab', () => {
+    auth.hasRole.mockImplementation((role) => role === 'READ_ONLY');
+    window.history.replaceState({}, '', '/infraestrutura?siteId=site-1&tab=hosts');
+    render(<InfrastructureWorkspace />);
+    expect(screen.getByTestId('shell')).toHaveAttribute('data-help-topic', 'servidores');
   });
 });

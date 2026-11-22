@@ -136,7 +136,7 @@ export type CsvExportButtonProps<Row> = {
 
 /** Downloads exactly the rows passed in (the filtered, sorted view). */
 export function CsvExportButton<Row>({ rows, columns, fileName, options, label = 'Exportar CSV' }: CsvExportButtonProps<Row>) {
-  return <button type="button" className="secondary-button" disabled={!rows.length} onClick={() => downloadCsv(csvFileName(fileName), toCsv(rows, columns, options))}>
-    <Download size={14} /> {label}
+  return <button type="button" className="secondary-button" aria-label={label} title={label} disabled={!rows.length} onClick={() => downloadCsv(csvFileName(fileName), toCsv(rows, columns, options))}>
+    <Download size={14} /> <span className="toolbar-action-label">{label}</span>
   </button>;
 }

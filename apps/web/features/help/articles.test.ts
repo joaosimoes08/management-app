@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { helpArticle, helpArticleForPath, helpArticles } from './articles';
+import { helpArticle, helpArticleForPath, helpArticles, infrastructureHelpTopic } from './articles';
 
 describe('help articles', () => {
   it('have unique slugs and non-empty bodies', () => {
@@ -30,5 +30,14 @@ describe('help articles', () => {
     expect(text).not.toMatch(/semanal/i);
     expect(text).toMatch(/T1 a cada semana, T2 a cada 2 semanas e T3 a cada 4 semanas/);
     expect(text).toMatch(/Definições → Sites/);
+  });
+
+  it('map every Infraestrutura tab to an existing article (item 8)', () => {
+    for (const tab of ['sites', 'racks', 'devices', 'hosts', 'lifecycle', 'models', 'interfaces', 'assets', 'permissions', null, 'unknown']) {
+      expect(helpArticle(infrastructureHelpTopic(tab))).toBeDefined();
+    }
+    expect(infrastructureHelpTopic('hosts')).toBe('servidores');
+    expect(infrastructureHelpTopic('permissions')).toBe('equipamentos');
+    expect(infrastructureHelpTopic(null)).toBe('equipamentos');
   });
 });
