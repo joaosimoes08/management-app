@@ -43,3 +43,39 @@ test('lifecycle date creation rejects duplicate reminder days before persistence
   await assert.rejects(() => service.create(device.id, { kind: 'SUPPORT', dueDate: '2026-12-31', reminderDays: [7, 7] }, actor), BadRequestException);
   assert.equal(created(), undefined);
 });
+
+function buildListService() {
+  const calls: any[] = [];
+  const prisma = {
+    lifecycleDate: { findMany: async (args: any) => {
+      calls.push(args);
+      return [{ id: 'date-1', deviceId: device.id, kind: 'WARRANTY', dueDate: new Date('2031-05-01T00:00:00.000Z'), reminderDays: [30], device: { id: device.id, name: 'Server', type: device.type, siteId: device.siteId, site: { id: 'site-1', name: 'Site' }, rack: null }, responsibleUser: null, responsibleGroup: null }];
+    } },
+  };
+  const access = { assertDevice: async () => undefined };
+  const service = new LifecycleDatesService(prisma as unknown as PrismaClient, access as never, { record: async () => undefined } as never);
+  return { service, calls };
+}
+
+test('lifecycle list keeps the 370-day cap for the site calendar', async () => {
+  const { service, calls } = buildListService();
+  await assert.rejects(() => service.list(actor, 'site-1', '2000-01-01', '2100-01-01'), BadRequestException);
+  await assert.rejects(() => service.list(actor, 'site-1', undefined, undefined), BadRequestException);
+  assert.equal(calls.length, 0);
+});
+
+test('lifecycle list by deviceId (Device 360) needs no date range and filters in the database', async () => {
+  const { service, calls } = buildListService();
+  const result = await service.list(actor, 'site-1', undefined, undefined, device.id);
+  assert.equal(calls[0].where.deviceId, device.id);
+  assert.equal(calls[0].where.dueDate, undefined);
+  assert.equal(result.items[0].dueDate, '2031-05-01');
+});
+
+test('lifecycle list by deviceId still validates an explicit range when one is given', async () => {
+  const { service, calls } = buildListService();
+  await service.list(actor, 'site-1', '2000-01-01', '2100-01-01', device.id);
+  assert.equal(calls[0].where.dueDate.gte.toISOString(), '2000-01-01T00:00:00.000Z');
+  await assert.rejects(() => service.list(actor, 'site-1', '2030-01-02', '2030-01-01', device.id), BadRequestException);
+  await assert.rejects(() => service.list(actor, '', undefined, undefined, device.id), BadRequestException);
+});

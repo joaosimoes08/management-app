@@ -78,11 +78,19 @@ export class LifecycleDatesService {
     try { await this.access.assertDevice(user, 'READ', item.deviceId); return true; } catch { return false; }
   }
 
-  async list(user: AuthenticatedUser, siteId: string, from: string, to: string) {
-    if (!siteId || !from || !to) throw new BadRequestException('siteId, from e to são obrigatórios.');
-    const start = this.day(from); const end = this.day(to);
-    if (end < start || (end.getTime() - start.getTime()) / 86_400_000 > 370) throw new BadRequestException('O intervalo de datas é inválido ou demasiado amplo.');
-    const items = await this.prisma.lifecycleDate.findMany({ where: { dueDate: { gte: start, lte: end }, device: { OR: [
+  /**
+   * Calendar view: siteId + from + to (at most 370 days).
+   * Device view (Device 360): siteId + deviceId, from/to optional — a single device has at most one date per kind,
+   * so the range cap is not needed there.
+   */
+  async list(user: AuthenticatedUser, siteId: string, from?: string, to?: string, deviceId?: string) {
+    if (!siteId) throw new BadRequestException('siteId é obrigatório.');
+    if (!deviceId && (!from || !to)) throw new BadRequestException('from e to são obrigatórios sem deviceId.');
+    const start = from ? this.day(from) : undefined; const end = to ? this.day(to) : undefined;
+    if (start && end && end < start) throw new BadRequestException('O intervalo de datas é inválido ou demasiado amplo.');
+    if (!deviceId && start && end && (end.getTime() - start.getTime()) / 86_400_000 > 370) throw new BadRequestException('O intervalo de datas é inválido ou demasiado amplo.');
+    const dueDate = start || end ? { ...(start ? { gte: start } : {}), ...(end ? { lte: end } : {}) } : undefined;
+    const items = await this.prisma.lifecycleDate.findMany({ where: { ...(dueDate ? { dueDate } : {}), ...(deviceId ? { deviceId } : {}), device: { OR: [
       { siteId }, { rack: { room: { building: { siteId } } } },
     ] } }, include: includeLifecycle, orderBy: [{ dueDate: 'asc' }, { kind: 'asc' }] });
     const visible = await Promise.all(items.map((item) => this.withVisibleDevice(item, user)));
