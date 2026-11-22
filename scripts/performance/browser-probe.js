@@ -93,6 +93,8 @@
       request_entries: http.length + (navigation ? 1 : 0),
       network_entries: http.filter((item) => item.transferSize > 0).length + (navigation?.transferSize ? 1 : 0),
       api_requests: requests.length,
+      throttled_429: requests.filter((request) => request.status === 429).length,
+      throttled_paths: [...new Set(requests.filter((request) => request.status === 429).map((request) => request.path))].join(' '),
       keycloak_to_identity_ms: firstAuth?.start ?? null,
       critical_request_ms: last ? last.headersAt - last.start : null,
       critical_api_ms: server.api ?? null, critical_prisma_ms: server.db ?? null,
