@@ -87,17 +87,27 @@ export type SubnetPlanning = {
   subnet: Subnet; version: number; network?: string; broadcast?: string; prefix?: number; size?: number;
   usableRange?: { start: string; end: string } | null; usableTotal?: number; unavailable?: number; free?: number; utilizationPercent: number | null;
   usableGaps: Array<{ start: string; end: string; count: number }>; unavailableAddresses?: string[]; message?: string;
-  scope?: { vrfId: string | null; vrfName: string | null }; childSubnets?: number;
+  scope?: { vrfId: string | null; vrfName: string | null; siteId?: string | null; siteName?: string | null }; childSubnets?: number;
   addressSpace?: { total: number; taken: number; planned: number; freeAfterPlan: number };
   planned?: SubnetPlannedBlock[]; shortfalls?: SubnetPlanningShortfall[]; segments?: SubnetPlanningSegment[]; segmentsTruncated?: boolean;
+  split?: { rows: SubnetSplitRow[]; total: number; truncated: boolean };
 };
+export type SubnetPlanningConflict = { kind: SubnetPlanningAllocationKind; start: string; end: string; count: number; label: string; subnetId?: string };
+export type SubnetSplitRow = { cidr: string; start: string; end: string; size: number; usable: number; used: number; free: number; available: boolean; planned: boolean; conflicts: SubnetPlanningConflict[] };
+export type SubnetPlanCommitProblem = { cidr: string; reason: string; message: string; conflicts: SubnetPlanningConflict[] };
+export type SubnetPlanCommitResult = { parentId: string; created: Array<{ id: string; cidr: string; purpose: string | null }> };
 /** Read-only planning preview. `prefix` asks for aligned blocks of that size; `count` empty means as many as fit. */
-export function getSubnetPlanning(id: string, request: { prefix?: number | null; count?: number | null } = {}): Promise<SubnetPlanning> {
+export function getSubnetPlanning(id: string, request: { prefix?: number | null; count?: number | null } = {}, signal?: AbortSignal): Promise<SubnetPlanning> {
   const params = new URLSearchParams();
   if (request.prefix !== undefined && request.prefix !== null) params.set('prefix', String(request.prefix));
   if (request.prefix !== undefined && request.prefix !== null && request.count) params.set('count', String(request.count));
   const query = params.toString();
-  return apiFetch<SubnetPlanning>(`/api/v1/subnets/${id}/planning${query ? `?${query}` : ''}`);
+  const path = `/api/v1/subnets/${id}/planning${query ? `?${query}` : ''}`;
+  return signal ? apiFetch<SubnetPlanning>(path, { signal }) : apiFetch<SubnetPlanning>(path);
+}
+/** Creates the confirmed child subnets. The API rechecks every block and rejects the whole request (409, `conflicts`) if any is no longer free. */
+export function commitSubnetPlanning(id: string, blocks: Array<{ cidr: string; purpose?: string }>): Promise<SubnetPlanCommitResult> {
+  return apiFetch<SubnetPlanCommitResult>(`/api/v1/subnets/${id}/planning/commit`, { method: 'POST', body: JSON.stringify({ blocks }) });
 }
 export function getIpAddress(id: string): Promise<IpAddressRow> {
   return apiFetch<IpAddressRow>(`/api/v1/ip-addresses/${id}`);
