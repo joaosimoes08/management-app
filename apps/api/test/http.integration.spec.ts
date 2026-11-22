@@ -1494,6 +1494,25 @@ test('Phase D drill-through: device status, critical and lifecycle filters keep 
   }
 });
 
+test('Device 360 lifecycle card: GET /lifecycle-dates by deviceId needs no range and the site calendar keeps its cap', async () => {
+  const far = new Date('2045-06-30T00:00:00.000Z');
+  const date = await prisma.lifecycleDate.create({ data: { deviceId: ids.deviceA, kind: 'D360_WARRANTY', dueDate: far } });
+  try {
+    // The old Device 360 call (100-year range, no deviceId) is still rejected: the calendar stays capped at 370 days.
+    assert.equal((await request('GET', `/api/v1/lifecycle-dates?siteId=${ids.siteA}&from=2000-01-01&to=2100-01-01`, 'qa-admin')).statusCode, 400);
+    assert.equal((await request('GET', `/api/v1/lifecycle-dates?siteId=${ids.siteA}`, 'qa-admin')).statusCode, 400);
+    const response = await request('GET', `/api/v1/lifecycle-dates?siteId=${ids.siteA}&deviceId=${ids.deviceA}`, 'qa-admin');
+    assert.equal(response.statusCode, 200, response.body);
+    const items = json(response).items as Array<{ id: string; deviceId: string; dueDate: string }>;
+    assert.ok(items.every((item) => item.deviceId === ids.deviceA));
+    assert.equal(items.find((item) => item.id === date.id)?.dueDate, '2045-06-30');
+    const other = json(await request('GET', `/api/v1/lifecycle-dates?siteId=${ids.siteA}&deviceId=${ids.deviceA2}`, 'qa-admin')).items as Array<{ id: string }>;
+    assert.ok(!other.some((item) => item.id === date.id));
+  } finally {
+    await prisma.lifecycleDate.delete({ where: { id: date.id } });
+  }
+});
+
 test('Phase D IPAM: utilisation on the subnet list, next free IPs and reserve-next with Site isolation', async () => {
   await prisma.ipAddress.createMany({ data: [
     { address: '10.250.1.200', subnetId: ids.subnetA, state: 'OCCUPIED', source: 'MANUAL' },

@@ -10,8 +10,8 @@ import { LifecycleDatesService } from './lifecycle-dates.service';
 export class LifecycleDatesController {
   constructor(private readonly service: LifecycleDatesService) {}
 
-  @Get('lifecycle-dates') list(@Query('siteId') siteId: string, @Query('from') from: string, @Query('to') to: string, @Req() req: { user: AuthenticatedUser }) {
-    return this.service.list(req.user, siteId, from, to);
+  @Get('lifecycle-dates') list(@Query('siteId') siteId: string, @Query('from') from: string, @Query('to') to: string, @Query('deviceId') deviceId: string | undefined, @Req() req: { user: AuthenticatedUser }) {
+    return this.service.list(req.user, siteId, from, to, deviceId || undefined);
   }
   @Post('devices/:deviceId/lifecycle-dates') @Roles('ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR')
   create(@Param('deviceId') deviceId: string, @Body() dto: CreateLifecycleDateDto, @Req() req: { user: AuthenticatedUser }) { return this.service.create(deviceId, dto, req.user); }
