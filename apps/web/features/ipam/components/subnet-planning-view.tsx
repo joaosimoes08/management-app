@@ -148,7 +148,7 @@ export function SubnetPlanningView({ subnets, search = '', canCreate = false }: 
           {!planned.length && <div className="no-data">Nenhum bloco planeado.</div>}
           {canCreate && planned.length > 0 && <div className="modal-form">
             <label>Finalidade das novas subnets<input maxLength={100} placeholder="Opcional" value={purpose} onChange={(event) => setPurpose(event.target.value)} /></label>
-            <button type="button" className="primary-button" onClick={() => void review()} disabled={committing || loading}>{committing ? 'A criar…' : 'Rever e confirmar'}</button>
+            <div className="modal-actions"><button type="button" className="primary-button" onClick={() => void review()} disabled={committing || loading}>{committing ? 'A criar…' : 'Rever e confirmar'}</button></div>
           </div>}
           {plan.split && plan.split.rows.length > 0 && <>
             <h3>Divisão em /{prefix}</h3>

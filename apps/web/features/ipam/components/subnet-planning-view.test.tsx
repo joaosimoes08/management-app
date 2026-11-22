@@ -169,6 +169,9 @@ describe('Planeamento de endereços', () => {
 
   it('row 4: nothing is created until the user confirms; Confirm posts the planned blocks and refreshes', async () => {
     await pickPrefix();
+    const confirmButton = screen.getByRole('button', { name: 'Rever e confirmar' });
+    expect(confirmButton).toHaveClass('primary-button');
+    expect(confirmButton.parentElement).toHaveClass('modal-actions');
     fireEvent.change(screen.getByLabelText('Finalidade das novas subnets'), { target: { value: 'LAN A' } });
     fireEvent.click(screen.getByRole('button', { name: 'Rever e confirmar' }));
     const dialog = await screen.findByRole('alertdialog');
