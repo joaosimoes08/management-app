@@ -11,7 +11,11 @@ export class PollProcessor {
     const config = await this.prisma.snmpDeviceConfig.findUnique({ where: { id: configId } });
     if (!config?.enabled) return;
     const credential = await this.prisma.snmpCredential.findUnique({ where: { deviceId_purpose: { deviceId: config.deviceId, purpose: 'READ' } } });
-    if (!credential?.enabled) throw Object.assign(new Error('SNMP_READ_CREDENTIAL_REQUIRED'), { code: 'SNMP_READ_CREDENTIAL_REQUIRED' });
+    if (!credential?.enabled) {
+      // Round 2 #12: record why scheduled polling stopped, so the fleet summary and Alertas show it instead of a silent gap.
+      await this.prisma.snmpDeviceConfig.update({ where: { id: config.id }, data: { lastStatus: 'FAILED', lastErrorCode: 'SNMP_READ_CREDENTIAL_REQUIRED' } }).catch(() => undefined);
+      throw Object.assign(new Error('SNMP_READ_CREDENTIAL_REQUIRED'), { code: 'SNMP_READ_CREDENTIAL_REQUIRED' });
+    }
     const job = await this.prisma.snmpJob.create({ data: { deviceId: config.deviceId, credentialId: credential.id, type: 'POLL', metadata: { trigger: 'SCHEDULED', contract: SNMP_JOB_NAMES.poll } } });
     try { return await this.run(job.id); }
     catch (error) {

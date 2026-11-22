@@ -37,12 +37,13 @@ export const executeSnmpWrite = (id: string, impactAcknowledged: boolean) => api
 
 // Phase E: fleet summary and drift review across devices. Types are kept loose
 // (optional fields, string unions open-ended) so API additions never break the UI.
-export type SnmpAttentionReason = 'FAILED' | 'BLOCKED' | 'STALE' | 'NEVER_POLLED' | (string & {});
+export type SnmpAttentionReason = 'FAILED' | 'BLOCKED' | 'NO_SCHEDULE' | 'STALE' | 'NEVER_POLLED' | (string & {});
 export interface SnmpFleetSummary {
   siteId?: string | null;
   generatedAt?: string;
   devices: { total: number; configured: number; enabled: number; disabled: number; notConfigured: number };
-  polling: { byStatus: Record<string, number>; stale: number; lastPollAt?: string | null; oldestPollAt?: string | null };
+  polling: { byStatus: Record<string, number>; stale: number; noSchedule?: number; lastPollAt?: string | null; oldestPollAt?: string | null };
+  scheduler?: { lastRunAt: string | null; ok: boolean | null; checked: number; repaired: number; failed: number; errorCode: string | null };
   drift: { pending: number; devicesWithPending: number };
   attention: Array<{ deviceId: string; name: string; siteId?: string | null; reason: SnmpAttentionReason; lastStatus?: string | null; lastPollAt?: string | null; lastErrorCode?: string | null; pendingDrifts?: number }>;
   attentionTotal?: number;

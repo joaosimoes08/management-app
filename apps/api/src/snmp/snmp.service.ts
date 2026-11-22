@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import * as net from 'node:net';
 import { PrismaClient, SnmpCredentialPurpose, SnmpVersion } from '@simoes/database';
@@ -10,13 +10,27 @@ import { assertPortMappingComplete } from '../infrastructure/port-layout';
 import { AcceptSnmpEnrollmentDto, AcknowledgeSnmpWriteImpactDto, CreateSnmpCredentialDto, CreateSnmpTrapEnrollmentDto, CreateSnmpWritePreviewDto, ReviewSnmpDriftDto, SnmpCredentialSecretDto, SnmpOnboardingDeviceDto, UpsertSnmpConfigDto } from './dto';
 import { interfaceTrafficRates } from './metrics';
 
+export type SchedulerHealth = { lastRunAt: string | null; ok: boolean | null; checked: number; repaired: number; failed: number; errorCode: string | null };
+const SCHEDULER_RECONCILE_INTERVAL_MS = 10 * 60_000;
+
 @Injectable()
 export class SnmpService implements OnModuleDestroy, OnModuleInit {
   private readonly queue = new Queue(SNMP_QUEUE, { connection: this.redisConnection() });
 
+  private readonly logger = new Logger(SnmpService.name);
+  private schedulerTimer?: NodeJS.Timeout;
+  /** Round 2 #12: outcome of the last scheduler reconciliation in this API process (shown in the SNMP fleet summary). */
+  schedulerHealth: SchedulerHealth = { lastRunAt: null, ok: null, checked: 0, repaired: 0, failed: 0, errorCode: null };
+
   constructor(private readonly prisma: PrismaClient, private readonly audit: AuditService, private readonly access: InfrastructureAccessService) {}
-  onModuleInit() { void this.reconcileSchedulers(); }
-  async onModuleDestroy() { await this.queue.disconnect(); }
+  onModuleInit() {
+    void this.reconcileSchedulers();
+    if (process.env.SNMP_SCHEDULER_RECONCILE_DISABLED === 'true') return;
+    // Round 2 #12: re-check every 10 minutes, so a scheduler lost in Redis (flush, restore, failover) is put back.
+    this.schedulerTimer = setInterval(() => void this.reconcileSchedulers(), SCHEDULER_RECONCILE_INTERVAL_MS);
+    this.schedulerTimer.unref();
+  }
+  async onModuleDestroy() { if (this.schedulerTimer) clearInterval(this.schedulerTimer); await this.queue.disconnect(); }
   private redisConnection() { const url = new URL(process.env.REDIS_URL ?? 'redis://localhost:6379'); return { host: url.hostname, port: Number(url.port || 6379), ...(url.password ? { password: url.password } : {}) }; }
   private keyring() { try { return loadKeyring(); } catch { throw new ConflictException({ code: 'SNMP_KEYRING_UNAVAILABLE', message: 'O cofre SNMP não está configurado.' }); } }
   private async log(user: AuthenticatedUser | undefined, action: string, entityType: string, entityId: string, metadata?: unknown) { await this.audit.record({ userId: user?.id, action, entityType, entityId, metadata }); }
@@ -35,9 +49,45 @@ export class SnmpService implements OnModuleDestroy, OnModuleInit {
     await this.prisma.snmpDeviceConfig.update({ where: { id: item.id }, data: { nextPollAt: new Date(Date.now() + jitter), lastErrorCode: null } });
   }
 
-  private async reconcileSchedulers() {
-    const configs = await this.prisma.snmpDeviceConfig.findMany({ where: { enabled: true }, select: { id: true, deviceId: true, enabled: true, intervalMinutes: true } }).catch(() => []);
-    for (const config of configs) await this.scheduleConfig(config).catch(() => this.prisma.snmpDeviceConfig.update({ where: { id: config.id }, data: { nextPollAt: null, lastErrorCode: 'SNMP_QUEUE_UNAVAILABLE' } }).catch(() => undefined));
+  /**
+   * Round 2 #12: makes sure every enabled device has its BullMQ poll scheduler. Only missing schedulers are created, so
+   * the running cadence is not reset. Failures are logged and recorded on the device (lastErrorCode + nextPollAt null),
+   * which the fleet summary and the Alertas list report as "Sem agendamento"; they are no longer swallowed.
+   */
+  async reconcileSchedulers(now = new Date()): Promise<SchedulerHealth> {
+    const health: SchedulerHealth = { lastRunAt: now.toISOString(), ok: true, checked: 0, repaired: 0, failed: 0, errorCode: null };
+    try {
+      const configs = await this.prisma.snmpDeviceConfig.findMany({ where: { enabled: true }, select: { id: true, deviceId: true, enabled: true, intervalMinutes: true, nextPollAt: true } });
+      health.checked = configs.length;
+      let existing: Set<string>;
+      try {
+        existing = new Set((await this.queue.getJobSchedulers(0, -1)).map((item) => item.key ?? item.id ?? '').filter(Boolean));
+      } catch (error) {
+        health.errorCode = 'SNMP_QUEUE_UNAVAILABLE';
+        this.logger.error(`SNMP scheduler reconciliation could not read the queue: ${error instanceof Error ? error.message : String(error)}`);
+        existing = new Set();
+      }
+      for (const config of configs) {
+        if (!health.errorCode && existing.has(`snmp-device-${config.deviceId}`) && config.nextPollAt) continue;
+        try {
+          if (health.errorCode) throw new Error(health.errorCode);
+          await this.scheduleConfig(config);
+          health.repaired += 1;
+        } catch (error) {
+          health.failed += 1;
+          const code = health.errorCode ?? 'SNMP_SCHEDULER_FAILED';
+          this.logger.error(`SNMP poll scheduler failed for device ${config.deviceId}: ${error instanceof Error ? error.message : String(error)}`);
+          await this.prisma.snmpDeviceConfig.update({ where: { id: config.id }, data: { nextPollAt: null, lastErrorCode: code } })
+            .catch((writeError) => this.logger.error(`Could not record the SNMP scheduler failure for device ${config.deviceId}: ${writeError instanceof Error ? writeError.message : String(writeError)}`));
+        }
+      }
+    } catch (error) {
+      health.errorCode = 'SNMP_SCHEDULER_RECONCILE_FAILED';
+      this.logger.error(`SNMP scheduler reconciliation failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    health.ok = !health.errorCode && health.failed === 0;
+    this.schedulerHealth = health;
+    return health;
   }
 
   private publicCredential(item: any) {

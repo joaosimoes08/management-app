@@ -15,16 +15,35 @@ export type FleetDevice = {
   pendingDrifts: number;
 };
 
-/** A poll is stale when the last poll is older than twice the configured interval. */
-export function isSnmpPollStale(config: { enabled: boolean; intervalMinutes: number; lastPollAt: Date | null }, now: Date) {
-  return config.enabled && config.lastPollAt !== null && now.getTime() - config.lastPollAt.getTime() > config.intervalMinutes * 2 * 60_000;
+/**
+ * A poll is stale when the last poll is older than twice the configured interval. Round 2 #12: a device that was never
+ * polled is stale too once its first scheduled poll (nextPollAt) is more than twice the interval in the past.
+ */
+export function isSnmpPollStale(config: { enabled: boolean; intervalMinutes: number; lastPollAt: Date | null; nextPollAt?: Date | null }, now: Date) {
+  const reference = config.lastPollAt ?? config.nextPollAt ?? null;
+  return config.enabled && reference !== null && now.getTime() - reference.getTime() > config.intervalMinutes * 2 * 60_000;
+}
+
+/** Codes recorded when the poll scheduler could not be created (see SnmpService.reconcileSchedulers). */
+export const SNMP_SCHEDULER_ERROR_CODES = ['SNMP_QUEUE_UNAVAILABLE', 'SNMP_SCHEDULER_FAILED'];
+
+export type SnmpPollingStopReason = 'NO_SCHEDULE' | 'STALE';
+
+/**
+ * Round 2 #12: why an enabled device's polling has stopped without failing, or null. NO_SCHEDULE: it has no poll
+ * scheduler (nextPollAt was cleared and a scheduler error recorded because creating it failed). STALE: polls stopped arriving.
+ */
+export function snmpPollingStopReason(config: { enabled: boolean; intervalMinutes: number; lastPollAt: Date | null; nextPollAt: Date | null; lastErrorCode: string | null }, now: Date): SnmpPollingStopReason | null {
+  if (!config.enabled) return null;
+  if (!config.nextPollAt && SNMP_SCHEDULER_ERROR_CODES.includes(config.lastErrorCode ?? '')) return 'NO_SCHEDULE';
+  return isSnmpPollStale(config, now) ? 'STALE' : null;
 }
 
 export function summarizeSnmpFleet(devices: FleetDevice[], now = new Date()) {
   const byStatus: Record<string, number> = Object.fromEntries([...POLL_STATUSES, 'NEVER_POLLED'].map((status) => [status, 0]));
-  let configured = 0; let enabled = 0; let stale = 0; let pendingDrifts = 0; let devicesWithDrift = 0;
+  let configured = 0; let enabled = 0; let stale = 0; let noSchedule = 0; let pendingDrifts = 0; let devicesWithDrift = 0;
   let lastPollAt: Date | null = null; let oldestPollAt: Date | null = null;
-  const attention: Array<{ deviceId: string; name: string; siteId: string; reason: 'FAILED' | 'BLOCKED' | 'STALE' | 'NEVER_POLLED'; lastStatus: string | null; lastPollAt: Date | null; lastErrorCode: string | null; pendingDrifts: number }> = [];
+  const attention: Array<{ deviceId: string; name: string; siteId: string; reason: 'FAILED' | 'BLOCKED' | 'NO_SCHEDULE' | 'STALE' | 'NEVER_POLLED'; lastStatus: string | null; lastPollAt: Date | null; lastErrorCode: string | null; pendingDrifts: number }> = [];
   for (const device of devices) {
     pendingDrifts += device.pendingDrifts;
     if (device.pendingDrifts > 0) devicesWithDrift += 1;
@@ -38,17 +57,18 @@ export function summarizeSnmpFleet(devices: FleetDevice[], now = new Date()) {
       if (!lastPollAt || config.lastPollAt > lastPollAt) lastPollAt = config.lastPollAt;
       if (!oldestPollAt || config.lastPollAt < oldestPollAt) oldestPollAt = config.lastPollAt;
     }
-    const isStale = isSnmpPollStale(config, now);
-    if (isStale) stale += 1;
-    const reason = config.lastStatus === 'FAILED' ? 'FAILED' : config.lastStatus === 'BLOCKED' ? 'BLOCKED' : isStale ? 'STALE' : !config.lastPollAt ? 'NEVER_POLLED' : null;
+    const stopped = snmpPollingStopReason(config, now);
+    if (stopped === 'STALE') stale += 1;
+    if (stopped === 'NO_SCHEDULE') noSchedule += 1;
+    const reason = config.lastStatus === 'FAILED' ? 'FAILED' : config.lastStatus === 'BLOCKED' ? 'BLOCKED' : stopped ?? (!config.lastPollAt ? 'NEVER_POLLED' : null);
     if (reason) attention.push({ deviceId: device.id, name: device.name, siteId: device.siteId, reason, lastStatus: config.lastStatus, lastPollAt: config.lastPollAt, lastErrorCode: config.lastErrorCode, pendingDrifts: device.pendingDrifts });
   }
-  const order = { FAILED: 0, BLOCKED: 1, STALE: 2, NEVER_POLLED: 3 };
+  const order = { FAILED: 0, BLOCKED: 1, NO_SCHEDULE: 2, STALE: 3, NEVER_POLLED: 4 };
   attention.sort((left, right) => order[left.reason] - order[right.reason] || left.name.localeCompare(right.name));
   return {
     generatedAt: now.toISOString(),
     devices: { total: devices.length, configured, enabled, disabled: configured - enabled, notConfigured: devices.length - configured },
-    polling: { byStatus, stale, lastPollAt, oldestPollAt },
+    polling: { byStatus, stale, noSchedule, lastPollAt, oldestPollAt },
     drift: { pending: pendingDrifts, devicesWithPending: devicesWithDrift },
     attention: attention.slice(0, 10),
     attentionTotal: attention.length,
@@ -74,7 +94,7 @@ export class SnmpFleetService {
       where: { AND: [visible, { type: { in: SNMP_NETWORK_TYPES as never[] } }, { status: { not: 'RETIRED' } }] },
       select: { id: true, name: true, type: true, siteId: true, snmpConfig: { select: { enabled: true, intervalMinutes: true, lastPollAt: true, nextPollAt: true, lastStatus: true, lastErrorCode: true } }, _count: { select: { snmpDrifts: { where: { status: 'PENDING' } } } } },
     });
-    return { siteId: siteId ?? null, ...summarizeSnmpFleet(devices.map(({ _count, ...device }) => ({ ...device, pendingDrifts: _count.snmpDrifts })) as FleetDevice[]) };
+    return { siteId: siteId ?? null, ...summarizeSnmpFleet(devices.map(({ _count, ...device }) => ({ ...device, pendingDrifts: _count.snmpDrifts })) as FleetDevice[]), scheduler: this.snmp.schedulerHealth };
   }
 
   /** GET snmp/drifts — drift list across visible devices (default status PENDING). */

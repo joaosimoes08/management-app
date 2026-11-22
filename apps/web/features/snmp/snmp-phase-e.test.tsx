@@ -61,6 +61,17 @@ describe('SNMP fleet summary', () => {
     expect(openDevice).toHaveBeenCalledWith('d-1');
   });
 
+  // Round 2 #12: devices without a poll scheduler and scheduler failures are shown, not silent.
+  it('shows the "Sem agendamento" reason and a scheduler failure note', async () => {
+    mockedFetch.mockResolvedValue({ ...fleet, polling: { ...fleet.polling, noSchedule: 1 }, scheduler: { lastRunAt: '2026-11-21T09:50:00.000Z', ok: false, checked: 8, repaired: 0, failed: 8, errorCode: 'SNMP_QUEUE_UNAVAILABLE' },
+      attention: [{ deviceId: 'd-3', name: 'dist-sw-03', siteId: 'site-1', reason: 'NO_SCHEDULE', lastStatus: 'COMPLETED', lastPollAt: '2026-11-21T08:00:00.000Z', lastErrorCode: 'SNMP_QUEUE_UNAVAILABLE', pendingDrifts: 0 }] });
+    wrap(<SnmpFleetSummaryView siteId="site-1" openDevice={vi.fn()} openDrifts={vi.fn()} />);
+    const stats = await screen.findByRole('group', { name: 'Resumo da frota SNMP' });
+    expect(stats).toHaveTextContent('1 sem agendamento');
+    expect(within(screen.getByRole('region', { name: 'Equipamentos que precisam de atenção' })).getByText('Sem agendamento')).toBeInTheDocument();
+    expect(screen.getByText(/Agendamento do polling com falhas \(SNMP_QUEUE_UNAVAILABLE\)/)).toBeInTheDocument();
+  });
+
   it('explains SITE_NOT_FOUND and shows the API message for other errors', async () => {
     mockedFetch.mockRejectedValueOnce(new ApiRequestError('Site não encontrado.', 404, { code: 'SITE_NOT_FOUND', message: 'Site não encontrado.' }));
     wrap(<SnmpFleetSummaryView siteId="site-x" openDevice={vi.fn()} openDrifts={vi.fn()} />);

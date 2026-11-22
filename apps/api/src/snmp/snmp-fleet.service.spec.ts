@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { summarizeSnmpFleet } from './snmp-fleet.service';
+import { snmpPollingStopReason, summarizeSnmpFleet } from './snmp-fleet.service';
 
 const now = new Date('2026-11-21T12:00:00Z');
 const minutesAgo = (minutes: number) => new Date(now.getTime() - minutes * 60_000);
@@ -22,4 +22,25 @@ test('fleet summary counts configuration, poll status, staleness and drift', () 
   assert.deepEqual(summary.polling.oldestPollAt, minutesAgo(31));
   assert.deepEqual(summary.drift, { pending: 3, devicesWithPending: 2 });
   assert.deepEqual(summary.attention.map((item) => [item.name, item.reason]), [['edge-1', 'FAILED'], ['fw-1', 'STALE'], ['new-1', 'NEVER_POLLED']]);
+});
+
+// Round 2 #12: polling that stopped silently is surfaced.
+test('fleet summary flags devices without a poll scheduler and never-polled devices whose first poll is long overdue', () => {
+  const summary = summarizeSnmpFleet([
+    { id: '1', name: 'queue-down', type: 'SWITCH', siteId: 'a', snmpConfig: config({ nextPollAt: null, lastErrorCode: 'SNMP_QUEUE_UNAVAILABLE' }) as never, pendingDrifts: 0 },
+    { id: '2', name: 'never-scheduled', type: 'SWITCH', siteId: 'a', snmpConfig: config({ lastPollAt: null, lastStatus: null, nextPollAt: null }) as never, pendingDrifts: 0 },
+    { id: '3', name: 'first-poll-overdue', type: 'SWITCH', siteId: 'a', snmpConfig: config({ lastPollAt: null, lastStatus: null, nextPollAt: minutesAgo(45) }) as never, pendingDrifts: 0 },
+    { id: '4', name: 'first-poll-soon', type: 'SWITCH', siteId: 'a', snmpConfig: config({ lastPollAt: null, lastStatus: null, nextPollAt: minutesAgo(-2) }) as never, pendingDrifts: 0 },
+    { id: '5', name: 'healthy', type: 'SWITCH', siteId: 'a', snmpConfig: config({ nextPollAt: minutesAgo(-10) }) as never, pendingDrifts: 0 },
+  ], now);
+  assert.equal(summary.polling.noSchedule, 1);
+  assert.equal(summary.polling.stale, 1);
+  assert.deepEqual(summary.attention.map((item) => [item.name, item.reason]), [['queue-down', 'NO_SCHEDULE'], ['first-poll-overdue', 'STALE'], ['first-poll-soon', 'NEVER_POLLED'], ['never-scheduled', 'NEVER_POLLED']]);
+});
+
+test('snmpPollingStopReason ignores disabled devices and healthy schedules', () => {
+  assert.equal(snmpPollingStopReason({ enabled: false, intervalMinutes: 15, lastPollAt: null, nextPollAt: null, lastErrorCode: 'SNMP_QUEUE_UNAVAILABLE' }, now), null);
+  assert.equal(snmpPollingStopReason({ enabled: true, intervalMinutes: 15, lastPollAt: minutesAgo(5), nextPollAt: null, lastErrorCode: 'TIMEOUT' }, now), null);
+  assert.equal(snmpPollingStopReason({ enabled: true, intervalMinutes: 15, lastPollAt: minutesAgo(5), nextPollAt: null, lastErrorCode: 'SNMP_SCHEDULER_FAILED' }, now), 'NO_SCHEDULE');
+  assert.equal(snmpPollingStopReason({ enabled: true, intervalMinutes: 15, lastPollAt: minutesAgo(31), nextPollAt: minutesAgo(16), lastErrorCode: null }, now), 'STALE');
 });

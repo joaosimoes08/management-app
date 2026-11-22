@@ -9,6 +9,7 @@ import { getSnmpFleetSummary, type SnmpAttentionReason, type SnmpFleetSummary } 
 const reasonBadges: Record<string, { tone: string; label: string }> = {
   FAILED: { tone: 'excluded', label: 'Polling falhou' },
   BLOCKED: { tone: 'reserved', label: 'Bloqueado' },
+  NO_SCHEDULE: { tone: 'excluded', label: 'Sem agendamento' },
   STALE: { tone: 'reserved', label: 'Desatualizado' },
   NEVER_POLLED: { tone: 'pending', label: 'Nunca sincronizado' },
 };
@@ -47,10 +48,10 @@ function FleetSummaryContent({ data, openDevice, openDrifts }: { data: SnmpFleet
       <div><strong>{count(data.devices?.enabled)}</strong><span>{`Polling ativo · ${count(data.devices?.disabled)} desativados`}</span></div>
       <div><strong>{count(data.devices?.notConfigured)}</strong><span>Sem configuração SNMP</span></div>
       <div><strong>{count(byStatus.FAILED)}</strong><span>{`Polling falhou · ${count(byStatus.BLOCKED)} bloqueados`}</span></div>
-      <div><strong>{count(data.polling?.stale)}</strong><span>{`Desatualizados · ${count(byStatus.NEVER_POLLED)} nunca sincronizados`}</span></div>
+      <div><strong>{count(data.polling?.stale)}</strong><span>{`Desatualizados · ${count(byStatus.NEVER_POLLED)} nunca sincronizados${data.polling?.noSchedule ? ` · ${data.polling.noSchedule} sem agendamento` : ''}`}</span></div>
       <div><strong>{count(data.drift?.pending)}</strong><span>{`Divergências pendentes em ${count(data.drift?.devicesWithPending)} equipamentos`}</span></div>
     </div>
-    <p className="ipam-scope-note">{`Último poll: ${data.polling?.lastPollAt ? formatDateTime(data.polling.lastPollAt) : '—'} · Poll mais antigo: ${data.polling?.oldestPollAt ? formatDateTime(data.polling.oldestPollAt) : '—'}`}{data.generatedAt ? ` · Gerado em ${formatDateTime(data.generatedAt)}` : ''}</p>
+    <p className="ipam-scope-note">{`Último poll: ${data.polling?.lastPollAt ? formatDateTime(data.polling.lastPollAt) : '—'} · Poll mais antigo: ${data.polling?.oldestPollAt ? formatDateTime(data.polling.oldestPollAt) : '—'}`}{data.generatedAt ? ` · Gerado em ${formatDateTime(data.generatedAt)}` : ''}{data.scheduler?.ok === false ? ` · Agendamento do polling com falhas (${data.scheduler.errorCode ?? `${data.scheduler.failed} equipamento(s)`})` : ''}</p>
     <section className="ipam-card">
       <div className="panel-heading"><div><h2>Equipamentos que precisam de atenção</h2><p className="panel-description">{attentionTotal > attention.length ? `A mostrar ${attention.length} de ${attentionTotal} equipamentos.` : 'Polling falhado, bloqueado, desatualizado ou nunca executado.'}</p></div>{count(data.drift?.pending) > 0 && <button type="button" className="secondary-button" onClick={openDrifts}>Rever divergências</button>}</div>
       {attention.length ? <div className="ip-table-wrap" role="region" aria-label="Equipamentos que precisam de atenção" tabIndex={0}><table className="ip-table">
