@@ -65,3 +65,8 @@ export function useToast() {
   if (!context) throw new Error('useToast deve ser usado dentro de ToastProvider');
   return context;
 }
+
+/** For shared components that may render outside a ToastProvider (isolated tests, embeds): no provider, no toast. */
+export function useOptionalToast() {
+  return useContext(ToastContext);
+}

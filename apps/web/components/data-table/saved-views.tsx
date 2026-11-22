@@ -3,6 +3,7 @@
 import { useEffect, useId, useState, type FormEvent } from 'react';
 import { Bookmark, Link2, Trash2 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
+import { useOptionalToast } from '@/components/ui/toast';
 import { parseTableState, serializeTableState, type TableFilters, type TableState, type TableStateConfig } from './table-state';
 
 /**
@@ -58,7 +59,7 @@ export function SavedViews<F extends TableFilters>({ pageId, config, table }: Sa
   const [views, setViews] = useState<SavedView[]>([]);
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState('');
-  const [copied, setCopied] = useState(false);
+  const toast = useOptionalToast();
 
   useEffect(() => {
     const load = () => setViews(readSavedViews(key));
@@ -81,7 +82,8 @@ export function SavedViews<F extends TableFilters>({ pageId, config, table }: Sa
     setName(''); setNaming(false);
   };
   const copyLink = async () => {
-    try { await navigator.clipboard.writeText(window.location.href); setCopied(true); window.setTimeout(() => setCopied(false), 2000); } catch { setCopied(false); }
+    // Confirm through the app's toast (same as every other confirmation), not inline text that shifts the toolbar.
+    try { await navigator.clipboard.writeText(window.location.href); toast?.success('Copiar ligação desta vista', 'Ligação copiada'); } catch { /* Clipboard unavailable: nothing was copied, so nothing to confirm. */ }
   };
 
   return <div className="interface-toolbar-controls saved-views" role="group" aria-label="Vistas guardadas">
@@ -98,7 +100,6 @@ export function SavedViews<F extends TableFilters>({ pageId, config, table }: Sa
       </form>
       : <button type="button" className="secondary-button" onClick={() => { setName(active); setNaming(true); }}><Bookmark size={14} /> Guardar vista</button>}
     {active && <button type="button" className="icon-button subtle" aria-label={`Apagar vista ${active}`} title="Apagar vista" onClick={() => writeSavedViews(key, removeSavedView(readSavedViews(key), active))}><Trash2 size={14} /></button>}
-    <button type="button" className="icon-button subtle" aria-label="Copiar ligação desta vista" title={copied ? 'Ligação copiada' : 'Copiar ligação desta vista'} onClick={() => void copyLink()}><Link2 size={14} /></button>
-    {copied && <span role="status" className="form-help">Ligação copiada</span>}
+    <button type="button" className="icon-button subtle" aria-label="Copiar ligação desta vista" title="Copiar ligação desta vista" onClick={() => void copyLink()}><Link2 size={14} /></button>
   </div>;
 }
