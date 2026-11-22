@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   getDashboardWorkspaces: vi.fn(),
   getDashboardLayout: vi.fn(),
   saveDashboardPreference: vi.fn(),
+  saveDashboardLayout: vi.fn(),
   operational: {} as Record<string, unknown>,
   operationsPanelProps: [] as Array<{ siteId?: string; showAlerts?: boolean; showQuality?: boolean }>,
   environment: { state: 'OPERATIONAL', services: [{ key: 'api', label: 'API', state: 'OPERATIONAL' }, { key: 'postgres', label: 'PostgreSQL', state: 'OPERATIONAL' }, { key: 'redis', label: 'Redis / BullMQ', state: 'OPERATIONAL' }], updatedAt: '2026-11-14T10:00:00Z' },
@@ -19,7 +20,7 @@ vi.mock('./api', () => ({
   getDashboardWorkspaces: mocks.getDashboardWorkspaces,
   getDashboardLayout: mocks.getDashboardLayout,
   getOperationalSummary: vi.fn(),
-  saveDashboardLayout: vi.fn(),
+  saveDashboardLayout: mocks.saveDashboardLayout,
   saveDashboardPreference: mocks.saveDashboardPreference,
 }));
 vi.mock('@tanstack/react-query', () => ({
@@ -42,7 +43,13 @@ vi.mock('@/features/operations/operations-panel', () => ({ OperationsPanel: (pro
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ user: { username: 'tester' }, profile: null, hasRole: (role: string) => mocks.role === role }) }));
 const siteContext = vi.hoisted(() => ({ value: { siteId: null as string | null, resolved: true } }));
 vi.mock('@/lib/site-context', () => ({ useSiteContext: () => siteContext.value }));
-vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string, _fallback?: string, params?: Record<string, unknown>) => params ? `${key}(${Object.values(params).join(',')})` : key }) }));
+// Portuguese copy for the keys the dashboard moved from hard-coded strings to t(); other keys echo back.
+const ptMessages = vi.hoisted((): Record<string, string> => ({ "dashboard.userFallback": "Utilizador", "dashboard.env.operational": "Operacional", "dashboard.env.degraded": "Degradado", "dashboard.env.unavailable": "Indisponível", "dashboard.env.loading": "A carregar", "dashboard.inventory.devices": "Equipamentos", "dashboard.drill.criticalDevices": "Equipamentos críticos", "dashboard.drill.lifecycleOverdue": "Ciclo de vida expirado", "dashboard.drill.lifecycleDue90": "Ciclo de vida nos próximos 90 dias", "dashboard.drill.subnetsAbove80": "Subnets acima de 80%", "dashboard.drill.openCriticalAlerts": "Alertas críticos abertos", "dashboard.drill.criticalQuality": "Findings de qualidade críticos", "dashboard.drill.changesInReview": "Alterações em revisão", "dashboard.drill.failedDiscoveries": "Descobertas com falha", "dashboard.settings": "Definições", "dashboard.newDiscovery": "Nova descoberta", "dashboard.addDevice": "Adicionar equipamento", "dashboard.layout.title": "Widgets do dashboard", "dashboard.layout.description": "Escolhe o que aparece e quais cartões ocupam a largura completa.", "dashboard.layout.width": "Largura", "dashboard.layout.half": "Metade", "dashboard.layout.full": "Completa", "dashboard.layout.save": "Guardar layout", "dashboard.greeting": "Bom dia, {name}", "dashboard.heroSubtitle": "Aqui está o estado atual da sua infraestrutura.", "dashboard.serviceHealth": "Saúde dos serviços", "dashboard.servicesRing": "{operational} de {total} serviços operacionais ({percent}%)", "dashboard.environmentState": "Estado do ambiente", "dashboard.environmentStateLabel": "Estado do ambiente: {state}", "dashboard.environmentLoadError": "Não foi possível carregar o estado dos serviços.", "dashboard.environmentEmpty": "Sem estado dos serviços disponível.", "dashboard.servicesListError": "Não foi possível carregar os serviços. Tenta atualizar.", "dashboard.servicesEmpty": "Sem serviços para apresentar.", "dashboard.inventoryTitle": "Distribuição atual", "dashboard.liveData": "dados reais", "dashboard.activityTitle": "Atividade recente", "dashboard.viewAudit": "Ver auditoria", "dashboard.activityLoading": "A carregar atividade recente…", "dashboard.activityError": "Não foi possível carregar a atividade. Tenta atualizar o dashboard.", "dashboard.activityOperation": "Operação", "dashboard.openInAudit": "Abrir na auditoria: {action}", "dashboard.activityEmpty": "Ainda não existem ações registadas.", "dashboard.quickTitle": "Acesso rápido", "dashboard.quickHint": "Aceda às próximas áreas de operação.", "dashboard.quickNav": "Atalhos para outras áreas", "dashboard.quick.alertRules": "Regras de alertas", "dashboard.quick.inventoryQuality": "Qualidade do inventário", "dashboard.quick.startDiscovery": "Iniciar descoberta", "common.cancel": "Cancelar", "common.refresh": "Atualizar" }));
+vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string, _fallback?: string, params?: Record<string, unknown>) => {
+  const template = ptMessages[key];
+  if (template) return Object.entries(params ?? {}).reduce((text, [name, value]) => text.replaceAll(`{${name}}`, String(value)), template);
+  return params ? `${key}(${Object.values(params).join(',')})` : key;
+} }) }));
 vi.mock('@/lib/runtime-config', () => ({ getPublicRuntimeConfig: () => ({ apiUrl: '' }) }));
 vi.mock('next/link', () => ({ default: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => <a href={href} {...props}>{children}</a> }));
 
@@ -262,5 +269,40 @@ describe('DashboardPage workspace loading', () => {
     render(<DashboardPage />);
     await waitFor(() => expect(mocks.getDashboardWorkspaces).toHaveBeenCalledWith(undefined));
     siteContext.value = { siteId: null, resolved: true };
+  });
+});
+
+describe('DashboardPage accessibility and layout editor fixes', () => {
+  it('names the service score ring as an image with the operational count', async () => {
+    mocks.operational = { ...baseOperational, services: [{ key: 'a', state: 'OPERATIONAL' }, { key: 'b', state: 'OPERATIONAL' }, { key: 'c', state: 'DOWN' }] };
+    render(<DashboardPage />);
+    expect(await screen.findByRole('img', { name: '2 de 3 serviços operacionais (67%)' })).toHaveClass('score-ring');
+  });
+
+  it('does not announce the whole activity list as a live region', async () => {
+    render(<DashboardPage />);
+    expect(await screen.findByRole('region', { name: 'dashboard.activityList' })).not.toHaveAttribute('aria-live');
+  });
+
+  it('links "Ver auditoria" straight to the audit page for roles that can view it', async () => {
+    mocks.role = 'AUDITOR';
+    render(<DashboardPage />);
+    expect(await screen.findByRole('link', { name: /Ver auditoria/ })).toHaveAttribute('href', '/auditoria');
+    expect(screen.queryByRole('button', { name: /Ver auditoria/ })).not.toBeInTheDocument();
+  });
+
+  it('Cancel in the layout editor restores the previous layout without saving', async () => {
+    mocks.role = 'ADMIN';
+    mocks.saveDashboardLayout.mockReset();
+    mocks.getDashboardLayout.mockResolvedValue({ siteId: 'site-1', role: 'ADMIN', revision: 1, widgets: [{ id: 'quick-actions', x: 0, y: 0, w: 6, h: 4, visible: true }] });
+    render(<DashboardPage />);
+    expect(await screen.findByRole('heading', { name: 'Acesso rápido' })).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: 'dashboard.editLayout' }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: /Acesso rápido/ }));
+    expect(screen.queryByRole('heading', { name: 'Acesso rápido' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+    expect(screen.queryByRole('heading', { name: 'Widgets do dashboard' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Acesso rápido' })).toBeInTheDocument();
+    expect(mocks.saveDashboardLayout).not.toHaveBeenCalled();
   });
 });

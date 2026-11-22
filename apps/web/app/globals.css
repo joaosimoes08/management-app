@@ -1620,6 +1620,8 @@ html[lang='en-US'] .environment-trigger.operational::after { content:'· Setup c
 .dashboard-layout-option > label:last-child { display:flex; align-items:center; gap:6px; color:var(--muted); font-size:10px; }
 .dashboard-layout-option select { max-width:120px; padding:7px 8px; border:1px solid var(--line); border-radius:7px; background:#fff; color:var(--ink); font-size:10px; }
 .dashboard-layout-editor > .primary-button { min-height:38px; }
+.dashboard-layout-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.dashboard-layout-actions > button { min-height:38px; }
 @media (max-width:780px) { .dashboard-widget-grid { grid-template-columns:minmax(0,1fr); gap:10px; }.dashboard-widget-grid > * { grid-column:1 / -1 !important; }.dashboard-layout-options { grid-template-columns:1fr; }.dashboard-layout-option { align-items:flex-start; }.dashboard-content { padding-top:19px; }.hero-row { margin-bottom:19px; } }
 @media (max-width:780px) {
   .app-shell .topbar .environment-trigger.operational::after { content:none; }
