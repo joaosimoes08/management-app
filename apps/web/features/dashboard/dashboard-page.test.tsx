@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import DashboardPage from './dashboard-page';
 
@@ -40,7 +40,8 @@ vi.mock('@/components/layout/app-shell', () => ({
 }));
 vi.mock('@/features/operations/operations-panel', () => ({ OperationsPanel: (props: { siteId?: string; showAlerts?: boolean; showQuality?: boolean }) => { mocks.operationsPanelProps.push(props); return <div />; } }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ user: { username: 'tester' }, profile: null, hasRole: (role: string) => mocks.role === role }) }));
-vi.mock('@/lib/site-context', () => ({ useSiteContext: () => ({ siteId: null }) }));
+const siteContext = vi.hoisted(() => ({ value: { siteId: null as string | null, resolved: true } }));
+vi.mock('@/lib/site-context', () => ({ useSiteContext: () => siteContext.value }));
 vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string, _fallback?: string, params?: Record<string, unknown>) => params ? `${key}(${Object.values(params).join(',')})` : key }) }));
 vi.mock('@/lib/runtime-config', () => ({ getPublicRuntimeConfig: () => ({ apiUrl: '' }) }));
 vi.mock('next/link', () => ({ default: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => <a href={href} {...props}>{children}</a> }));
@@ -240,5 +241,26 @@ describe('DashboardPage drill-through (Phase D)', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'dashboard.editLayout' }));
     expect(await screen.findByText('Divergências SNMP')).toBeInTheDocument();
     expect(screen.getByText('future-widget')).toBeInTheDocument();
+  });
+});
+
+describe('DashboardPage workspace loading', () => {
+  it('waits for the active site before loading workspaces, then loads them once for that site', async () => {
+    siteContext.value = { siteId: '', resolved: false };
+    const { rerender } = render(<DashboardPage />);
+    await act(async () => undefined);
+    expect(mocks.getDashboardWorkspaces).not.toHaveBeenCalled();
+    siteContext.value = { siteId: 'site-1', resolved: true };
+    rerender(<DashboardPage />);
+    await waitFor(() => expect(mocks.getDashboardWorkspaces).toHaveBeenCalledTimes(1));
+    expect(mocks.getDashboardWorkspaces).toHaveBeenCalledWith('site-1');
+    siteContext.value = { siteId: null, resolved: true };
+  });
+
+  it('loads all-site workspaces when the resolved scope is all sites', async () => {
+    siteContext.value = { siteId: '', resolved: true };
+    render(<DashboardPage />);
+    await waitFor(() => expect(mocks.getDashboardWorkspaces).toHaveBeenCalledWith(undefined));
+    siteContext.value = { siteId: null, resolved: true };
   });
 });

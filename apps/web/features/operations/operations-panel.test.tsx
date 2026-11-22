@@ -18,7 +18,9 @@ vi.mock('./api', () => ({
   resolveOperationalAlert: vi.fn(),
   snoozeOperationalAlert: vi.fn(),
 }));
-vi.mock('./use-operational-events', () => ({ useOperationalEvents: () => ({ data: undefined, connected: false, error: null }) }));
+type EventOptions = { fallback?: () => Promise<unknown>; onEvent?: (event: { event: string; data: unknown }) => void };
+const events = vi.hoisted(() => ({ options: {} as { fallback?: () => Promise<unknown>; onEvent?: (event: { event: string; data: unknown }) => void } }));
+vi.mock('./use-operational-events', () => ({ useOperationalEvents: (options: EventOptions) => { events.options = options; return { data: undefined, connected: false, error: null }; } }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: () => false }) }));
 vi.mock('@/lib/site-context', () => ({ useSiteContext: () => ({ siteId: mocks.contextSiteId }) }));
 
@@ -137,5 +139,36 @@ describe('OperationsPanel scope changes and failures', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Atualizar alertas' }));
     expect(await screen.findByText('Não foi possível atualizar os alertas. A lista pode estar desatualizada.')).toBeInTheDocument();
     expect(screen.getByText('Earlier alert')).toBeInTheDocument();
+  });
+});
+
+describe('OperationsPanel request sharing', () => {
+  it('shares one set of requests when the events fallback poll starts together with the first load', async () => {
+    let release!: (value: unknown) => void;
+    mocks.getInventoryQuality.mockReturnValue(new Promise((resolve) => { release = resolve; }));
+    render(<OperationsPanel siteId="site-a" />);
+    const polled = events.options.fallback?.();
+    expect(mocks.getInventoryQuality).toHaveBeenCalledTimes(1);
+    expect(mocks.listOperationalAlerts).toHaveBeenCalledTimes(1);
+    await act(async () => { release({ score: 90 }); await polled; });
+    // After it answered, a later poll is a new request.
+    await act(async () => { await events.options.fallback?.(); });
+    expect(mocks.getInventoryQuality).toHaveBeenCalledTimes(2);
+  });
+
+  it('asks again on an operational event even while an older request is in flight', async () => {
+    mocks.getInventoryQuality.mockReturnValueOnce(new Promise(() => undefined));
+    render(<OperationsPanel siteId="site-a" />);
+    expect(mocks.getInventoryQuality).toHaveBeenCalledTimes(1);
+    act(() => { events.options.onEvent?.({ event: 'alert.updated', data: {} }); });
+    await waitFor(() => expect(mocks.getInventoryQuality).toHaveBeenCalledTimes(2));
+  });
+
+  it('does not reuse a request made for another site', async () => {
+    mocks.getInventoryQuality.mockReturnValue(new Promise(() => undefined));
+    const { rerender } = render(<OperationsPanel siteId="site-a" />);
+    rerender(<OperationsPanel siteId="site-b" />);
+    await waitFor(() => expect(mocks.getInventoryQuality).toHaveBeenCalledWith('site-b'));
+    expect(mocks.getInventoryQuality).toHaveBeenCalledWith('site-a');
   });
 });

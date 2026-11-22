@@ -56,7 +56,9 @@ function KpiTile({ label, value, detail, icon: Icon, tone = '', ariaLabel, href 
 export default function DashboardPage() {
   const { user, profile, hasRole } = useAuth();
   const { t } = useI18n();
-  const { siteId } = useSiteContext();
+  // Wait until the active site is resolved: an empty siteId before that is "not known yet", and
+  // loading workspaces for it fetched them twice on every dashboard load (all sites, then the site).
+  const { siteId, resolved: siteResolved = true } = useSiteContext();
   const [workspaces, setWorkspaces] = useState<DashboardWorkspace[]>([]);
   const [workspaceId, setWorkspaceId] = useState('');
   const [workspacesStatus, setWorkspacesStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -66,6 +68,7 @@ export default function DashboardPage() {
   const workspace = workspaces.find((item) => item.id === workspaceId);
   const canEditLayout = hasRole('ADMIN') || Boolean(workspace && (hasRole('NETWORK_OPERATOR') && workspace.role === 'NETWORK_OPERATOR' || hasRole('SYSTEMS_OPERATOR') && workspace.role === 'SYSTEMS_OPERATOR'));
   useEffect(() => {
+    if (!siteResolved) return;
     let cancelled = false;
     void getDashboardWorkspaces(siteId || undefined).then((response) => {
       if (cancelled) return;
@@ -75,7 +78,7 @@ export default function DashboardPage() {
       setWorkspacesStatus('ready');
     }).catch(() => { if (!cancelled) setWorkspacesStatus('error'); });
     return () => { cancelled = true; };
-  }, [siteId, workspacesReload]);
+  }, [siteId, siteResolved, workspacesReload]);
   useEffect(() => { if (!workspace) { setLayout(null); return; } void Promise.all([getDashboardLayout(workspace.siteId, workspace.role), saveDashboardPreference(workspace.siteId, workspace.role)]).then(([next]) => setLayout(next)).catch(() => undefined); }, [workspace]);
   const { data: summary = null, refetch: refetchSummary, isPending: summaryPending, isError: summaryError } = useQuery({ queryKey: ['dashboard', 'summary'], queryFn: getDashboardSummary });
   const { data: operational, refetch: refetchOperational, isPending: operationalPending, isError: operationalError } = useQuery({ queryKey: ['dashboard', 'operational', workspace?.siteId, workspace?.role], queryFn: () => getOperationalSummary(workspace!.siteId, workspace!.role), enabled: Boolean(workspace) });

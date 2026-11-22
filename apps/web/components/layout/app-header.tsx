@@ -49,16 +49,23 @@ export function AppHeader({ section, moduleTabs, onOpenSidebar, onOpenGlobalSear
   useEscapeClose(closeAlerts, alertsOpen);
 
   const requestVersion = useRef(0);
-  const loadTopbarState = useCallback(async () => {
+  const inFlight = useRef<Promise<TopbarState> | null>(null);
+  // Mount, the 30 s timer, focus and the events fallback poll can all ask at once (on page load the
+  // fallback poll and the mount effect did); they share one request in flight. An operational event
+  // passes fresh=true, because a request that started before the event may predate the change.
+  const loadTopbarState = useCallback(async (fresh = false) => {
+    if (!fresh && inFlight.current) return inFlight.current;
     const version = ++requestVersion.current;
-    const state = await apiFetch<TopbarState>('/api/v1/dashboard/topbar-state').catch(unavailableTopbarState);
+    const request = apiFetch<TopbarState>('/api/v1/dashboard/topbar-state').catch(unavailableTopbarState);
+    inFlight.current = request;
+    const state = await request.finally(() => { if (inFlight.current === request) inFlight.current = null; });
     if (version === requestVersion.current) setTopbarState(state);
     return state;
   }, []);
-  useOperationalEvents({ fallback: loadTopbarState, onEvent: (event) => { const alertId = (event.data as { alertId?: string } | null)?.alertId; if (alertId) setDismissedAlertIds((current) => { const next = new Set(current); next.delete(alertId); return next; }); void loadTopbarState(); } });
+  useOperationalEvents({ fallback: () => loadTopbarState(), onEvent: (event) => { const alertId = (event.data as { alertId?: string } | null)?.alertId; if (alertId) setDismissedAlertIds((current) => { const next = new Set(current); next.delete(alertId); return next; }); void loadTopbarState(true); } });
   useEffect(() => {
-    loadTopbarState();
-    const interval = window.setInterval(loadTopbarState, 30_000);
+    void loadTopbarState();
+    const interval = window.setInterval(() => void loadTopbarState(), 30_000);
     const onFocus = () => loadTopbarState();
     window.addEventListener('focus', onFocus);
     window.addEventListener(NOTIFICATIONS_CHANGED, onFocus);
