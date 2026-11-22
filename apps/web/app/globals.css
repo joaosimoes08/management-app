@@ -3190,3 +3190,11 @@ a.dashboard-kpi:focus-visible { box-shadow:0 9px 24px rgba(35,55,87,.09); outlin
 .skip-link:focus,.skip-link:focus-visible { transform:none; outline:3px solid #637ff0; outline-offset:2px; }
 /* The main landmark takes focus from the skip link; it is a region, not a control, so no ring. */
 .app-shell-content:focus { outline:none; }
+/* Rack overview: rack info and the power status on the left, the power grids on the right, so the rack itself starts higher. */
+.rack-overview-row { display:grid; grid-template-columns:minmax(260px,.85fr) minmax(0,1.6fr); column-gap:16px; align-items:start; }
+.rack-overview-row > .panel-heading { grid-column:1; grid-row:1; }
+.rack-overview-row > #rack-power-summary { display:contents; }
+.rack-overview-row > #rack-power-summary > .table-actions { grid-column:1; grid-row:2; align-self:start; }
+.rack-overview-row > #rack-power-summary > .detail-grid { grid-column:2; grid-row:1 / span 2; margin-top:0; }
+.rack-overview-row > #rack-power-summary > .ipam-alert,.rack-overview-row > .ipam-alert { grid-column:1 / -1; }
+@media (max-width:1100px) { .rack-overview-row { grid-template-columns:1fr; } .rack-overview-row > .panel-heading,.rack-overview-row > #rack-power-summary > .table-actions,.rack-overview-row > #rack-power-summary > .detail-grid { grid-column:auto; grid-row:auto; } }

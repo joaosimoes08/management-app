@@ -91,7 +91,9 @@ export function RackPowerSummaryStrip({ summary, error, onEditThresholds }: Rack
   const rackId = summary?.rack?.id;
   useEffect(() => {
     if (rackId && window.location.hash === '#rack-power-summary') {
-      document.getElementById('rack-power-summary')?.scrollIntoView?.({ block: 'nearest' });
+      const strip = document.getElementById('rack-power-summary');
+      // In the rack overview the strip is display:contents (no box of its own), so scroll its row instead.
+      (strip?.closest('.rack-overview-row') ?? strip)?.scrollIntoView?.({ block: 'nearest' });
     }
   }, [rackId]);
   if (error) return <div className="ipam-alert error" role="alert" data-testid="rack-power-strip">{error}<button type="button" className="icon-button subtle" onClick={onEditThresholds} aria-label="Limiares de energia" title="Limiares de energia"><SlidersHorizontal size={14} aria-hidden="true" /></button></div>;
