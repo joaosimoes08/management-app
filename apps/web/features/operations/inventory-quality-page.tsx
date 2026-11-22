@@ -169,7 +169,7 @@ export function InventoryQualityPage() {
       {filtering && <button className="secondary-button" onClick={clearFilters}><X size={14} /> Limpar filtros</button>}
       <SavedViews pageId="quality" config={qualityTableConfig} table={table} />
     </div></PageToolbarPortal>
-    <main className="module-page aligned-workspace"><section className="ipam-card page-primary-card">
+    <div className="module-page aligned-workspace"><section className="ipam-card page-primary-card">
       <div className="panel-heading"><div><h1>Fila do inventário</h1><p className="panel-description">Problemas detetados automaticamente. Age em cada finding na sua linha, ou seleciona findings visíveis para os reconhecer, atribuir ou adiar em conjunto.</p></div></div>
       {!siteId && <div className="no-data">Escolhe um Site para ver a fila.</div>}
       {loadError && <div className="ipam-alert error" role="alert"><X size={15} />{loadError}</div>}
@@ -188,7 +188,7 @@ export function InventoryQualityPage() {
         </section>)
         : <DataTable {...tableProps} rows={sorted} label="Findings de qualidade do inventário" loading={pages.isLoading} empty={siteId ? empty : null} />}
       {pages.hasNextPage && <div className="form-actions"><button type="button" className="secondary-button" disabled={pages.isFetchingNextPage} onClick={() => void pages.fetchNextPage()}>{pages.isFetchingNextPage ? 'A carregar…' : 'Carregar mais findings'}</button></div>}
-    </section></main>
+    </section></div>
 
     {dialog && <QualityBulkDialog action={dialog} count={dialogIds.length} finding={rowTarget?.title} assignees={assignees.data ?? []} running={running} outcome={outcome} close={closeDialog} run={(params) => void run(dialog, params, dialogIds)} />}
   </AppShell></>;

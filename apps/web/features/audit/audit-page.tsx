@@ -98,7 +98,7 @@ export default function AuditPage() {
     <button className="topbar-action secondary-button" onClick={() => { void pages.refetch(); void facets.refetch(); }} disabled={pages.isFetching}><RefreshCw size={14} /> Atualizar</button>
   </>}>
     <PageToolbarPortal><SavedViews pageId="audit" config={auditTableConfig} table={table} /></PageToolbarPortal>
-    <main className="module-page aligned-workspace"><section className="ipam-card page-primary-card">
+    <div className="module-page aligned-workspace"><section className="ipam-card page-primary-card">
       <div className="panel-heading"><div><h1>Auditoria</h1><p className="panel-description">Eventos administrativos, alterações de inventário e execuções de discovery, do mais recente para o mais antigo.</p></div></div>
       {errorMessage && <div className="ipam-alert error" role="alert">{errorMessage}</div>}
       {notice && <div className={`ipam-alert ${notice.tone}`} role={notice.tone === 'error' ? 'alert' : 'status'}>{notice.text}</div>}
@@ -113,7 +113,7 @@ export default function AuditPage() {
         empty={errorMessage ? null : <div className="no-data">{filtering ? 'Sem eventos correspondentes.' : 'Ainda não existem eventos de auditoria.'}</div>}
       />
       {pages.hasNextPage && <div className="form-actions"><button type="button" className="secondary-button" disabled={pages.isFetchingNextPage} onClick={() => void pages.fetchNextPage()}>{pages.isFetchingNextPage ? 'A carregar…' : 'Carregar mais'}</button></div>}
-    </section></main>
+    </section></div>
 
     {detail && <aside className="host-panel" aria-label={`Detalhe de ${detail.action}`}>
       <div className="host-panel-head"><div><span className="section-kicker">EVENTO DE AUDITORIA</span><h2>{detail.action}</h2><span>{`${dateTime(detail.createdAt)} · ${actorName(detail)}`}</span></div><button ref={panelClose} className="icon-button" onClick={closeDetail} aria-label="Fechar"><X size={18} /></button></div>

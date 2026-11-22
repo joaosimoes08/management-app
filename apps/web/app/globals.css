@@ -3186,3 +3186,9 @@ a.dashboard-kpi:focus-visible { box-shadow:0 9px 24px rgba(35,55,87,.09); outlin
 .tag-manager-row input { flex:1 1 140px; min-width:0; margin:0; }
 .tag-manager-uses { color:var(--muted); font:9px 'DM Mono',monospace; }
 @media (max-width: 640px) { .tag-filter { max-width:none; width:100%; } .tag-chip { max-width:120px; } }
+
+/* Skip link: off screen until it receives keyboard focus, then shown above the app chrome. */
+.skip-link { position:fixed; z-index:300; top:8px; left:8px; padding:8px 12px; color:#fff; background:#17243a; border-radius:8px; font-size:12px; font-weight:600; text-decoration:none; transform:translateY(calc(-100% - 16px)); }
+.skip-link:focus,.skip-link:focus-visible { transform:none; outline:3px solid #637ff0; outline-offset:2px; }
+/* The main landmark takes focus from the skip link; it is a region, not a control, so no ring. */
+.app-shell-content:focus { outline:none; }

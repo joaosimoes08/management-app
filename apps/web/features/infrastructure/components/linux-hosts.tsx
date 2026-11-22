@@ -285,7 +285,7 @@ export function LinuxHosts({ sites, canManage, canAudit }: { sites: ActiveSite[]
       : host.device && <button type="button" className={`secondary-button ${styles.action}`} onClick={() => setEnrollHost(host.id)} aria-label={t('linuxHosts.enrollHost', undefined, { name: host.name })}>{t('linuxHosts.enroll')}</button>,
   });
 
-  return <main className={`module-page infrastructure-workspace ${styles.workspace}`}>
+  return <div className={`module-page infrastructure-workspace ${styles.workspace}`}>
     <section className="ipam-card page-heading-card">
       <header className="panel-heading">
         <div><h1><Server size={16} aria-hidden="true" /> {t('linuxHosts.title')}</h1><p className="panel-description">{t('linuxHosts.description')}</p></div>
@@ -311,5 +311,5 @@ export function LinuxHosts({ sites, canManage, canAudit }: { sites: ActiveSite[]
     {detail && <HostDetails host={detail} onClose={() => setSelected(null)} audit={canAudit} />}
     {canManage && enrollHost !== null && <EnrollDialog hosts={items.filter((host) => host.device)} initialId={enrollHost} close={() => setEnrollHost(null)} refresh={refresh} />}
     {confirmDialog}
-  </main>;
+  </div>;
 }
