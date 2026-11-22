@@ -47,7 +47,7 @@ export function CapacityOutlookCard({ siteName, data, loading = false, error = f
       {row.kind === 'SUBNET'
         ? <EntityLink className="link-button" kind="subnet" id={row.id} siteId={data?.siteId} label={row.name} />
         : <a className="link-button" href={capacityResourceHref(row, data?.siteId ?? '')}>{labelFor(row)}</a>}
-      <small>{typeName(row.kind)}</small>
+      <small>{typeName(row.kind)}{row.reservedUnits ? ` · ${t('capacity.reservedUnits', undefined, { count: String(row.reservedUnits) })}` : ''}</small>
     </div> },
     { id: 'current', header: t('capacity.current'), sortValue: (row) => row.currentPercent, cell: (row) => row.currentPercent === null
       ? '—'

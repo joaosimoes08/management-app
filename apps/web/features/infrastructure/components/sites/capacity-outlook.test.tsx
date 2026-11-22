@@ -35,6 +35,14 @@ describe('Site capacity outlook', () => {
     expect(within(table).getByRole('link')).toHaveAttribute('href', '/ipam?siteId=site-a&subnetId=subnet-1');
   });
 
+  it('Round 2 #18: notes U reserved for planned installs on rack space rows', () => {
+    render(<I18nProvider><CapacityOutlookCard siteName="Site A" data={{ ...data, items: [{ ...current, reservedUnits: 4 }, projected] }} onRefresh={() => undefined} /></I18nProvider>);
+    expect(within(screen.getByRole('table')).getByText('Espaço no bastidor · 4 U reservadas')).toBeInTheDocument();
+    cleanup();
+    render(<I18nProvider><CapacityOutlookCard siteName="Site A" data={{ ...data, items: [{ ...current, reservedUnits: 0 }] }} onRefresh={() => undefined} /></I18nProvider>);
+    expect(within(screen.getByRole('table')).getByText('Espaço no bastidor')).toBeInTheDocument();
+  });
+
   it('targets the individual NetApp object and PDU', () => {
     expect(capacityResourceHref({ ...current, kind: 'NETAPP_VOLUME', id: 'vol/1' }, 'site-a')).toBe('/netapp?siteId=site-a&trendKind=VOLUME&trendKey=vol%2F1#netapp-capacity-trend');
     expect(capacityResourceHref({ ...current, kind: 'PDU_POWER', id: 'pdu-1' }, 'site-a')).toBe('/infraestrutura?siteId=site-a&rackId=rack-1&roomId=room-1&buildingId=building-1&pduId=pdu-1');

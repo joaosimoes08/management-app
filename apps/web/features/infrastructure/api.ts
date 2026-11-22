@@ -346,3 +346,27 @@ export function listVlansForSite(siteId: string): Promise<VlanListResponse> {
 export function listDeviceIpAddresses(siteId: string, deviceId: string): Promise<{ items: IpAddress[] }> {
   return apiFetch<{ items: IpAddress[] }>(`/api/v1/ip-addresses?siteId=${siteId}&deviceId=${deviceId}&pageSize=100`);
 }
+
+/** Round 2 #18: U-space held in a rack for a planned install; counted as used in the capacity outlook. */
+export interface RackUnitReservation {
+  id: string;
+  rackId: string;
+  startUnit: number;
+  size: number;
+  reason: string;
+  expiresAt: string | null;
+  createdAt: string;
+  createdBy: { id: string; username: string; displayName: string | null } | null;
+}
+
+export function listRackUnitReservations(rackId: string): Promise<RackUnitReservation[]> {
+  return apiFetch<RackUnitReservation[]>(`/api/v1/racks/${encodeURIComponent(rackId)}/unit-reservations`);
+}
+
+export function createRackUnitReservation(rackId: string, body: { startUnit: number; size: number; reason: string; expiresAt?: string }): Promise<RackUnitReservation> {
+  return apiFetch<RackUnitReservation>(`/api/v1/racks/${encodeURIComponent(rackId)}/unit-reservations`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function releaseRackUnitReservation(rackId: string, reservationId: string): Promise<{ id: string; releasedAt: string | null }> {
+  return apiFetch(`/api/v1/racks/${encodeURIComponent(rackId)}/unit-reservations/${encodeURIComponent(reservationId)}`, { method: 'DELETE' });
+}

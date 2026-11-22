@@ -13,6 +13,7 @@ const operationalFiles = [
   'apps/web/features/portal/check-all-panel.tsx',
   'apps/web/features/netapp/netapp-capacity.tsx',
   'apps/web/features/infrastructure/components/rack/rack-power-summary.tsx',
+  'apps/web/features/infrastructure/components/rack/rack-unit-reservations.tsx',
   'apps/web/features/settings/components/role-request-queue.tsx',
   'apps/web/features/audit/audit-page.tsx',
   'apps/web/features/audit/workspace.ts',

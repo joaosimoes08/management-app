@@ -19,6 +19,8 @@ type Resource = {
   source?: 'UPS' | 'SUPPLIER' | null;
   roomId?: string;
   buildingId?: string;
+  /** RACK_SPACE: units held by active reservations that no device occupies yet (already included in used). */
+  reservedUnits?: number;
   latest: CapacityMeasurement | null;
   history: CapacityMeasurement[];
 };
@@ -125,7 +127,7 @@ export class SiteCapacityService {
   private async racks(siteId: string, user: AuthenticatedUser, now: Date, since: Date): Promise<Resource[]> {
     const visibleRoomIds = await this.access.visibleRoomIds(user, siteId);
     if (!visibleRoomIds.length) return [];
-    const racks = await readCapacityRacks(this.prisma, { roomId: { in: visibleRoomIds }, room: { building: { siteId } } });
+    const racks = await readCapacityRacks(this.prisma, { roomId: { in: visibleRoomIds }, room: { building: { siteId } } }, undefined, now);
     const history = await this.prisma.rackCapacitySample.findMany({
       where: { rackId: { in: racks.map((rack) => rack.id) }, sampledAt: { gte: since } },
       select: { rackId: true, resourceKey: true, sampledAt: true, used: true, total: true },
@@ -136,7 +138,7 @@ export class SiteCapacityService {
     return racks.flatMap((rack) => rackMeasurements(rack).map((row) => ({
       kind: row.kind,
       id: row.kind === 'PDU_POWER' ? row.resourceKey.slice('pdu:'.length) : rack.id,
-      name: row.name, source: row.source, rackId: rack.id, rackName: rack.name, roomId: rack.roomId, buildingId: rack.room.buildingId,
+      name: row.name, source: row.source, ...(row.kind === 'RACK_SPACE' ? { reservedUnits: row.reservedUnits } : {}), rackId: rack.id, rackName: rack.name, roomId: rack.roomId, buildingId: rack.room.buildingId,
       latest: metric(now, row.used, row.total),
       history: points.get(resourceKey(rack.id, row.resourceKey)) ?? [],
     })));

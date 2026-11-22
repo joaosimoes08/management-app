@@ -13,5 +13,7 @@ import { DeviceRequiredConfigController } from './required-config/device-require
 import { SiteCapacityController } from './capacity/site-capacity.controller';
 import { SiteCapacityService } from './capacity/site-capacity.service';
 import { RackCapacitySampler } from './capacity/rack-capacity-sampler.service';
-@Module({ imports: [AuditModule, IpamModule], controllers: [DeviceRequiredConfigController, InfrastructureController, LifecycleDatesController, PowerController, SiteCapacityController], providers: [InfrastructureService, InfrastructureAccessService, LifecycleDatesService, RackPowerService, DeviceRequiredConfigService, SiteCapacityService, RackCapacitySampler], exports: [InfrastructureAccessService, DeviceRequiredConfigService, LifecycleDatesService, SiteCapacityService] })
+import { RackUnitReservationsController } from './reservations/rack-unit-reservations.controller';
+import { RackUnitReservationsService } from './reservations/rack-unit-reservations.service';
+@Module({ imports: [AuditModule, IpamModule], controllers: [DeviceRequiredConfigController, InfrastructureController, LifecycleDatesController, PowerController, RackUnitReservationsController, SiteCapacityController], providers: [InfrastructureService, InfrastructureAccessService, LifecycleDatesService, RackPowerService, DeviceRequiredConfigService, SiteCapacityService, RackCapacitySampler, RackUnitReservationsService], exports: [InfrastructureAccessService, DeviceRequiredConfigService, LifecycleDatesService, SiteCapacityService] })
 export class InfrastructureModule {}

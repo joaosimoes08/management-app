@@ -13,6 +13,8 @@ export interface CapacityOutlookItem {
   source?: 'UPS' | 'SUPPLIER' | null;
   roomId?: string;
   buildingId?: string;
+  /** RACK_SPACE: units held for planned installs (Round 2 #18), already counted in currentPercent. */
+  reservedUnits?: number;
   currentPercent: number | null;
   trendPer30Days: number | null;
   estimatedAt: string | null;
