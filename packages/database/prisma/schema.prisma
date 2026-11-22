@@ -1973,3 +1973,19 @@ model ScheduledReportOutput {
 
   @@index([runId])
 }
+
+/// Round 2 #13: one row per named background task (for example the critical-asset sweep). It holds the lease that keeps
+/// a task to one run at a time across API replicas, and the record of the last run.
+model BackgroundTaskRun {
+  name           String    @id
+  leaseOwner     String?
+  leaseUntil     DateTime?
+  lastStartedAt  DateTime?
+  lastFinishedAt DateTime?
+  /// RUNNING, COMPLETED or FAILED.
+  lastStatus     String?
+  lastError      String?
+  lastDurationMs Int?
+  lastSummary    Json?
+  updatedAt      DateTime  @default(now()) @updatedAt
+}
