@@ -51,6 +51,7 @@ const operationalFiles = [
   'apps/web/features/topology/topology-filters-menu.tsx',
   'apps/web/components/ui/bulk-review-dialog.tsx',
   'apps/web/features/discovery/discovery-results.tsx',
+  'apps/web/features/discovery/discovery-missing.tsx',
   'apps/web/features/snmp/snmp-fleet.tsx',
   'apps/web/features/snmp/snmp-page.tsx',
   'apps/web/features/snmp/snmp-drifts.tsx',

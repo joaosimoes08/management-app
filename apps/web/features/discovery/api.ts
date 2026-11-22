@@ -228,3 +228,26 @@ export function cancelSnmpPreRegistration(id: string): Promise<unknown> {
 export function acceptSnmpPreRegistration(id: string, body: DiscoveryAcceptInput): Promise<{ id: string }> {
   return apiFetch<{ id: string }>(`/api/v1/snmp/discovery/enrollments/${id}/accept`, { method: 'POST', body: JSON.stringify(body) });
 }
+
+/** Round 2 #14: OCCUPIED addresses that answered in none of the completed scans of their subnet in the last 30 days. */
+export interface MissingIp {
+  ipId: string;
+  address: string;
+  subnetId: string;
+  cidr: string;
+  siteId: string | null;
+  hostname: string | null;
+  lastSeenAt: string | null;
+  lastScanAt: string;
+  scanCount: number;
+}
+export interface MissingIpsResponse { windowDays: number; total: number; items: MissingIp[] }
+export interface MarkFreeResult { ipId: string; ok: boolean; code?: string; message?: string; address?: string }
+
+export function listMissingIps(siteId = ''): Promise<MissingIpsResponse> {
+  return apiFetch<MissingIpsResponse>(`/api/v1/discovery/missing${siteId ? `?siteId=${encodeURIComponent(siteId)}` : ''}`);
+}
+
+export function markMissingIpsFree(ipIds: string[]): Promise<{ results: MarkFreeResult[]; succeeded: number; failed: number }> {
+  return apiFetch('/api/v1/discovery/missing/mark-free', { method: 'POST', body: JSON.stringify({ ipIds }) });
+}

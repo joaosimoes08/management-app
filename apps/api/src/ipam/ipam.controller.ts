@@ -8,10 +8,12 @@ import { IpamAdvancedService } from './ipam-advanced.service';
 import { IpReservationService } from './ip-reservation.service';
 import { SubnetCapacityService } from './subnet-capacity.service';
 import { IpamWorkflowsService } from './ipam-workflows.service';
+import { IpDriftService } from './ip-drift.service';
+import { MarkMissingIpsFreeDto, MissingIpsQueryDto } from './dto';
 
 @ApiTags('ipam') @ApiBearerAuth() @Controller({ version: '1' })
 export class IpamController {
-  constructor(private readonly service: IpamService, private readonly advanced: IpamAdvancedService, private readonly reservations: IpReservationService, private readonly capacity: SubnetCapacityService, private readonly workflows: IpamWorkflowsService) {}
+  constructor(private readonly service: IpamService, private readonly advanced: IpamAdvancedService, private readonly reservations: IpReservationService, private readonly capacity: SubnetCapacityService, private readonly workflows: IpamWorkflowsService, private readonly drift: IpDriftService) {}
   @Post('ip-reservations') @Roles('ADMIN', 'NETWORK_OPERATOR') createIpReservation(@Body() dto: CreateIpReservationDto, @Req() req: { user: AuthenticatedUser }) { return this.reservations.create(dto, req.user); }
   @Post('ip-reservations/:id/release') @Roles('ADMIN', 'NETWORK_OPERATOR') releaseIpReservation(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.reservations.release(id, req.user); }
   @Get('sites') sites(@Req() req: { user: AuthenticatedUser }, @Query('search') search?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) { return this.service.listSites(req.user, search, page, pageSize); }
@@ -72,6 +74,8 @@ export class IpamController {
   @Get('ipam/ripe/imports') @Roles('ADMIN', 'NETWORK_OPERATOR') ripeImports(@Req() req: { user: AuthenticatedUser }) { return this.advanced.listRipeImports(req.user); }
   @Get('ipam/ripe/imports/:id') @Roles('ADMIN', 'NETWORK_OPERATOR') ripeImportDetail(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.advanced.getRipeImport(id, req.user); }
   @Get('discovery/summary') discoverySummary(@Req() req: { user: AuthenticatedUser }) { return this.service.discoverySummary(req.user); }
+  @Get('discovery/missing') missingIps(@Query() query: MissingIpsQueryDto, @Req() req: { user: AuthenticatedUser }) { return this.drift.listMissing(req.user, query); }
+  @Post('discovery/missing/mark-free') @Roles('ADMIN', 'NETWORK_OPERATOR') markMissingFree(@Body() dto: MarkMissingIpsFreeDto, @Req() req: { user: AuthenticatedUser }) { return this.drift.markFree(req.user, dto.ipIds); }
   @Get('discovery/jobs') jobs(@Req() req: { user: AuthenticatedUser }, @Query('status') status?: string, @Query('subnetId') subnetId?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) { return this.service.listDiscoveryJobs(req.user, status, subnetId, page, pageSize); }
   @Get('discovery/jobs/:id') job(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.service.getDiscoveryJob(req.user, id); }
   @Get('discovery/jobs/:id/results') results(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.service.listDiscoveryResults(req.user, id); }

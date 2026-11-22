@@ -35,7 +35,7 @@ test('flags models without a front image and with incomplete per-face port mappi
     device('d3', model('complete', { portLayout: { version: 2, faces: { front: { imageWidth: 1, imageHeight: 1, ports: [port(1)] }, rear: { imageWidth: 1, imageHeight: 1, ports: [port(2)] } } } })),
     device('d4', model('seeded', { portLayout: { family: 'ethernet', ports: 2 } })),
   ];
-  const prisma = { device: { findMany: async () => devices }, snmpDrift: { findMany: async () => [] }, ipAddress: { findMany: async () => [] } } as any;
+  const prisma = { device: { findMany: async () => devices }, snmpDrift: { findMany: async () => [] }, ipAddress: { findMany: async () => [] }, $queryRaw: async () => [] } as any;
   const service = new InventoryQualityService(prisma, {} as any, {} as any, {} as any, {} as any);
 
   const found = await (service as any).detect('site-1') as Array<{ rule: string; entityId: string; title: string; severity: string }>;

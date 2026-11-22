@@ -196,3 +196,11 @@ export class BulkReviewDiscoveryResultsDto {
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(200) @ArrayUnique() @IsUUID('all', { each: true }) ids!: string[];
   @IsIn(['APPROVED', 'IGNORED']) status!: string;
 }
+/** Round 2 #14: free addresses that recent discovery scans no longer see. */
+export class MarkMissingIpsFreeDto {
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(200) @ArrayUnique() @IsUUID('all', { each: true }) ipIds!: string[];
+}
+export class MissingIpsQueryDto {
+  @IsOptional() @IsUUID() siteId?: string;
+  @IsOptional() @IsUUID() subnetId?: string;
+}

@@ -5,6 +5,7 @@ import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { InfrastructureAccessService } from '../infrastructure/infrastructure-access.service';
 import { IpamAccessService } from '../ipam/ipam-access.service';
+import { findFreeButReachable, findMissingIps, MISSING_WINDOW_DAYS } from '../ipam/ip-drift';
 import { AlertSeverityDto } from '../operations/dto';
 import { OperationsService } from '../operations/operations.service';
 import { AssignFindingDto, BulkFindingActionDto, FindingFacetsQueryDto, ListFindingsQueryDto, SNOOZE_MAX_HOURS, SNOOZE_MIN_HOURS, SnoozeFindingDto } from './dto';
@@ -195,6 +196,7 @@ export class InventoryQualityService {
       DEVICE_MISSING_SITE: 'Associar o equipamento ao Site correto.', DEVICE_MISSING_LOCATION: 'Atribuir o equipamento ao bastidor e à posição física corretos.', DEVICE_MISSING_MODEL: 'Associar o modelo de equipamento correspondente.',
       NETWORK_DEVICE_MISSING_MANAGEMENT_IP: 'Atribuir um endereço IP de gestão válido ao equipamento.', INTERFACE_MISSING_MODE: 'Definir o modo da interface como ACCESS ou TRUNK.', ACCESS_INTERFACE_MISSING_VLAN: 'Selecionar a VLAN de acesso da interface.', TRUNK_INTERFACE_MISSING_VLANS: 'Adicionar as VLANs permitidas nesta interface trunk.',
       NETWORK_MODEL_MISSING_PORT_MAP: 'Completar e guardar o mapa de portas do modelo (frente e traseira) até todas as portas de rede estarem mapeadas.', DEVICE_MODEL_MISSING_FRONT_IMAGE: 'Carregar a imagem frontal do modelo.', STALE_SNMP_OBSERVATION: 'Confirmar conectividade e configuração SNMP ou atualizar o inventário manualmente.', STALE_SNMP_DRIFT: 'Rever e resolver a divergência SNMP pendente.', DUPLICATE_IP_ROUTING_DOMAIN: 'Verificar as atribuições duplicadas e corrigir o endereço ou domínio de routing.',
+      IP_FREE_BUT_REACHABLE: 'Confirmar quem usa o endereço e marcá-lo como ocupado (ou aprovar o resultado da descoberta); se não devia responder, investigar.', IP_OCCUPIED_NOT_SEEN: 'Confirmar se o endereço ainda está em uso; se não estiver, libertá-lo em Descoberta › Desaparecidos.',
     };
     const items = pageItems.map((item) => {
       const deviceId = item.entityType === 'Device' ? item.entityId : item.entityType === 'DeviceInterface' ? ownerByInterface.get(item.entityId) : item.entityType === 'SnmpDrift' ? ownerByDrift.get(item.entityId) : undefined;
@@ -338,6 +340,10 @@ export class InventoryQualityService {
     const groups = new Map<string, typeof ips>();
     for (const ip of ips) { const effective = ip.subnet.vrfId ?? ip.subnet.siteId; if (!effective || !ip.subnet.siteId) continue; const key = `${effective}:${ip.address}`; groups.set(key, [...(groups.get(key) ?? []), ip]); }
     for (const [key, duplicates] of groups) if (duplicates.length > 1) add({ dedupKey: `duplicate-ip:${key}`, siteId: duplicates[0].subnet.siteId, rule: 'DUPLICATE_IP_ROUTING_DOMAIN', severity: AlertSeverityDto.CRITICAL, entityType: 'IpAddress', entityId: duplicates[0].id, title: 'IP duplicado no domínio de routing', detail: `${duplicates[0].address} aparece ${duplicates.length} vezes no mesmo domínio de routing.`, metadata: { count: duplicates.length } });
+    // Round 2 #6: IPAM state against what discovery scans saw (definitions in ipam/ip-drift.ts).
+    const [freeReachable, missing] = await Promise.all([findFreeButReachable(this.prisma, { siteId }), findMissingIps(this.prisma, { siteId })]);
+    for (const ip of freeReachable) if (ip.siteId) add({ dedupKey: `ip:${ip.ipId}:free-but-reachable`, siteId: ip.siteId, rule: 'IP_FREE_BUT_REACHABLE', severity: AlertSeverityDto.WARNING, entityType: 'IpAddress', entityId: ip.ipId, title: 'IP livre mas a responder', detail: `${ip.address} (${ip.cidr}) está marcado como livre mas respondeu na descoberta de ${ip.scanAt.toISOString().slice(0, 10)}.`, metadata: { address: ip.address, subnetId: ip.subnetId, jobId: ip.jobId, scanAt: ip.scanAt.toISOString(), hostname: ip.hostname } });
+    for (const ip of missing) if (ip.siteId) add({ dedupKey: `ip:${ip.ipId}:occupied-not-seen`, siteId: ip.siteId, rule: 'IP_OCCUPIED_NOT_SEEN', severity: AlertSeverityDto.WARNING, entityType: 'IpAddress', entityId: ip.ipId, title: 'IP ocupado sem resposta', detail: `${ip.address} (${ip.cidr}) está ocupado mas não respondeu em ${ip.scanCount} ${ip.scanCount === 1 ? 'descoberta' : 'descobertas'} dos últimos ${MISSING_WINDOW_DAYS} dias.`, metadata: { address: ip.address, subnetId: ip.subnetId, lastSeenAt: ip.lastSeenAt?.toISOString() ?? null, lastScanAt: ip.lastScanAt.toISOString(), scanCount: ip.scanCount } });
     return result;
   }
 }
