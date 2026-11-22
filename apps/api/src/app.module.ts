@@ -4,8 +4,7 @@ import { DatabaseModule } from './database/database.module';
 import { HealthModule } from './health/health.module';
 import { AuthModule } from './auth/auth.module';
 import { AuditModule } from './audit/audit.module';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
-import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { ApplicationLinksModule } from './application-links/application-links.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { DashboardModule } from './dashboard/dashboard.module';
@@ -23,6 +22,8 @@ import { ExportsModule } from './settings/exports.module';
 import { NetAppModule } from './netapp/netapp.module';
 import { CriticalAssetsModule } from './critical-assets/critical-assets.module';
 import { ChangePlansModule } from './change-plans/change-plans.module';
+import { ReportsModule } from './reports/reports.module';
+import { TagsModule } from './tags/tags.module';
 
 @Module({
   imports: [
@@ -49,7 +50,8 @@ import { ChangePlansModule } from './change-plans/change-plans.module';
     NetAppModule,
     CriticalAssetsModule,
     ChangePlansModule,
+    ReportsModule,
+    TagsModule,
   ],
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}

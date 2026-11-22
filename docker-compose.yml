@@ -96,6 +96,8 @@ services:
       OIDC_BACKCHANNEL_URL: ${OIDC_BACKCHANNEL_URL:-http://keycloak:8080/realms/${KEYCLOAK_REALM:-COCiber}}
       OIDC_AUDIENCE: ${OIDC_AUDIENCE:-simoes-api}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      # 0 = clients reach the API directly; X-Forwarded-For is ignored. docker-compose.proxy.yml sets 1 for the bundled nginx.
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-0}
       APPLICATION_LINK_CHECK_ALLOWED_CIDRS: ${APPLICATION_LINK_CHECK_ALLOWED_CIDRS:-}
       KEYCLOAK_ADMIN_URL: http://keycloak:8080
       KEYCLOAK_ADMIN_REALM: ${KEYCLOAK_ADMIN_REALM:-${KEYCLOAK_REALM:-COCiber}}
@@ -104,6 +106,8 @@ services:
       ASSET_STORAGE_PATH: /app/data/assets
       SNMP_KEYRING_FILE: /run/secrets/snmp_keyring
       SNMP_SET_ENABLED: ${SNMP_SET_ENABLED:-false}
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-}
+      NOTIFICATION_DELIVERY_POLL_MS: ${NOTIFICATION_DELIVERY_POLL_MS:-15000}
     ports:
       - "${API_HOST:-127.0.0.1}:${API_PORT_HOST:-3001}:3001"
     volumes:

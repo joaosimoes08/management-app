@@ -22,7 +22,7 @@ test('reminder delivery creates one in-app notification and deduplicates worker 
     lifecycleDate: { findMany: async () => [{ id: 'date-1', kind: 'SUPPORT', dueDate: new Date('2026-12-01T00:00:00.000Z'), reminderDays: [0], responsibleUserId: 'user-1', responsibleGroup: null, device: { id: 'device-1', name: 'Router 1' } }] },
     $transaction: async (callback: (tx: any) => Promise<boolean>) => callback({
       lifecycleReminderDelivery: { createMany: async () => { if (deliveries) return { count: 0 }; deliveries++; return { count: 1 }; } },
-      notificationMute: { findMany: async () => [] }, notification: { create: async () => { notifications++; return {}; } },
+      deliveryChannelConfig: { findMany: async () => [] }, notificationMute: { findMany: async () => [] }, notification: { create: async () => { notifications++; return {}; } },
     }),
   };
   const now = new Date('2026-12-01T12:00:00.000Z');
@@ -39,7 +39,7 @@ test('a muted reminder is not recorded as delivered and fires after the recipien
     lifecycleDate: { findMany: async () => [{ id: 'date-2', kind: 'WARRANTY', dueDate: new Date('2026-12-01T00:00:00.000Z'), reminderDays: [0], responsibleUserId: 'user-2', responsibleGroup: null, device: { id: 'device-2', name: 'Switch 2', siteId: null } }] },
     $transaction: async (callback: (tx: any) => Promise<boolean>) => callback({
       lifecycleReminderDelivery: { createMany: async ({ data }: any) => { deliveryRows.push(...data); return { count: 1 }; } },
-      notificationMute: { findMany: async () => (muted ? [{ userId: 'user-2' }] : []) },
+      deliveryChannelConfig: { findMany: async () => [] }, notificationMute: { findMany: async () => (muted ? [{ userId: 'user-2' }] : []) },
       notification: { create: async () => { notifications++; return {}; } },
     }),
   };

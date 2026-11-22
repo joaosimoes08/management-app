@@ -1,5 +1,6 @@
-import { BadRequestException, ForbiddenException, Injectable, MessageEvent, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { alertPolicyDecision } from './alert-policy';
+import { BadRequestException, ForbiddenException, Injectable, MessageEvent, NotFoundException, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
+import { ALERT_SEVERITY_RANK, alertPolicyDecision } from './alert-policy';
+import { NotificationDeliveryService } from '../notifications/delivery/notification-delivery.service';
 import { PrismaClient } from '@simoes/database';
 import Redis from 'ioredis';
 import { Observable, Subject } from 'rxjs';
@@ -41,6 +42,7 @@ export class OperationsService implements OnModuleInit, OnModuleDestroy {
     private readonly access: InfrastructureAccessService,
     private readonly ipamAccess: IpamAccessService,
     private readonly audit: AuditService,
+    @Optional() private readonly deliveries?: NotificationDeliveryService,
   ) {}
 
   async onModuleInit() {
@@ -227,6 +229,8 @@ export class OperationsService implements OnModuleInit, OnModuleDestroy {
     });
     await this.prisma.operationalAlertUserState.updateMany({ where: { alertId: alert.id }, data: { readAt: null } });
     await this.publish({ type: 'alert.upserted', alertId: alert.id, siteId: alert.siteId, occurredAt: now.toISOString() });
+    // Step 31: only a new or reopened alert is posted to the group channel; repeats of an open alert are not.
+    if (!existing || reopen) void this.deliveries?.alertOpened(alert, now);
     return alert;
   }
 
@@ -240,7 +244,11 @@ export class OperationsService implements OnModuleInit, OnModuleDestroy {
     for (const candidate of candidates) {
       const existing = await this.prisma.operationalAlert.findUnique({ where: { dedupKey: candidate.dedupKey } });
       if (!existing || existing.status === 'RESOLVED') await this.upsert(candidate);
-      else await this.prisma.operationalAlert.update({ where: { id: existing.id }, data: { severity: candidate.severity, title: candidate.title, detail: candidate.detail, actionHref: candidate.actionHref, lastOccurredAt: new Date() } });
+      else {
+        const updated = await this.prisma.operationalAlert.update({ where: { id: existing.id }, data: { severity: candidate.severity, title: candidate.title, detail: candidate.detail, actionHref: candidate.actionHref, lastOccurredAt: new Date() } });
+        // An open alert that escalates (for example HIGH → CRITICAL) is posted again at its new severity.
+        if ((ALERT_SEVERITY_RANK[updated.severity] ?? 99) < (ALERT_SEVERITY_RANK[existing.severity] ?? 99)) void this.deliveries?.alertOpened(updated, updated.lastOccurredAt);
+      }
     }
     const cleared = resolveKeys.filter((key) => !activeKeys.has(key));
     const stale = !resolveMissing && cleared.length ? await this.findOpenByKeys(source, cleared, scopeSiteId) : resolveMissing ? await this.prisma.operationalAlert.findMany({ where: { source, status: { not: 'RESOLVED' }, ...(scopeSiteId ? { siteId: scopeSiteId } : {}), ...(activeKeys.size ? { dedupKey: { notIn: [...activeKeys] } } : {}) }, select: { id: true, siteId: true } }) : [];

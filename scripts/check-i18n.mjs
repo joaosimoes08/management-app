@@ -31,6 +31,8 @@ const operationalFiles = [
   'apps/web/components/data-table/csv.ts',
   'apps/web/components/data-table/table-state.ts',
   'apps/web/components/data-table/use-table-url-state.ts',
+  'apps/web/components/data-table/saved-views.tsx',
+  'apps/web/features/help/articles.ts',
   'apps/web/app/ajuda/page.tsx',
   'apps/web/app/ajuda/[topic]/page.tsx',
   // Phase D front end
@@ -52,6 +54,13 @@ const operationalFiles = [
   'apps/web/features/snmp/snmp-page.tsx',
   'apps/web/features/snmp/snmp-drifts.tsx',
   'apps/web/features/snmp/snmp-bounds.ts',
+  'apps/web/features/snmp/snmp-change-plan-attach.tsx',
+  // Step 34 impact analysis and path view
+  'apps/web/features/topology/impact-panel.tsx',
+  'apps/web/features/topology/impact-api.ts',
+  'apps/web/features/change-plans/plan-impact.tsx',
+  // Step 36 tags on devices and subnets
+  'apps/web/features/tags/tag-components.tsx',
 ];
 
 function sourceFile(relative, kind = ts.ScriptKind.TSX) {

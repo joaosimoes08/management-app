@@ -147,9 +147,9 @@ describe('asset file caching (D4)', () => {
 
   test('controller sends long-lived private caching, ETag and the security headers, and 304 with no body', async () => {
     const s = service();
-    const controller = new InfrastructureController(s.subject, {} as any);
+    const controller = new InfrastructureController(s.subject, {} as any, { record: async () => undefined } as any);
     const ok = reply();
-    await controller.assetFile('a1', undefined, ok);
+    await controller.assetFile('a1', undefined, { user: { id: 'u1' } } as any, ok);
     assert.equal(ok.statusCode, 200);
     assert.deepEqual(ok.body, PNG);
     assert.equal(ok.headers['cache-control'], ASSET_CACHE_CONTROL);
@@ -160,7 +160,7 @@ describe('asset file caching (D4)', () => {
     assert.match(ok.headers['content-security-policy'], /sandbox/);
     assert.equal(ok.headers['content-disposition'], 'inline; filename="front 1.png"');
     const cached = reply();
-    await controller.assetFile('a1', ok.headers.etag, cached);
+    await controller.assetFile('a1', ok.headers.etag, { user: { id: 'u1' } } as any, cached);
     assert.equal(cached.statusCode, 304);
     assert.equal(cached.body, undefined);
     assert.equal(cached.headers.etag, ok.headers.etag);

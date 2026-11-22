@@ -26,7 +26,7 @@ test('submission normalizes roles and rejects invalid/effective roles and pendin
 test('approval grants additively, finalizes, notifies and audits', async () => {
   const row: any = { id: 'r1', userId: 'u1', roles: ['AUDITOR'], status: 'PENDING', createdAt: new Date(), user: { externalId: 'kc-1' } };
   const notifications: any[] = []; const audits: any[] = [];
-  const prisma: any = { roleRequest: { updateMany: async ({ data }: any) => { Object.assign(row, data); return { count: 1 }; }, findUnique: async () => row }, $transaction: async (fn: any) => fn({ roleRequest: { updateMany: async ({ data }: any) => { Object.assign(row, data); return { count: 1 }; }, findUniqueOrThrow: async () => row }, notificationMute: { findMany: async () => [] }, notification: { create: async ({ data }: any) => notifications.push(data) } }) };
+  const prisma: any = { roleRequest: { updateMany: async ({ data }: any) => { Object.assign(row, data); return { count: 1 }; }, findUnique: async () => row }, $transaction: async (fn: any) => fn({ roleRequest: { updateMany: async ({ data }: any) => { Object.assign(row, data); return { count: 1 }; }, findUniqueOrThrow: async () => row }, deliveryChannelConfig: { findMany: async () => [] }, notificationMute: { findMany: async () => [] }, notification: { create: async ({ data }: any) => notifications.push(data) } }) };
   const value = service(prisma, { grantRoles: async () => ({}) }); (value as any).audit = { record: async (entry: any) => audits.push(entry) };
   const result = await value.decide('r1', 'APPROVE', reviewer as any);
   assert.equal(result.status, 'APPROVED'); assert.equal(notifications.length, 1); assert.match(notifications[0].message, /logout/i); assert.equal(audits[0].action, 'ROLE_REQUEST_APPROVED');
@@ -34,7 +34,7 @@ test('approval grants additively, finalizes, notifies and audits', async () => {
 
 test('rejection finalizes and notifies; non-pending requests are rejected', async () => {
   const row: any = { id: 'r1', userId: 'u1', roles: ['AUDITOR'], status: 'PENDING', createdAt: new Date(), user: { externalId: 'kc-1' } }; const notifications: any[] = [];
-  const prisma: any = { roleRequest: { updateMany: async ({ data }: any) => { if (row.status !== 'PENDING') return { count: 0 }; Object.assign(row, data); return { count: 1 }; }, findUnique: async () => row }, $transaction: async (fn: any) => fn({ roleRequest: { updateMany: async ({ data }: any) => { Object.assign(row, data); return { count: 1 }; }, findUniqueOrThrow: async () => row }, notificationMute: { findMany: async () => [] }, notification: { create: async ({ data }: any) => notifications.push(data) } }) };
+  const prisma: any = { roleRequest: { updateMany: async ({ data }: any) => { if (row.status !== 'PENDING') return { count: 0 }; Object.assign(row, data); return { count: 1 }; }, findUnique: async () => row }, $transaction: async (fn: any) => fn({ roleRequest: { updateMany: async ({ data }: any) => { Object.assign(row, data); return { count: 1 }; }, findUniqueOrThrow: async () => row }, deliveryChannelConfig: { findMany: async () => [] }, notificationMute: { findMany: async () => [] }, notification: { create: async ({ data }: any) => notifications.push(data) } }) };
   const value = service(prisma); const result = await value.decide('r1', 'REJECT', reviewer as any); assert.equal(result.status, 'REJECTED'); assert.equal(notifications.length, 1);
 });
 
@@ -48,7 +48,7 @@ test('Keycloak failure keeps a claimed request processing for safe retry', async
 test('a processing approval can be reconciled safely', async () => {
   const row: any = { id: 'r1', userId: 'u1', roles: ['AUDITOR'], status: 'PROCESSING', createdAt: new Date(), user: { externalId: 'kc-1' } };
   const notifications: any[] = [];
-  const prisma: any = { roleRequest: { updateMany: async () => ({ count: 0 }), findUnique: async () => row }, $transaction: async (fn: any) => fn({ roleRequest: { updateMany: async ({ data }: any) => { Object.assign(row, data); return { count: 1 }; }, findUniqueOrThrow: async () => row }, notificationMute: { findMany: async () => [] }, notification: { create: async ({ data }: any) => notifications.push(data) } }) };
+  const prisma: any = { roleRequest: { updateMany: async () => ({ count: 0 }), findUnique: async () => row }, $transaction: async (fn: any) => fn({ roleRequest: { updateMany: async ({ data }: any) => { Object.assign(row, data); return { count: 1 }; }, findUniqueOrThrow: async () => row }, deliveryChannelConfig: { findMany: async () => [] }, notificationMute: { findMany: async () => [] }, notification: { create: async ({ data }: any) => notifications.push(data) } }) };
   const value = service(prisma, { grantRoles: async () => ({}) });
   const result = await value.decide('r1', 'APPROVE', reviewer as any);
   assert.equal(result.status, 'APPROVED'); assert.equal(notifications.length, 1);
@@ -72,7 +72,7 @@ test('a requester who muted ROLE_REQUEST still receives the approve and reject o
   for (const decision of ['APPROVE', 'REJECT'] as const) {
     const row: any = { id: 'r1', userId: 'u1', roles: ['AUDITOR'], status: 'PENDING', createdAt: new Date(), user: { externalId: 'kc-1' } };
     const notifications: any[] = [];
-    const prisma: any = { roleRequest: { updateMany: async ({ data }: any) => { if (row.status !== 'PENDING' && row.status !== 'PROCESSING') return { count: 0 }; Object.assign(row, data); return { count: 1 }; }, findUnique: async () => row }, $transaction: async (fn: any) => fn({ roleRequest: { updateMany: async ({ data }: any) => { Object.assign(row, data); return { count: 1 }; }, findUniqueOrThrow: async () => row }, notificationMute: { findMany: async () => [{ userId: 'u1' }] }, notification: { create: async ({ data }: any) => notifications.push(data) } }) };
+    const prisma: any = { roleRequest: { updateMany: async ({ data }: any) => { if (row.status !== 'PENDING' && row.status !== 'PROCESSING') return { count: 0 }; Object.assign(row, data); return { count: 1 }; }, findUnique: async () => row }, $transaction: async (fn: any) => fn({ roleRequest: { updateMany: async ({ data }: any) => { Object.assign(row, data); return { count: 1 }; }, findUniqueOrThrow: async () => row }, deliveryChannelConfig: { findMany: async () => [] }, notificationMute: { findMany: async () => [{ userId: 'u1' }] }, notification: { create: async ({ data }: any) => notifications.push(data) } }) };
     const value = service(prisma, { grantRoles: async () => ({}) });
     await value.decide('r1', decision, reviewer as any);
     assert.equal(notifications.length, 1, `${decision} outcome must reach the muted requester`);

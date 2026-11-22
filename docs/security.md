@@ -48,7 +48,7 @@ A lista técnica está em `apps/api/src/auth/roles.ts`. Para adicionar uma role:
 
 - Inputs não permitidos são rejeitados.
 - CORS é configurável através de `CORS_ORIGINS`.
-- Rate limiting global: 100 pedidos por minuto.
+- Rate limiting global: 100 pedidos por minuto, por utilizador verificado; pedidos anónimos por endereço do cliente. O endereço só vem de `X-Forwarded-For` quando `TRUST_PROXY_HOPS` > 0 (número exato de proxies; `1` com o nginx incluído, `0` sem proxy, para que o cabeçalho não possa ser falsificado). `trustProxy: true` nunca é usado.
 - Helmet adiciona headers de segurança.
 - Health check não requer autenticação.
 - Secrets não devem ser commitados.

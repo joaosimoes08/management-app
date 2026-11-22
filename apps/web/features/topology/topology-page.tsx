@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Background, BaseEdge, EdgeLabelRenderer, Handle, MiniMap, Position, ReactFlow, applyNodeChanges, getBezierPath, type Connection, type Edge, type EdgeProps, type Node, type NodeChange, type NodeProps, type ReactFlowInstance, useEdgesState, useNodesState } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -21,7 +21,11 @@ import { availableInterfaces, retainAvailableInterfaceId } from './port-availabi
 import { findTopologyNode } from './search';
 import { emptyTopologyFilters, hasTopologyFilters, hiddenTopologyNodeIds, topologyLocationOptions, topologyTypeOptions, withHiddenEdges, withHiddenNodes, type TopologyFilters } from './filters';
 import { TopologyFiltersMenu, TopologyLegend } from './topology-filters-menu';
+import { parseImpactParam, type ImpactTarget, type TopologyImpact, type TopologyPath } from './impact-api';
+import { impactHighlight, pathHighlight, withHighlightClasses } from './impact-highlight';
+import { ImpactPanel, PathView } from './impact-panel';
 import type { TopologyConnection, TopologyMap, TopologyMapType, TopologyNode } from './types';
+import { topologyToolbarSummary } from './toolbar-summary';
 
 const types: TopologyMapType[] = ['PHYSICAL', 'NETWORK', 'VLAN_SUBNET'];
 const EMPTY_DEVICE_INTERFACES: Record<string, DeviceInterface[]> = {};
@@ -122,6 +126,13 @@ export function TopologyPage() {
   const [pendingConnection, setPendingConnection] = useState<{ sourceDeviceId: string; targetDeviceId: string } | null>(null);
   const [newSourcePortId, setNewSourcePortId] = useState('');
   const [newTargetPortId, setNewTargetPortId] = useState('');
+  /** Step 34: what goes down (from the menu or `?impact=device:<id>`), its result and the path view. */
+  const [impactTarget, setImpactTarget] = useState<ImpactTarget | null>(null);
+  const [impactDeviceId, setImpactDeviceId] = useState('');
+  const [impactResult, setImpactResult] = useState<TopologyImpact | null>(null);
+  const [pathResult, setPathResult] = useState<TopologyPath | null>(null);
+  const [pathFrom, setPathFrom] = useState('');
+  const [analysisRequested, setAnalysisRequested] = useState(false);
   const maps = useQuery({ queryKey: ['topology', 'maps', siteId], queryFn: () => listTopologyMaps(siteId), enabled: Boolean(siteId) });
   const detail = useQuery({ queryKey: ['topology', selected], queryFn: () => getTopologyMap(selected), enabled: Boolean(selected) });
   const devices = useQuery({ queryKey: ['topology', 'devices', siteId], queryFn: () => listAllDevices(siteId, ''), enabled: Boolean(siteId) });
@@ -146,8 +157,9 @@ export function TopologyPage() {
   const typeOptions = useMemo(() => topologyTypeOptions(current?.nodes ?? []), [current?.nodes]);
   const locationOptions = useMemo(() => topologyLocationOptions(current?.nodes ?? []), [current?.nodes]);
   const hiddenNodeIds = useMemo(() => hiddenTopologyNodeIds(current?.nodes ?? [], filters, nodeAlertSummaries), [current?.nodes, filters, nodeAlertSummaries]);
-  const visibleNodes = useMemo(() => withHiddenNodes(nodes, hiddenNodeIds), [nodes, hiddenNodeIds]);
-  const visibleEdges = useMemo(() => withHiddenEdges(edges, hiddenNodeIds), [edges, hiddenNodeIds]);
+  const highlight = useMemo(() => (!current ? null : impactTarget && impactResult ? impactHighlight(impactResult, current) : pathResult?.found ? pathHighlight(pathResult, current) : null), [current, impactTarget, impactResult, pathResult]);
+  const visibleNodes = useMemo(() => withHighlightClasses(withHiddenNodes(nodes, hiddenNodeIds), highlight?.nodes ?? null, 'node'), [nodes, hiddenNodeIds, highlight]);
+  const visibleEdges = useMemo(() => withHighlightClasses(withHiddenEdges(edges, hiddenNodeIds), highlight?.edges ?? null, 'edge'), [edges, hiddenNodeIds, highlight]);
   const filtering = hasTopologyFilters(filters);
   const visibleCount = (current?.nodes.length ?? 0) - hiddenNodeIds.size;
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -183,6 +195,14 @@ export function TopologyPage() {
     setTargetPortId(retainFreePort);
   }, [interfaceAvailability.data?.usedInterfaceIds]);
   useEffect(() => () => clearTimeout(saveTimer.current), []);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const fromUrl = parseImpactParam(params.get('impact'));
+    const from = params.get('pathFrom') ?? '';
+    if (fromUrl) { setImpactTarget(fromUrl); if (fromUrl.kind === 'DEVICE') setImpactDeviceId(fromUrl.id); }
+    if (from) setPathFrom(from);
+    if (fromUrl || from) setAnalysisRequested(true);
+  }, []);
   useEffect(() => {
     if (!fullscreen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -263,6 +283,12 @@ export function TopologyPage() {
     try { await deleteTopologyConnection(current.id, selectedConnection.id, current.revision); setSelectedEdgeId(''); await detail.refetch(); setWarning(''); } catch (error) { setWarning(String(error).includes('alterado') ? 'O mapa mudou entretanto. Recarrega antes de remover a ligação.' : 'Não foi possível remover a ligação.'); }
   };
   const mapOptions = useMemo(() => maps.data?.items ?? [], [maps.data]);
+  useEffect(() => { if (analysisRequested && !selected && mapOptions.length) setSelected(mapOptions[0].id); }, [analysisRequested, selected, mapOptions]);
+  const onImpactResult = useCallback((result: TopologyImpact | null) => setImpactResult(result), []);
+  const onPathResult = useCallback((result: TopologyPath | null) => { setPathResult(result); if (result) { setImpactTarget(null); setImpactResult(null); } }, []);
+  const analyseImpact = () => { if (!impactDeviceId) return; setPathResult(null); setImpactResult(null); setImpactTarget({ kind: 'DEVICE', id: impactDeviceId }); };
+  const clearImpact = () => { setImpactTarget(null); setImpactResult(null); };
+  const siteDevices = useMemo(() => (devices.data?.items ?? []).map((device) => ({ id: device.id, name: device.name })), [devices.data]);
   const handleNodesChange = (changes: NodeChange[]) => { const next = applyNodeChanges(changes, nodes); onNodesChange(changes); if (changes.some((change) => change.type === 'position' && change.position)) persist(next); };
   const focusNode = (nodeId: string) => {
     void flow?.fitView({ nodes: [{ id: nodeId }], duration: 450, padding: 0.45 });
@@ -286,6 +312,12 @@ export function TopologyPage() {
     {pendingConnection && current && <details className="topology-topbar-menu" open onToggle={(event) => { if (!event.currentTarget.open) setPendingConnection(null); }}><summary>Concluir ligação</summary><div className="topology-topbar-form"><strong>Seleciona as portas da ligação</strong><label>Porta de origem<select aria-label="Porta de origem da nova ligação" value={newSourcePortId} onChange={(event) => setNewSourcePortId(event.target.value)} disabled={interfaceData.isLoading || interfaceData.isError || interfaceAvailability.isLoading || interfaceAvailability.isError || !newSourcePorts.length}><option value="">{interfaceAvailability.isLoading ? 'A verificar disponibilidade…' : newSourcePorts.length ? 'Seleciona uma porta livre' : 'Sem portas livres'}</option>{newSourcePorts.map((port) => <option key={port.id} value={port.id}>{port.name}</option>)}</select></label><label>Porta de destino<select aria-label="Porta de destino da nova ligação" value={newTargetPortId} onChange={(event) => setNewTargetPortId(event.target.value)} disabled={interfaceData.isLoading || interfaceData.isError || interfaceAvailability.isLoading || interfaceAvailability.isError || !newTargetPorts.length}><option value="">{interfaceAvailability.isLoading ? 'A verificar disponibilidade…' : newTargetPorts.length ? 'Seleciona uma porta livre' : 'Sem portas livres'}</option>{newTargetPorts.map((port) => <option key={port.id} value={port.id}>{port.name}</option>)}</select></label>{(interfaceData.isError || interfaceAvailability.isError) && <p role="alert">Não foi possível verificar as portas livres. Atualiza o mapa e tenta novamente.</p>}<button className="primary-button" onClick={() => void createConnectionFromPorts()} disabled={!newSourcePortId || !newTargetPortId || newSourcePortId === newTargetPortId || interfaceData.isLoading || interfaceData.isError || interfaceAvailability.isLoading || interfaceAvailability.isError}>Criar ligação</button><button type="button" className="secondary-button" onClick={() => setPendingConnection(null)}>Cancelar</button></div></details>}
     {current && <TopologyFiltersMenu filters={filters} onChange={setFilters} types={typeOptions} locations={locationOptions} alertsUnavailable={operationalAlerts.isError} />}
     {current && <TopologyLegend types={typeOptions} />}
+    <details className="topology-topbar-menu topology-impact-menu" open={pathFrom ? true : undefined}><summary>Impacto e caminho</summary><div className="topology-topbar-form">
+      <strong>Impacto</strong><label>Equipamento que vai abaixo<select aria-label="Equipamento para analisar impacto" value={impactDeviceId} onChange={(event) => setImpactDeviceId(event.target.value)}><option value="">Seleciona…</option>{siteDevices.map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}</select></label>
+      <button type="button" className="primary-button" disabled={!impactDeviceId} onClick={analyseImpact}>Analisar impacto</button>
+      <strong>Caminho entre dois equipamentos</strong>
+      <PathView devices={siteDevices} initialFrom={pathFrom} onResult={onPathResult} />
+    </div></details>
     <details className="topology-topbar-menu"><summary>Editar mapa</summary><div className="topology-topbar-form">
       <strong>Criar mapa</strong><label>Nome<input aria-label="Nome do novo mapa" value={name} onChange={(event) => setName(event.target.value)} placeholder="Ex.: Rede principal" /></label><label>Tipo<select aria-label="Tipo do novo mapa" value={mapType} onChange={(event) => setMapType(event.target.value as TopologyMapType)}>{types.map((type) => <option key={type}>{type}</option>)}</select></label>
       {mapType === 'VLAN_SUBNET' && <label>VLANs associadas<select multiple aria-label="VLANs do mapa" value={selectedVlanIds} onChange={(event) => setSelectedVlanIds([...event.target.selectedOptions].map((option) => option.value))}>{vlans.data?.items.map((vlan) => <option key={vlan.id} value={vlan.id}>VLAN {vlan.vlanId} · {vlan.name}</option>)}</select></label>}
@@ -296,7 +328,8 @@ export function TopologyPage() {
       {warning && <p className="ipam-alert error" role="alert">{warning} {create.isError && <button type="button" className="secondary-button" onClick={() => create.mutate()}>Tentar criar novamente</button>} {remove.isError && <button type="button" className="secondary-button" onClick={() => remove.mutate()}>Tentar eliminar novamente</button>}</p>}
     </div></details>
   </div>;
-  const mapViewActions = <><span className="topology-toolbar-summary">{current?.name ?? 'Nenhum mapa selecionado'} · {filtering ? `${visibleCount} de ${current?.nodes.length ?? 0} equipamentos visíveis` : `${current?.nodes.length ?? 0} equipamentos`} · {current?.connections.length ?? 0} ligações · {operationalAlerts.isError ? 'Alertas indisponíveis' : `${mapProblemCount} problemas ativos`}</span><ToolbarMore label="Controlos do mapa"><button type="button" disabled={!searchMatch} onClick={() => searchMatch && focusNode(searchMatch.id)}>Encontrar equipamento</button><button type="button" aria-pressed={labelsVisible} onClick={() => setLabelsVisible((value) => !value)}>{labelsVisible ? 'Ocultar etiquetas' : 'Mostrar etiquetas'}</button><button type="button" aria-pressed={showGrid} onClick={() => setShowGrid((value) => !value)}>{showGrid ? 'Ocultar grelha' : 'Mostrar grelha'}</button><button type="button" onClick={() => void flow?.zoomIn({ duration: 180 })}>Ampliar</button><button type="button" onClick={() => void flow?.zoomOut({ duration: 180 })}>Reduzir</button><button type="button" onClick={() => void flow?.fitView({ duration: 300, padding: 0.2 })}>Ajustar mapa</button><button type="button" aria-pressed={interactive} onClick={() => setInteractive((value) => !value)}>{interactive ? 'Bloquear mapa' : 'Desbloquear mapa'}</button><button type="button" onClick={toggleFullscreen}>Alternar ecrã inteiro</button></ToolbarMore></>;
+  const toolbarSummary = topologyToolbarSummary({ mapName: current?.name, nodeCount: current?.nodes.length ?? 0, visibleCount, filtering, connectionCount: current?.connections.length ?? 0, alertsUnavailable: operationalAlerts.isError, problemCount: mapProblemCount });
+  const mapViewActions = <><span className="topology-toolbar-summary" title={toolbarSummary}>{toolbarSummary}</span><ToolbarMore label="Controlos do mapa"><button type="button" disabled={!searchMatch} onClick={() => searchMatch && focusNode(searchMatch.id)}>Encontrar equipamento</button><button type="button" aria-pressed={labelsVisible} onClick={() => setLabelsVisible((value) => !value)}>{labelsVisible ? 'Ocultar etiquetas' : 'Mostrar etiquetas'}</button><button type="button" aria-pressed={showGrid} onClick={() => setShowGrid((value) => !value)}>{showGrid ? 'Ocultar grelha' : 'Mostrar grelha'}</button><button type="button" onClick={() => void flow?.zoomIn({ duration: 180 })}>Ampliar</button><button type="button" onClick={() => void flow?.zoomOut({ duration: 180 })}>Reduzir</button><button type="button" onClick={() => void flow?.fitView({ duration: 300, padding: 0.2 })}>Ajustar mapa</button><button type="button" aria-pressed={interactive} onClick={() => setInteractive((value) => !value)}>{interactive ? 'Bloquear mapa' : 'Desbloquear mapa'}</button><button type="button" onClick={toggleFullscreen}>Alternar ecrã inteiro</button></ToolbarMore></>;
 
   return <AppShell section="Topologia" toolbarKey={workspace} context={['Infraestrutura']} search={workspace === 'manual' ? { value: search, onChange: setSearch, placeholder: 'Procurar equipamento no mapa', ariaLabel: 'Procurar equipamento no mapa', scopeLabel: 'Mapas manuais' } : undefined} moduleTabs={<nav className="infra-menu" aria-label="Visualização de topologia"><button className={workspace === 'manual' ? 'active' : ''} aria-pressed={workspace === 'manual'} onClick={() => setWorkspace('manual')}><MapIcon size={15}/><span>Mapas manuais</span></button><button className={workspace === 'observed' ? 'active' : ''} aria-pressed={workspace === 'observed'} onClick={() => setWorkspace('observed')}><Activity size={15}/><span>Observada e reconciliação</span></button></nav>} toolbar={<div className="topology-toolbar-stack">{workspace === 'manual' ? <div className="topology-toolbar-row">{topbarActions}{mapViewActions}</div> : <div className="topology-toolbar-row">{observedToolbar}</div>}</div>}>
     <main className="topology-page">
@@ -309,6 +342,12 @@ export function TopologyPage() {
           {warning && <p className="ipam-alert error topology-warning" role="alert">{warning}</p>}
           {current && <p className={`topology-save-status ${saveState}`} role="status" aria-live="polite">{saveState === 'pending' ? 'A guardar posições…' : saveState === 'failed' ? <>Falha ao guardar posições. <button type="button" onClick={retrySave}>Tentar novamente</button> <button type="button" onClick={reloadMap}>Recarregar mapa</button></> : 'Todas as posições estão guardadas.'}</p>}
           {selectedConnection && selectedConnectionDisplay && <aside className="topology-terminal-card" aria-label="Configuração da ligação"><header><strong>Terminal · {selectedConnection.type ?? 'Ligação'}</strong><button type="button" className="topology-terminal-close" aria-label="Fechar configuração" onClick={closeConnectionCard}>×</button></header><div className="topology-terminal-tabs" role="tablist" aria-label="Extremos da ligação"><button role="tab" aria-selected={selectedConnectionTab === 'source'} onClick={() => setSelectedConnectionTab('source')}>{selectedConnectionDisplay.sourceName}</button><button role="tab" aria-selected={selectedConnectionTab === 'target'} onClick={() => setSelectedConnectionTab('target')}>{selectedConnectionDisplay.targetName}</button></div><div className="topology-terminal-output" role="tabpanel"><span>{selectedConnectionTab === 'source' ? selectedConnectionDisplay.sourcePort : selectedConnectionDisplay.targetPort}</span><p className="topology-terminal-note">Não há configuração CLI disponível para esta ligação.</p></div></aside>}
+          {impactTarget && <aside className="topology-impact-card" aria-labelledby="topology-impact-title"><header><strong id="topology-impact-title"><span>Impacto</span>{impactResult?.origin.name ? ` · ${impactResult.origin.name}` : ''}</strong><button type="button" className="topology-terminal-close" aria-label="Fechar impacto" onClick={clearImpact}>×</button></header>
+            {current && highlight && <p className="topology-impact-legend"><span className="topology-impact-key topology-impact-key--down">Vai abaixo</span><span className="topology-impact-key topology-impact-key--cut">Sem caminho</span><span className="topology-impact-key topology-impact-key--degraded">Perde uma alimentação</span>{highlight.offMap > 0 && <small><span>Fora deste mapa:</span> {highlight.offMap}</small>}</p>}
+            {!current && <p className="panel-description">Seleciona um mapa para destacar os equipamentos afetados.</p>}
+            <ImpactPanel target={impactTarget} siteId={siteId} onMap onResult={onImpactResult} headingId="topology-impact-title" />
+          </aside>}
+          {!impactTarget && pathResult?.found && current && highlight && <p className="topology-impact-legend topology-path-legend" role="status"><span className="topology-impact-key topology-impact-key--path">Caminho documentado</span><span>Saltos:</span> {pathResult.hops}{highlight.offMap > 0 && <small><span>Fora deste mapa:</span> {highlight.offMap}</small>}</p>}
           <ReactFlow nodes={visibleNodes} edges={visibleEdges} nodeTypes={topologyNodeTypes} edgeTypes={topologyEdgeTypes} onInit={setFlow} onNodesChange={handleNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_event, node) => { const mapNode = current?.nodes.find((item) => item.id === node.id); openDeviceInterfaces(mapNode?.device); }} onEdgeClick={(_event, edge) => { setSelectedEdgeId(edge.id); setSelectedConnectionTab('source'); }} nodesDraggable={interactive} nodesConnectable={interactive} elementsSelectable={interactive} fitView><>{showGrid && <Background />}<MiniMap /></></ReactFlow>
           {!selected && !maps.isLoading && <div className="topology-canvas-empty"><strong>Seleciona ou cria um mapa</strong><span>O teu mapa de topologia aparece aqui.</span></div>}
         </section>

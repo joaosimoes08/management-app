@@ -213,6 +213,8 @@ model User {
   reviewedRoleRequests        RoleRequest[]               @relation("RoleRequestReviewer")
   notifications               Notification[]
   notificationMutes           NotificationMute[]
+  notificationChannels        NotificationChannelPreference[]
+  notificationDeliveries      NotificationDelivery[]      @relation("NotificationDeliveryRecipient")
   lifecycleDatesAssigned      LifecycleDate[]             @relation("LifecycleDateResponsibleUser")
   lifecycleReminderDeliveries LifecycleReminderDelivery[]
   alertStates                 OperationalAlertUserState[]
@@ -234,6 +236,8 @@ model User {
   createdAt                   DateTime                    @default(now())
   updatedAt                   DateTime                    @updatedAt
   applicationFavorites        UserApplicationFavorite[]
+  scheduledReportRecipients   ScheduledReportRecipient[]
+  scheduledReportOutputs      ScheduledReportOutput[]
 }
 
 model RoleRequest {
@@ -276,6 +280,93 @@ model NotificationMute {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([userId, type])
+}
+
+/// External delivery channel (Step 31): Microsoft Teams incoming webhook or Email over SMTP.
+enum DeliveryChannelKind {
+  TEAMS
+  EMAIL
+}
+
+/// Where a channel posts: per-user notifications, or the group channel for operational alerts.
+enum DeliveryTarget {
+  USER_NOTIFICATIONS
+  GROUP_ALERTS
+}
+
+enum NotificationDeliveryStatus {
+  PENDING
+  SENDING
+  SENT
+  FAILED
+}
+
+/// ADMIN-managed destination. Secrets (Teams webhook URL, SMTP password) are kept only as a keyring envelope and never returned.
+/// EMAIL/USER_NOTIFICATIONS holds the SMTP server; EMAIL/GROUP_ALERTS holds the alert recipients and uses that server.
+model DeliveryChannelConfig {
+  id          String                    @id @default(uuid()) @db.Uuid
+  kind        DeliveryChannelKind
+  target      DeliveryTarget
+  enabled     Boolean                   @default(false)
+  /// GROUP_ALERTS only: lowest operational alert severity posted to the group channel (CRITICAL or HIGH).
+  minSeverity OperationalAlertSeverity?
+  /// Non-secret settings: SMTP host, port, security, username and from address, or the group alert recipients.
+  settings    Json?
+  ciphertext  Bytes?
+  iv          Bytes?
+  authTag     Bytes?
+  wrappedDek  Bytes?
+  wrapIv      Bytes?
+  wrapAuthTag Bytes?
+  keyId       String?
+  updatedById String?                   @db.Uuid
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
+
+  @@unique([kind, target])
+}
+
+/// A user's opt-in to an external channel for one notification topic (in-app delivery is governed by NotificationMute).
+model NotificationChannelPreference {
+  userId  String              @db.Uuid
+  type    String
+  channel DeliveryChannelKind
+  user    User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, type, channel])
+}
+
+/// One outbound message and its attempts. Copies the text so later edits or deletes do not change what was sent.
+model NotificationDelivery {
+  id              String                     @id @default(uuid()) @db.Uuid
+  channel         DeliveryChannelKind
+  target          DeliveryTarget
+  status          NotificationDeliveryStatus @default(PENDING)
+  /// ROLE_REQUEST, CRITICAL_ASSET_ATTESTATION, LIFECYCLE_DATE, OPERATIONAL_ALERT or TEST.
+  topic           String
+  recipientUserId String?                    @db.Uuid
+  alertId         String?                    @db.Uuid
+  /// Prevents the same event being queued twice (for example one alert opening).
+  dedupKey        String?                    @unique
+  title           String
+  message         String
+  href            String?
+  attempts        Int                        @default(0)
+  nextAttemptAt   DateTime                   @default(now())
+  lastAttemptAt   DateTime?
+  /// Short code only (HTTP_404, TIMEOUT, SMTP_EAUTH, ...); never the webhook URL, SMTP response, password or address.
+  failureReason   String?
+  sentAt          DateTime?
+  requestedById   String?                    @db.Uuid
+  createdAt       DateTime                   @default(now())
+  updatedAt       DateTime                   @updatedAt
+  recipient       User?                      @relation("NotificationDeliveryRecipient", fields: [recipientUserId], references: [id], onDelete: SetNull)
+  /// Step 32: the generated report (HTML body and CSV attachment) this e-mail carries.
+  reportOutputId  String?                    @db.Uuid
+  reportOutput    ScheduledReportOutput?     @relation(fields: [reportOutputId], references: [id], onDelete: SetNull)
+
+  @@index([status, nextAttemptAt])
+  @@index([createdAt, id])
 }
 
 model UserRole {
@@ -335,6 +426,7 @@ model Site {
   criticalAssetCorrections  CriticalAssetCorrection[]
   changePlans               ChangePlan[]
   netAppIntegration         NetAppIntegration?
+  tags                      Tag[]
   createdAt                 DateTime                    @default(now())
   updatedAt                 DateTime                    @updatedAt
 }
@@ -526,6 +618,7 @@ model Device {
   criticalAssetAttestations CriticalAssetAttestation[]
   criticalAssetCorrections  CriticalAssetCorrection[]
   pduOutlets                PduOutletAssignment[]
+  tags                      DeviceTag[]
   sourceConnections         DeviceConnection[]         @relation("ConnectionSourceDevice")
   targetConnections         DeviceConnection[]         @relation("ConnectionTargetDevice")
   createdAt                 DateTime                   @default(now())
@@ -1340,6 +1433,7 @@ model Subnet {
   childSubnets       Subnet[]                 @relation("SubnetHierarchy")
   natSourceRules     NatRule[]                @relation("NatSourceSubnet")
   natTranslatedRules NatRule[]                @relation("NatTranslatedSubnet")
+  tags               SubnetTag[]
   scanEnabled        Boolean                  @default(false)
   scanIntervalHours  Int                      @default(12)
   scanMethods        Json?
@@ -1352,6 +1446,44 @@ model Subnet {
 
   @@index([vlanId])
   @@index([siteId, vrfId, version])
+}
+
+/// Step 36: site-scoped labels for devices and subnets. Names are unique per Site, case-insensitively (checked by the API).
+model Tag {
+  id        String      @id @default(uuid()) @db.Uuid
+  siteId    String      @db.Uuid
+  name      String
+  /// One of the design-system tones: gray, blue, green, amber, red, purple.
+  color     String      @default("gray")
+  site      Site        @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  devices   DeviceTag[]
+  subnets   SubnetTag[]
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@unique([siteId, name])
+}
+
+model DeviceTag {
+  deviceId  String   @db.Uuid
+  tagId     String   @db.Uuid
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([deviceId, tagId])
+  @@index([tagId])
+}
+
+model SubnetTag {
+  subnetId  String   @db.Uuid
+  tagId     String   @db.Uuid
+  subnet    Subnet   @relation(fields: [subnetId], references: [id], onDelete: Cascade)
+  tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([subnetId, tagId])
+  @@index([tagId])
 }
 
 model SubnetCapacitySnapshot {
@@ -1751,4 +1883,93 @@ model PduOutletAssignment {
 
   @@unique([pduId, outletIndex])
   @@unique([deviceId, plugIndex])
+}
+
+enum ScheduledReportFrequency {
+  WEEKLY
+  MONTHLY
+}
+
+/// Step 32: an ADMIN-defined weekly or monthly digest. Generated per recipient with that person's own permissions.
+model ScheduledReport {
+  id          String                     @id @default(uuid()) @db.Uuid
+  name        String
+  enabled     Boolean                    @default(true)
+  frequency   ScheduledReportFrequency
+  /// WEEKLY: 1 (Monday) to 7 (Sunday).
+  dayOfWeek   Int?
+  /// MONTHLY: 1 to 28, so every month has the day.
+  dayOfMonth  Int?
+  /// Local hour (0-23) in `timezone`.
+  hour        Int
+  timezone    String
+  /// COMPLIANCE, LIFECYCLE, QUALITY, CAPACITY, CHANGES.
+  sections    String[]
+  /// Sites in the report; empty means every Site the recipient may read.
+  siteIds     String[]                   @db.Uuid
+  sendEmail   Boolean                    @default(true)
+  /// One summary post (no figures) to the Teams operational alerts channel.
+  sendTeams   Boolean                    @default(false)
+  nextRunAt   DateTime?
+  lastRunAt   DateTime?
+  createdById String?                    @db.Uuid
+  updatedById String?                    @db.Uuid
+  createdAt   DateTime                   @default(now())
+  updatedAt   DateTime                   @updatedAt
+  recipients  ScheduledReportRecipient[]
+  runs        ScheduledReportRun[]
+
+  @@index([enabled, nextRunAt])
+}
+
+/// A person who receives a report. `unsubscribedAt` is set from the e-mail link or the profile toggle.
+model ScheduledReportRecipient {
+  id               String          @id @default(uuid()) @db.Uuid
+  reportId         String          @db.Uuid
+  userId           String          @db.Uuid
+  /// Random value in the e-mail unsubscribe link; it can only unsubscribe this person from this report.
+  unsubscribeToken String          @unique
+  unsubscribedAt   DateTime?
+  createdAt        DateTime        @default(now())
+  report           ScheduledReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([reportId, userId])
+  @@index([userId])
+}
+
+/// One generation of a report for one period (scheduled or run on demand).
+model ScheduledReportRun {
+  id            String                  @id @default(uuid()) @db.Uuid
+  reportId      String                  @db.Uuid
+  /// SCHEDULE or MANUAL.
+  trigger       String
+  /// Local calendar dates (UTC midnight): start inclusive, end exclusive.
+  periodStart   DateTime
+  periodEnd     DateTime
+  requestedById String?                 @db.Uuid
+  createdAt     DateTime                @default(now())
+  report        ScheduledReport         @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  outputs       ScheduledReportOutput[]
+
+  @@index([reportId, createdAt])
+  @@index([createdAt])
+}
+
+/// What one recipient got from one run: only the Sites that person may read.
+model ScheduledReportOutput {
+  id         String                 @id @default(uuid()) @db.Uuid
+  runId      String                 @db.Uuid
+  userId     String?                @db.Uuid
+  subject    String
+  text       String
+  html       String
+  csv        String
+  siteCount  Int
+  createdAt  DateTime               @default(now())
+  run        ScheduledReportRun     @relation(fields: [runId], references: [id], onDelete: Cascade)
+  user       User?                  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  deliveries NotificationDelivery[]
+
+  @@index([runId])
 }

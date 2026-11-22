@@ -5,11 +5,20 @@ import { clearSubnetUrlFilters, hasSubnetUrlFilters, readSubnetUrlFilters, subne
 describe('device URL filters', () => {
   it('reads the drill-through filters and forwards them to GET /devices', () => {
     const filters = readDeviceUrlFilters('?siteId=s1&tab=devices&status=ACTIVE,MAINTENANCE&critical=true&lifecycle=due:90');
-    expect(filters).toEqual({ status: 'ACTIVE,MAINTENANCE', critical: 'true', lifecycle: 'due:90', lifecycleKind: '', tier: '' });
+    expect(filters).toEqual({ status: 'ACTIVE,MAINTENANCE', critical: 'true', lifecycle: 'due:90', lifecycleKind: '', tier: '', tag: '' });
     expect(hasDeviceUrlFilters(filters)).toBe(true);
     expect(deviceFilterQuery(filters)).toBe('&status=ACTIVE%2CMAINTENANCE&critical=true&lifecycle=due%3A90');
     expect(deviceFilterLabels(filters)).toEqual(['Estado: Ativo, Em manutenção', 'Críticos', 'Ciclo de vida nos próximos 90 dias']);
     expect(deviceFilterLabels({ ...filters, status: '', critical: '', lifecycle: 'overdue', lifecycleKind: 'SUPPORT' })).toEqual(['Ciclo de vida expirado', 'Tipo de data: SUPPORT']);
+  });
+
+  it('reads and labels the Step 36 tag filter', () => {
+    const filters = readDeviceUrlFilters('?siteId=s1&tab=devices&tag=t1,t2');
+    expect(filters.tag).toBe('t1,t2');
+    expect(deviceFilterQuery(filters)).toBe('&tag=t1%2Ct2');
+    expect(deviceFilterLabels(filters, 'core + dmz')).toEqual(['Etiqueta: core + dmz']);
+    expect(deviceFilterLabels(filters)).toEqual(['Etiqueta: t1,t2']);
+    expect(clearDeviceUrlFilters('?siteId=s1&tag=t1&tier=T1')).toBe('?siteId=s1');
   });
 
   it('clears only the filters and keeps the other parameters', () => {

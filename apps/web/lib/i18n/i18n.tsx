@@ -3,7 +3,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/lib/auth';
 import { translateLegacyText } from './legacy-messages';
-import { apiFetch } from '@/lib/api/client';
 import { getConfiguredLocale, hasSavedOrganizationLocale } from '@/lib/runtime-config';
 import { setFormatLocale } from '@/lib/format/date';
 
@@ -124,6 +123,30 @@ const messages: Record<AppLocale, Record<string, string>> = {
     'notifications.preferenceHint': 'Seleciona os tipos de notificação que queres receber. A escolha aplica-se a futuras notificações.',
     'notifications.preferenceError': 'Não foi possível guardar a preferência.',
     'notifications.preferencesLoadError': 'Não foi possível carregar as preferências.',
+    'notifications.teams': 'Também no Microsoft Teams',
+    'notifications.teamsHint': 'Podes receber uma cópia de cada tipo no canal Microsoft Teams configurado pela administração. A mensagem indica o destinatário e é visível para os membros desse canal.',
+    'notifications.teamsUnavailable': 'O envio para Microsoft Teams ainda não está ativo. Um ADMIN pode ativá-lo em Definições → Notificações.',
+    'notifications.email': 'Também por email',
+    'notifications.emailHint': 'Podes receber uma cópia de cada tipo no email da tua conta. Só tu a recebes.',
+    'notifications.emailUnavailable': 'O envio por email ainda não está ativo. Um ADMIN pode ativá-lo em Definições → Notificações.',
+    'notifications.emailMissing': 'A tua conta não tem um email definido, por isso não é possível receber notificações por email.',
+    'reports.subscriptions': 'Relatórios agendados',
+    'reports.subscriptionsHint': 'Relatórios que um ADMIN te enviou. Cada um inclui apenas os Sites a que tens acesso. Desmarca para deixar de receber por email; podes descarregar o CSV atual quando quiseres.',
+    'reports.paused': 'envio agendado em pausa',
+    'reports.download': 'CSV',
+    'reports.downloadLabel': 'Descarregar CSV de {name}',
+    'reports.loadError': 'Não foi possível carregar os relatórios agendados.',
+    'reports.toggleError': 'Não foi possível guardar a subscrição.',
+    'reports.downloadError': 'Não foi possível descarregar o CSV.',
+    'reports.unsubscribe.title': 'Cancelar subscrição',
+    'reports.unsubscribe.loading': 'A verificar a ligação…',
+    'reports.unsubscribe.question': 'Deixar de receber o relatório “{name}” por email?',
+    'reports.unsubscribe.confirm': 'Cancelar subscrição',
+    'reports.unsubscribe.working': 'A cancelar…',
+    'reports.unsubscribe.done': 'Já não vais receber o relatório “{name}”. Podes voltar a subscrever em Perfil → Notificações.',
+    'reports.unsubscribe.invalid': 'Esta ligação de cancelamento é inválida ou já não está disponível.',
+    'reports.unsubscribe.error': 'Não foi possível cancelar a subscrição. Tenta novamente.',
+    'reports.unsubscribe.back': 'Abrir a aplicação',
     'ipam.action.create': 'criação', 'ipam.action.update': 'edição', 'ipam.action.delete': 'remoção', 'ipam.action.discover': 'descoberta', 'ipam.action.import': 'importação', 'ipam.recent.ip': 'Endereço IP', 'ipam.scope.limited': 'Âmbito ativo: Site {site}. As permissões atuais não permitem {actions}.',
     'nav.group.overview': 'Visão geral', 'nav.group.operations': 'Operação', 'nav.group.governance': 'Governança', 'nav.dashboard': 'Dashboard', 'nav.infrastructure': 'Infraestrutura', 'nav.topology': 'Topologia', 'nav.quality': 'Qualidade', 'nav.criticalAssets': 'Ativos críticos', 'nav.changes': 'Alterações', 'nav.portal': 'Portal interno', 'nav.ipam': 'IPAM', 'nav.discovery': 'Descoberta', 'nav.snmp': 'SNMP', 'nav.netapp': 'NetApp', 'nav.audit': 'Auditoria', 'nav.settings': 'Definições', 'nav.help': 'Ajuda e suporte', 'dashboard.editLayout': 'Editar layout', 'dashboard.finishEditing': 'Concluir edição', 'dashboard.siteOperations': 'Estado operacional do Site', 'dashboard.runningProcesses': 'Processos em execução', 'dashboard.discoveryReview': 'Discovery a rever ou falhado', 'dashboard.snmpDrifts': 'Divergências SNMP', 'dashboard.servicesUnavailable': 'Estado dos serviços indisponível', 'dashboard.servicesLoadError': 'Não foi possível carregar o estado.', 'dashboard.servicesLoading': 'A carregar estado dos serviços…', 'dashboard.inventoryLoadError': 'Não foi possível carregar o inventário. Tenta atualizar.', 'dashboard.inventoryLoading': 'A carregar dados do inventário…', 'dashboard.kpis': 'Indicadores do Site', 'dashboard.assets': 'Ativos', 'dashboard.assetsDetail': 'equipamentos no Site', 'dashboard.severity.critical': 'Crítico', 'dashboard.severity.high': 'Alto', 'dashboard.severity.warning': 'Aviso', 'dashboard.severity.info': 'Info', 'dashboard.severityDetail': '{alerts} alertas · {quality} qualidade', 'dashboard.error': 'Erro', 'dashboard.servicesList': 'Lista de serviços', 'dashboard.activityList': 'Lista de atividade recente', 'dashboard.inventoryList': 'Distribuição do inventário', 'dashboard.kpiWidget': 'Indicador no topo', 'dashboard.fitOverflowWarning': 'Os widgets visíveis não cabem num único ecrã: o dashboard volta a ter scroll. Esconde widgets ou usa a largura Metade.', 'dashboard.workspacesError': 'Não foi possível carregar os workspaces do dashboard. Tenta atualizar.', 'dashboard.noWorkspace': 'Sem workspace disponível para este Site.', 'dashboard.retry': 'Tentar novamente', 'dashboard.alertsTitle': 'Alertas ativos', 'dashboard.qualityTitle': 'Qualidade dos dados', 'dashboard.loading': 'A carregar…',
     'shell.activeSite': 'Site ativo', 'shell.allSites': 'Todos os Sites', 'shell.globalView': 'Visão global da organização', 'shell.createSite': 'Criar novo Site', 'shell.addLocation': 'Adicionar uma localização operacional', 'shell.nextSteps': 'Próximos passos', 'shell.continueIpam': 'Continue a configurar o inventário IPAM.',
@@ -256,6 +279,30 @@ const messages: Record<AppLocale, Record<string, string>> = {
     'notifications.preferenceHint': 'Select the notification types to receive. Your choices apply to future notifications.',
     'notifications.preferenceError': 'Could not save the preference.',
     'notifications.preferencesLoadError': 'Could not load preferences.',
+    'notifications.teams': 'Also in Microsoft Teams',
+    'notifications.teamsHint': 'You can get a copy of each type in the Microsoft Teams channel set up by the administrators. The message names the recipient and is visible to that channel\'s members.',
+    'notifications.teamsUnavailable': 'Microsoft Teams delivery is not active yet. An ADMIN can turn it on in Settings → Notifications.',
+    'notifications.email': 'Also by email',
+    'notifications.emailHint': 'You can get a copy of each type at your account\'s email address. Only you receive it.',
+    'notifications.emailUnavailable': 'Email delivery is not active yet. An ADMIN can turn it on in Settings → Notifications.',
+    'notifications.emailMissing': 'Your account has no email address, so email notifications are not possible.',
+    'reports.subscriptions': 'Scheduled reports',
+    'reports.subscriptionsHint': 'Reports an ADMIN sends you. Each one covers only the Sites you can access. Clear the box to stop getting it by email; you can download the current CSV at any time.',
+    'reports.paused': 'scheduled sending paused',
+    'reports.download': 'CSV',
+    'reports.downloadLabel': 'Download CSV of {name}',
+    'reports.loadError': 'Could not load scheduled reports.',
+    'reports.toggleError': 'Could not save the subscription.',
+    'reports.downloadError': 'Could not download the CSV.',
+    'reports.unsubscribe.title': 'Unsubscribe',
+    'reports.unsubscribe.loading': 'Checking the link…',
+    'reports.unsubscribe.question': 'Stop getting the “{name}” report by email?',
+    'reports.unsubscribe.confirm': 'Unsubscribe',
+    'reports.unsubscribe.working': 'Unsubscribing…',
+    'reports.unsubscribe.done': 'You will no longer get the “{name}” report. You can subscribe again in Profile → Notifications.',
+    'reports.unsubscribe.invalid': 'This unsubscribe link is invalid or no longer available.',
+    'reports.unsubscribe.error': 'Could not unsubscribe. Please try again.',
+    'reports.unsubscribe.back': 'Open the app',
     'ipam.action.create': 'creation', 'ipam.action.update': 'editing', 'ipam.action.delete': 'deletion', 'ipam.action.discover': 'discovery', 'ipam.action.import': 'import', 'ipam.recent.ip': 'IP address', 'ipam.scope.limited': 'Active scope: Site {site}. Current permissions do not allow {actions}.',
     'nav.group.overview': 'Overview', 'nav.group.operations': 'Operations', 'nav.group.governance': 'Governance', 'nav.dashboard': 'Dashboard', 'nav.infrastructure': 'Infrastructure', 'nav.topology': 'Topology', 'nav.quality': 'Quality', 'nav.criticalAssets': 'Critical assets', 'nav.changes': 'Changes', 'nav.portal': 'Internal portal', 'nav.ipam': 'IPAM', 'nav.discovery': 'Discovery', 'nav.snmp': 'SNMP', 'nav.netapp': 'NetApp', 'nav.audit': 'Audit', 'nav.settings': 'Settings', 'nav.help': 'Help and support', 'dashboard.editLayout': 'Edit layout', 'dashboard.finishEditing': 'Finish editing', 'dashboard.siteOperations': 'Site operational status', 'dashboard.runningProcesses': 'Running processes', 'dashboard.discoveryReview': 'Discovery pending or failed', 'dashboard.snmpDrifts': 'SNMP discrepancies', 'dashboard.servicesUnavailable': 'Service status unavailable', 'dashboard.servicesLoadError': 'Could not load service status.', 'dashboard.servicesLoading': 'Loading service status…', 'dashboard.inventoryLoadError': 'Could not load inventory. Try refreshing.', 'dashboard.inventoryLoading': 'Loading inventory data…', 'dashboard.kpis': 'Site indicators', 'dashboard.assets': 'Assets', 'dashboard.assetsDetail': 'devices in this Site', 'dashboard.severity.critical': 'Critical', 'dashboard.severity.high': 'High', 'dashboard.severity.warning': 'Warning', 'dashboard.severity.info': 'Info', 'dashboard.severityDetail': '{alerts} alerts · {quality} quality', 'dashboard.error': 'Error', 'dashboard.servicesList': 'Service list', 'dashboard.activityList': 'Recent activity list', 'dashboard.inventoryList': 'Inventory distribution', 'dashboard.kpiWidget': 'Indicator at the top', 'dashboard.fitOverflowWarning': 'The visible widgets do not fit on one screen, so the dashboard scrolls again. Hide widgets or use Half width.', 'dashboard.workspacesError': 'Could not load the dashboard workspaces. Try refreshing.', 'dashboard.noWorkspace': 'No workspace available for this Site.', 'dashboard.retry': 'Try again', 'dashboard.alertsTitle': 'Active alerts', 'dashboard.qualityTitle': 'Data quality', 'dashboard.loading': 'Loading…',
 
@@ -353,22 +400,30 @@ export function observeLegacyDom(locale: AppLocale, root: Node) {
   return () => observer.disconnect();
 }
 
+/** The organization locale to apply, or null when setup has not saved one (same rule as before). */
+export function organizationLocaleFrom(status: { setupCompleted: boolean; organizationName?: string | null; locale?: string | null } | null | undefined): AppLocale | null {
+  if (!status || !hasSavedOrganizationLocale(status)) return null;
+  return status.locale === 'pt-PT' || status.locale === 'en-US' ? status.locale : null;
+}
+
 export function I18nProvider({ children }: { children: React.ReactNode }) {
-  const { authenticated, loading: authLoading } = useAuth();
-  const [locale, setLocaleState] = useState<AppLocale>('pt-PT'); const [loading, setLoading] = useState(false);
+  const { setupStatus } = useAuth();
+  const [locale, setLocaleState] = useState<AppLocale>('pt-PT');
   const setLocale = useCallback((next: AppLocale) => { setLocaleState(next); if (typeof window !== 'undefined') window.localStorage.setItem('cociber.locale', next); }, []);
   useEffect(() => { const stored = window.localStorage.getItem('cociber.locale'); setLocaleState(stored === 'pt-PT' || stored === 'en-US' ? stored : getConfiguredLocale()); }, []);
+  // The organization's saved locale comes with the setup status that AuthProvider loads with the
+  // identity, before the app renders. It used to be a second request (/settings/organization)
+  // made only after /setup/status answered, with the whole app held behind a spinner meanwhile.
+  const organizationLocale = organizationLocaleFrom(setupStatus);
+  const [appliedOrganizationLocale, setAppliedOrganizationLocale] = useState<AppLocale | null>(null);
+  if (organizationLocale && organizationLocale !== appliedOrganizationLocale) {
+    // Adjust state while rendering, so the first render of the app already uses this locale.
+    setAppliedOrganizationLocale(organizationLocale);
+    setLocaleState(organizationLocale);
+  }
   useEffect(() => {
-    if (!authenticated) return;
-    let active = true;
-    setLoading(true);
-    void apiFetch<{ setupCompleted: boolean; organizationName?: string | null }>('/api/v1/setup/status')
-      .then((status) => hasSavedOrganizationLocale(status) ? apiFetch<{ settings: { locale?: string } }>('/api/v1/settings/organization') : null)
-      .then((result) => { if (active && result && (result.settings.locale === 'pt-PT' || result.settings.locale === 'en-US')) setLocale(result.settings.locale); })
-      .catch(() => undefined)
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [apiFetch, authenticated, setLocale]);
+    if (organizationLocale) window.localStorage.setItem('cociber.locale', organizationLocale);
+  }, [organizationLocale]);
   useEffect(() => {
     document.documentElement.lang = locale;
     const applyMetadata = () => {
@@ -396,7 +451,6 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     formatDate: (input) => input ? new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(input)) : '—',
     formatNumber: (input) => new Intl.NumberFormat(locale).format(input),
   }), [locale, setLocale]);
-  if (!authLoading && authenticated && loading) return <div className="auth-loading"><div className="auth-spinner" /><span>{messages[locale]['common.loading']}</span></div>;
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }
 

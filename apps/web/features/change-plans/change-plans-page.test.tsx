@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   addChecklistItems: vi.fn(),
   removeChecklistItem: vi.fn(),
   getPostChangeCheck: vi.fn(),
+  getTopologyImpact: vi.fn(),
   detail: null as ChangePlan | null,
 }));
 
@@ -30,17 +31,24 @@ vi.mock('./api', () => ({
   getChangeConflicts: mocks.getChangeConflicts, startChangePlan: mocks.startChangePlan, closeChangePlan: mocks.closeChangePlan,
   tickChecklistItem: mocks.tickChecklistItem, addChecklistItems: mocks.addChecklistItems, removeChecklistItem: mocks.removeChecklistItem, getPostChangeCheck: mocks.getPostChangeCheck,
 }));
+vi.mock('@/features/topology/impact-api', async (importOriginal) => ({ ...await importOriginal<typeof import('@/features/topology/impact-api')>(), getTopologyImpact: mocks.getTopologyImpact }));
 vi.mock('@/components/layout/app-shell', async (importOriginal) => ({ ...await importOriginal<typeof import('@/components/layout/app-shell')>(), AppShell: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
-vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: () => true }) }));
+const auth = vi.hoisted(() => ({ roles: null as string[] | null }));
+vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: (role: string) => auth.roles === null || auth.roles.includes(role) }) }));
 vi.mock('@/lib/site-context', () => ({ useSiteContext: () => ({ siteId: 'site-1', activeSite: { id: 'site-1', name: 'Site One' } }) }));
 
 const emptySummary = { siteId: 'site-1', total: 0, byStatus: { DRAFT: 0, SUBMITTED: 0, APPROVED: 0, REJECTED: 0, CANCELLED: 0 }, inProgress: 0, upcoming: 0, generatedAt: '' };
+const emptyImpact = { origin: { kind: 'DEVICE', id: 'device-1', name: 'Switch alvo' }, siteId: 'site-1', maxDepth: 12, includeLogical: false, truncated: false, anchorMode: 'explicit', anchorDeviceIds: ['fw'],
+  down: [{ id: 'device-1', name: 'Switch alvo', type: 'SWITCH', status: 'ACTIVE', hostname: null, managementIp: null, isCritical: false, criticalityTier: null, rackId: null, reason: 'ORIGIN' }],
+  affected: [{ id: 'acc-9', name: 'Access-Leaf-9', type: 'SWITCH', status: 'ACTIVE', hostname: null, managementIp: null, isCritical: false, criticalityTier: null, rackId: null, hops: 1, viaDeviceId: 'device-1', viaConnectionId: 'c1' }],
+  powerDegraded: [], hosts: [], applications: [], critical: { T1: [], T2: [], T3: [], untiered: [] }, counts: { down: 1, affected: 1, powerDegraded: 0, hosts: 0, services: 0, applications: 0, tier1: 0 }, hiddenCount: 0, elapsedMs: 3 };
 beforeEach(() => {
+  mocks.getTopologyImpact.mockResolvedValue(emptyImpact);
   mocks.getChangeSummary.mockResolvedValue(emptySummary);
   mocks.getChangeCalendar.mockResolvedValue({ siteId: 'site-1', from: '', to: '', changePlans: [], maintenanceWindows: [], truncated: false });
   mocks.getChangeConflicts.mockResolvedValue({ changePlanId: '', tierSource: 'IS_CRITICAL', warnings: [], generatedAt: '' });
 });
-afterEach(() => { cleanup(); vi.clearAllMocks(); mocks.detail = null; });
+afterEach(() => { cleanup(); vi.clearAllMocks(); mocks.detail = null; auth.roles = null; });
 
 describe('ChangePlansPage impact preview transition', () => {
   it('renders the list-card title without a decorative site eyebrow and keeps its count badge', async () => {
@@ -267,7 +275,7 @@ describe('ChangePlansPage workspace', () => {
     setup('/alteracoes?changeId=p1');
     render(<ChangePlansPage />);
     expect(await screen.findByRole('heading', { name: 'Troca do core' })).toBeInTheDocument();
-    expect(mocks.getChangeActivity).toHaveBeenCalledWith('p1');
+    await vi.waitFor(() => expect(mocks.getChangeActivity).toHaveBeenCalledWith('p1'), { timeout: 4000 });
     expect(await screen.findByText('A janela sobrepõe-se a outras alterações ou manutenções deste Site')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Renomear VLAN' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Core-SW-01' })).toHaveAttribute('href', '/infraestrutura/equipamentos/device-1?siteId=site-1');
@@ -276,6 +284,24 @@ describe('ChangePlansPage workspace', () => {
     fireEvent.click(screen.getByRole('button', { name: '← Todas as alterações' }));
     expect(window.location.search).not.toContain('changeId');
     expect(await screen.findByRole('heading', { name: 'Alterações Planeadas' })).toBeInTheDocument();
+  });
+
+  it('shows what goes down if the target device goes down in the plan detail (Step 34)', async () => {
+    setup('/alteracoes?changeId=p1');
+    render(<ChangePlansPage />);
+    const section = await screen.findByTestId('plan-impact');
+    expect(within(section).getByRole('heading', { name: 'Impacto se o equipamento for abaixo' })).toBeInTheDocument();
+    expect(await within(section).findByRole('link', { name: 'Access-Leaf-9' })).toBeInTheDocument();
+    expect(mocks.getTopologyImpact).toHaveBeenCalledWith({ kind: 'DEVICE', id: 'device-1' }, { includeLogical: false });
+    fireEvent.click(within(section).getByRole('button', { name: 'Ocultar impacto' }));
+    expect(within(section).queryByRole('link', { name: 'Access-Leaf-9' })).not.toBeInTheDocument();
+  });
+
+  it('hides the impact section for plans without a device target', async () => {
+    setup('/alteracoes?changeId=p2');
+    render(<ChangePlansPage />);
+    expect(await screen.findByRole('heading', { name: 'Renomear VLAN' })).toBeInTheDocument();
+    expect(screen.queryByTestId('plan-impact')).not.toBeInTheDocument();
   });
 
   it('shows the activity log from the API', async () => {
@@ -348,6 +374,25 @@ describe('ChangePlansPage implementation and close-out (Step 30)', () => {
     expect(await screen.findByText(/Implementação iniciada com 1 aviso/)).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Encerrar alteração' })).toBeInTheDocument();
     expect(screen.getByText(/Ana Ops/)).toBeInTheDocument();
+  });
+
+  it('gives an auditor a read-only execution panel: no start, no ticks, no close-out', async () => {
+    auth.roles = ['AUDITOR'];
+    const step = { id: 'step-1', position: 1, label: 'Guardar configuração', doneAt: null, doneBy: null };
+    setup(plan({ checklist: [step] }));
+    const { unmount } = render(<ChangePlansPage />);
+    expect(await screen.findByRole('checkbox', { name: /Guardar configuração/ })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Iniciar implementação' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Novos passos (um por linha)')).not.toBeInTheDocument();
+    unmount();
+
+    setup(plan({ status: 'IN_PROGRESS', startedAt: '2026-11-22T22:01:00.000Z', checklist: [step] }));
+    render(<ChangePlansPage />);
+    expect(await screen.findByRole('checkbox', { name: /Guardar configuração/ })).toBeDisabled();
+    expect(screen.queryByRole('heading', { name: 'Encerrar alteração' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Encerrar alteração' })).not.toBeInTheDocument();
+    expect(mocks.startChangePlan).not.toHaveBeenCalled();
+    expect(mocks.tickChecklistItem).not.toHaveBeenCalled();
   });
 
   it('ticks checklist steps only while in progress and records who ticked them', async () => {

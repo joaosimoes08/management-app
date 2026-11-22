@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { CanActivate, ConflictException, ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { CanActivate, ConflictException, ExecutionContext, Logger, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
@@ -21,9 +21,18 @@ import { IS_PUBLIC_KEY } from '../src/auth/public.decorator';
 import { KeycloakAdminService } from '../src/settings/keycloak-admin.service';
 import { deliverLifecycleReminders } from '../src/infrastructure/lifecycle-reminders';
 import { CriticalAssetsService } from '../src/critical-assets/critical-assets.service';
+import { EmailSender } from '../src/notifications/delivery/email-sender';
+import { NotificationDeliveryService } from '../src/notifications/delivery/notification-delivery.service';
+import { OperationsService } from '../src/operations/operations.service';
+import { ScheduledReportsService } from '../src/reports/scheduled-reports.service';
 
 const databaseUrl = process.env.DATABASE_URL ?? '';
 if (!/[_-]test(?:\?|$)/i.test(databaseUrl)) throw new Error('HTTP integration tests require an isolated DATABASE_URL whose database name ends in _test.');
+
+// Step 31: the background poll is off so these tests drive delivery explicitly; the immediate kick still runs.
+process.env.NOTIFICATION_DELIVERY_DISABLED = 'true';
+// Step 32: the minute scheduler is off; the tests call tick() and run() themselves.
+process.env.SCHEDULED_REPORTS_DISABLED = 'true';
 
 const prisma = new PrismaClient();
 const ids = {
@@ -976,6 +985,35 @@ test('required device configs: registry, create validation, legacy updates, grou
   assert.deepEqual(json(await request('GET', '/api/v1/dashboard/topbar-state', 'qa-readonly')).alerts.filter((a: any) => String(a.id).startsWith('device-missing-config-')), []);
 });
 
+test('critical asset review notes: over 2000 characters is a 400 for single and bulk confirm, and a bulk batch with one such note writes nothing', async () => {
+  const tooLong = 'x'.repeat(2001);
+  const week = new Date('2026-11-16T00:00:00.000Z');
+  const single = await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA, weekStart: week } });
+  const valid = await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA2, weekStart: week } });
+  const oversized = await prisma.criticalAssetAttestation.create({ data: { siteId: ids.siteA, deviceId: ids.deviceA, weekStart: new Date('2026-11-23T00:00:00.000Z') } });
+  const outcomes = async () => (await prisma.criticalAssetAttestation.findMany({ where: { id: { in: [single.id, valid.id, oversized.id] } }, orderBy: { id: 'asc' } })).map((row) => row.outcome);
+  try {
+    const one = await request('POST', `/api/v1/critical-assets/${single.id}/confirm`, 'qa-admin', { outcome: 'NEEDS_CORRECTION', notes: tooLong });
+    assert.equal(one.statusCode, 400, one.body);
+    const batch = await request('POST', '/api/v1/critical-assets/confirm-bulk', 'qa-admin', { items: [
+      { id: valid.id, outcome: 'CONFIRMED' },
+      { id: oversized.id, outcome: 'NEEDS_CORRECTION', notes: tooLong },
+    ] });
+    assert.equal(batch.statusCode, 400, batch.body);
+    assert.deepEqual(await outcomes(), [null, null, null], 'a rejected request writes nothing, not even the valid item');
+    assert.equal(await prisma.criticalAssetCorrection.count({ where: { attestationId: { in: [single.id, oversized.id] } } }), 0);
+
+    const exact = await request('POST', '/api/v1/critical-assets/confirm-bulk', 'qa-admin', { items: [{ id: valid.id, outcome: 'NEEDS_CORRECTION', notes: 'y'.repeat(2000) }] });
+    assert.equal(exact.statusCode, 201, exact.body);
+    assert.equal((await prisma.criticalAssetAttestation.findUniqueOrThrow({ where: { id: valid.id } })).outcome, 'NEEDS_CORRECTION', 'exactly 2000 characters is allowed');
+  } finally {
+    // Remove only the rows this test created, so the later per-device counts in this file are unchanged.
+    const created = { attestationId: { in: [single.id, valid.id, oversized.id] } };
+    await prisma.criticalAssetCorrection.deleteMany({ where: created });
+    await prisma.criticalAssetAttestation.deleteMany({ where: { id: { in: [single.id, valid.id, oversized.id] } } });
+  }
+});
+
 test('critical asset attestation: 409 on a second review of the same cycle, reviewer names and due state over HTTP', async () => {
   await prisma.user.update({ where: { id: ids.admin }, data: { displayName: 'QA Admin Person' } });
   await prisma.device.updateMany({ where: { id: { in: [ids.deviceA, ids.deviceA2] } }, data: { isCritical: true } });
@@ -1456,6 +1494,25 @@ test('Phase D drill-through: device status, critical and lifecycle filters keep 
   }
 });
 
+test('Device 360 lifecycle card: GET /lifecycle-dates by deviceId needs no range and the site calendar keeps its cap', async () => {
+  const far = new Date('2045-06-30T00:00:00.000Z');
+  const date = await prisma.lifecycleDate.create({ data: { deviceId: ids.deviceA, kind: 'D360_WARRANTY', dueDate: far } });
+  try {
+    // The old Device 360 call (100-year range, no deviceId) is still rejected: the calendar stays capped at 370 days.
+    assert.equal((await request('GET', `/api/v1/lifecycle-dates?siteId=${ids.siteA}&from=2000-01-01&to=2100-01-01`, 'qa-admin')).statusCode, 400);
+    assert.equal((await request('GET', `/api/v1/lifecycle-dates?siteId=${ids.siteA}`, 'qa-admin')).statusCode, 400);
+    const response = await request('GET', `/api/v1/lifecycle-dates?siteId=${ids.siteA}&deviceId=${ids.deviceA}`, 'qa-admin');
+    assert.equal(response.statusCode, 200, response.body);
+    const items = json(response).items as Array<{ id: string; deviceId: string; dueDate: string }>;
+    assert.ok(items.every((item) => item.deviceId === ids.deviceA));
+    assert.equal(items.find((item) => item.id === date.id)?.dueDate, '2045-06-30');
+    const other = json(await request('GET', `/api/v1/lifecycle-dates?siteId=${ids.siteA}&deviceId=${ids.deviceA2}`, 'qa-admin')).items as Array<{ id: string }>;
+    assert.ok(!other.some((item) => item.id === date.id));
+  } finally {
+    await prisma.lifecycleDate.delete({ where: { id: date.id } });
+  }
+});
+
 test('Phase D IPAM: utilisation on the subnet list, next free IPs and reserve-next with Site isolation', async () => {
   await prisma.ipAddress.createMany({ data: [
     { address: '10.250.1.200', subnetId: ids.subnetA, state: 'OCCUPIED', source: 'MANUAL' },
@@ -1599,6 +1656,43 @@ test('Phase D search: opt-in types, audit only for ADMIN and AUDITOR, change pla
   assert.deepEqual(json(await request('GET', '/api/v1/dashboard/search?q=zebrafish_test&types=AUDIT_EVENT', 'qa-network-scoped')).items, []);
   assert.ok(json(await request('GET', '/api/v1/dashboard/search?q=Zebrafish&types=all&limit=20', 'qa-admin')).items.length <= 20);
   assert.equal((await request('GET', '/api/v1/dashboard/search?q=Zebrafish&types=PEOPLE', 'qa-admin')).statusCode, 400);
+});
+
+test('Step 20 audit: reads are not audited and search skips HTTP_REQUEST rows', async () => {
+  // A GET is not written to AuditLog, so its URL cannot later match the search that issued it.
+  const term = 'step20probe';
+  const before = await prisma.auditLog.count({ where: { action: { contains: term } } });
+  assert.equal((await request('GET', `/api/v1/dashboard/search?q=${term}&types=AUDIT_EVENT`, 'qa-auditor')).statusCode, 200);
+  assert.equal(await prisma.auditLog.count({ where: { action: { contains: term } } }), before);
+
+  // Rows that are HTTP_REQUEST never appear as AUDIT_EVENT results, even when the term matches their action.
+  await prisma.auditLog.create({ data: { userId: ids.admin, action: 'POST /api/v1/step20probe-http', entityType: 'HTTP_REQUEST', metadata: { statusCode: 201 } } });
+  await prisma.auditLog.create({ data: { userId: ids.admin, action: 'STEP20_PROBE_EVENT', entityType: 'Device', entityId: ids.deviceA } });
+  const hits = json(await request('GET', `/api/v1/dashboard/search?q=${term}&types=AUDIT_EVENT`, 'qa-auditor')).items as Array<{ title: string }>;
+  assert.deepEqual(hits.map((item) => item.title), []);
+  const events = json(await request('GET', '/api/v1/dashboard/search?q=STEP20_PROBE&types=AUDIT_EVENT', 'qa-auditor')).items as Array<{ title: string }>;
+  assert.deepEqual(events.map((item) => item.title), ['STEP20_PROBE_EVENT']);
+});
+
+test('Step 20 export trail: sensitive exports write explicit audit events', async () => {
+  const term = 'step20exportprobe';
+  await prisma.auditLog.create({ data: { userId: ids.admin, action: term, entityType: 'Device', entityId: ids.deviceA } });
+
+  // The audit CSV export is a GET, so it must leave its own explicit row (no HTTP_REQUEST-only trace).
+  const csv = await request('GET', `/api/v1/audit/events/export?action=${term}`, 'qa-auditor');
+  assert.equal(csv.statusCode, 200, csv.body);
+  const exported = await prisma.auditLog.findFirst({ where: { action: 'AUDIT_EVENTS_EXPORTED', userId: ids.auditor }, orderBy: { createdAt: 'desc' } });
+  assert.ok(exported, 'AUDIT_EVENTS_EXPORTED row missing');
+  const metadata = exported.metadata as { filters: Record<string, unknown>; rowCount: number; truncated: boolean };
+  assert.equal(metadata.filters.action, term);
+  assert.equal(metadata.rowCount, 1);
+  assert.equal(metadata.truncated, false);
+
+  // Ansible inventory export and an explicit data export each record their own event.
+  assert.equal((await request('GET', '/api/v1/exports/ansible', 'qa-auditor')).statusCode, 200);
+  assert.ok(await prisma.auditLog.findFirst({ where: { action: 'ANSIBLE_INVENTORY_EXPORTED', userId: ids.auditor } }), 'ANSIBLE_INVENTORY_EXPORTED row missing');
+  assert.equal((await request('GET', '/api/v1/exports/devices/csv', 'qa-auditor')).statusCode, 200);
+  assert.ok(await prisma.auditLog.findFirst({ where: { action: 'DATA_EXPORTED', userId: ids.auditor, entityType: 'Export' } }), 'DATA_EXPORTED row missing');
 });
 
 test('Phase E portal: favourites, check-all link health and the pending role-request queue', async () => {
@@ -1771,4 +1865,866 @@ test('Step 16 NetApp trend: each refresh appends history, trend per aggregate/vo
   assert.equal((await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend?days=401`, 'qa-readonly')).statusCode, 400);
   assert.equal((await request('GET', `/api/v1/netapp/sites/${ids.siteB}/trend`, 'qa-admin')).statusCode, 404);
   assert.equal((await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend`, 'qa-network-legacy')).statusCode, 404);
+});
+
+// ----- Step 31: Microsoft Teams delivery -----
+const TEAMS_URL = 'https://contoso.webhook.office.com/webhookb2/step31-secret-token/IncomingWebhook/abc/def';
+const TEAMS_ALERTS_URL = 'https://prod-01.westeurope.logic.azure.com/workflows/step31-alerts-secret/triggers/manual/paths/invoke?sig=step31-sig';
+const SECRET_PARTS = ['step31-secret-token', 'step31-alerts-secret', 'step31-sig'];
+const assertNoSecret = (label: string, text: string) => { for (const part of SECRET_PARTS) assert.ok(!text.includes(part), `${label} leaked a webhook secret`); };
+type TeamsCall = { url: string; body: any; at: number };
+function mockTeams(statusFor: (call: TeamsCall) => number | 'network') {
+  const calls: TeamsCall[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: URL | string, init?: RequestInit) => {
+    const call = { url: String(input), body: JSON.parse(String(init?.body ?? '{}')), at: Date.now() };
+    calls.push(call);
+    const status = statusFor(call);
+    if (status === 'network') throw new TypeError(`fetch failed: ${call.url}`);
+    return new Response(status < 300 ? '1' : 'error', { status });
+  }) as typeof fetch;
+  return { calls, restore: () => { globalThis.fetch = originalFetch; } };
+}
+async function cleanTeams() {
+  await prisma.notificationDelivery.deleteMany({});
+  await prisma.notificationChannelPreference.deleteMany({});
+  await prisma.deliveryChannelConfig.deleteMany({});
+  await prisma.user.updateMany({ where: { id: { in: [ids.admin, ids.readonly, ids.auditor] } }, data: { email: null } });
+}
+
+test('Step 31: ADMIN Teams settings start off, store the webhook encrypted and never return or log it', async (context) => {
+  context.after(cleanTeams);
+  await cleanTeams();
+  const root = '/api/v1/settings/notification-channels';
+  const initial = json(await request('GET', root, 'qa-admin'));
+  assert.deepEqual(initial.channels.map((item: any) => [item.kind, item.target, item.enabled, item.configured]), [
+    ['TEAMS', 'USER_NOTIFICATIONS', false, false], ['TEAMS', 'GROUP_ALERTS', false, false], ['EMAIL', 'USER_NOTIFICATIONS', false, false], ['EMAIL', 'GROUP_ALERTS', false, false],
+  ], 'every channel starts off');
+  assert.equal(initial.keyringAvailable, true);
+  assert.equal((await request('GET', root, 'qa-auditor')).statusCode, 403);
+  assert.equal((await request('PUT', `${root}/TEAMS/USER_NOTIFICATIONS`, 'qa-network-scoped', { enabled: true, webhookUrl: TEAMS_URL })).statusCode, 403);
+
+  const invalid = await request('PUT', `${root}/TEAMS/USER_NOTIFICATIONS`, 'qa-admin', { enabled: false, webhookUrl: 'https://evil.example/step31-secret-token' });
+  assert.equal(invalid.statusCode, 400);
+  assert.equal(json(invalid).code, 'TEAMS_WEBHOOK_INVALID');
+  assertNoSecret('invalid URL response', invalid.body);
+  const notConfigured = await request('PUT', `${root}/TEAMS/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true });
+  assert.equal(notConfigured.statusCode, 409);
+  assert.equal((await request('PUT', `${root}/TEAMS/USER_NOTIFICATIONS`, 'qa-admin', { enabled: false, webhookUrl: TEAMS_URL, minSeverity: 'HIGH' })).statusCode, 400, 'minSeverity is for the group channel only');
+
+  const saved = await request('PUT', `${root}/TEAMS/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true, webhookUrl: TEAMS_URL });
+  assert.equal(saved.statusCode, 200, saved.body);
+  assert.deepEqual([json(saved).enabled, json(saved).configured], [true, true]);
+  assertNoSecret('save response', saved.body);
+  const group = await request('PUT', `${root}/TEAMS/GROUP_ALERTS`, 'qa-admin', { enabled: false, webhookUrl: TEAMS_ALERTS_URL, minSeverity: 'CRITICAL' });
+  assert.equal(json(group).minSeverity, 'CRITICAL');
+  // Re-saving without a URL keeps the stored one.
+  assert.equal(json(await request('PUT', `${root}/TEAMS/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true })).configured, true);
+  const listed = await request('GET', root, 'qa-admin');
+  assertNoSecret('channel list', listed.body);
+
+  const stored = await prisma.deliveryChannelConfig.findMany();
+  for (const row of stored) assertNoSecret('stored ciphertext', Buffer.from(row.ciphertext!).toString('latin1') + JSON.stringify({ ...row, ciphertext: undefined }));
+  const audit = await prisma.auditLog.findMany({ where: { action: { contains: 'NOTIFICATION_CHANNEL' } } });
+  assert.ok(audit.length >= 3);
+  assertNoSecret('audit log', JSON.stringify(await prisma.auditLog.findMany({ orderBy: { createdAt: 'desc' }, take: 100 })));
+
+  const cleared = await request('DELETE', `${root}/TEAMS/USER_NOTIFICATIONS`, 'qa-admin');
+  assert.deepEqual([json(cleared).enabled, json(cleared).configured], [false, false]);
+});
+
+test('Step 31: the test button sends one message, logs success or the failure reason, and failures can be retried', async (context) => {
+  await cleanTeams();
+  const service = app.get(NotificationDeliveryService);
+  let status: number | 'network' = 200;
+  const teams = mockTeams(() => status);
+  context.after(async () => { teams.restore(); await cleanTeams(); });
+  const root = '/api/v1/settings/notification-channels/TEAMS/GROUP_ALERTS';
+  assert.equal((await request('POST', `${root}/test`, 'qa-admin')).statusCode, 409, 'cannot test before a URL is saved');
+  await request('PUT', root, 'qa-admin', { enabled: false, webhookUrl: TEAMS_ALERTS_URL });
+
+  const ok = await request('POST', `${root}/test`, 'qa-admin');
+  assert.equal(ok.statusCode, 201, ok.body);
+  assert.deepEqual([json(ok).status, json(ok).failureReason], ['SENT', null]);
+  assert.equal(teams.calls.length, 1);
+  assert.equal(teams.calls[0].url, TEAMS_ALERTS_URL);
+  assert.equal(teams.calls[0].body.attachments[0].content.body[0].text, 'Mensagem de teste');
+
+  status = 'network';
+  const failed = await request('POST', `${root}/test`, 'qa-admin');
+  assert.deepEqual([json(failed).status, json(failed).failureReason], ['FAILED', 'NETWORK_ERROR']);
+  assertNoSecret('test failure response', failed.body);
+
+  const log = await request('GET', '/api/v1/settings/notification-deliveries', 'qa-admin');
+  assert.equal(log.statusCode, 200);
+  assert.deepEqual(json(log).items.map((item: any) => [item.topic, item.status, item.failureReason]), [['TEST', 'FAILED', 'NETWORK_ERROR'], ['TEST', 'SENT', null]]);
+  assert.deepEqual([json(log).counts.SENT, json(log).counts.FAILED], [1, 1]);
+  assertNoSecret('delivery log', log.body);
+  assert.equal((await request('GET', '/api/v1/settings/notification-deliveries', 'qa-readonly')).statusCode, 403);
+  assert.equal(json(await request('GET', '/api/v1/settings/notification-deliveries?status=FAILED', 'qa-admin')).items.length, 1);
+
+  status = 200;
+  const failedId = json(failed).deliveryId;
+  assert.equal((await request('POST', `/api/v1/settings/notification-deliveries/${json(ok).deliveryId}/retry`, 'qa-admin')).statusCode, 409, 'only failed deliveries can be retried');
+  const retried = await request('POST', `/api/v1/settings/notification-deliveries/${failedId}/retry`, 'qa-admin');
+  assert.equal(retried.statusCode, 201, retried.body);
+  await service.kick();
+  const row = await prisma.notificationDelivery.findUniqueOrThrow({ where: { id: failedId } });
+  assert.deepEqual([row.status, row.attempts, row.failureReason], ['SENT', 2, null], 'a manual retry keeps counting attempts');
+
+  // Manual retry never resets the bound: after 5 automatic attempts each press gives one more, up to 10 in total.
+  status = 503;
+  await prisma.notificationDelivery.update({ where: { id: failedId }, data: { status: 'FAILED', attempts: 5, failureReason: 'HTTP_503' } });
+  assert.equal((await request('POST', `/api/v1/settings/notification-deliveries/${failedId}/retry`, 'qa-admin')).statusCode, 201);
+  await service.kick();
+  const once = await prisma.notificationDelivery.findUniqueOrThrow({ where: { id: failedId } });
+  assert.deepEqual([once.status, once.attempts, once.failureReason], ['FAILED', 6, 'HTTP_503'], 'one attempt per manual retry once the automatic ones are used');
+  await prisma.notificationDelivery.update({ where: { id: failedId }, data: { attempts: 10 } });
+  const capped = await request('POST', `/api/v1/settings/notification-deliveries/${failedId}/retry`, 'qa-admin');
+  assert.deepEqual([capped.statusCode, json(capped).code], [409, 'NOTIFICATION_DELIVERY_RETRY_LIMIT']);
+  assert.equal((await prisma.notificationDelivery.findUniqueOrThrow({ where: { id: failedId } })).status, 'FAILED');
+});
+
+test('Step 31: per-user Teams opt-in queues a copy without blocking the request, retries on failure and logs the reason', async (context) => {
+  await cleanTeams();
+  const service = app.get(NotificationDeliveryService);
+  let status: number | 'network' = 503;
+  const teams = mockTeams(() => status);
+  const requests: string[] = [];
+  context.after(async () => {
+    teams.restore();
+    await prisma.notification.deleteMany({ where: { roleRequestId: { in: requests } } });
+    await prisma.roleRequest.deleteMany({ where: { id: { in: requests } } });
+    await cleanTeams();
+  });
+  const prefs = '/api/v1/notifications/preferences';
+  const unavailable = await request('PATCH', `${prefs}/ROLE_REQUEST`, 'qa-readonly', { teams: true });
+  assert.equal(unavailable.statusCode, 409, 'cannot opt in while the ADMIN channel is off');
+  assert.equal((await request('PATCH', `${prefs}/ROLE_REQUEST`, 'qa-readonly', {})).statusCode, 400);
+  assert.deepEqual(json(await request('GET', '/api/v1/notifications/channels', 'qa-readonly')), { teams: { available: false }, email: { available: false } });
+
+  await request('PUT', '/api/v1/settings/notification-channels/TEAMS/USER_NOTIFICATIONS', 'qa-admin', { enabled: true, webhookUrl: TEAMS_URL });
+  const optIn = await request('PATCH', `${prefs}/ROLE_REQUEST`, 'qa-readonly', { teams: true });
+  assert.equal(optIn.statusCode, 200, optIn.body);
+  assert.deepEqual(json(optIn), { type: 'ROLE_REQUEST', muted: false, teams: true, teamsAvailable: true, email: false, emailAvailable: false, hasEmail: false });
+  const listed = json(await request('GET', prefs, 'qa-readonly'));
+  assert.deepEqual(listed.map((item: any) => [item.type, item.teams]), [['ROLE_REQUEST', true], ['CRITICAL_ASSET_ATTESTATION', false], ['LIFECYCLE_DATE', false]]);
+  // Muting in-app and opting out of Teams are independent fields; a muted-only PATCH keeps the Teams choice.
+  assert.equal(json(await request('PATCH', `${prefs}/LIFECYCLE_DATE`, 'qa-readonly', { muted: true })).teams, false);
+
+  // Earlier tests may leave a request for these personas; one open request per user is allowed.
+  const leftovers = (await prisma.roleRequest.findMany({ where: { userId: { in: [ids.readonly, ids.auditor] } }, select: { id: true } })).map((row) => row.id);
+  await prisma.notification.deleteMany({ where: { roleRequestId: { in: leftovers } } });
+  await prisma.roleRequest.deleteMany({ where: { id: { in: leftovers } } });
+  const optedIn = await prisma.roleRequest.create({ data: { userId: ids.readonly, roles: ['SYSTEMS_OPERATOR'] } });
+  const notOpted = await prisma.roleRequest.create({ data: { userId: ids.auditor, roles: ['SYSTEMS_OPERATOR'] } });
+  requests.push(optedIn.id, notOpted.id);
+  // The webhook would hang: the decision must still return, because sending happens off the request path.
+  status = 503;
+  const started = Date.now();
+  for (const id of requests) assert.equal((await request('PATCH', `/api/v1/settings/role-requests/${id}`, 'qa-admin', { decision: 'REJECT' })).statusCode, 200);
+  assert.ok(Date.now() - started < 5_000);
+  assert.equal(teams.calls.length, 0, 'nothing is sent inside the request');
+  const queued = await prisma.notificationDelivery.findMany({ where: { target: 'USER_NOTIFICATIONS' } });
+  assert.deepEqual(queued.map((row) => [row.recipientUserId, row.topic, row.status]), [[ids.readonly, 'ROLE_REQUEST', 'PENDING']]);
+
+  const output: string[] = [];
+  const writes = [process.stdout.write, process.stderr.write];
+  process.stdout.write = ((chunk: unknown, ...rest: unknown[]) => { output.push(String(chunk)); return (writes[0] as any).call(process.stdout, chunk, ...rest); }) as typeof process.stdout.write;
+  process.stderr.write = ((chunk: unknown, ...rest: unknown[]) => { output.push(String(chunk)); return (writes[1] as any).call(process.stderr, chunk, ...rest); }) as typeof process.stderr.write;
+  // Nest may not print in test mode, so also capture what the application hands to its logger.
+  const levels = ['log', 'warn', 'error', 'debug', 'verbose'] as const;
+  const originalLogger = levels.map((level) => Logger.prototype[level]);
+  for (const level of levels) Logger.prototype[level] = function (this: Logger, ...args: unknown[]) { output.push(args.map(String).join(' ')); } as never;
+  try {
+    await service.kick();
+    let row = await prisma.notificationDelivery.findUniqueOrThrow({ where: { id: queued[0].id } });
+    assert.deepEqual([row.status, row.attempts, row.failureReason], ['PENDING', 1, 'HTTP_503']);
+    assert.ok(row.nextAttemptAt.getTime() > Date.now(), 'retry is scheduled for later');
+    assert.equal(teams.calls[0].body.attachments[0].content.body[1].text, 'Para: qa-readonly');
+
+    status = 'network';
+    await prisma.notificationDelivery.update({ where: { id: row.id }, data: { nextAttemptAt: new Date() } });
+    await service.kick();
+    row = await prisma.notificationDelivery.findUniqueOrThrow({ where: { id: row.id } });
+    assert.deepEqual([row.status, row.attempts, row.failureReason], ['PENDING', 2, 'NETWORK_ERROR']);
+
+    status = 200;
+    await prisma.notificationDelivery.update({ where: { id: row.id }, data: { nextAttemptAt: new Date() } });
+    await service.kick();
+    row = await prisma.notificationDelivery.findUniqueOrThrow({ where: { id: row.id } });
+    assert.deepEqual([row.status, row.attempts, row.failureReason], ['SENT', 3, null]);
+    assert.equal(teams.calls.length, 3);
+  } finally {
+    process.stdout.write = writes[0] as typeof process.stdout.write;
+    process.stderr.write = writes[1] as typeof process.stderr.write;
+    levels.forEach((level, index) => { Logger.prototype[level] = originalLogger[index] as never; });
+  }
+  assert.ok(output.join('').includes('HTTP_503'), 'the failure is logged');
+  assertNoSecret('process logs', output.join(''));
+  assertNoSecret('delivery log', (await request('GET', '/api/v1/settings/notification-deliveries', 'qa-admin')).body);
+
+  // A permanent failure stops immediately; a disabled channel fails queued rows with a clear reason.
+  await prisma.notificationDelivery.create({ data: { channel: 'TEAMS', target: 'USER_NOTIFICATIONS', topic: 'ROLE_REQUEST', recipientUserId: ids.readonly, title: 'x', message: 'y' } });
+  status = 404;
+  await service.kick();
+  assert.equal(await prisma.notificationDelivery.count({ where: { status: 'FAILED', failureReason: 'HTTP_404', attempts: 1 } }), 1);
+  await request('PUT', '/api/v1/settings/notification-channels/TEAMS/USER_NOTIFICATIONS', 'qa-admin', { enabled: false });
+  await prisma.notificationDelivery.create({ data: { channel: 'TEAMS', target: 'USER_NOTIFICATIONS', topic: 'ROLE_REQUEST', recipientUserId: ids.readonly, title: 'x', message: 'y' } });
+  await service.kick();
+  assert.equal(await prisma.notificationDelivery.count({ where: { status: 'FAILED', failureReason: 'CHANNEL_DISABLED' } }), 1);
+});
+
+test('Step 31: a CRITICAL operational alert reaches the Teams group channel within 1 minute, once per opening', async (context) => {
+  await cleanTeams();
+  const teams = mockTeams(() => 200);
+  const operations = app.get(OperationsService);
+  const keys = ['step31:critical', 'step31:warning', 'step31:high-maintenance'];
+  context.after(async () => {
+    teams.restore();
+    await prisma.operationalAlert.deleteMany({ where: { dedupKey: { in: keys } } });
+    await prisma.maintenanceWindow.deleteMany({ where: { name: 'Step 31 window' } });
+    await cleanTeams();
+  });
+  await request('PUT', '/api/v1/settings/notification-channels/TEAMS/GROUP_ALERTS', 'qa-admin', { enabled: true, webhookUrl: TEAMS_ALERTS_URL, minSeverity: 'HIGH' });
+  const waitForCalls = async (count: number, budgetMs: number) => {
+    const deadline = Date.now() + budgetMs;
+    while (teams.calls.length < count && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50));
+  };
+
+  const raisedAt = Date.now();
+  await operations.upsert({ dedupKey: 'step31:critical', source: 'SNMP', severity: 'CRITICAL', siteId: ids.siteA, entityType: 'Device', entityId: ids.deviceA, title: 'Core switch down', detail: 'No response to SNMP', actionHref: null } as never);
+  await waitForCalls(1, 60_000);
+  assert.equal(teams.calls.length, 1, 'CRITICAL alert was not delivered within 1 minute');
+  assert.ok(teams.calls[0].at - raisedAt < 60_000);
+  assert.equal(teams.calls[0].url, TEAMS_ALERTS_URL);
+  const card = teams.calls[0].body.attachments[0].content;
+  assert.equal(card.body[0].text, '[CRITICAL] Core switch down');
+  assert.equal(card.body[0].color, 'Attention');
+  assert.match(card.body.at(-1).text, /HTTP Site A · No response to SNMP/);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const sent = await prisma.notificationDelivery.findFirstOrThrow({ where: { topic: 'OPERATIONAL_ALERT' } });
+  assert.equal(sent.status, 'SENT');
+
+  // A repeat of the same open alert is not posted again.
+  await operations.upsert({ dedupKey: 'step31:critical', source: 'SNMP', severity: 'CRITICAL', siteId: ids.siteA, entityType: 'Device', entityId: ids.deviceA, title: 'Core switch down', detail: 'Still down', actionHref: null } as never);
+  // Below the threshold, and HIGH during a maintenance window, are not posted.
+  await operations.upsert({ dedupKey: 'step31:warning', source: 'SNMP', severity: 'WARNING', siteId: ids.siteA, title: 'Minor', detail: 'x', actionHref: null } as never);
+  await prisma.maintenanceWindow.create({ data: { name: 'Step 31 window', siteId: ids.siteA, startsAt: new Date(Date.now() - 60_000), endsAt: new Date(Date.now() + 3_600_000) } });
+  await operations.upsert({ dedupKey: 'step31:high-maintenance', source: 'SNMP', severity: 'HIGH', siteId: ids.siteA, title: 'Planned', detail: 'x', actionHref: null } as never);
+  await app.get(NotificationDeliveryService).kick();
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal(teams.calls.length, 1);
+  assert.equal(await prisma.notificationDelivery.count({ where: { topic: 'OPERATIONAL_ALERT' } }), 1);
+
+  // Resolved and reopened is a new opening and is posted again.
+  await prisma.operationalAlert.update({ where: { dedupKey: 'step31:critical' }, data: { status: 'RESOLVED', resolvedAt: new Date() } });
+  await operations.upsert({ dedupKey: 'step31:critical', source: 'SNMP', severity: 'CRITICAL', siteId: ids.siteA, entityType: 'Device', entityId: ids.deviceA, title: 'Core switch down', detail: 'Down again', actionHref: null } as never);
+  await waitForCalls(2, 60_000);
+  assert.equal(teams.calls.length, 2);
+});
+
+// ----- Step 31: Email (SMTP) delivery -----
+const SMTP_PASSWORD = 'step31-smtp-P4ss!';
+const SMTP_BODY = { host: 'smtp.example.pt', port: 587, security: 'STARTTLS', username: 'mgmt-alerts@example.pt', password: SMTP_PASSWORD, from: 'mgmt-alerts@example.pt' };
+type SmtpCall = { options: any; mail: any; at: number };
+/** Swaps the SMTP transport for a mock; nodemailer still builds the transport options and message fields. */
+function mockSmtp(outcome: (call: SmtpCall) => 'ok' | Record<string, unknown>) {
+  const calls: SmtpCall[] = [];
+  const senders = (app.get(NotificationDeliveryService) as any).senders as Map<string, unknown>;
+  const original = senders.get('EMAIL');
+  // The resolver stands in for DNS: smtp.example.pt resolves to a private (RFC 1918) relay address, which is allowed.
+  senders.set('EMAIL', new EmailSender((options) => ({
+    sendMail: async (mail) => {
+      const call = { options, mail, at: Date.now() };
+      calls.push(call);
+      const result = outcome(call);
+      if (result !== 'ok') throw Object.assign(new Error(`SMTP said no to ${String((mail as any).to)} using ${SMTP_PASSWORD}`), result);
+      return { messageId: 'x' };
+    },
+  }), async () => ['10.20.30.40']));
+  return { calls, restore: () => { senders.set('EMAIL', original); } };
+}
+const assertNoSmtpSecret = (label: string, text: string) => assert.ok(!text.includes(SMTP_PASSWORD), `${label} leaked the SMTP password`);
+
+test('Step 31 email: ADMIN SMTP settings start off, keep the password encrypted and write-only, and group alerts need recipients', async (context) => {
+  context.after(cleanTeams);
+  await cleanTeams();
+  const root = '/api/v1/settings/notification-channels';
+  assert.equal((await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-network-scoped', { enabled: false, smtp: SMTP_BODY })).statusCode, 403);
+  assert.equal((await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true })).statusCode, 409, 'cannot enable before the server is saved');
+  const plain = await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: false, smtp: { ...SMTP_BODY, security: 'NONE' } });
+  assert.equal(plain.statusCode, 400);
+  assert.equal(json(plain).code, 'SMTP_AUTH_NEEDS_TLS');
+  assertNoSmtpSecret('validation error', plain.body);
+  assert.equal(json(await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: false, smtp: { ...SMTP_BODY, from: 'x@y.pt\r\nBcc: z@evil.com' } })).code, 'SMTP_FROM_INVALID');
+  assert.equal((await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: false, webhookUrl: TEAMS_URL })).statusCode, 400, 'Teams fields do not apply to e-mail');
+  assert.equal((await request('PUT', `${root}/EMAIL/GROUP_ALERTS`, 'qa-admin', { enabled: true, recipients: ['noc@example.pt'] })).statusCode, 409, 'group alerts need the SMTP server first');
+
+  // Loopback, link-local (cloud metadata) and unspecified hosts are refused; private on-prem relays are allowed.
+  for (const host of ['127.0.0.1', '169.254.169.254', '::1', '0.0.0.0', '::ffff:127.0.0.1', 'localhost']) {
+    const refused = await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: false, smtp: { ...SMTP_BODY, host } });
+    assert.deepEqual([refused.statusCode, json(refused).code], [400, 'SMTP_HOST_NOT_ALLOWED'], host);
+  }
+  const relay = await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: false, smtp: { ...SMTP_BODY, host: '10.0.0.25' } });
+  assert.equal(relay.statusCode, 200, relay.body);
+
+  const saved = await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true, smtp: SMTP_BODY });
+  assert.equal(saved.statusCode, 200, saved.body);
+  assert.deepEqual([json(saved).enabled, json(saved).configured], [true, true]);
+  assert.deepEqual(json(saved).smtp, { host: 'smtp.example.pt', port: 587, security: 'STARTTLS', username: 'mgmt-alerts@example.pt', from: 'mgmt-alerts@example.pt', passwordSet: true });
+  assertNoSmtpSecret('save response', saved.body);
+  // Re-saving the same server and account without a password keeps the stored one (here only the sender changes).
+  const { password: _omit, ...withoutPassword } = SMTP_BODY;
+  const kept = json(await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true, smtp: { ...withoutPassword, from: 'noc-mail@example.pt' } }));
+  assert.deepEqual([kept.smtp.from, kept.smtp.passwordSet], ['noc-mail@example.pt', true]);
+  // Changing host, port, security or username never carries the password over: it must be entered again.
+  for (const change of [{ host: 'smtp2.example.pt' }, { port: 465, security: 'TLS' }, { port: 2525 }, { username: 'other@example.pt' }]) {
+    const refused = await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true, smtp: { ...withoutPassword, ...change } });
+    assert.deepEqual([refused.statusCode, json(refused).code], [400, 'SMTP_PASSWORD_REENTRY_REQUIRED'], JSON.stringify(change));
+  }
+  const unchanged = json(await request('GET', root, 'qa-admin')).channels.find((item: any) => item.kind === 'EMAIL' && item.target === 'USER_NOTIFICATIONS');
+  assert.deepEqual([unchanged.smtp.port, unchanged.smtp.security, unchanged.smtp.passwordSet], [587, 'STARTTLS', true], 'a refused change keeps the old server and its password');
+  const moved = json(await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true, smtp: { ...SMTP_BODY, port: 465, security: 'TLS' } }));
+  assert.deepEqual([moved.smtp.port, moved.smtp.security, moved.smtp.passwordSet], [465, 'TLS', true]);
+  // Dropping the username clears the password.
+  const anonymous = json(await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true, smtp: { ...withoutPassword, port: 465, security: 'TLS', username: null } }));
+  assert.deepEqual([anonymous.smtp.username, anonymous.smtp.passwordSet], [null, false]);
+  assert.equal((await prisma.deliveryChannelConfig.findUniqueOrThrow({ where: { kind_target: { kind: 'EMAIL', target: 'USER_NOTIFICATIONS' } } })).ciphertext, null);
+  assert.equal(json(await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true, smtp: SMTP_BODY })).smtp.passwordSet, true);
+  // A row saved before hosts were normalised may hold mixed case: the same server in lowercase is not a connection change.
+  const beforeCase = await prisma.deliveryChannelConfig.findUniqueOrThrow({ where: { kind_target: { kind: 'EMAIL', target: 'USER_NOTIFICATIONS' } } });
+  await prisma.deliveryChannelConfig.update({ where: { kind_target: { kind: 'EMAIL', target: 'USER_NOTIFICATIONS' } }, data: { settings: { ...(beforeCase.settings as object), host: 'SMTP.Example.pt' } } });
+  const caseOnly = await request('PUT', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin', { enabled: true, smtp: withoutPassword });
+  assert.equal(caseOnly.statusCode, 200, caseOnly.body);
+  assert.deepEqual([json(caseOnly).smtp.host, json(caseOnly).smtp.passwordSet], ['smtp.example.pt', true], 'a case-only host change keeps the stored password');
+
+  assert.equal(json(await request('PUT', `${root}/EMAIL/GROUP_ALERTS`, 'qa-admin', { enabled: true, recipients: ['bad'] })).code, 'EMAIL_RECIPIENTS_INVALID');
+  const group = await request('PUT', `${root}/EMAIL/GROUP_ALERTS`, 'qa-admin', { enabled: true, minSeverity: 'CRITICAL', recipients: [' NOC@example.pt ', 'oncall@example.pt'] });
+  assert.equal(group.statusCode, 200, group.body);
+  assert.deepEqual([json(group).configured, json(group).minSeverity, json(group).recipients, json(group).serverConfigured], [true, 'CRITICAL', ['noc@example.pt', 'oncall@example.pt'], true]);
+
+  const listed = await request('GET', root, 'qa-admin');
+  assertNoSmtpSecret('channel list', listed.body);
+  assert.deepEqual(json(listed).channels.filter((item: any) => item.kind === 'EMAIL').map((item: any) => [item.target, item.enabled]), [['USER_NOTIFICATIONS', true], ['GROUP_ALERTS', true]]);
+  const stored = await prisma.deliveryChannelConfig.findMany({ where: { kind: 'EMAIL' } });
+  for (const row of stored) assertNoSmtpSecret('stored row', Buffer.from(row.ciphertext ?? []).toString('latin1') + JSON.stringify({ ...row, ciphertext: undefined }));
+  assertNoSmtpSecret('audit log', JSON.stringify(await prisma.auditLog.findMany({ orderBy: { createdAt: 'desc' }, take: 100 })));
+
+  // Removing the server leaves group alerts unconfigured.
+  await request('DELETE', `${root}/EMAIL/USER_NOTIFICATIONS`, 'qa-admin');
+  const after = json(await request('GET', root, 'qa-admin')).channels.filter((item: any) => item.kind === 'EMAIL');
+  assert.deepEqual(after.map((item: any) => [item.target, item.configured]), [['USER_NOTIFICATIONS', false], ['GROUP_ALERTS', false]]);
+});
+
+test('Step 31 email: test email to the ADMIN, per-user opt-in to the own address, retries with backoff and a secret-free log', async (context) => {
+  await cleanTeams();
+  const service = app.get(NotificationDeliveryService);
+  let result: 'ok' | Record<string, unknown> = 'ok';
+  const smtp = mockSmtp(() => result);
+  const requests: string[] = [];
+  context.after(async () => {
+    smtp.restore();
+    await prisma.notification.deleteMany({ where: { roleRequestId: { in: requests } } });
+    await prisma.roleRequest.deleteMany({ where: { id: { in: requests } } });
+    await cleanTeams();
+  });
+  const root = '/api/v1/settings/notification-channels/EMAIL/USER_NOTIFICATIONS';
+  assert.equal((await request('POST', `${root}/test`, 'qa-admin')).statusCode, 409, 'cannot test before the server is saved');
+  await request('PUT', root, 'qa-admin', { enabled: false, smtp: SMTP_BODY });
+  const noAddress = await request('POST', `${root}/test`, 'qa-admin');
+  assert.equal(json(noAddress).code, 'NOTIFICATION_TEST_NO_EMAIL');
+
+  await prisma.user.update({ where: { id: ids.admin }, data: { email: 'admin@example.pt' } });
+  const ok = await request('POST', `${root}/test`, 'qa-admin');
+  assert.equal(ok.statusCode, 201, ok.body);
+  assert.deepEqual([json(ok).status, json(ok).failureReason], ['SENT', null]);
+  assert.deepEqual([smtp.calls[0].mail.to, smtp.calls[0].mail.from, smtp.calls[0].mail.subject], [['admin@example.pt'], 'mgmt-alerts@example.pt', 'Email de teste']);
+  assert.equal(smtp.calls[0].mail.bcc, undefined, 'personal e-mail has no Bcc');
+  // Connects to the checked address; TLS still presents and verifies the configured host name.
+  assert.deepEqual([smtp.calls[0].options.host, smtp.calls[0].options.servername, smtp.calls[0].options.tls.servername, smtp.calls[0].options.requireTLS, smtp.calls[0].options.auth.pass], ['10.20.30.40', 'smtp.example.pt', 'smtp.example.pt', true, SMTP_PASSWORD]);
+
+  result = { code: 'EAUTH', responseCode: 535 };
+  const failed = await request('POST', `${root}/test`, 'qa-admin');
+  assert.deepEqual([json(failed).status, json(failed).failureReason], ['FAILED', 'SMTP_EAUTH_535']);
+  assertNoSmtpSecret('test failure response', failed.body);
+
+  // Per-user opt-in: unavailable while the channel is off, and only with an address on file.
+  const prefs = '/api/v1/notifications/preferences';
+  assert.equal((await request('PATCH', `${prefs}/ROLE_REQUEST`, 'qa-readonly', { email: true })).statusCode, 409);
+  await request('PUT', root, 'qa-admin', { enabled: true });
+  assert.deepEqual(json(await request('GET', '/api/v1/notifications/channels', 'qa-readonly')).email, { available: true });
+  assert.equal(json(await request('PATCH', `${prefs}/ROLE_REQUEST`, 'qa-readonly', { email: true })).code, 'NOTIFICATION_EMAIL_MISSING');
+  await prisma.user.update({ where: { id: ids.readonly }, data: { email: 'readonly@example.pt' } });
+  const optIn = json(await request('PATCH', `${prefs}/ROLE_REQUEST`, 'qa-readonly', { email: true }));
+  assert.deepEqual([optIn.email, optIn.emailAvailable, optIn.hasEmail, optIn.teams], [true, true, true, false]);
+  assert.deepEqual(json(await request('GET', prefs, 'qa-readonly')).map((item: any) => [item.type, item.email]), [['ROLE_REQUEST', true], ['CRITICAL_ASSET_ATTESTATION', false], ['LIFECYCLE_DATE', false]]);
+
+  const leftovers = (await prisma.roleRequest.findMany({ where: { userId: { in: [ids.readonly, ids.auditor] } }, select: { id: true } })).map((row) => row.id);
+  await prisma.notification.deleteMany({ where: { roleRequestId: { in: leftovers } } });
+  await prisma.roleRequest.deleteMany({ where: { id: { in: leftovers } } });
+  const optedIn = await prisma.roleRequest.create({ data: { userId: ids.readonly, roles: ['SYSTEMS_OPERATOR'] } });
+  const notOpted = await prisma.roleRequest.create({ data: { userId: ids.auditor, roles: ['SYSTEMS_OPERATOR'] } });
+  requests.push(optedIn.id, notOpted.id);
+  result = { code: 'ECONNECTION' };
+  const before = smtp.calls.length;
+  const started = Date.now();
+  for (const id of requests) assert.equal((await request('PATCH', `/api/v1/settings/role-requests/${id}`, 'qa-admin', { decision: 'REJECT' })).statusCode, 200);
+  assert.ok(Date.now() - started < 5_000);
+  assert.equal(smtp.calls.length, before, 'nothing is sent inside the request');
+  const queued = await prisma.notificationDelivery.findMany({ where: { target: 'USER_NOTIFICATIONS', topic: 'ROLE_REQUEST' } });
+  assert.deepEqual(queued.map((row) => [row.channel, row.recipientUserId, row.status]), [['EMAIL', ids.readonly, 'PENDING']]);
+
+  const output: string[] = [];
+  const levels = ['log', 'warn', 'error', 'debug', 'verbose'] as const;
+  const originalLogger = levels.map((level) => Logger.prototype[level]);
+  for (const level of levels) Logger.prototype[level] = function (this: Logger, ...args: unknown[]) { output.push(args.map(String).join(' ')); } as never;
+  try {
+    await service.kick();
+    let row = await prisma.notificationDelivery.findUniqueOrThrow({ where: { id: queued[0].id } });
+    assert.deepEqual([row.status, row.attempts, row.failureReason], ['PENDING', 1, 'SMTP_CONNECTION_FAILED']);
+    assert.ok(row.nextAttemptAt.getTime() - Date.now() > 20_000, 'first retry waits about 30 s');
+    assert.deepEqual(smtp.calls.at(-1)!.mail.to, ['readonly@example.pt'], 'personal e-mail goes to the user\'s own address');
+
+    result = 'ok';
+    await prisma.notificationDelivery.update({ where: { id: row.id }, data: { nextAttemptAt: new Date() } });
+    await service.kick();
+    row = await prisma.notificationDelivery.findUniqueOrThrow({ where: { id: row.id } });
+    assert.deepEqual([row.status, row.attempts, row.failureReason], ['SENT', 2, null]);
+
+    // A recipient without an address fails at once with a clear reason; a 5xx rejection is permanent.
+    await prisma.notificationDelivery.create({ data: { channel: 'EMAIL', target: 'USER_NOTIFICATIONS', topic: 'ROLE_REQUEST', recipientUserId: ids.auditor, title: 'x', message: 'y' } });
+    result = { code: 'EENVELOPE', responseCode: 550, permanent: true };
+    await prisma.notificationDelivery.create({ data: { channel: 'EMAIL', target: 'USER_NOTIFICATIONS', topic: 'ROLE_REQUEST', recipientUserId: ids.readonly, title: 'x', message: 'y' } });
+    await service.kick();
+    assert.equal(await prisma.notificationDelivery.count({ where: { status: 'FAILED', failureReason: 'RECIPIENT_NO_EMAIL', attempts: 1 } }), 1);
+    assert.equal(await prisma.notificationDelivery.count({ where: { status: 'FAILED', failureReason: 'SMTP_550', attempts: 1 } }), 1);
+  } finally {
+    levels.forEach((level, index) => { Logger.prototype[level] = originalLogger[index] as never; });
+  }
+  assert.ok(output.join(' ').includes('SMTP_CONNECTION_FAILED'), 'the failure is logged');
+  assertNoSmtpSecret('process logs', output.join(' '));
+  const log = await request('GET', '/api/v1/settings/notification-deliveries?channel=EMAIL', 'qa-admin');
+  assert.ok(json(log).items.every((item: any) => item.channel === 'EMAIL'));
+  assertNoSmtpSecret('delivery log', log.body);
+  assertNoSmtpSecret('audit log', JSON.stringify(await prisma.auditLog.findMany({ orderBy: { createdAt: 'desc' }, take: 100 })));
+});
+
+test('Step 31 email: a CRITICAL operational alert is e-mailed to the group recipients within 1 minute, once per opening', async (context) => {
+  await cleanTeams();
+  const smtp = mockSmtp(() => 'ok');
+  const teams = mockTeams(() => 200);
+  const operations = app.get(OperationsService);
+  context.after(async () => {
+    smtp.restore();
+    teams.restore();
+    await prisma.operationalAlert.deleteMany({ where: { dedupKey: { startsWith: 'step31-email:' } } });
+    await cleanTeams();
+  });
+  await request('PUT', '/api/v1/settings/notification-channels/EMAIL/USER_NOTIFICATIONS', 'qa-admin', { enabled: false, smtp: SMTP_BODY });
+  await request('PUT', '/api/v1/settings/notification-channels/EMAIL/GROUP_ALERTS', 'qa-admin', { enabled: true, minSeverity: 'CRITICAL', recipients: ['noc@example.pt', 'oncall@example.pt'] });
+  await request('PUT', '/api/v1/settings/notification-channels/TEAMS/GROUP_ALERTS', 'qa-admin', { enabled: true, webhookUrl: TEAMS_ALERTS_URL, minSeverity: 'HIGH' });
+  const waitFor = async (check: () => boolean, budgetMs: number) => {
+    const deadline = Date.now() + budgetMs;
+    while (!check() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50));
+  };
+
+  const raisedAt = Date.now();
+  await operations.upsert({ dedupKey: 'step31-email:critical', source: 'SNMP', severity: 'CRITICAL', siteId: ids.siteA, entityType: 'Device', entityId: ids.deviceA, title: 'Core router down', detail: 'No response to SNMP', actionHref: null } as never);
+  await waitFor(() => smtp.calls.length >= 1 && teams.calls.length >= 1, 60_000);
+  assert.equal(smtp.calls.length, 1, 'CRITICAL alert e-mail was not sent within 1 minute');
+  assert.ok(smtp.calls[0].at - raisedAt < 60_000);
+  // Recipients go in Bcc (To is the sender address), so they never see each other.
+  assert.deepEqual([smtp.calls[0].mail.to, smtp.calls[0].mail.bcc], ['mgmt-alerts@example.pt', ['noc@example.pt', 'oncall@example.pt']]);
+  assert.equal(smtp.calls[0].mail.subject, '[CRITICAL] Core router down');
+  assert.match(smtp.calls[0].mail.text, /HTTP Site A · No response to SNMP/);
+  assert.equal(teams.calls.length, 1, 'the Teams group channel gets its own copy');
+
+  // HIGH is below this e-mail threshold (CRITICAL only) but still goes to Teams (HIGH and above); repeats are not sent again.
+  // Site B: an earlier test leaves a maintenance window open on Site A, which would hold back HIGH.
+  await operations.upsert({ dedupKey: 'step31-email:high', source: 'SNMP', severity: 'HIGH', siteId: ids.siteB, title: 'Uplink degraded', detail: 'x', actionHref: null } as never);
+  await operations.upsert({ dedupKey: 'step31-email:critical', source: 'SNMP', severity: 'CRITICAL', siteId: ids.siteA, entityType: 'Device', entityId: ids.deviceA, title: 'Core router down', detail: 'Still down', actionHref: null } as never);
+  await app.get(NotificationDeliveryService).kick();
+  await waitFor(() => teams.calls.length >= 2, 5_000);
+  assert.equal(smtp.calls.length, 1);
+  assert.equal(teams.calls.length, 2);
+  const rows = await prisma.notificationDelivery.findMany({ where: { topic: 'OPERATIONAL_ALERT' }, orderBy: { createdAt: 'asc' } });
+  assert.deepEqual(rows.map((row) => [row.channel, row.title, row.status]).sort(), [
+    ['EMAIL', '[CRITICAL] Core router down', 'SENT'], ['TEAMS', '[CRITICAL] Core router down', 'SENT'], ['TEAMS', '[HIGH] Uplink degraded', 'SENT'],
+  ]);
+});
+
+test('Step 34 topology impact: core switch, loops, depth bound, PDU feeds, path view and the 2 s budget on a large site', async () => {
+  const uid = (n: number) => `34000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  const site = uid(1), building = uid(2), room = uid(3), rack = uid(4), pduA = uid(5), pduB = uid(6);
+  await prisma.site.create({ data: { id: site, name: 'HTTP Impact Site', code: 'HTTP-IMPACT' } });
+  await prisma.building.create({ data: { id: building, name: 'Impact Building', siteId: site } });
+  await prisma.room.create({ data: { id: room, name: 'Impact Room', buildingId: building } });
+  await prisma.rack.create({ data: { id: rack, name: 'Impact Rack', roomId: room } });
+  const named = ['fw', 'core1', 'core2', 'dist1', 'dist2', 'acc1', 'acc2', 'acc3', 'srv1', 'srv2', 'srv3'];
+  const dev = new Map(named.map((name, index) => [name, uid(100 + index)]));
+  for (let ring = 0; ring < 30; ring += 1) dev.set(`ring${ring}`, uid(200 + ring));
+  for (let server = 0; server < 3000; server += 1) dev.set(`bulk${server}`, uid(1000 + server));
+  const typeOf = (name: string) => name === 'fw' ? 'FIREWALL' : /^(srv|bulk)/.test(name) ? 'SERVER' : 'SWITCH';
+  await prisma.device.createMany({ data: [...dev.entries()].map(([name, id]) => ({ id, name: `IMPACT ${name}`, type: typeOf(name), siteId: site, rackId: named.includes(name) ? rack : null, hostname: name === 'srv1' ? 'impact-srv1.corp.local' : null, criticalityTier: name === 'srv1' ? 'T1' as const : null })) });
+  const pairs: [string, string][] = [
+    ['fw', 'core1'], ['core1', 'dist1'], ['dist1', 'acc1'], ['acc1', 'srv1'], ['dist1', 'acc2'], ['acc2', 'srv2'], ['acc1', 'acc2'],
+    ['core1', 'dist2'], ['dist2', 'acc3'], ['acc3', 'srv3'], ['core2', 'dist2'], ['core2', 'fw'],
+  ];
+  for (let ring = 0; ring < 30; ring += 1) pairs.push([ring === 0 ? 'acc3' : `ring${ring - 1}`, `ring${ring}`]);
+  pairs.push(['ring29', 'acc3']);
+  for (let server = 0; server < 3000; server += 1) pairs.push([`ring${server % 30}`, `bulk${server}`]);
+  await prisma.deviceConnection.createMany({ data: pairs.map(([a, b], index) => ({ id: uid(10_000 + index), siteId: site, type: 'PHYSICAL' as const, sourceDeviceId: index % 2 ? dev.get(b)! : dev.get(a)!, targetDeviceId: index % 2 ? dev.get(a)! : dev.get(b)! })) });
+  await prisma.rackPdu.createMany({ data: [{ id: pduA, rackId: rack, source: 'SUPPLIER' }, { id: pduB, rackId: rack, source: 'UPS' }] });
+  await prisma.pduOutletAssignment.createMany({ data: [
+    { pduId: pduA, outletIndex: 1, deviceId: dev.get('srv1')!, plugIndex: 1 }, { pduId: pduB, outletIndex: 1, deviceId: dev.get('srv1')!, plugIndex: 2 },
+    { pduId: pduA, outletIndex: 2, deviceId: dev.get('srv2')!, plugIndex: 1 },
+  ] });
+  await prisma.host.create({ data: { name: 'impact-srv1', hostname: 'impact-srv1.corp.local', deviceId: dev.get('srv1')!, services: { create: [{ name: 'https', protocol: 'tcp', port: 443 }] } } });
+  await prisma.applicationLink.create({ data: { name: 'Impact ERP', url: 'https://impact-srv1.corp.local/erp' } });
+
+  const timed = async (path: string) => { const started = performance.now(); const response = await request('GET', path, 'qa-admin'); const elapsed = performance.now() - started; assert.equal(response.statusCode, 200, response.body); return { body: json(response), elapsed }; };
+  const core = await timed(`/api/v1/topology/impact?deviceId=${dev.get('core1')}`);
+  assert.deepEqual(core.body.affected.map((item: { name: string }) => item.name).sort(), ['IMPACT acc1', 'IMPACT acc2', 'IMPACT dist1', 'IMPACT srv1', 'IMPACT srv2']);
+  assert.equal(core.body.anchorMode, 'gateway-devices');
+  assert.deepEqual(core.body.critical.T1, [dev.get('srv1')]);
+  assert.deepEqual(core.body.hosts.map((item: { name: string }) => item.name), ['impact-srv1']);
+  assert.deepEqual(core.body.applications.map((item: { name: string }) => item.name), ['Impact ERP']);
+  assert.ok(core.elapsed < 2000, `core impact took ${core.elapsed} ms`);
+
+  const wide = await timed(`/api/v1/topology/impact?deviceId=${dev.get('dist2')}&maxDepth=32`);
+  assert.equal(wide.body.affected.length, 3032, 'acc3, srv3, the 30-switch ring and its 3,000 servers');
+  assert.equal(wide.body.truncated, false);
+  assert.ok(wide.elapsed < 2000, `wide impact took ${wide.elapsed} ms`);
+  const bounded = await timed(`/api/v1/topology/impact?deviceId=${dev.get('dist2')}&maxDepth=3`);
+  assert.equal(bounded.body.truncated, true);
+  assert.ok(bounded.body.affected.every((item: { hops: number }) => item.hops <= 3));
+
+  const power = await timed(`/api/v1/topology/impact?pduId=${pduA}`);
+  assert.deepEqual(power.body.down.map((item: { name: string; reason: string }) => [item.name, item.reason]), [['IMPACT srv2', 'POWER']]);
+  assert.deepEqual(power.body.powerDegraded.map((item: { name: string }) => item.name), ['IMPACT srv1']);
+
+  const path = await timed(`/api/v1/topology/path?fromDeviceId=${dev.get('srv1')}&toDeviceId=${dev.get('bulk2999')}`);
+  assert.equal(path.body.found, true);
+  assert.deepEqual(path.body.steps.slice(0, 6).map((item: { name: string }) => item.name), ['IMPACT srv1', 'IMPACT acc1', 'IMPACT dist1', 'IMPACT core1', 'IMPACT dist2', 'IMPACT acc3']);
+  assert.ok(path.elapsed < 2000, `path took ${path.elapsed} ms`);
+
+  for (const bad of ['', `deviceId=${dev.get('fw')}&rackId=${rack}`, 'deviceId=not-a-uuid']) assert.equal((await request('GET', `/api/v1/topology/impact?${bad}`, 'qa-admin')).statusCode, 400, bad);
+  assert.equal((await request('GET', `/api/v1/topology/impact?deviceId=${dev.get('core1')}`, 'qa-systems-scoped')).statusCode, 404, 'out-of-scope devices are not revealed');
+  console.log(`[step34] core ${core.elapsed.toFixed(0)} ms (server ${core.body.elapsedMs} ms), wide ${wide.elapsed.toFixed(0)} ms (server ${wide.body.elapsedMs} ms), path ${path.elapsed.toFixed(0)} ms`);
+});
+
+// ----- Step 32: scheduled reports -----
+
+type ReportSite = { siteId: string; siteName: string; compliance?: any; lifecycle?: any; quality?: any; capacity?: any; changes?: any };
+const dayIso = (date: Date) => date.toISOString().slice(0, 10);
+const addUtcDays = (iso: string, days: number) => dayIso(new Date(Date.parse(`${iso}T00:00:00.000Z`) + days * 86_400_000));
+
+/** Recomputes every report figure for one Site from the source endpoints, as `persona`, for the report's date range. */
+async function sourceFigures(persona: string, siteId: string, report: { periodStart: string; periodEnd: string }, lifecycle: { from: string; to: string }) {
+  const get = async (url: string) => { const response = await request('GET', url, persona); assert.equal(response.statusCode, 200, `${url}: ${response.body}`); return json(response); };
+  const end = addUtcDays(report.periodEnd, 1); // UTC report: the period ends at midnight after its last day
+  const critical = await get(`/api/v1/critical-assets?siteId=${siteId}`);
+  const assets = new Map<string, any>();
+  for (const asset of [...critical.assets, ...critical.unassigned]) if (!assets.has(asset.id)) assets.set(asset.id, asset);
+  let expected = 0; let onTime = 0;
+  for (const asset of assets.values()) {
+    if (!asset.owner?.name) continue;
+    for (const item of asset.attestations) {
+      const week = String(item.weekStart).slice(0, 10);
+      if (week < report.periodStart || week >= end) continue;
+      expected += 1;
+      if (item.outcome && item.confirmedAt && Date.parse(item.confirmedAt) < Date.parse(item.dueAt)) onTime += 1;
+    }
+  }
+  const dates = await get(`/api/v1/lifecycle-dates?siteId=${siteId}&from=${lifecycle.from}&to=${lifecycle.to}`);
+  const quality = await get(`/api/v1/inventory-quality/summary?siteId=${siteId}`);
+  const bySeverity: Record<string, number> = {};
+  for (const group of quality.groups) bySeverity[group.severity] = (bySeverity[group.severity] ?? 0) + group._count._all;
+  const outlook = await get(`/api/v1/sites/${siteId}/capacity-outlook`);
+  const plansBody = await get(`/api/v1/change-plans?siteId=${siteId}&status=COMPLETED,FAILED,ROLLED_BACK&from=${report.periodStart}T00:00:00.000Z&to=${end}T00:00:00.000Z`);
+  const plans: any[] = Array.isArray(plansBody) ? plansBody : plansBody.items;
+  return {
+    compliance: { expected, onTime },
+    lifecycle: dates.items.map((item: any) => [item.device.name, item.kind, item.dueDate]),
+    quality: { total: quality.findingCount, bySeverity },
+    capacity: {
+      warning: outlook.items.filter((item: any) => item.level === 'warning').length,
+      critical: outlook.items.filter((item: any) => item.level === 'critical').length,
+    },
+    changes: { completed: plans.filter((plan) => plan.status === 'COMPLETED').length, failed: plans.filter((plan) => plan.status === 'FAILED').length, rolledBack: plans.filter((plan) => plan.status === 'ROLLED_BACK').length, titles: plans.map((plan) => plan.title).sort() },
+  };
+}
+
+function reportFigures(site: ReportSite) {
+  return {
+    compliance: { expected: site.compliance.expected, onTime: site.compliance.onTime },
+    lifecycle: site.lifecycle.items.map((item: any) => [item.deviceName, item.kind, item.dueDate]),
+    quality: { total: site.quality.total, bySeverity: site.quality.bySeverity },
+    capacity: { warning: site.capacity.warning, critical: site.capacity.critical },
+    changes: { completed: site.changes.completed, failed: site.changes.failed, rolledBack: site.changes.rolledBack, titles: site.changes.items.map((item: any) => item.title).sort() },
+  };
+}
+
+test('Step 32 scheduled reports: figures equal the source endpoints, per-recipient Sites, e-mail with CSV, Teams summary, unsubscribe link and toggle', async (context) => {
+  await cleanTeams();
+  const smtp = mockSmtp(() => 'ok');
+  const teams = mockTeams(() => 200);
+  const delivery = app.get(NotificationDeliveryService);
+  const reports = app.get(ScheduledReportsService);
+  const originalPublicUrl = process.env.APP_PUBLIC_URL;
+  process.env.APP_PUBLIC_URL = 'https://mgmt.example.pt';
+  const created: { plans: string[]; dates: string[]; attestations: string[] } = { plans: [], dates: [], attestations: [] };
+  context.after(async () => {
+    smtp.restore(); teams.restore();
+    if (originalPublicUrl === undefined) delete process.env.APP_PUBLIC_URL; else process.env.APP_PUBLIC_URL = originalPublicUrl;
+    await prisma.scheduledReport.deleteMany({});
+    await prisma.changePlan.deleteMany({ where: { id: { in: created.plans } } });
+    await prisma.lifecycleDate.deleteMany({ where: { id: { in: created.dates } } });
+    await prisma.criticalAssetAttestation.deleteMany({ where: { id: { in: created.attestations } } });
+    await cleanTeams();
+  });
+
+  // Channels and addresses.
+  assert.equal((await request('PUT', '/api/v1/settings/notification-channels/EMAIL/USER_NOTIFICATIONS', 'qa-admin', { enabled: true, smtp: SMTP_BODY })).statusCode, 200);
+  assert.equal((await request('PUT', '/api/v1/settings/notification-channels/TEAMS/GROUP_ALERTS', 'qa-admin', { enabled: true, webhookUrl: TEAMS_ALERTS_URL })).statusCode, 200);
+  await prisma.user.update({ where: { id: ids.admin }, data: { email: 'admin@example.pt' } });
+  await prisma.user.update({ where: { id: ids.scoped }, data: { email: 'scoped@example.pt' } });
+
+  // Source data in both Sites, inside the weekly period (UTC: the 7 days before today) and the next 90 days.
+  const today = dayIso(new Date());
+  const periodStart = addUtcDays(today, -7);
+  const monday = [0, 1, 2, 3, 4, 5, 6].map((offset) => addUtcDays(periodStart, offset)).find((iso) => new Date(`${iso}T00:00:00.000Z`).getUTCDay() === 1)!;
+  const at = (iso: string, hour: number) => new Date(`${iso}T${String(hour).padStart(2, '0')}:00:00.000Z`);
+  await prisma.device.updateMany({ where: { id: { in: [ids.deviceA, ids.deviceB] } }, data: { isCritical: true } });
+  await prisma.criticalAssetGroupMapping.upsert({ where: { siteId_assetType: { siteId: ids.siteA, assetType: 'SWITCH' } }, create: { siteId: ids.siteA, assetType: 'SWITCH', groupId: ids.groupRead }, update: {} });
+  await prisma.criticalAssetGroupMapping.upsert({ where: { siteId_assetType: { siteId: ids.siteB, assetType: 'SWITCH' } }, create: { siteId: ids.siteB, assetType: 'SWITCH', groupId: ids.groupWrite }, update: {} });
+  for (const [deviceId, siteId] of [[ids.deviceA, ids.siteA], [ids.deviceB, ids.siteB]]) {
+    const row = await prisma.criticalAssetAttestation.upsert({
+      where: { deviceId_weekStart: { deviceId, weekStart: at(monday, 0) } },
+      create: { deviceId, siteId, weekStart: at(monday, 0), outcome: 'CONFIRMED', confirmedAt: at(monday, 12), confirmedBy: ids.admin },
+      update: { outcome: 'CONFIRMED', confirmedAt: at(monday, 12), confirmedBy: ids.admin },
+    });
+    created.attestations.push(row.id);
+  }
+  for (const [deviceId, kind, days] of [[ids.deviceA, 'WARRANTY', 30], [ids.deviceB, 'LICENSE', 20]] as const) {
+    await prisma.lifecycleDate.deleteMany({ where: { deviceId, kind } });
+    created.dates.push((await prisma.lifecycleDate.create({ data: { deviceId, kind, dueDate: at(addUtcDays(today, days), 0) } })).id);
+  }
+  const plan = async (siteId: string, title: string, status: 'COMPLETED' | 'FAILED' | 'ROLLED_BACK' | 'APPROVED', iso: string) =>
+    created.plans.push((await prisma.changePlan.create({ data: { siteId, title, reason: 'Step 32', plannedStartAt: at(iso, 21), plannedEndAt: at(iso, 23), status, createdById: ids.admin } })).id);
+  await plan(ids.siteA, 'Step 32 done A', 'COMPLETED', addUtcDays(today, -3));
+  await plan(ids.siteA, 'Step 32 failed A', 'FAILED', addUtcDays(today, -2));
+  await plan(ids.siteA, 'Step 32 approved A (not reported)', 'APPROVED', addUtcDays(today, -2));
+  await plan(ids.siteA, 'Step 32 done long ago (outside)', 'COMPLETED', addUtcDays(today, -20));
+  await plan(ids.siteB, 'Step 32 rolled back B', 'ROLLED_BACK', addUtcDays(today, -1));
+
+  // Definitions are ADMIN only.
+  const root = '/api/v1/settings/scheduled-reports';
+  const definition = { name: 'Operação semanal', frequency: 'WEEKLY', dayOfWeek: 1, hour: 8, timezone: 'UTC', sections: ['COMPLIANCE', 'LIFECYCLE', 'QUALITY', 'CAPACITY', 'CHANGES'], recipientIds: [ids.admin, ids.scoped], sendEmail: true, sendTeams: true };
+  assert.equal((await request('GET', root)).statusCode, 401);
+  assert.equal((await request('GET', root, 'qa-network-scoped')).statusCode, 403);
+  assert.equal((await request('POST', root, 'qa-auditor', definition)).statusCode, 403);
+  assert.equal((await request('POST', root, 'qa-admin', { ...definition, sections: [] })).statusCode, 400);
+  assert.equal((await request('POST', root, 'qa-admin', { ...definition, timezone: 'Mars/Base' })).statusCode, 400);
+  assert.equal((await request('POST', root, 'qa-admin', { ...definition, sendEmail: false, sendTeams: false })).statusCode, 400);
+  const createdReport = await request('POST', root, 'qa-admin', definition);
+  assert.equal(createdReport.statusCode, 201, createdReport.body);
+  const report = json(createdReport);
+  assert.equal(new Date(report.nextRunAt).getUTCDay(), 1);
+  assert.equal(new Date(report.nextRunAt).getUTCHours(), 8);
+  assert.deepEqual(report.recipients.map((item: any) => item.userId).sort(), [ids.admin, ids.scoped].sort());
+  const listed = json(await request('GET', root, 'qa-admin'));
+  assert.deepEqual(listed.channels, { email: true, teams: true });
+  assert.equal(listed.reports.length, 1);
+
+  // Report figures equal the source endpoints for the same range, for each person and Site they can read.
+  const adminDoc = json(await request('GET', `${root}/${report.id}/preview`, 'qa-admin'));
+  assert.deepEqual([adminDoc.periodStart, adminDoc.periodEnd], [periodStart, addUtcDays(today, -1)]);
+  // No Sites chosen: an ADMIN gets every Site (earlier tests add some), by name.
+  const allSites = (await prisma.site.findMany({ select: { id: true }, orderBy: { name: 'asc' } })).map(({ id }) => id);
+  assert.ok(allSites.includes(ids.siteA) && allSites.includes(ids.siteB));
+  assert.deepEqual(adminDoc.sites.map((site: ReportSite) => site.siteId), allSites);
+  for (const site of adminDoc.sites as ReportSite[]) {
+    assert.deepEqual(reportFigures(site), await sourceFigures('qa-admin', site.siteId, adminDoc, site.lifecycle), `admin, ${site.siteName}`);
+  }
+  const siteA = (adminDoc.sites as ReportSite[]).find((site) => site.siteId === ids.siteA)!;
+  assert.ok(siteA.compliance.expected >= 1 && siteA.compliance.onTime >= 1, 'the seeded on-time attestation counts');
+  assert.deepEqual([siteA.changes.completed, siteA.changes.failed], [1, 1]);
+  assert.ok(siteA.lifecycle.items.some((item: any) => item.deviceName === 'HTTP Switch A' && item.kind === 'WARRANTY'));
+  assert.equal((adminDoc.sites as ReportSite[]).find((site) => site.siteId === ids.siteB)!.changes.rolledBack, 1);
+
+  const scopedDoc = json(await request('GET', `/api/v1/reports/subscriptions/${report.id}/preview`, 'qa-network-scoped'));
+  assert.deepEqual(scopedDoc.sites.map((site: ReportSite) => site.siteId), [ids.siteA], 'a scoped recipient gets only the Sites they can read');
+  assert.deepEqual(reportFigures(scopedDoc.sites[0]), await sourceFigures('qa-network-scoped', ids.siteA, scopedDoc, scopedDoc.sites[0].lifecycle));
+  assert.equal((await request('GET', `/api/v1/reports/subscriptions/${report.id}/preview`, 'qa-readonly')).statusCode, 404, 'only recipients');
+
+  // CSV on demand.
+  const csv = await request('GET', `/api/v1/reports/subscriptions/${report.id}/csv`, 'qa-network-scoped');
+  assert.equal(csv.statusCode, 200);
+  assert.match(String(csv.headers['content-type']), /^text\/csv/);
+  assert.match(String(csv.headers['content-disposition']), /attachment; filename="relatorio-operacao-semanal-\d{4}-\d{2}-\d{2}\.csv"/);
+  assert.ok(csv.body.includes('HTTP Site A') && !csv.body.includes('HTTP Site B'));
+  assert.equal((await request('GET', `${root}/${report.id}/csv`, 'qa-admin')).statusCode, 200);
+
+  // Send now: one e-mail per recipient with their own Sites, CSV attached and List-Unsubscribe; one Teams post without figures.
+  const run = await request('POST', `${root}/${report.id}/run`, 'qa-admin');
+  assert.equal(run.statusCode, 200, run.body);
+  const sent = json(run);
+  assert.deepEqual(Object.fromEntries(sent.recipients.map((item: any) => [item.userId, [item.siteIds, item.email]])), { [ids.admin]: [allSites, 'QUEUED'], [ids.scoped]: [[ids.siteA], 'QUEUED'] });
+  assert.equal(sent.teams, 'QUEUED');
+  await delivery.kick();
+  const mails = Object.fromEntries(smtp.calls.map((call) => [call.mail.to[0], call.mail]));
+  assert.deepEqual(Object.keys(mails).sort(), ['admin@example.pt', 'scoped@example.pt']);
+  const scopedMail = mails['scoped@example.pt'];
+  assert.match(scopedMail.subject, /^Relatório semanal: Operação semanal \(/);
+  assert.ok(scopedMail.text.includes('HTTP Site A') && !scopedMail.text.includes('HTTP Site B'));
+  assert.ok(!scopedMail.html.includes('HTTP Site B'));
+  assert.equal(scopedMail.attachments.length, 1);
+  assert.match(scopedMail.attachments[0].filename, /\.csv$/);
+  assert.ok(scopedMail.attachments[0].content.includes('HTTP Site A') && !scopedMail.attachments[0].content.includes('HTTP Site B'));
+  assert.ok(mails['admin@example.pt'].attachments[0].content.includes('HTTP Site B'));
+  const unsubscribeHeader = scopedMail.headers['List-Unsubscribe'] as string;
+  const match = /^<https:\/\/mgmt\.example\.pt\/relatorios\/cancelar-subscricao\?token=([A-Za-z0-9_-]+)>$/.exec(unsubscribeHeader);
+  assert.ok(match, unsubscribeHeader);
+  assert.ok(scopedMail.html.includes(`cancelar-subscricao?token=${match![1]}`), 'the body carries the same link');
+  assert.equal(teams.calls.length, 1);
+  assert.equal(teams.calls[0].url, TEAMS_ALERTS_URL);
+  const teamsText = JSON.stringify(teams.calls[0].body);
+  assert.ok(teamsText.includes('Operação semanal') && teamsText.includes('https://mgmt.example.pt/perfil?tab=notifications'));
+  assert.ok(!teamsText.includes('HTTP Site') && !teamsText.includes('Step 32 done A') && !teamsText.includes('HTTP Switch'), 'no figures or names in the shared channel');
+  assert.equal(await prisma.notificationDelivery.count({ where: { topic: 'SCHEDULED_REPORT', status: 'SENT' } }), 3);
+
+  // The unsubscribe link: GET only reads (mail scanners), POST unsubscribes, no sign-in needed; bad tokens are 404.
+  const token = match![1];
+  assert.equal((await request('GET', '/api/v1/reports/unsubscribe?token=not-a-real-token-at-all-xx')).statusCode, 404);
+  assert.deepEqual(json(await request('GET', `/api/v1/reports/unsubscribe?token=${token}`)), { reportName: 'Operação semanal', subscribed: true });
+  assert.deepEqual(json(await request('GET', `/api/v1/reports/unsubscribe?token=${token}`)), { reportName: 'Operação semanal', subscribed: true }, 'GET changes nothing');
+  const unsubscribed = await request('POST', '/api/v1/reports/unsubscribe', undefined, { token });
+  assert.equal(unsubscribed.statusCode, 200, unsubscribed.body);
+  assert.equal(json(unsubscribed).subscribed, false);
+  assert.equal(json(await request('GET', '/api/v1/reports/subscriptions', 'qa-network-scoped')).items[0].subscribed, false);
+  assert.ok(json(await request('GET', root, 'qa-admin')).reports[0].recipients.find((item: any) => item.userId === ids.scoped).unsubscribedAt);
+
+  smtp.calls.length = 0;
+  const second = json(await request('POST', `${root}/${report.id}/run`, 'qa-admin'));
+  assert.deepEqual(second.recipients.map((item: any) => item.userId), [ids.admin], 'unsubscribed recipients get nothing');
+  await delivery.kick();
+  assert.deepEqual(smtp.calls.map((call) => call.mail.to[0]), ['admin@example.pt']);
+
+  // An ADMIN edit keeps the person's choice; the profile toggle subscribes again.
+  assert.equal((await request('PUT', `${root}/${report.id}`, 'qa-admin', { ...definition, name: 'Operação semanal' })).statusCode, 200);
+  assert.equal(json(await request('GET', '/api/v1/reports/subscriptions', 'qa-network-scoped')).items[0].subscribed, false);
+  assert.equal((await request('PATCH', `/api/v1/reports/subscriptions/${report.id}`, 'qa-readonly', { subscribed: true })).statusCode, 404);
+  const toggled = await request('PATCH', `/api/v1/reports/subscriptions/${report.id}`, 'qa-network-scoped', { subscribed: true });
+  assert.deepEqual(json(toggled), { reportId: report.id, subscribed: true });
+  smtp.calls.length = 0;
+  await request('POST', `${root}/${report.id}/run`, 'qa-admin');
+  await delivery.kick();
+  assert.deepEqual(smtp.calls.map((call) => call.mail.to[0]).sort(), ['admin@example.pt', 'scoped@example.pt']);
+
+  // Unsubscribing after the e-mail was queued still stops it at send time.
+  await prisma.notificationDelivery.updateMany({ where: { topic: 'SCHEDULED_REPORT' }, data: { status: 'SENT' } });
+  const kick = delivery.kick;
+  delivery.kick = async () => undefined; // hold the queue so the unsubscribe lands between queueing and sending
+  let queued: Awaited<ReturnType<typeof reports.run>>;
+  try { queued = await reports.run(report.id, 'MANUAL', null); } finally { delivery.kick = kick; }
+  await prisma.scheduledReportRecipient.update({ where: { reportId_userId: { reportId: report.id, userId: ids.scoped } }, data: { unsubscribedAt: new Date() } });
+  await delivery.kick();
+  const late = await prisma.notificationDelivery.findFirstOrThrow({ where: { dedupKey: `report:${queued.runId}:EMAIL:${ids.scoped}` } });
+  assert.deepEqual([late.status, late.failureReason], ['FAILED', 'REPORT_UNSUBSCRIBED']);
+  assert.equal((await prisma.notificationDelivery.findFirstOrThrow({ where: { dedupKey: `report:${queued.runId}:EMAIL:${ids.admin}` } })).status, 'SENT');
+
+  // The scheduler sends a due report once and moves it to the next slot.
+  await prisma.scheduledReport.update({ where: { id: report.id }, data: { nextRunAt: new Date(Date.now() - 60_000) } });
+  const runsBefore = await prisma.scheduledReportRun.count({ where: { reportId: report.id } });
+  await Promise.all([reports.tick(), reports.tick()]);
+  assert.equal(await prisma.scheduledReportRun.count({ where: { reportId: report.id, trigger: 'SCHEDULE' } }), 1);
+  assert.equal(await prisma.scheduledReportRun.count({ where: { reportId: report.id } }), runsBefore + 1);
+  const after = await prisma.scheduledReport.findUniqueOrThrow({ where: { id: report.id } });
+  assert.ok(after.nextRunAt!.getTime() > Date.now() && after.lastRunAt);
+
+  // Deleting the definition removes recipients and outputs; the audit trail stays.
+  assert.equal((await request('DELETE', `${root}/${report.id}`, 'qa-admin')).statusCode, 200);
+  assert.equal(await prisma.scheduledReportRecipient.count(), 0);
+  assert.equal(await prisma.scheduledReportOutput.count(), 0);
+  const actions = (await prisma.auditLog.findMany({ where: { entityType: 'ScheduledReport' }, select: { action: true } })).map((row) => row.action);
+  for (const action of ['SCHEDULED_REPORT_CREATED', 'SCHEDULED_REPORT_UPDATED', 'SCHEDULED_REPORT_RUN', 'SCHEDULED_REPORT_UNSUBSCRIBED', 'SCHEDULED_REPORT_SUBSCRIBED', 'SCHEDULED_REPORT_DELETED']) assert.ok(actions.includes(action), action);
+});
+
+test('Step 36 tags: site-scoped catalogue, RBAC, audit, device and subnet filters, Site mismatch and cascade on delete', async () => {
+  const create = async (siteId: string, name: string, color: string, persona = 'qa-admin') => request('POST', '/api/v1/tags', persona, { siteId, name, color });
+  const core = json(await create(ids.siteA, 'core', 'blue'));
+  const dmz = json(await create(ids.siteA, '  dmz  ', 'red'));
+  const lab = json(await create(ids.siteB, 'lab', 'green'));
+  assert.equal(dmz.name, 'dmz');
+  const duplicate = await create(ids.siteA, 'CORE', 'gray');
+  assert.equal(duplicate.statusCode, 409, duplicate.body);
+  assert.equal(json(duplicate).code, 'TAG_NAME_TAKEN');
+  assert.equal((await create(ids.siteB, 'core', 'gray')).statusCode, 201, 'the same name is free on another Site');
+  assert.equal((await create(ids.siteA, 'x', 'violet')).statusCode, 400);
+  assert.equal((await create(ids.siteA, 'ro', 'gray', 'qa-readonly')).statusCode, 403);
+  assert.equal((await create(ids.siteA, 'audit', 'gray', 'qa-auditor')).statusCode, 403);
+
+  const readable = await request('GET', `/api/v1/tags?siteId=${ids.siteA}`, 'qa-readonly');
+  assert.equal(readable.statusCode, 200, readable.body);
+  assert.deepEqual(json(readable).map((tag: { name: string }) => tag.name), ['core', 'dmz']);
+  assert.ok([403, 404].includes((await request('GET', `/api/v1/tags?siteId=${ids.siteB}`, 'qa-readonly')).statusCode), 'no access to Site B');
+
+  const put = (kind: 'devices' | 'subnets', id: string, tagIds: string[], persona = 'qa-admin') => request('PUT', `/api/v1/${kind}/${id}/tags`, persona, { tagIds });
+  const setA = await put('devices', ids.deviceA, [core.id]);
+  assert.equal(setA.statusCode, 200, setA.body);
+  assert.deepEqual(json(setA).tags.map((tag: { name: string }) => tag.name), ['core']);
+  assert.equal((await put('devices', ids.deviceA2, [dmz.id, core.id])).statusCode, 200);
+  const mismatch = await put('devices', ids.deviceA, [lab.id]);
+  assert.equal(mismatch.statusCode, 400);
+  assert.equal(json(mismatch).code, 'TAG_SITE_MISMATCH');
+  assert.equal((await put('devices', ids.deviceA, [core.id], 'qa-readonly')).statusCode, 403);
+  assert.equal((await put('devices', ids.deviceA, [core.id], 'qa-systems-scoped')).statusCode, 403, 'read-only scope cannot tag');
+
+  const deviceNames = async (tag: string, persona = 'qa-admin') => {
+    const response = await request('GET', `/api/v1/devices?siteId=${ids.siteA}&tag=${tag}`, persona);
+    assert.equal(response.statusCode, 200, response.body);
+    return json(response).items.map((item: { name: string; tags: Array<{ name: string }> }) => `${item.name}:${item.tags.map((t) => t.name).join('+')}`).sort();
+  };
+  assert.deepEqual(await deviceNames(core.id), ['HTTP Switch A2:core+dmz', 'HTTP Switch A:core']);
+  assert.deepEqual(await deviceNames(`${core.id},${dmz.id}`), ['HTTP Switch A2:core+dmz']);
+  assert.deepEqual(await deviceNames(core.id, 'qa-systems-scoped'), ['HTTP Switch A2:core+dmz', 'HTTP Switch A:core']);
+  const badFilter = await request('GET', `/api/v1/devices?siteId=${ids.siteA}&tag=nope`, 'qa-admin');
+  assert.equal(badFilter.statusCode, 400);
+  assert.equal(json(badFilter).code, 'TAG_FILTER_INVALID');
+  const single = json(await request('GET', `/api/v1/devices/${ids.deviceA}`, 'qa-admin'));
+  assert.deepEqual(single.tags.map((tag: { name: string }) => tag.name), ['core']);
+
+  const subnetSet = await put('subnets', ids.subnetA, [dmz.id], 'qa-network-scoped');
+  assert.equal(subnetSet.statusCode, 200, subnetSet.body);
+  assert.notEqual((await put('subnets', ids.subnetB, [lab.id], 'qa-network-scoped')).statusCode, 200, 'no write access to Site B');
+  const subnets = await request('GET', `/api/v1/subnets?siteId=${ids.siteA}&tag=${dmz.id}`, 'qa-network-scoped');
+  assert.equal(subnets.statusCode, 200, subnets.body);
+  assert.deepEqual(json(subnets).items.map((item: { cidr: string }) => item.cidr), ['10.250.1.0/24']);
+  assert.deepEqual(json(await request('GET', `/api/v1/subnets?siteId=${ids.siteA}&tag=${core.id}`, 'qa-admin')).items, []);
+  assert.deepEqual(json(await request('GET', `/api/v1/subnets/${ids.subnetA}`, 'qa-admin')).tags.map((tag: { name: string }) => tag.name), ['dmz']);
+
+  // NETWORK_OPERATOR assigns existing tags (above) but cannot change the Site catalog: deleting a tag would reach servers too.
+  assert.equal((await create(ids.siteA, 'net', 'gray', 'qa-network-scoped')).statusCode, 403, 'NETWORK_OPERATOR cannot create tags');
+  assert.equal((await request('PATCH', `/api/v1/tags/${core.id}`, 'qa-network-scoped', { name: 'hijack', color: 'red' })).statusCode, 403, 'NETWORK_OPERATOR cannot rename or recolour tags');
+  assert.equal((await request('DELETE', `/api/v1/tags/${dmz.id}`, 'qa-network-scoped')).statusCode, 403, 'NETWORK_OPERATOR cannot delete tags');
+  assert.deepEqual(json(await request('GET', `/api/v1/tags?siteId=${ids.siteA}`, 'qa-network-scoped')).map((tag: { name: string; color: string }) => `${tag.name}:${tag.color}`), ['core:blue', 'dmz:red'], 'catalog unchanged, still readable');
+
+  const renamed = await request('PATCH', `/api/v1/tags/${core.id}`, 'qa-admin', { name: 'backbone', color: 'purple' });
+  assert.equal(renamed.statusCode, 200, renamed.body);
+  assert.equal(json(renamed).deviceCount, 2);
+  assert.equal((await request('DELETE', `/api/v1/tags/${dmz.id}`, 'qa-admin')).statusCode, 200);
+  assert.deepEqual(json(await request('GET', `/api/v1/devices/${ids.deviceA2}`, 'qa-admin')).tags.map((tag: { name: string }) => tag.name), ['backbone']);
+  assert.deepEqual(json(await request('GET', `/api/v1/subnets/${ids.subnetA}`, 'qa-admin')).tags, []);
+
+  const actions = (await prisma.auditLog.findMany({ where: { action: { in: ['TAG_CREATED', 'TAG_UPDATED', 'TAG_DELETED', 'DEVICE_TAGS_UPDATED', 'SUBNET_TAGS_UPDATED'] } }, select: { action: true, metadata: true } }));
+  const count = (action: string) => actions.filter((entry) => entry.action === action).length;
+  assert.equal(count('TAG_CREATED'), 4);
+  assert.equal(count('TAG_UPDATED'), 1);
+  assert.equal(count('TAG_DELETED'), 1);
+  assert.equal(count('DEVICE_TAGS_UPDATED'), 2);
+  assert.equal(count('SUBNET_TAGS_UPDATED'), 1);
+  const deleted = actions.find((entry) => entry.action === 'TAG_DELETED')?.metadata as { removedFromDevices: number; removedFromSubnets: number };
+  assert.deepEqual([deleted.removedFromDevices, deleted.removedFromSubnets], [1, 1]);
 });

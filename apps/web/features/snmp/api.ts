@@ -71,3 +71,8 @@ const query = (values: Record<string, string | number | undefined>) => {
 export const getSnmpFleetSummary = (siteId?: string) => apiFetch<SnmpFleetSummary>(`/api/v1/snmp/fleet/summary${query({ siteId })}`);
 export const listSnmpDrifts = (params: SnmpDriftQuery = {}) => apiFetch<SnmpDriftPage>(`/api/v1/snmp/drifts${query(params)}`);
 export const bulkReviewSnmpDrifts = (ids: string[], status: 'ACCEPTED' | 'IGNORED') => apiFetch<BulkReviewResponse>('/api/v1/snmp/drifts/bulk-review', { method: 'POST', body: JSON.stringify({ ids, status }) });
+
+/** Approved or in-progress change plans whose window is open now and that include this device or one of its interfaces (Step 30). */
+export type AttachableChangePlan = { id: string; title: string; status: 'APPROVED' | 'IN_PROGRESS'; plannedStartAt: string; plannedEndAt: string };
+export const getAttachableChangePlans = (deviceId: string) => apiFetch<AttachableChangePlan[]>(`/api/v1/change-plans/attachable?deviceId=${encodeURIComponent(deviceId)}`);
+export const linkSnmpWriteToChangePlan = (changePlanId: string, snmpWriteRequestId: string) => apiFetch<{ changePlanId: string; snmpWriteRequestId: string }>(`/api/v1/change-plans/${encodeURIComponent(changePlanId)}/snmp-writes`, { method: 'POST', body: JSON.stringify({ snmpWriteRequestId }) });

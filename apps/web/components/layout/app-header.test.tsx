@@ -118,3 +118,35 @@ it('refreshes the badge immediately when a notification read state changes', asy
   window.dispatchEvent(new Event('cociber:notifications-changed'));
   expect(await screen.findByRole('button', { name: '1 alerta ativo' })).toBeInTheDocument();
 });
+
+describe('AppHeader topbar state requests', () => {
+  type Options = { fallback?: () => Promise<unknown>; onEvent?: (event: { data: unknown }) => void };
+  const topbarCalls = () => mocks.apiFetch.mock.calls.filter(([path]) => path === '/api/v1/dashboard/topbar-state').length;
+
+  it('shares one request when the events fallback poll and the first load ask together', async () => {
+    let options: Options = {};
+    mocks.hasRole.mockReturnValue(false);
+    mocks.load.mockImplementation((value: Options) => { options = value; });
+    let release!: (value: unknown) => void;
+    mocks.apiFetch.mockReturnValue(new Promise((resolve) => { release = resolve; }));
+    render(<AppHeader section="Infraestrutura" onOpenSidebar={vi.fn()} onOpenGlobalSearch={vi.fn()} />);
+    const polled = options.fallback?.();
+    expect(topbarCalls()).toBe(1);
+    release(state);
+    await expect(polled).resolves.toEqual(state);
+    // Once it has answered, the next load is a new request.
+    mocks.apiFetch.mockResolvedValue(state);
+    await options.fallback?.();
+    expect(topbarCalls()).toBe(2);
+  });
+
+  it('still asks again after an operational event while an older request is in flight', async () => {
+    let options: Options = {};
+    mocks.hasRole.mockReturnValue(false);
+    mocks.load.mockImplementation((value: Options) => { options = value; });
+    mocks.apiFetch.mockReturnValueOnce(new Promise(() => undefined)).mockResolvedValue(state);
+    render(<AppHeader section="Infraestrutura" onOpenSidebar={vi.fn()} onOpenGlobalSearch={vi.fn()} />);
+    options.onEvent?.({ data: { alertId: 'a1' } });
+    await waitFor(() => expect(topbarCalls()).toBe(2));
+  });
+});

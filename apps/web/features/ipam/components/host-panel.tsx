@@ -15,6 +15,7 @@ import {
 import type { HostDetail, Service, ServiceInput } from '../types';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { formatDateTime } from '@/lib/format/date';
+import { hostStatusLabel, observedStatusLabel, sourceLabel } from '../ip-state';
 type ServiceFormState = Omit<ServiceInput, 'port' | 'hostId'> & { port: string | number };
 
 const emptyService: ServiceFormState = { name: '', protocol: 'TCP', port: '', status: 'UNKNOWN', version: '', notes: '' };
@@ -109,7 +110,7 @@ export function HostPanel({ host, canEdit, close, reload, success, toastError }:
     <label>Nome<input required placeholder="Nome do serviço" value={service.name} onChange={(event) => setService({ ...service, name: event.target.value })} /></label>
     <label>Protocolo<select value={service.protocol} onChange={(event) => setService({ ...service, protocol: event.target.value })}><option>TCP</option><option>UDP</option><option>OTHER</option></select></label>
     <label>Porta<input type="number" min="1" max="65535" required={service.protocol !== 'OTHER'} disabled={service.protocol === 'OTHER'} placeholder="Porta" value={service.port} onChange={(event) => setService({ ...service, port: event.target.value })} /></label>
-    <label>Estado<select value={service.status} onChange={(event) => setService({ ...service, status: event.target.value })}>{['UNKNOWN', 'OPEN', 'CLOSED', 'DEGRADED', 'DISABLED'].map((status) => <option key={status}>{status}</option>)}</select></label>
+    <label>Estado<select value={service.status} onChange={(event) => setService({ ...service, status: event.target.value })}>{['UNKNOWN', 'OPEN', 'CLOSED', 'DEGRADED', 'DISABLED'].map((status) => <option key={status} value={status}>{observedStatusLabel(status)}</option>)}</select></label>
     <label>Versão<input placeholder="Versão" value={service.version} onChange={(event) => setService({ ...service, version: event.target.value })} /></label>
     <label>Notas<textarea placeholder="Notas" value={service.notes} onChange={(event) => setService({ ...service, notes: event.target.value })} /></label>
     <div className="form-actions"><button type="button" className="secondary-button" onClick={cancelServiceEdit}>Cancelar</button><button className="primary-button">{submitLabel}</button></div>
@@ -117,13 +118,13 @@ export function HostPanel({ host, canEdit, close, reload, success, toastError }:
 
   return <>{confirmDialog}<aside className="host-panel" aria-label="Ficha do Host">
     <div className="host-panel-head"><div><span className="section-kicker">FICHA OPERACIONAL</span><h2>{host.name}</h2><span>{host.hostname || host.observedHostname || 'Sem hostname'}</span></div><button className="icon-button" onClick={close} aria-label="Fechar"><X size={18} /></button></div>
-    <div className="host-status-line"><span>Manual: <strong>{host.status}</strong></span><span>Observado: <strong>{host.observedStatus || '—'}</strong></span><span>Origem: <strong>{host.source}</strong></span><span>Último avistamento: <strong>{host.lastSeenAt ? formatDateTime(host.lastSeenAt) : '—'}</strong></span></div>
+    <div className="host-status-line"><span>Manual: <strong>{hostStatusLabel(host.status)}</strong></span><span>Observado: <strong>{observedStatusLabel(host.observedStatus)}</strong></span><span>Origem: <strong>{sourceLabel(host.source)}</strong></span><span>Último avistamento: <strong>{host.lastSeenAt ? formatDateTime(host.lastSeenAt) : '—'}</strong></span></div>
     {editing ? <form className="modal-form host-edit-form" onSubmit={saveHost}>
       <label>Nome<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
       <label>Hostname<input value={form.hostname || ''} onChange={(event) => setForm({ ...form, hostname: event.target.value })} /></label>
       <label>Sistema operativo<input value={form.operatingSystem || ''} onChange={(event) => setForm({ ...form, operatingSystem: event.target.value })} /></label>
       <label>MAC<input value={form.macAddress || ''} onChange={(event) => setForm({ ...form, macAddress: event.target.value })} /></label>
-      <label>Estado<select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}>{['UNKNOWN', 'ACTIVE', 'INACTIVE', 'MAINTENANCE', 'RETIRED'].map((status) => <option key={status}>{status}</option>)}</select></label>
+      <label>Estado<select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}>{['UNKNOWN', 'ACTIVE', 'INACTIVE', 'MAINTENANCE', 'RETIRED'].map((status) => <option key={status} value={status}>{hostStatusLabel(status)}</option>)}</select></label>
       <label>Notas<textarea value={form.notes || ''} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label>
       <div className="form-actions"><button type="button" className="secondary-button" onClick={() => setEditing(false)}>Cancelar</button><button className="primary-button">Guardar</button></div>
     </form> : <>
@@ -148,7 +149,7 @@ export function HostPanel({ host, canEdit, close, reload, success, toastError }:
     <section className="host-section">
       <h3>Services</h3>
       {host.services.map((item) => <article className="service-row" key={item.id}>
-        <div><strong>{item.name}</strong><span>{item.protocol || 'OTHER'} {item.port ? `:${item.port}` : ''} · manual {item.status || 'UNKNOWN'} · observado {item.observedStatus || '—'}</span><small>{item.version || ''}{item.notes ? ` · ${item.notes}` : ''} · {item.source}</small><BookStackContextLink type="service" id={item.id} /></div>
+        <div><strong>{item.name}</strong><span>{item.protocol || 'OTHER'} {item.port ? `:${item.port}` : ''} · manual {observedStatusLabel(item.status || 'UNKNOWN')} · observado {observedStatusLabel(item.observedStatus)}</span><small>{item.version || ''}{item.notes ? ` · ${item.notes}` : ''} · {item.source}</small><BookStackContextLink type="service" id={item.id} /></div>
         {canEdit && <div className="form-actions"><button className="icon-button subtle" title="Editar Service" aria-label={`Editar Service ${item.name}`} onClick={() => beginServiceEdit(item)}><Edit3 size={14} /></button><button className="icon-button subtle danger" title="Eliminar Service" onClick={() => void askConfirm({ message: `Eliminar ${item.name}?`, destructive: true }).then((confirmed) => { if (confirmed) void act('Eliminar Service', () => deleteService(item.id)); })}><Trash2 size={14} /></button></div>}
         {editingServiceId === item.id && serviceForm(saveServiceHandler, 'Guardar Service')}
       </article>)}

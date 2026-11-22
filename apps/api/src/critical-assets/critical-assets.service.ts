@@ -1,3 +1,4 @@
+import { queueUserDeliveries } from '../notifications/delivery/delivery-queue';
 import { NotificationTopic, unmutedRecipients } from '../notifications/notification-preferences';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@simoes/database';
@@ -128,9 +129,11 @@ export function isCriticalAssetOutcome(value: unknown): value is CriticalAssetOu
   return typeof value === 'string' && (CRITICAL_ASSET_OUTCOMES as readonly string[]).includes(value);
 }
 
-export type AssetQuery = { type?: string; owner?: string; outcome?: string; due?: string; q?: string; page?: number; pageSize?: number };
+export type AssetQuery = { type?: string; owner?: string; outcome?: string; due?: string; tier?: string; q?: string; page?: number; pageSize?: number };
 
-type PageableAsset = { name: string; type: string; hostname: string | null; managementIp: string | null; serialNumber: string | null; assetTag: string | null; owner: { id: string } | null; latestOutcome: string | null; dueState: string };
+type PageableAsset = { name: string; type: string; hostname: string | null; managementIp: string | null; serialNumber: string | null; assetTag: string | null; owner: { id: string } | null; latestOutcome: string | null; dueState: string; criticalityTier?: string | null };
+/** Overdue first, as the workbench orders its rows by default. */
+const DUE_RANK: Record<string, number> = { overdue: 0, due_this_week: 1, unscheduled: 2, up_to_date: 3 };
 
 /** Filters, then pages, the decorated asset rows. Filtering happens on the server so the page never loads every row. */
 export function pageAssets<T extends PageableAsset>(assets: T[], query: AssetQuery) {
@@ -142,12 +145,15 @@ export function pageAssets<T extends PageableAsset>(assets: T[], query: AssetQue
     if (query.outcome === NO_FILTER_VALUE) { if (asset.latestOutcome) return false; }
     else if (query.outcome && asset.latestOutcome !== query.outcome) return false;
     if (query.due && asset.dueState !== query.due) return false;
+    if (query.tier && asset.criticalityTier !== query.tier) return false;
     if (needle && ![asset.name, asset.hostname, asset.managementIp, asset.serialNumber, asset.assetTag].filter(Boolean).join(' ').toLowerCase().includes(needle)) return false;
     return true;
   });
+  // Stable sort: overdue first, then by name, so a page boundary never reorders rows between requests.
+  const ordered = [...filtered].sort((a, b) => (DUE_RANK[a.dueState] ?? 9) - (DUE_RANK[b.dueState] ?? 9) || a.name.localeCompare(b.name));
   const pageSize = Math.min(Math.max(Math.floor(query.pageSize ?? 50), 1), MAX_PAGE_SIZE);
   const page = Math.max(Math.floor(query.page ?? 1), 1);
-  return { total: filtered.length, page, pageSize, items: filtered.slice((page - 1) * pageSize, page * pageSize) };
+  return { total: ordered.length, page, pageSize, items: ordered.slice((page - 1) * pageSize, page * pageSize) };
 }
 
 /** Counts for the summary strip, computed over the same rows the person may see. */
@@ -161,9 +167,19 @@ export function summarizeAssets(assets: Array<{ owner: unknown; dueState: string
   };
 }
 
+export const REVIEW_NOTES_MAX_LENGTH = 2000;
+
+/** Notes are stored as correction text, so they are capped the same way for single and bulk review. */
+export function assertReviewNotesLength(notes: unknown): void {
+  if (typeof notes === 'string' && notes.trim().length > REVIEW_NOTES_MAX_LENGTH) {
+    throw new BadRequestException(`As notas podem ter no máximo ${REVIEW_NOTES_MAX_LENGTH} caracteres.`);
+  }
+}
+
 /** Outcome and notes rules shared by single and bulk review. A correction request needs the data to fix. */
 export function validateReview(outcome: unknown, notes: unknown): { outcome: CriticalAssetOutcomeValue; notes?: string } {
   if (!isCriticalAssetOutcome(outcome)) throw new BadRequestException('Resultado inválido');
+  assertReviewNotesLength(notes);
   const text = typeof notes === 'string' ? notes.trim() : '';
   if (outcome === 'NEEDS_CORRECTION' && !text) throw new BadRequestException('Indica os dados a corrigir.');
   return { outcome, notes: text || undefined };
@@ -208,11 +224,13 @@ export class CriticalAssetsService implements OnModuleInit, OnModuleDestroy {
               const type = NotificationTopic.CRITICAL_ASSET_ATTESTATION;
               const recipients = await unmutedRecipients(tx, mapping.group.members.map(({ userId }) => userId), type);
               const source = new URLSearchParams({ siteId: site.id, assetId: device.id, week: weekStart.toISOString().slice(0, 10) });
-              if (recipients.length) await tx.notification.createMany({ data: recipients.map((userId) => ({
-                userId, type, title: 'Revisão semanal de ativo crítico',
-                message: `${site.name}: confirma nome, tipo, hostname, IP de gestão, número de série, etiqueta e estado de ${device.name}.`,
-                sourceHref: `/attestacao-ativos?${source}`,
-              })) });
+              const title = 'Revisão semanal de ativo crítico';
+              const message = `${site.name}: confirma nome, tipo, hostname, IP de gestão, número de série, etiqueta e estado de ${device.name}.`;
+              const sourceHref = `/attestacao-ativos?${source}`;
+              if (recipients.length) {
+                await tx.notification.createMany({ data: recipients.map((userId) => ({ userId, type, title, message, sourceHref })) });
+                await queueUserDeliveries(tx, recipients.map((userId) => ({ userId, type, title, message, href: sourceHref })));
+              }
             });
           } catch (error) {
             this.logger.error(`Weekly attestation failed for device ${device.id} at site ${site.id}`, error instanceof Error ? error.stack : String(error));
@@ -251,7 +269,8 @@ export class CriticalAssetsService implements OnModuleInit, OnModuleDestroy {
         ...computeDueState(history, Boolean(owner), site.timezone, now, cadenceWeeks(device.criticalityTier, site)),
         latestOutcome: latest?.outcome ?? null,
         latestConfirmedAt: latest?.confirmedAt ?? null,
-        attestations: history.map((row) => withReviewer(row, reviewers)),
+        // Due time of each cycle: Monday 09:00 Site-local, one tier cadence after it opens. The web compliance view uses it as the deadline.
+        attestations: history.map((row) => ({ ...withReviewer(row, reviewers), dueAt: cycleWindow(row.weekStart, site.timezone, cadenceWeeks(device.criticalityTier, site)).dueAt.toISOString() })),
       };
     };
     const visible = devices.filter((device) => !groupIds || mapped.some((mapping) => mapping.assetType === device.type && groupIds.includes(mapping.groupId)));
@@ -299,7 +318,8 @@ export class CriticalAssetsService implements OnModuleInit, OnModuleDestroy {
     return result;
   }
 
-  async cadence(siteId: string, _user: AuthenticatedUser) {
+  async cadence(siteId: string, user: AuthenticatedUser) {
+    await this.access.assertSite(user, 'READ', siteId, 'DEVICE');
     const site = await this.prisma.site.findUniqueOrThrow({ where: { id: siteId }, select: { criticalCadenceT1Weeks: true, criticalCadenceT2Weeks: true, criticalCadenceT3Weeks: true } });
     return { T1: site.criticalCadenceT1Weeks, T2: site.criticalCadenceT2Weeks, T3: site.criticalCadenceT3Weeks };
   }
@@ -358,6 +378,8 @@ export class CriticalAssetsService implements OnModuleInit, OnModuleDestroy {
       const record = (item ?? {}) as Record<string, unknown>;
       return { id: typeof record.id === 'string' ? record.id : '', outcome: record.outcome, notes: record.notes };
     });
+    // An oversized note rejects the whole request before anything is written, instead of skipping only that item.
+    for (const item of parsed) assertReviewNotesLength(item.notes);
     const ids = [...new Set(parsed.map((item) => item.id).filter(Boolean))];
     const attestations = await this.prisma.criticalAssetAttestation.findMany({ where: { id: { in: ids } }, include: { device: true } });
     const byId = new Map(attestations.map((row) => [row.id, row]));

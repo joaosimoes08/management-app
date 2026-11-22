@@ -10,6 +10,7 @@ import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { CreateDiscoveryJobDto, CreateHostDto, CreateIpDto, CreateServiceDto, CreateSiteDto, CreateSubnetDto, CreateVlanDto, ReviewDiscoveryResultDto, UpdateDiscoveryScheduleDto, UpdateHostDto, UpdateIpDto, UpdateServiceDto, UpdateSiteDto, UpdateSubnetDto, UpdateVlanDto } from './dto';
 import { IpamAccessService } from './ipam-access.service';
+import { parseTagFilter, subnetTagWhere, tagsInclude, withFlatTags } from '../tags/tag-rules';
 import { assertDiscoveryAllowed, DiscoveryPolicyError, normalizeDiscoveryPorts, parseNetwork } from '../discovery/discovery-policy';
 import { resolveDiscoveryProfile } from '../discovery/discovery-profiles';
 import { compareDiscoveryResults } from '../discovery/discovery-comparison';
@@ -83,13 +84,15 @@ export class IpamService implements OnModuleDestroy {
   async updateVlan(id: string, dto: UpdateVlanDto, user: AuthenticatedUser) { const current = await this.access.assertVlan(user, 'UPDATE', id); if (dto.siteId && dto.siteId !== current.siteId) await this.access.assertSite(user, 'UPDATE', dto.siteId); const vlan = await this.prisma.vlan.update({ where: { id }, data: { vlanId: dto.vlanId, name: dto.name, description: dto.description, siteId: dto.siteId || null } }).catch(() => { throw new NotFoundException('VLAN não encontrada'); }); await this.auditChange(user, 'VLAN_UPDATED', 'Vlan', id); return vlan; }
   async deleteVlan(id: string, user: AuthenticatedUser) { await this.access.assertVlan(user, 'DELETE', id); const vlan = await this.prisma.vlan.findUnique({ where: { id }, include: { _count: { select: { subnets: true, nativeInterfaces: true, accessInterfaces: true, interfaceVlans: true } } } }); if (!vlan) throw new NotFoundException('VLAN não encontrada'); const linked = vlan._count.subnets + vlan._count.nativeInterfaces + vlan._count.accessInterfaces + vlan._count.interfaceVlans; if (linked) throw new ConflictException(`Não é possível eliminar esta VLAN: existem ${linked} relações de subnet/interface associadas.`); await this.prisma.vlan.delete({ where: { id } }); await this.auditChange(user, 'VLAN_DELETED', 'Vlan', id, { vlanId: vlan.vlanId }); return { success: true }; }
 
-  async listSubnets(user: AuthenticatedUser, siteId?: string, vlanId?: string, search?: string, pageText?: string, pageSizeText?: string, listOptions: { band?: string; minUtilization?: string; sort?: string } = {}) {
-    const options = parseSubnetListOptions(listOptions);
+  async listSubnets(user: AuthenticatedUser, siteId?: string, vlanId?: string, search?: string, pageText?: string, pageSizeText?: string, listOptions: { band?: string; minUtilization?: string; sort?: string; tag?: string } = {}) {
+    const { tag, ...utilizationOptions } = listOptions;
+    const options = parseSubnetListOptions(utilizationOptions);
+    const tagFilters = subnetTagWhere(parseTagFilter(tag));
     const page = Math.max(Number(pageText) || 1, 1); const pageSize = Math.min(Math.max(Number(pageSizeText) || 25, 1), 100);
     const accessWhere = await this.access.whereFor(user, 'READ', 'subnet');
     const filters = { ...(siteId ? { siteId } : {}), ...(vlanId ? { vlanId } : {}), ...(search ? { OR: [{ cidr: { contains: search, mode: 'insensitive' as const } }, { purpose: { contains: search, mode: 'insensitive' as const } }, { environment: { contains: search, mode: 'insensitive' as const } }] } : {}) };
-    const where = { AND: [accessWhere, filters] };
-    const include = { site: true, vlan: true, _count: { select: { ips: true, discoveryJobs: true } } } as const;
+    const where = { AND: [accessWhere, filters, ...tagFilters] };
+    const include = { site: true, vlan: true, ...tagsInclude, _count: { select: { ips: true, discoveryJobs: true } } } as const;
     /** Per-subnet utilisation from SQL counts (groupBy subnet + state), minus rows on network/broadcast/gateway addresses. */
     const utilizationFor = async (subnets: Array<{ id: string; cidr: string; gateway: string | null }>) => {
       const counts = new Map<string, SubnetStateCounts>();
@@ -109,7 +112,7 @@ export class IpamService implements OnModuleDestroy {
     if (!needsAll) {
       const [items, total] = await Promise.all([this.prisma.subnet.findMany({ where, include, orderBy: { cidr: options.sort?.direction ?? 'asc' }, skip: (page - 1) * pageSize, take: pageSize }), this.prisma.subnet.count({ where })]);
       const utilization = await utilizationFor(items);
-      return { items: items.map((item) => ({ ...item, utilization: utilization.get(item.id) })), page, pageSize, total, totalPages: Math.ceil(total / pageSize) };
+      return { items: items.map((item) => ({ ...withFlatTags(item), utilization: utilization.get(item.id) })), page, pageSize, total, totalPages: Math.ceil(total / pageSize) };
     }
     const all = await this.prisma.subnet.findMany({ where, select: { id: true, cidr: true, gateway: true }, orderBy: { cidr: 'asc' } });
     const utilization = await utilizationFor(all);
@@ -131,7 +134,7 @@ export class IpamService implements OnModuleDestroy {
     const pageIds = matching.slice((page - 1) * pageSize, page * pageSize).map((item) => item.id);
     const rows = await this.prisma.subnet.findMany({ where: { id: { in: pageIds } }, include });
     const byId = new Map(rows.map((item) => [item.id, item]));
-    const items = pageIds.map((id) => byId.get(id)).filter((item): item is NonNullable<typeof item> => Boolean(item)).map((item) => ({ ...item, utilization: utilization.get(item.id) }));
+    const items = pageIds.map((id) => byId.get(id)).filter((item): item is NonNullable<typeof item> => Boolean(item)).map((item) => ({ ...withFlatTags(item), utilization: utilization.get(item.id) }));
     return { items, page, pageSize, total: matching.length, totalPages: Math.ceil(matching.length / pageSize) };
   }
   async createSubnet(dto: CreateSubnetDto, user: AuthenticatedUser) { const parsed = parseCidr(dto.cidr); const cidr = `${numberToIpv4(parsed.network)}/${parsed.bits}`; if (dto.vlanId && await this.prisma.subnet.findFirst({ where: { vlanId: dto.vlanId } })) throw new ConflictException('A VLAN já tem uma subnet associada'); try { const subnet = await this.prisma.subnet.create({ data: { cidr, version: 4, gateway: dto.gateway, purpose: dto.purpose, environment: dto.environment, siteId: dto.siteId || null, vlanId: dto.vlanId || null } }); await this.auditChange(user, 'SUBNET_CREATED', 'Subnet', subnet.id, { cidr }); return subnet; } catch { throw new ConflictException('Já existe essa subnet ou a VLAN já está associada'); } }

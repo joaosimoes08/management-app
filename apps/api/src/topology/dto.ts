@@ -73,3 +73,20 @@ export class UpdateDeviceConnectionDto {
   @IsOptional() @IsObject() expectedRevisions?: Record<string, number>;
 }
 export class AssociateTopologyConnectionDto { @IsOptional() @IsNumber() revision?: number; }
+
+/** Exactly one of deviceId, pduId or rackId names what goes down. upstreamDeviceIds is a comma-separated list of anchor devices. */
+export class TopologyImpactQueryDto {
+  @IsOptional() @IsUUID() deviceId?: string;
+  @IsOptional() @IsUUID() pduId?: string;
+  @IsOptional() @IsUUID() rackId?: string;
+  @IsOptional() @IsString() @MaxLength(4000) upstreamDeviceIds?: string;
+  @IsOptional() @IsString() maxDepth?: string;
+  @IsOptional() @IsString() includeLogical?: string;
+}
+
+export class TopologyPathQueryDto {
+  @IsUUID() fromDeviceId!: string;
+  @IsUUID() toDeviceId!: string;
+  @IsOptional() @IsString() maxDepth?: string;
+  @IsOptional() @IsString() includeLogical?: string;
+}

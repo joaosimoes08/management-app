@@ -6,9 +6,10 @@ import { Bell, X } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 import {
   getNotificationPreferences, listNotifications, markNotificationRead, markNotificationsRead,
-  notificationTopics, saveNotificationPreference, type NotificationItem, type NotificationTopic,
+  notificationTopics, saveNotificationPreference, type NotificationItem, type NotificationPreferenceChange, type NotificationTopic,
 } from './api';
 import styles from './notifications-panel.module.css';
+import { ReportSubscriptions } from './report-subscriptions';
 
 type Status = 'unread' | 'all';
 
@@ -43,10 +44,13 @@ export function NotificationsPanel({ userId }: { userId: string }) {
     },
   });
   const preference = useMutation({
-    mutationFn: ({ type: topic, muted }: { type: NotificationTopic; muted: boolean }) => saveNotificationPreference(topic, muted),
+    mutationFn: ({ type: topic, ...change }: { type: NotificationTopic } & NotificationPreferenceChange) => saveNotificationPreference(topic, change),
     onSuccess: (saved) => queryClient.setQueryData(preferenceKey, (items: typeof preferences.data) =>
       items?.map((item) => item.type === saved.type ? saved : item)),
   });
+  const teamsAvailable = (preferences.data ?? []).some((item) => item.teamsAvailable);
+  const emailAvailable = (preferences.data ?? []).some((item) => item.emailAvailable);
+  const hasEmail = (preferences.data ?? []).some((item) => item.hasEmail);
   const rows = notifications.data?.pages.flatMap((page) => page.items) ?? [];
   const activeId = active?.id;
   useEffect(() => { if (activeId) heading.current?.focus(); }, [activeId]);
@@ -113,15 +117,18 @@ export function NotificationsPanel({ userId }: { userId: string }) {
     </section>
     <section className="ipam-card" aria-labelledby="notification-preferences-heading">
       <div className="panel-heading">
-        <div><h2 id="notification-preferences-heading"><Bell size={15} aria-hidden="true" /> {t('notifications.preferences')}</h2><p className="panel-description">{t('notifications.preferenceHint')}</p></div>
+        <div><h2 id="notification-preferences-heading"><Bell size={15} aria-hidden="true" /> {t('notifications.preferences')}</h2><p className="panel-description">{t('notifications.preferenceHint')}</p>{preferences.isSuccess && <p className="panel-description">{t(teamsAvailable ? 'notifications.teamsHint' : 'notifications.teamsUnavailable')}</p>}{preferences.isSuccess && <p className="panel-description">{t(!emailAvailable ? 'notifications.emailUnavailable' : hasEmail ? 'notifications.emailHint' : 'notifications.emailMissing')}</p>}</div>
       </div>
       {preferences.isPending && <p role="status">{t('common.loading')}</p>}
       {(preferences.isError || preference.isError) && <p className="ipam-alert error" role="alert">{t(preference.isError ? 'notifications.preferenceError' : 'notifications.preferencesLoadError')}</p>}
       <ul className={styles.list}>
         {(preferences.data ?? []).map((item) => <li className={styles.preference} key={item.type}>
           <label><input type="checkbox" checked={!item.muted} disabled={preference.isPending} onChange={(event) => preference.mutate({ type: item.type, muted: !event.target.checked })} /> {topicLabel(item.type)}</label>
+          <label className={styles.channel}><input type="checkbox" aria-label={`${t('notifications.teams')}: ${topicLabel(item.type)}`} checked={Boolean(item.teams) && !item.muted} disabled={preference.isPending || item.muted || (!item.teamsAvailable && !item.teams)} onChange={(event) => preference.mutate({ type: item.type, teams: event.target.checked })} /> {t('notifications.teams')}</label>
+          <label className={styles.channel}><input type="checkbox" aria-label={`${t('notifications.email')}: ${topicLabel(item.type)}`} checked={Boolean(item.email) && !item.muted} disabled={preference.isPending || item.muted || ((!item.emailAvailable || !item.hasEmail) && !item.email)} onChange={(event) => preference.mutate({ type: item.type, email: event.target.checked })} /> {t('notifications.email')}</label>
         </li>)}
       </ul>
     </section>
+    <ReportSubscriptions userId={userId} />
   </div>;
 }

@@ -70,12 +70,25 @@
   margin: 0;
 }
 
+/* Grid, not space-between: the topic column flexes and the two channel columns keep a fixed width, so the Teams and email checkboxes line up on every row. */
 .preference {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content max-content;
+  align-items: center;
+  gap: 6px 24px;
   padding: 8px 0;
   font-size: 13px;
 }
 
+.channel {
+  color: var(--muted);
+}
+
 @media (max-width: 600px) {
+  .preference {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .item {
     grid-template-columns: minmax(0, 1fr) auto;
   }

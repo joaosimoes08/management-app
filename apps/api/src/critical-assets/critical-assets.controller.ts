@@ -1,26 +1,37 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { ArrayMaxSize, IsArray, IsIn, IsOptional, IsString, IsUUID } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import { Roles } from '../auth/roles.decorator';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { IsIanaTimeZone } from '../common/time-zone';
-import { AssetQuery, BULK_CONFIRM_LIMIT, CriticalAssetsService } from './critical-assets.service';
+import { AssetQuery, BULK_CONFIRM_LIMIT, CriticalAssetsService, REVIEW_NOTES_MAX_LENGTH } from './critical-assets.service';
+
+/** Free-text lengths: notes and descriptions stay well under a page; references are short identifiers. */
+export const NOTES_MAX_LENGTH = REVIEW_NOTES_MAX_LENGTH;
+export const REFERENCE_MAX_LENGTH = 200;
+
+/** A paging query parameter: absent is fine, anything else must be a positive whole number. */
+export function parsePositiveInt(value: string | undefined, name: string): number | undefined {
+  if (value === undefined || value === '') return undefined;
+  if (!/^[1-9]\d*$/.test(value)) throw new BadRequestException(`${name} tem de ser um número inteiro positivo`);
+  return Number(value);
+}
 
 class MappingDto {
   @IsIn(['SWITCH', 'ROUTER', 'FIREWALL', 'SERVER', 'STORAGE', 'OTHER']) assetType!: string;
   @IsUUID() groupId!: string;
   @IsIanaTimeZone() timezone!: string;
 }
-class ConfirmDto {
+export class ConfirmDto {
   @IsIn(['CONFIRMED', 'NEEDS_CORRECTION', 'NOT_FOUND']) outcome!: string;
-  @IsOptional() @IsString() notes?: string;
+  @IsOptional() @IsString() @MaxLength(NOTES_MAX_LENGTH) notes?: string;
 }
 class BulkConfirmDto {
   @IsArray() @ArrayMaxSize(BULK_CONFIRM_LIMIT) items!: Array<{ id: string; outcome: string; notes?: string }>;
 }
-class CloseCorrectionDto {
-  @IsOptional() @IsString() changeReference?: string;
-  @IsOptional() @IsString() note?: string;
+export class CloseCorrectionDto {
+  @IsOptional() @IsString() @MaxLength(REFERENCE_MAX_LENGTH) changeReference?: string;
+  @IsOptional() @IsString() @MaxLength(NOTES_MAX_LENGTH) note?: string;
 }
 
 const REVIEWERS = ['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'STORAGE_OPERATOR'] as const;
@@ -34,7 +45,7 @@ export class CriticalAssetsController {
   @Patch('cadence') @Roles('ADMIN') saveCadence(@Query('siteId') siteId: string, @Body() dto: unknown, @Req() req: { user: AuthenticatedUser }) { return this.service.saveCadence(siteId, dto, req.user); }
   @Get('summary') @Roles(...VIEWERS) summary(@Query('siteId') siteId: string, @Req() req: { user: AuthenticatedUser }) { return this.service.summary(siteId, req.user); }
   @Get('assets') @Roles(...VIEWERS) page(@Query('siteId') siteId: string, @Query() query: Record<string, string | undefined>, @Req() req: { user: AuthenticatedUser }) {
-    const assetQuery: AssetQuery = { type: query.type, owner: query.owner, outcome: query.outcome, due: query.due, q: query.q, page: query.page ? Number(query.page) : undefined, pageSize: query.pageSize ? Number(query.pageSize) : undefined };
+    const assetQuery: AssetQuery = { type: query.type, owner: query.owner, outcome: query.outcome, due: query.due, tier: query.tier, q: query.q, page: parsePositiveInt(query.page, 'page'), pageSize: parsePositiveInt(query.pageSize, 'pageSize') };
     return this.service.page(siteId, assetQuery, req.user);
   }
   @Post('mapping') @Roles('ADMIN', 'SYSTEMS_OPERATOR') setMapping(@Body() dto: MappingDto, @Query('siteId') siteId: string, @Req() req: { user: AuthenticatedUser }) { return this.service.setMapping(siteId, dto.assetType, dto.groupId, dto.timezone, req.user); }

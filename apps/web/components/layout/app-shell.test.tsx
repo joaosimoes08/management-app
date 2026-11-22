@@ -67,3 +67,35 @@ describe('AppShell utility action alignment slot', () => {
     expect(within(actions).getByRole('button', { name: 'Atualizar' })).toBeInTheDocument();
   });
 });
+
+describe('AppShell help link', () => {
+  it('links the page title to its Ajuda article', () => {
+    render(<AppShell section="Infraestrutura"><p>Content</p></AppShell>);
+    expect(screen.getByRole('link', { name: 'Ajuda: Equipamentos' })).toHaveAttribute('href', '/ajuda/equipamentos');
+  });
+
+  it('opens the Servidores Linux article when the page names a help topic (Servidores tab)', () => {
+    render(<AppShell section="Mapa físico" helpTopic="servidores"><p>Content</p></AppShell>);
+    expect(screen.getByRole('link', { name: 'Ajuda: Servidores Linux' })).toHaveAttribute('href', '/ajuda/servidores');
+  });
+});
+
+describe('AppShell breadcrumb', () => {
+  it('omits a breadcrumb that only repeats the section title', () => {
+    render(<AppShell section="Perfil" context={['Perfil']}><p>Content</p></AppShell>);
+    const title = document.querySelector('.context-toolbar-title') as HTMLElement;
+    expect(title.querySelector('strong')).toHaveTextContent('Perfil');
+    expect(title.querySelector('span')).toBeNull();
+  });
+
+  it('does not repeat the section title when the page h1 already shows it', () => {
+    render(<AppShell section="Perfil" showSectionTitle={false} context={['Perfil']}><h1>Perfil</h1></AppShell>);
+    expect((document.querySelector('.context-toolbar-title') as HTMLElement).querySelector('strong')).toBeNull();
+    expect(screen.getAllByText('Perfil')).toHaveLength(1);
+  });
+
+  it('keeps a breadcrumb that names the active tab', () => {
+    render(<AppShell section="Perfil" context={['Notificações']}><p>Content</p></AppShell>);
+    expect((document.querySelector('.context-toolbar-title') as HTMLElement).querySelector('span')).toHaveTextContent('Notificações');
+  });
+});
