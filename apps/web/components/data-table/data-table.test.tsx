@@ -133,6 +133,20 @@ describe('DataTable', () => {
     expect(screen.getAllByRole('columnheader')).toHaveLength(3);
   });
 
+  it('shows hidden placeholder rows spanning every column while loading, and no empty message', () => {
+    const { rerender } = render(<DataTable rows={rows} columns={columns} rowKey={(row) => row.id} label="Carregar" loading skeletonRows={3} empty={<p>Sem linhas</p>}
+      selection={{ selected: new Set(), onChange: () => {}, rowLabel: (row) => row.name, allLabel: 'Todos' }} />);
+    const skeletons = document.querySelectorAll('tbody tr.ip-table-skeleton-row');
+    expect(skeletons).toHaveLength(3);
+    expect(skeletons[0]).toHaveAttribute('aria-hidden', 'true');
+    expect(skeletons[0].querySelector('td')).toHaveAttribute('colspan', '4');
+    expect(screen.queryByText('Bravo')).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Carregar' })).toHaveAttribute('aria-busy', 'true');
+    rerender(<DataTable rows={rows} columns={columns} rowKey={(row) => row.id} label="Carregar" loading={false} skeletonRows={3} />);
+    expect(document.querySelectorAll('tr.ip-table-skeleton-row')).toHaveLength(0);
+    expect(screen.getByText('Bravo')).toBeInTheDocument();
+  });
+
   it('exports exactly the filtered, sorted rows as CSV with a BOM', async () => {
     const blobs: Blob[] = [];
     const createObjectURL = vi.fn((blob: Blob) => { blobs.push(blob); return 'blob:test'; });

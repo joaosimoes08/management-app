@@ -9,6 +9,7 @@ import type { NetworkMapVlan, RipeDiffItem, RipeOverlap, RipeDiffReason, RipeDif
 import { Empty, IpamModal } from './ipam-modal';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { formatDateTime } from '@/lib/format/date';
+import { DataTable, type DataTableColumn } from '@/components/data-table/data-table';
 
 const statusLabel: Record<RipeDiffStatus, string> = { new: 'Novo', changed: 'Alterado', exists: 'Já existe', conflict: 'Conflito' };
 const statusBadge: Record<RipeDiffStatus, string> = { new: 'free', changed: 'reserved', exists: 'occupied', conflict: 'excluded' };
@@ -103,6 +104,15 @@ export function RipeView({ siteId, search, vlans, canPreview, canImport, success
   const summary = preview?.summary;
   const term = search.trim().toLowerCase();
   const visibleHistory = (history ?? []).filter((item) => !term || `${item.query} ${item.queryType} ${item.status}`.toLowerCase().includes(term));
+  const historyColumns: DataTableColumn<RipeImportRecord>[] = [
+    { id: 'date', header: 'Data', cell: (item) => formatDate(item.createdAt) },
+    { id: 'query', header: 'Consulta', className: 'mono', cell: (item) => item.query },
+    { id: 'type', header: 'Tipo', cell: (item) => queryTypeLabel[item.queryType] ?? item.queryType },
+    { id: 'status', header: 'Estado', cell: (item) => <ImportStatusBadge status={item.status} /> },
+    { id: 'prefixes', header: 'Prefixos', cell: (item) => item.result?.prefixes?.length ?? 0 },
+    { id: 'outcome', header: 'Criadas / ignoradas', cell: (item) => (item.status === 'PREVIEW' ? '—' : `${item.result?.created?.length ?? 0} / ${item.result?.skipped?.length ?? 0}`) },
+    { id: 'actions', header: 'Ações', className: 'table-actions', cell: (item) => <button className="icon-button subtle" title={`Ver importação ${item.query}`} aria-label={`Ver importação ${item.query}`} onClick={() => setDetailId(item.id)}><Eye size={14} /></button> },
+  ];
 
   if (!canPreview) return <Empty title="Importação RIPE" text="A pré-visualização e importação RIPE estão disponíveis apenas para ADMIN e NETWORK_OPERATOR." />;
 
@@ -211,19 +221,7 @@ export function RipeView({ siteId, search, vlans, canPreview, canImport, success
     <section className="ipam-card">
       <div className="panel-heading"><div><h2>Histórico de importações</h2><p className="panel-description">As 50 consultas e importações RIPE mais recentes.</p></div></div>
       {historyError && <div className="ipam-alert error"><X size={15} />{message(historyError)}</div>}
-      <div className="ip-table-wrap" role="region" aria-label="Histórico de importações RIPE" aria-busy={loadingHistory} tabIndex={0}><table className="ip-table">
-        <thead><tr><th>Data</th><th>Consulta</th><th>Tipo</th><th>Estado</th><th>Prefixos</th><th>Criadas / ignoradas</th><th>Ações</th></tr></thead>
-        <tbody>{loadingHistory ? [0, 1, 2].map((item) => <tr className="ip-table-skeleton-row" aria-hidden="true" key={item}><td colSpan={7}><span className="content-skeleton ip-table-skeleton-line" /></td></tr>) : visibleHistory.map((item) => <tr key={item.id}>
-          <td>{formatDate(item.createdAt)}</td>
-          <td className="mono">{item.query}</td>
-          <td>{queryTypeLabel[item.queryType] ?? item.queryType}</td>
-          <td><ImportStatusBadge status={item.status} /></td>
-          <td>{item.result?.prefixes?.length ?? 0}</td>
-          <td>{item.status === 'PREVIEW' ? '—' : `${item.result?.created?.length ?? 0} / ${item.result?.skipped?.length ?? 0}`}</td>
-          <td className="table-actions"><button className="icon-button subtle" title={`Ver importação ${item.query}`} aria-label={`Ver importação ${item.query}`} onClick={() => setDetailId(item.id)}><Eye size={14} /></button></td>
-        </tr>)}</tbody>
-      </table></div>
-      {!loadingHistory && !historyError && !visibleHistory.length && <Empty title={term ? 'Sem importações correspondentes' : 'Ainda não existem importações RIPE'} text={term ? 'Experimenta outra pesquisa.' : 'As pré-visualizações e importações aparecem aqui.'} />}
+      <DataTable rows={visibleHistory} columns={historyColumns} rowKey={(item) => item.id} label="Histórico de importações RIPE" loading={loadingHistory} skeletonRows={3} empty={!historyError && <Empty title={term ? 'Sem importações correspondentes' : 'Ainda não existem importações RIPE'} text={term ? 'Experimenta outra pesquisa.' : 'As pré-visualizações e importações aparecem aqui.'} />} />
     </section>
 
     {pasteOpen && <IpamModal title="Colar ou carregar prefixos" close={() => setPasteOpen(false)}><form className="modal-form" onSubmit={(event) => void runPreview(event, 'paste')}>

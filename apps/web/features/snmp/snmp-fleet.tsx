@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { RadioTower, X } from 'lucide-react';
 import { ApiRequestError } from '@/lib/api/errors';
 import { formatDateTime } from '@/lib/format/date';
+import { DataTable, type DataTableColumn } from '@/components/data-table/data-table';
 import { getSnmpFleetSummary, type SnmpAttentionReason, type SnmpFleetSummary } from './api';
 
 const reasonBadges: Record<string, { tone: string; label: string }> = {
@@ -28,6 +29,16 @@ export function fleetErrorMessage(cause: unknown): string {
 const count = (value: number | undefined) => value ?? 0;
 
 type Props = { siteId: string; openDevice: (deviceId: string) => void; openDrifts: () => void };
+type AttentionRow = NonNullable<SnmpFleetSummary['attention']>[number];
+
+const attentionColumns = (openDevice: Props['openDevice']): DataTableColumn<AttentionRow>[] => [
+  { id: 'device', header: 'Equipamento', cell: (item) => <><strong>{item.name}</strong>{item.lastStatus ? <small>{item.lastStatus}</small> : null}</> },
+  { id: 'reason', header: 'Motivo', cell: (item) => <SnmpAttentionBadge reason={item.reason} /> },
+  { id: 'lastPoll', header: 'Último poll', cell: (item) => (item.lastPollAt ? formatDateTime(item.lastPollAt) : <span className="muted-cell">Nunca</span>) },
+  { id: 'error', header: 'Erro', cell: (item) => (item.lastErrorCode ? <span className="mono">{item.lastErrorCode}</span> : <span className="muted-cell">—</span>) },
+  { id: 'drifts', header: 'Divergências', cell: (item) => count(item.pendingDrifts) },
+  { id: 'actions', header: null, className: 'table-actions', cell: (item) => <button type="button" className="secondary-button" aria-label={`Abrir ${item.name}`} onClick={() => openDevice(item.deviceId)}>Abrir</button> },
+];
 
 /** Fleet-wide SNMP health for the active Site: configuration, polling state, drift and the devices needing attention. */
 export function SnmpFleetSummaryView({ siteId, openDevice, openDrifts }: Props) {
@@ -53,17 +64,7 @@ function FleetSummaryContent({ data, openDevice, openDrifts }: { data: SnmpFleet
     <p className="ipam-scope-note">{`Último poll: ${data.polling?.lastPollAt ? formatDateTime(data.polling.lastPollAt) : '—'} · Poll mais antigo: ${data.polling?.oldestPollAt ? formatDateTime(data.polling.oldestPollAt) : '—'}`}{data.generatedAt ? ` · Gerado em ${formatDateTime(data.generatedAt)}` : ''}</p>
     <section className="ipam-card">
       <div className="panel-heading"><div><h2>Equipamentos que precisam de atenção</h2><p className="panel-description">{attentionTotal > attention.length ? `A mostrar ${attention.length} de ${attentionTotal} equipamentos.` : 'Polling falhado, bloqueado, desatualizado ou nunca executado.'}</p></div>{count(data.drift?.pending) > 0 && <button type="button" className="secondary-button" onClick={openDrifts}>Rever divergências</button>}</div>
-      {attention.length ? <div className="ip-table-wrap" role="region" aria-label="Equipamentos que precisam de atenção" tabIndex={0}><table className="ip-table">
-        <thead><tr><th>Equipamento</th><th>Motivo</th><th>Último poll</th><th>Erro</th><th>Divergências</th><th /></tr></thead>
-        <tbody>{attention.map((item) => <tr key={item.deviceId}>
-          <td><strong>{item.name}</strong>{item.lastStatus ? <small>{item.lastStatus}</small> : null}</td>
-          <td><SnmpAttentionBadge reason={item.reason} /></td>
-          <td>{item.lastPollAt ? formatDateTime(item.lastPollAt) : <span className="muted-cell">Nunca</span>}</td>
-          <td>{item.lastErrorCode ? <span className="mono">{item.lastErrorCode}</span> : <span className="muted-cell">—</span>}</td>
-          <td>{count(item.pendingDrifts)}</td>
-          <td className="table-actions"><button type="button" className="secondary-button" aria-label={`Abrir ${item.name}`} onClick={() => openDevice(item.deviceId)}>Abrir</button></td>
-        </tr>)}</tbody>
-      </table></div> : <div className="no-data">Nenhum equipamento precisa de atenção.</div>}
+      {attention.length ? <DataTable rows={attention} columns={attentionColumns(openDevice)} rowKey={(item) => item.deviceId} label="Equipamentos que precisam de atenção" /> : <div className="no-data">Nenhum equipamento precisa de atenção.</div>}
     </section>
   </>;
 }

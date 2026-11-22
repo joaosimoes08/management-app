@@ -8,6 +8,7 @@ import { createNatRule, deleteNatRule, listNatRules, listVrfs, updateNatRule } f
 import type { NatRule, NatRuleInput, NatRuleType, Subnet } from '../types';
 import { Empty, IpamModal } from './ipam-modal';
 import { useConfirm } from '@/components/ui/confirm-dialog';
+import { DataTable, type DataTableColumn } from '@/components/data-table/data-table';
 
 export const natTypeLabels: Record<NatRuleType, string> = { SNAT: 'SNAT (origem)', DNAT: 'DNAT (destino)', STATIC_1_TO_1: 'Estático 1:1', PAT: 'PAT' };
 const natTypes = Object.keys(natTypeLabels) as NatRuleType[];
@@ -112,6 +113,17 @@ export function NatView({ siteId, siteName, search, subnets, canCreate, canUpdat
     }
   };
 
+  const columns: DataTableColumn<NatRule>[] = [
+    { id: 'name', header: 'Nome', cell: (rule) => <><strong>{rule.name}</strong>{rule.description && <small>{rule.description}</small>}</> },
+    { id: 'type', header: 'Tipo', cell: (rule) => natTypeLabels[rule.type] ?? rule.type },
+    { id: 'addresses', header: 'Interno ↔ Externo', className: 'mono', cell: (rule) => <>{natInside(rule)} ↔ {natOutside(rule)}{rule.destinationPort ? <small>porta de destino {rule.destinationPort}</small> : null}</> },
+    { id: 'protocol', header: 'Protocolo', cell: (rule) => rule.protocol || 'Qualquer' },
+    { id: 'vrf', header: 'VRF', cell: (rule) => rule.vrf?.name || '—' },
+    { id: 'site', header: 'Site', cell: () => siteName },
+    { id: 'status', header: 'Estado', cell: (rule) => (rule.enabled ? 'Ativa' : 'Desativada') },
+    { id: 'actions', header: 'Ações', className: 'table-actions', cell: (rule) => <>{canUpdate && <button className="icon-button subtle" title={`Editar regra NAT ${rule.name}`} aria-label={`Editar regra NAT ${rule.name}`} onClick={() => openForm(rule)}><Edit3 size={14} /></button>}{canDelete && <button className="icon-button subtle danger" title={`Eliminar regra NAT ${rule.name}`} aria-label={`Eliminar regra NAT ${rule.name}`} onClick={() => void remove(rule)}><Trash2 size={14} /></button>}</> },
+  ];
+
   return <>{confirmDialog}<section className="ipam-card">
     <div className="panel-heading"><div><h2>Regras NAT do Site</h2><p className="panel-description">Traduções entre endereços internos e externos, por tipo e VRF.</p></div></div>
     <PageToolbarPortal>
@@ -120,20 +132,7 @@ export function NatView({ siteId, siteName, search, subnets, canCreate, canUpdat
       {canCreate && <button className="primary-button" onClick={() => openForm()}><Plus size={14} /> Nova regra NAT</button>}
     </PageToolbarPortal>
     {error && <div className="ipam-alert error"><X size={15} />{message(error)}</div>}
-    <div className="ip-table-wrap" role="region" aria-label="Regras NAT do Site" aria-busy={isLoading} tabIndex={0}><table className="ip-table">
-      <thead><tr><th>Nome</th><th>Tipo</th><th>Interno ↔ Externo</th><th>Protocolo</th><th>VRF</th><th>Site</th><th>Estado</th><th>Ações</th></tr></thead>
-      <tbody>{isLoading ? [0, 1, 2].map((item) => <tr className="ip-table-skeleton-row" aria-hidden="true" key={item}><td colSpan={8}><span className="content-skeleton ip-table-skeleton-line" /></td></tr>) : items.map((rule) => <tr key={rule.id}>
-        <td><strong>{rule.name}</strong>{rule.description && <small>{rule.description}</small>}</td>
-        <td>{natTypeLabels[rule.type] ?? rule.type}</td>
-        <td className="mono">{natInside(rule)} ↔ {natOutside(rule)}{rule.destinationPort ? <small>porta de destino {rule.destinationPort}</small> : null}</td>
-        <td>{rule.protocol || 'Qualquer'}</td>
-        <td>{rule.vrf?.name || '—'}</td>
-        <td>{siteName}</td>
-        <td>{rule.enabled ? 'Ativa' : 'Desativada'}</td>
-        <td className="table-actions">{canUpdate && <button className="icon-button subtle" title={`Editar regra NAT ${rule.name}`} aria-label={`Editar regra NAT ${rule.name}`} onClick={() => openForm(rule)}><Edit3 size={14} /></button>}{canDelete && <button className="icon-button subtle danger" title={`Eliminar regra NAT ${rule.name}`} aria-label={`Eliminar regra NAT ${rule.name}`} onClick={() => void remove(rule)}><Trash2 size={14} /></button>}</td>
-      </tr>)}</tbody>
-    </table></div>
-    {!isLoading && !error && !items.length && <Empty title={filtered ? 'Sem regras NAT correspondentes' : 'Este Site ainda não tem regras NAT'} text={filtered ? 'Experimenta outra pesquisa ou limpa os filtros.' : canCreate ? 'Cria a primeira regra NAT deste Site.' : 'Ainda não foram configuradas regras NAT neste Site.'} />}
+    <DataTable rows={items} columns={columns} rowKey={(rule) => rule.id} label="Regras NAT do Site" loading={isLoading} skeletonRows={3} empty={!error && <Empty title={filtered ? 'Sem regras NAT correspondentes' : 'Este Site ainda não tem regras NAT'} text={filtered ? 'Experimenta outra pesquisa ou limpa os filtros.' : canCreate ? 'Cria a primeira regra NAT deste Site.' : 'Ainda não foram configuradas regras NAT neste Site.'} />} />
 
     {form && <IpamModal title={form.id ? 'Editar regra NAT' : 'Criar regra NAT'} close={() => setForm(null)}><form className="modal-form" onSubmit={(event) => void submit(event)}>
       {formError && <div className="ipam-alert error" role="alert"><X size={15} />{formError}</div>}
