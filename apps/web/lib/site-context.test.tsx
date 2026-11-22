@@ -7,12 +7,13 @@ import { SiteProvider, useSiteContext } from './site-context';
 
 const navigation = vi.hoisted(() => {
   const replace = vi.fn();
-  return { replace, pathname: '/ipam' };
+  return { replace, pathname: '/ipam', search: '' };
 });
 
 vi.mock('next/navigation', () => ({
   usePathname: () => navigation.pathname,
   useRouter: () => ({ replace: navigation.replace }),
+  useSearchParams: () => new URLSearchParams(navigation.search || window.location.search),
 }));
 
 vi.mock('./auth', () => ({ useAuth: () => ({ authenticated: true, hasRole: () => false }) }));
@@ -35,6 +36,7 @@ describe('SiteProvider', () => {
 
   beforeEach(() => {
     navigation.replace.mockReset();
+    navigation.search = '';
     window.localStorage.clear();
     window.history.replaceState(null, '', '/ipam?siteId=alpha');
   });
@@ -50,6 +52,23 @@ describe('SiteProvider', () => {
     expect(screen.getByTestId('active-site')).toHaveTextContent('Beta');
     expect(window.location.search).toBe('?siteId=beta');
     expect(navigation.replace).toHaveBeenCalledWith('/ipam?siteId=beta', { scroll: false });
+  });
+
+  it('follows a same-page link that opens another Site instead of keeping the previous one', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const tree = () => createElement(QueryClientProvider, { client: queryClient }, createElement(SiteProvider, null, createElement(SiteConsumer)));
+    const view = render(tree());
+
+    await waitFor(() => expect(screen.getByTestId('active-site')).toHaveTextContent('Alpha'));
+    // A client-side link to the same pathname with another siteId (e.g. /ipam?siteId=beta).
+    window.history.pushState(null, '', '/ipam?siteId=beta');
+    navigation.search = '?siteId=beta';
+    view.rerender(tree());
+
+    await waitFor(() => expect(screen.getByTestId('active-site')).toHaveTextContent('Beta'));
+    expect(window.localStorage.getItem('cociber.siteId')).toBe('beta');
+    expect(window.location.search).toBe('?siteId=beta');
+    expect(navigation.replace).not.toHaveBeenCalledWith('/ipam?siteId=alpha', expect.anything());
   });
 
   it('shows and changes the active Site in the combined COCIBER selector', async () => {

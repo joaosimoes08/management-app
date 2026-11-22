@@ -1,8 +1,8 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { Suspense, createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from './auth';
 import { apiFetch } from '@/lib/api/client';
 import { resolveActiveSite, siteUrl } from './site-selection';
@@ -12,10 +12,18 @@ export type ActiveSite = { id: string; name: string; code: string };
 type SiteContextValue = { sites: ActiveSite[]; siteId: string; resolved: boolean; activeSite?: ActiveSite; loading: boolean; activateSite: (siteId: string) => void; reloadSites: () => Promise<void> };
 const SiteContext = createContext<SiteContextValue | null>(null);
 
+/** Reports the URL's `siteId`. A link to the same page with another Site (`/infraestrutura?siteId=…`) keeps the pathname, so without this the provider never re-read the URL and kept the old Site while the address showed the new one. Isolated in its own Suspense boundary so useSearchParams does not opt the whole tree out of prerendering. */
+function UrlSiteParam({ onChange }: { onChange: (siteId: string | null) => void }) {
+  const siteParam = useSearchParams()?.get('siteId') ?? null;
+  useEffect(() => { onChange(siteParam); }, [siteParam, onChange]);
+  return null;
+}
+
 export function SiteProvider({ children }: { children: React.ReactNode }) {
   const { authenticated } = useAuth(); const routerReplace = useRouter().replace; const pathname = usePathname();
   const [siteId, setSiteId] = useState('');
   const [resolved, setResolved] = useState(false);
+  const [urlSiteParam, setUrlSiteParam] = useState<string | null>(null);
   const sitesQuery = useQuery({ queryKey: ['sites', 'accessible'], queryFn: () => apiFetch<{ items: ActiveSite[] }>('/api/v1/sites?pageSize=100'), enabled: authenticated });
   const sites = useMemo(() => sitesQuery.data?.items ?? [], [sitesQuery.data]);
   const updateUrl = useCallback((nextSiteId: string) => {
@@ -42,8 +50,8 @@ export function SiteProvider({ children }: { children: React.ReactNode }) {
     const next = !supportsAggregate && !resolved && sites.length ? sites[0].id : resolved;
     choose(next, Boolean((querySite || next) && querySite !== next));
     setResolved(true);
-  }, [authenticated, sitesQuery.data, sitesQuery.isError, sites, pathname, choose]);
+  }, [authenticated, sitesQuery.data, sitesQuery.isError, sites, pathname, urlSiteParam, choose]);
   const value = useMemo(() => ({ sites, siteId, resolved, activeSite: sites.find((site) => site.id === siteId), loading: sitesQuery.isLoading, activateSite: (id: string) => choose(id, true), reloadSites }), [sites, siteId, resolved, sitesQuery.isLoading, choose, reloadSites]);
-  return <SiteContext.Provider value={value}>{children}</SiteContext.Provider>;
+  return <SiteContext.Provider value={value}><Suspense fallback={null}><UrlSiteParam onChange={setUrlSiteParam} /></Suspense>{children}</SiteContext.Provider>;
 }
 export function useSiteContext() { const value = useContext(SiteContext); if (!value) throw new Error('useSiteContext deve ser usado dentro de SiteProvider'); return value; }
