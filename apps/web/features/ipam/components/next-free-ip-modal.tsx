@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { IpamModal } from './ipam-modal';
+import { DataTable } from '@/components/data-table/data-table';
 import { getNextFreeIps, reserveNextIps } from '../api';
 import type { NextFreeIpsQuery, ReserveNextIpsResult, Subnet } from '../types';
 import { ApiRequestError } from '@/lib/api/errors';
@@ -102,10 +103,10 @@ export function NextFreeIpModal({ subnet, canReserve, close, reserved }: Props) 
       {result && result.supported === false && <p className="ipam-alert warning" role="status">{result.message || 'A pesquisa de IPs livres não é suportada nesta subnet.'}</p>}
       {result && result.supported !== false && !available.length && <p className="ipam-alert warning" role="status">{result.message || 'Não há IPs livres neste intervalo.'}</p>}
       {result && result.supported !== false && available.length > 0 && result.exhausted && available.length < result.requested && <p className="ipam-alert warning" role="status">{`Encontrados ${available.length} de ${result.requested} IPs pedidos: o intervalo não tem mais livres.`}</p>}
-      {available.length > 0 && <div className="ip-table-wrap" role="region" aria-label="IPs livres encontrados" tabIndex={0}><table className="ip-table">
-        <thead><tr><th>IP</th><th>Registo IPAM</th></tr></thead>
-        <tbody>{available.map((item) => <tr key={item.address}><td className="mono">{item.address}</td><td>{item.tracked ? 'Registado como livre' : 'Ainda não registado'}</td></tr>)}</tbody>
-      </table></div>}
+      {available.length > 0 && <DataTable rows={available} rowKey={(item) => item.address} label="IPs livres encontrados" columns={[
+        { id: 'ip', header: 'IP', className: 'mono', cell: (item) => item.address },
+        { id: 'tracked', header: 'Registo IPAM', cell: (item) => (item.tracked ? 'Registado como livre' : 'Ainda não registado') },
+      ]} />}
     </div>
     {canReserve && !unsupported && available.length > 0 && <form className="modal-form" onSubmit={reserve} aria-label="Reservar IPs livres">
       <p className="reservation-hint">A reserva é feita no servidor: se os IPs mudarem entretanto, nada é reservado e a lista é atualizada.</p>

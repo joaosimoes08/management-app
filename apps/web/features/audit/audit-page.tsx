@@ -127,10 +127,11 @@ export default function AuditPage() {
       <section className="host-section">
         <h3>Antes → depois</h3>
         {detail.diff?.length
-          ? <div className="ip-table-wrap" role="region" aria-label="Valores antes e depois" tabIndex={0}><table className="ip-table">
-            <thead><tr><th scope="col">Campo</th><th scope="col">Antes</th><th scope="col">Depois</th></tr></thead>
-            <tbody>{detail.diff.map((entry) => <tr key={entry.field}><td>{entry.field}</td><td className="mono">{formatAuditValue(entry.before)}</td><td className="mono">{formatAuditValue(entry.after)}</td></tr>)}</tbody>
-          </table></div>
+          ? <DataTable rows={detail.diff} rowKey={(entry) => entry.field} label="Valores antes e depois" columns={[
+            { id: 'field', header: 'Campo', cell: (entry) => entry.field },
+            { id: 'before', header: 'Antes', className: 'mono', cell: (entry) => formatAuditValue(entry.before) },
+            { id: 'after', header: 'Depois', className: 'mono', cell: (entry) => formatAuditValue(entry.after) },
+          ]} />
           : <p className="panel-description">Este evento não guardou os valores anteriores, por isso não há antes → depois. Mostram-se os dados registados.</p>}
       </section>
       <section className="host-section">

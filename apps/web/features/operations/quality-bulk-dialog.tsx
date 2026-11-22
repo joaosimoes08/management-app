@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { CheckCircle2, X } from 'lucide-react';
 import { IpamModal } from '@/features/ipam/components/ipam-modal';
+import { DataTable } from '@/components/data-table/data-table';
 import { formatDateTime } from '@/lib/format/date';
 import type { BulkFindingAction, FindingPerson } from './api';
 import { DEFAULT_SNOOZE_HOURS, personName, snoozeOptions, type BulkOutcome } from './quality-workspace';
@@ -43,10 +44,10 @@ export function QualityBulkDialog({ action, count, finding, assignees, running, 
       {action === 'SNOOZE' && <label>Adiar durante<select value={hours} onChange={(event) => setHours(Number(event.target.value))}>{snoozeOptions.map((option) => <option key={option.hours} value={option.hours}>{option.label}</option>)}</select></label>}
     </>}
     {done && <div className={`ipam-alert ${allOk ? 'success' : 'error'}`} role="status">{allOk ? <CheckCircle2 size={15} /> : <X size={15} />}{`${outcome.succeeded} de ${outcome.items.length} aplicados.`}{outcome.snoozedUntil ? ` ${`Adiados até ${formatDateTime(outcome.snoozedUntil, { dateStyle: 'short', timeStyle: 'short' })}.`}` : ''}</div>}
-    {outcome && <div className="ip-table-wrap quality-bulk-results" role="region" aria-label="Resultado por finding" tabIndex={0}><table className="ip-table">
-      <thead><tr><th scope="col">Finding</th><th scope="col">Resultado</th></tr></thead>
-      <tbody>{outcome.items.map((item) => <tr key={item.id}><td>{item.title}</td><td><span className={`state-badge ${item.ok ? 'occupied' : 'excluded'}`}><i />{item.message}</span></td></tr>)}</tbody>
-    </table></div>}
+    {outcome && <div className="quality-bulk-results"><DataTable rows={outcome.items} rowKey={(item) => item.id} label="Resultado por finding" columns={[
+      { id: 'finding', header: 'Finding', cell: (item) => item.title },
+      { id: 'result', header: 'Resultado', cell: (item) => <span className={`state-badge ${item.ok ? 'occupied' : 'excluded'}`}><i />{item.message}</span> },
+    ]} /></div>}
     <div className="modal-actions">{outcome
       ? <button type="button" className="primary-button" disabled={running} onClick={close}>Fechar</button>
       : <><button type="button" className="secondary-button" disabled={running} onClick={close}>Cancelar</button><button type="submit" className="primary-button" disabled={running || !count}>{running ? 'A aplicar…' : finding ? (action === 'ASSIGN' ? 'Atribuir' : action === 'SNOOZE' ? 'Adiar' : 'Reconhecer') : action === 'ASSIGN' ? `Atribuir ${count}` : action === 'SNOOZE' ? `Adiar ${count}` : `Reconhecer ${count}`}</button></>}</div>

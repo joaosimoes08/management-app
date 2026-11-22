@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from 'react';
 import { CheckCircle2, X } from 'lucide-react';
 import { IpamModal } from '@/features/ipam/components/ipam-modal';
+import { DataTable } from '@/components/data-table/data-table';
 import { assetTypes, type AssetRow, type Attestation, type Group, type Mapping } from './workbench';
 
 export type DateFormatter = (value?: string | null, withTime?: boolean) => string;
@@ -85,13 +86,11 @@ export function BulkConfirmDialog({ selectedCount, olderCount, items, results, r
     <p className="panel-description">{`${selectedCount} ativos selecionados · ${items.length} revisões da semana atual. Cada revisão é registada como “Dados corretos”, sem notas.`}</p>
     {olderCount > 0 && <div className="ipam-alert warning" role="note">{olderCount === 1 ? '1 ativo tem semanas anteriores por rever. Revê-as individualmente no histórico.' : `${olderCount} ativos têm semanas anteriores por rever. Revê-as individualmente no histórico.`}</div>}
     {done && <div className={`ipam-alert ${recorded === items.length ? 'success' : 'error'}`} role="status">{recorded === items.length ? <CheckCircle2 size={15} /> : <X size={15} />}{`${recorded} de ${items.length} registadas.`}</div>}
-    <div className="ip-table-wrap" role="region" aria-label="Revisões a confirmar" tabIndex={0}><table className="ip-table critical-assets-bulk-table">
-      <thead><tr><th>Equipamento</th><th>Semana</th><th>Estado</th></tr></thead>
-      <tbody>{items.map((item) => {
-        const result = results?.[item.key];
-        return <tr key={item.key}><td><strong>{item.assetName}</strong>{result?.message && <small>{result.message}</small>}</td><td>{formatDate(item.weekStart)}</td><td>{result ? <span className={`state-badge ${bulkResultTone[result.state]}`}><i />{bulkResultLabel[result.state]}</span> : <span className="muted-cell">{running ? 'A registar…' : 'Por registar'}</span>}</td></tr>;
-      })}</tbody>
-    </table></div>
+    <DataTable rows={items} rowKey={(item) => item.key} label="Revisões a confirmar" className="critical-assets-bulk-table" columns={[
+      { id: 'asset', header: 'Equipamento', cell: (item) => { const result = results?.[item.key]; return <><strong>{item.assetName}</strong>{result?.message && <small>{result.message}</small>}</>; } },
+      { id: 'week', header: 'Semana', cell: (item) => formatDate(item.weekStart) },
+      { id: 'state', header: 'Estado', cell: (item) => { const result = results?.[item.key]; return result ? <span className={`state-badge ${bulkResultTone[result.state]}`}><i />{bulkResultLabel[result.state]}</span> : <span className="muted-cell">{running ? 'A registar…' : 'Por registar'}</span>; } },
+    ]} />
     <div className="modal-actions">{done ? <button type="button" className="primary-button" onClick={close}>Fechar</button> : <><button type="button" className="secondary-button" disabled={running} onClick={close}>Cancelar</button><button type="button" className="primary-button" disabled={running || !items.length} onClick={run}>{running ? 'A registar…' : `Confirmar ${items.length} revisões`}</button></>}</div>
   </div></IpamModal>;
 }
