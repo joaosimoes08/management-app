@@ -93,7 +93,7 @@ export class IpamService implements OnModuleDestroy {
     const accessWhere = await this.access.whereFor(user, 'READ', 'subnet');
     const filters = { ...(siteId ? { siteId } : {}), ...(vlanId ? { vlanId } : {}), ...(search ? { OR: [{ cidr: { contains: search, mode: 'insensitive' as const } }, { purpose: { contains: search, mode: 'insensitive' as const } }, { environment: { contains: search, mode: 'insensitive' as const } }] } : {}) };
     const where = { AND: [accessWhere, filters, ...tagFilters] };
-    const include = { site: true, vlan: true, ...tagsInclude, _count: { select: { ips: true, discoveryJobs: true } } } as const;
+    const include = { site: true, vlan: true, vrf: { select: { id: true, name: true } }, ...tagsInclude, _count: { select: { ips: true, discoveryJobs: true } } } as const;
     /** Per-subnet utilisation from SQL counts (groupBy subnet + state), minus rows on network/broadcast/gateway addresses. */
     const utilizationFor = async (subnets: Array<{ id: string; cidr: string; gateway: string | null }>) => {
       const counts = new Map<string, SubnetStateCounts>();

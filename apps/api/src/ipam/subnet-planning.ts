@@ -309,3 +309,100 @@ export function parsePlanningQuery(prefixText?: string, countText?: string): { r
   if (!/^\d{1,5}$/.test(countText.trim()) || Number(countText) < 1 || Number(countText) > MAX_PLANNED_BLOCKS) return { error: `A quantidade tem de ser um número entre 1 e ${MAX_PLANNED_BLOCKS}.` };
   return { requests: [{ prefix: Number(cleaned), count: Number(countText) }] };
 }
+
+// ---------------------------------------------------------------- conflicts, split preview, commit validation
+
+export type PlanningConflict = { kind: PlanningAllocationKind; start: string; end: string; count: number; label: string; subnetId?: string };
+
+const kindNoun: Record<PlanningAllocationKind, [string, string]> = { SUBNET: ['Subnet', 'Subnets'], HOST: ['Host', 'Hosts'], RESERVED: ['Endereço reservado/excluído', 'Endereços reservados/excluídos'], GATEWAY: ['Gateway', 'Gateway'] };
+
+/**
+ * What inside [start, end] is already taken, named so the user can see why a
+ * block is not available: each overlapping subnet by CIDR (and purpose), and
+ * host-level rows merged into runs of the same kind.
+ */
+export function blockConflicts(start: number, end: number, allocations: PlanningAllocation[]): PlanningConflict[] {
+  const hits = allocations.filter((item) => item.start <= end && item.end >= start);
+  const out: PlanningConflict[] = [];
+  for (const item of hits.filter((hit) => hit.kind === 'SUBNET').sort((a, b) => a.start - b.start)) {
+    out.push({ kind: 'SUBNET', start: formatIpv4(item.start), end: formatIpv4(item.end), count: item.end - item.start + 1, label: item.label ? `Subnet ${item.label}` : `Subnet ${rangeToCidrs(item.start, item.end).join(', ')} (sem acesso)`, ...(item.subnetId ? { subnetId: item.subnetId } : {}) });
+  }
+  for (const kind of ['GATEWAY', 'HOST', 'RESERVED'] as const) {
+    const values = [...new Set(hits.filter((hit) => hit.kind === kind).flatMap((hit) => { const list: number[] = []; for (let v = Math.max(hit.start, start); v <= Math.min(hit.end, end); v++) list.push(v); return list; }))].sort((a, b) => a - b);
+    let runStart: number | null = null;
+    for (let i = 0; i < values.length; i++) {
+      if (runStart === null) runStart = values[i];
+      if (i === values.length - 1 || values[i + 1] !== values[i] + 1) {
+        const count = values[i] - runStart + 1;
+        const [one, many] = kindNoun[kind];
+        out.push({ kind, start: formatIpv4(runStart), end: formatIpv4(values[i]), count, label: count === 1 ? `${one} ${formatIpv4(runStart)}` : `${many} ${formatIpv4(runStart)} – ${formatIpv4(values[i])} (${count})` });
+        runStart = null;
+      }
+    }
+  }
+  return out;
+}
+
+/** The most rows the split preview returns (a /24 into /32s would be 256, a /16 into /27s 2048). */
+export const MAX_SPLIT_ROWS = 256;
+
+export type SplitBlock = { cidr: string; start: string; end: string; size: number; usable: number; used: number; free: number; available: boolean; planned: boolean; conflicts: PlanningConflict[] };
+
+/**
+ * Split preview: every aligned block of `prefix` in the parent, in order, with
+ * how many of its addresses are taken and what takes them. `plannedCidrs`
+ * marks the ones the plan would create.
+ */
+export function splitPreview(cidr: string, allocations: PlanningAllocation[], prefix: number, plannedCidrs: Set<string> = new Set()) {
+  const info = parseIpv4Cidr(cidr);
+  if (!info || prefix < info.prefix || prefix > 32) return { rows: [] as SplitBlock[], total: 0, truncated: false };
+  const size = blockSize(prefix);
+  const total = blockSize(info.prefix) / size;
+  const taken = mergeIntervals(allocations.map((item) => ({ start: Math.max(item.start, info.network), end: Math.min(item.end, info.broadcast) })).filter((item) => item.start <= item.end));
+  const rows: SplitBlock[] = [];
+  for (let start = info.network; start <= info.broadcast && rows.length < MAX_SPLIT_ROWS; start += size) {
+    const end = start + size - 1;
+    const used = taken.reduce((sum, item) => sum + Math.max(0, Math.min(item.end, end) - Math.max(item.start, start) + 1), 0);
+    const blockCidr = `${formatIpv4(start)}/${prefix}`;
+    rows.push({ cidr: blockCidr, start: formatIpv4(start), end: formatIpv4(end), size, usable: usableInBlock(prefix), used, free: size - used, available: used === 0, planned: plannedCidrs.has(blockCidr), conflicts: used ? blockConflicts(start, end, allocations) : [] });
+  }
+  return { rows, total, truncated: total > rows.length };
+}
+
+/** The most blocks one commit may create. */
+export const MAX_COMMIT_BLOCKS = 64;
+
+export type CommitBlockInput = { cidr: string; purpose?: string | null };
+export type CommitBlockProblem = { cidr: string; reason: 'INVALID_CIDR' | 'NOT_ALIGNED' | 'OUTSIDE_PARENT' | 'NOT_SMALLER_THAN_PARENT' | 'DUPLICATE_IN_REQUEST' | 'OVERLAPS_REQUEST' | 'OVERLAPS_EXISTING' | 'CIDR_EXISTS_ELSEWHERE'; message: string; conflicts: PlanningConflict[] };
+
+/**
+ * Checks blocks the user confirmed against the parent and what is taken *now*.
+ * Returns every problem (not just the first) so the UI can explain them all.
+ * `existingCidrs` are CIDRs already stored anywhere: `Subnet.cidr` is unique
+ * across the whole database, independently of site and VRF.
+ */
+export function validateCommitBlocks(parentCidr: string, allocations: PlanningAllocation[], blocks: CommitBlockInput[], existingCidrs: Set<string> = new Set()) {
+  const parent = parseIpv4Cidr(parentCidr);
+  if (!parent) throw new Error(`Invalid IPv4 CIDR: ${parentCidr}`);
+  const problems: CommitBlockProblem[] = [];
+  const accepted: Array<{ cidr: string; start: number; end: number; prefix: number; purpose: string | null }> = [];
+  const seen = new Map<string, number>();
+  for (const block of blocks) {
+    const raw = String(block.cidr ?? '').trim();
+    const info = parseIpv4Cidr(raw);
+    if (!info) { problems.push({ cidr: raw, reason: 'INVALID_CIDR', message: `${raw || '(vazio)'} não é um CIDR IPv4 válido.`, conflicts: [] }); continue; }
+    const cidr = `${formatIpv4(info.network)}/${info.prefix}`;
+    if (parseIpv4(raw.split('/')[0]) !== info.network) { problems.push({ cidr: raw, reason: 'NOT_ALIGNED', message: `${raw} não está alinhado: um /${info.prefix} começa em ${cidr.split('/')[0]}.`, conflicts: [] }); continue; }
+    if (info.prefix <= parent.prefix) { problems.push({ cidr, reason: 'NOT_SMALLER_THAN_PARENT', message: `${cidr} não é mais pequeno do que a subnet pai ${parentCidr}.`, conflicts: [] }); continue; }
+    if (info.network < parent.network || info.broadcast > parent.broadcast) { problems.push({ cidr, reason: 'OUTSIDE_PARENT', message: `${cidr} não pertence a ${parentCidr}.`, conflicts: [] }); continue; }
+    if (seen.has(cidr)) { problems.push({ cidr, reason: 'DUPLICATE_IN_REQUEST', message: `${cidr} aparece mais do que uma vez.`, conflicts: [] }); continue; }
+    seen.set(cidr, 1);
+    const clash = accepted.find((other) => other.start <= info.broadcast && info.network <= other.end);
+    if (clash) { problems.push({ cidr, reason: 'OVERLAPS_REQUEST', message: `${cidr} sobrepõe ${clash.cidr}, também pedido.`, conflicts: [] }); continue; }
+    const conflicts = blockConflicts(info.network, info.broadcast, allocations);
+    if (conflicts.length) { problems.push({ cidr, reason: 'OVERLAPS_EXISTING', message: `${cidr} já não está livre: ${conflicts.map((item) => item.label).join('; ')}.`, conflicts }); continue; }
+    if (existingCidrs.has(cidr)) { problems.push({ cidr, reason: 'CIDR_EXISTS_ELSEWHERE', message: `A subnet ${cidr} já existe noutro Site ou VRF.`, conflicts: [] }); continue; }
+    accepted.push({ cidr, start: info.network, end: info.broadcast, prefix: info.prefix, purpose: block.purpose?.trim() || null });
+  }
+  return { accepted, problems };
+}

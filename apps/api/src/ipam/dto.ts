@@ -1,4 +1,5 @@
-import { ArrayMaxSize, ArrayMinSize, ArrayUnique, IsArray, IsBoolean, IsIn, IsInt, IsIP, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateIf } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, ArrayUnique, IsArray, IsBoolean, IsIn, IsInt, IsIP, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateIf, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 import { PartialType } from '@nestjs/swagger';
 
 export class CreateSiteDto {
@@ -203,4 +204,13 @@ export class MarkMissingIpsFreeDto {
 export class MissingIpsQueryDto {
   @IsOptional() @IsUUID() siteId?: string;
   @IsOptional() @IsUUID() subnetId?: string;
+}
+
+export class PlanningCommitBlockDto {
+  @IsString() @MinLength(9) @MaxLength(18) cidr!: string;
+  @IsOptional() @IsString() @MaxLength(100) purpose?: string;
+}
+/** Blocks confirmed in the planning preview; the API rechecks every one before creating anything. */
+export class CommitSubnetPlanDto {
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(64) @ValidateNested({ each: true }) @Type(() => PlanningCommitBlockDto) blocks!: PlanningCommitBlockDto[];
 }

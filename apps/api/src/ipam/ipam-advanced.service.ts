@@ -12,7 +12,7 @@ import { CalculatorDto, CreateNatRuleDto, RIPE_PASTE_MAX_PREFIXES, RipePreviewDt
 import * as net from 'node:net';
 import { countTokens, diffPrefixes, extractRipestatPrefixes, parsePrefixList, summarizeDiff } from './ripe-diff';
 import { DISCOVERY_JOB_OPTIONS } from '../discovery/discovery-scan';
-import { collectAllocations, parsePlanningQuery, planIpv4Subnet, type PlanningAddressRow, type PlanningRequest, type PlanningSubnetRow } from './subnet-planning';
+import { collectAllocations, MAX_COMMIT_BLOCKS, parseIpv4Cidr, parsePlanningQuery, planIpv4Subnet, splitPreview, validateCommitBlocks, type CommitBlockInput, type PlanningAddressRow, type PlanningRequest, type PlanningSubnetRow } from './subnet-planning';
 
 function normalizeIpv4(address: string) { const parts = address.split('.').map(Number); if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) throw new BadRequestException('IPv4 inválido'); return parts.join('.'); }
 function ipv4Number(address: string) { return normalizeIpv4(address).split('.').reduce((n, part) => n * 256 + Number(part), 0); }
@@ -35,7 +35,11 @@ function natRefs(current: Record<string, unknown>, dto: Record<string, unknown>)
 export function calculateIpv4SubnetPlan(cidr: string, addresses: PlanningAddressRow[], options: { subnets?: PlanningSubnetRow[]; gateway?: string | null; requests?: PlanningRequest[] } = {}) {
   const info = ipv4Cidr(cidr);
   const allocations = collectAllocations({ network: info.network, broadcast: info.broadcast, cidr: info.cidr }, { addresses, subnets: options.subnets, gateway: options.gateway });
-  return planIpv4Subnet(info.cidr, allocations, options.requests ?? []);
+  const plan = planIpv4Subnet(info.cidr, allocations, options.requests ?? []);
+  const first = options.requests?.[0];
+  // Split preview: every aligned block of the requested size with its used/free counts and what occupies it.
+  const split = first ? splitPreview(info.cidr, allocations, first.prefix, new Set(plan.planned.map((block) => block.cidr))) : null;
+  return { ...plan, split };
 }
 
 @Injectable()
@@ -47,31 +51,85 @@ export class IpamAdvancedService implements OnModuleDestroy {
   private async log(user: AuthenticatedUser, action: string, entityType: string, entityId: string, metadata?: unknown) { await this.audit.record({ userId: user.id, action, entityType, entityId, metadata }); }
   async getSubnet(id: string, user?: AuthenticatedUser) { if (user) await this.access.assertSubnet(user, 'READ', id); const item = await this.prisma.subnet.findUnique({ where: { id }, include: { site: true, vlan: true, vrf: true, parentSubnet: true, childSubnets: true, discoverySchedule: true, ...tagsInclude } }); if (!item) throw new NotFoundException('Subnet não encontrada'); return withFlatTags(item); }
   /**
-   * Read-only planning preview: never writes. Taken space inside the parent is
-   * its child subnets, every other IPv4 subnet in the same address scope that
-   * lies inside it (same VRF when the parent has one, otherwise the global
-   * table: subnets with no VRF), its non-free IP rows and its gateway.
+   * What already occupies a parent: its IP rows, and every other IPv4 subnet in
+   * the same address scope that lies inside it (its children, plus any subnet
+   * of the same VRF; with no VRF, the global table: subnets with no VRF).
+   * Subnets the user cannot read still block space but are shown without
+   * purpose or id. `db` is the Prisma client or an open transaction.
    */
+  private async planningInputs(db: any, subnet: { id: string; cidr: string; vrfId?: string | null }, user: AuthenticatedUser) {
+    const info = ipv4Cidr(subnet.cidr);
+    const [rows, scoped] = await Promise.all([
+      db.ipAddress.findMany({ where: { subnetId: subnet.id }, select: { address: true, state: true, deviceId: true, interfaceId: true, hostId: true }, orderBy: { address: 'asc' } }),
+      db.subnet.findMany({ where: { version: 4, id: { not: subnet.id }, OR: [{ parentSubnetId: subnet.id }, { vrfId: subnet.vrfId ?? null }] }, select: { id: true, cidr: true, purpose: true, parentSubnetId: true, siteId: true, vlanId: true, vrfId: true } }),
+    ]);
+    const inside = scoped.filter((item: { cidr: string }) => { try { const child = ipv4Cidr(item.cidr); return child.network <= info.broadcast && child.broadcast >= info.network && child.prefix > info.prefix; } catch { return false; } });
+    const subnets: PlanningSubnetRow[] = [];
+    for (const item of inside) {
+      let hidden = false;
+      if (item.parentSubnetId !== subnet.id) { try { await this.access.assertContext(user, 'READ', { siteId: item.siteId, vrfId: item.vrfId, vlanId: item.vlanId, subnetId: item.id }); } catch { hidden = true; } }
+      subnets.push({ id: item.id, cidr: item.cidr, purpose: item.purpose, hidden });
+    }
+    return { rows, subnets };
+  }
+
+  /** Read-only planning preview: never writes. See planningInputs for what counts as taken. */
   async subnetPlanning(id: string, user: AuthenticatedUser, prefix?: string, count?: string) {
     const subnet = await this.getSubnet(id, user);
     if (subnet.version !== 4) return { subnet, version: 6, usableGaps: [], utilizationPercent: null, message: 'O planeamento por intervalos está disponível para IPv4.' };
     const query = parsePlanningQuery(prefix, count);
     if ('error' in query) throw new BadRequestException({ code: 'INVALID_PLANNING_REQUEST', message: query.error });
-    const info = ipv4Cidr(subnet.cidr);
-    const [rows, scoped] = await Promise.all([
-      this.prisma.ipAddress.findMany({ where: { subnetId: id }, select: { address: true, state: true, deviceId: true, interfaceId: true, hostId: true }, orderBy: { address: 'asc' } }),
-      this.prisma.subnet.findMany({ where: { version: 4, id: { not: id }, OR: [{ parentSubnetId: id }, { vrfId: subnet.vrfId ?? null }] }, select: { id: true, cidr: true, purpose: true, parentSubnetId: true, siteId: true, vlanId: true, vrfId: true } }),
-    ]);
-    const inside = scoped.filter((item) => { try { const child = ipv4Cidr(item.cidr); return child.network <= info.broadcast && child.broadcast >= info.network && child.prefix > info.prefix; } catch { return false; } });
-    // Subnets the user cannot read still block space (planning must never overlap them), but their purpose and id are not shown.
-    const subnets: PlanningSubnetRow[] = [];
-    for (const item of inside) {
-      let hidden = false;
-      if (item.parentSubnetId !== id) { try { await this.access.assertContext(user, 'READ', { siteId: item.siteId, vrfId: item.vrfId, vlanId: item.vlanId, subnetId: item.id }); } catch { hidden = true; } }
-      subnets.push({ id: item.id, cidr: item.cidr, purpose: item.purpose, hidden });
-    }
+    const { rows, subnets } = await this.planningInputs(this.prisma, subnet, user);
     const plan = calculateIpv4SubnetPlan(subnet.cidr, rows, { subnets, gateway: subnet.gateway, requests: query.requests });
-    return { subnet, version: 4, scope: { vrfId: subnet.vrfId ?? null, vrfName: subnet.vrf?.name ?? null }, ...plan };
+    return { subnet, version: 4, scope: { vrfId: subnet.vrfId ?? null, vrfName: subnet.vrf?.name ?? null, siteId: subnet.siteId ?? null, siteName: subnet.site?.name ?? null }, ...plan };
+  }
+
+  /**
+   * Creates the blocks the user confirmed in the planning preview as child
+   * subnets of `id`. Nothing is written unless every block is still free:
+   * availability is rechecked inside one serializable transaction, and if
+   * anything changed since the preview the whole request is rejected with
+   * every conflict named. Requires IPAM CREATE on the parent's Site/VRF.
+   * Children inherit the parent's Site, VRF and environment; VLAN and gateway
+   * are left empty (a VLAN can only belong to one subnet).
+   */
+  async commitPlanning(id: string, blocks: CommitBlockInput[], user: AuthenticatedUser) {
+    const parent = await this.getSubnet(id, user);
+    if (parent.version !== 4) throw new BadRequestException({ code: 'PLANNING_IPV4_ONLY', message: 'O planeamento por intervalos está disponível para IPv4.' });
+    if (!Array.isArray(blocks) || !blocks.length) throw new BadRequestException({ code: 'INVALID_PLANNING_REQUEST', message: 'Indica pelo menos um bloco a criar.' });
+    if (blocks.length > MAX_COMMIT_BLOCKS) throw new BadRequestException({ code: 'INVALID_PLANNING_REQUEST', message: `Podes criar no máximo ${MAX_COMMIT_BLOCKS} blocos de cada vez.` });
+    await this.access.assertSubnetPlacement(user, 'CREATE', { siteId: parent.siteId, vrfId: parent.vrfId, parentSubnetId: parent.id });
+    const info = ipv4Cidr(parent.cidr);
+    const run = async (tx: any) => {
+      // Re-read the parent inside the transaction: it may have been deleted or moved since the preview.
+      const current = await tx.subnet.findUnique({ where: { id }, select: { id: true, cidr: true, vrfId: true, siteId: true, gateway: true, environment: true } });
+      if (!current || current.cidr !== parent.cidr || current.vrfId !== parent.vrfId || current.siteId !== parent.siteId) throw new ConflictException({ code: 'PLANNING_PARENT_CHANGED', message: 'A subnet pai mudou desde a pré-visualização. Atualiza o planeamento e tenta novamente.' });
+      const { rows, subnets } = await this.planningInputs(tx, current, user);
+      const allocations = collectAllocations({ network: info.network, broadcast: info.broadcast, cidr: info.cidr }, { addresses: rows, subnets, gateway: current.gateway });
+      const requested = blocks.map((block) => parseIpv4Cidr(String(block?.cidr ?? ''))).filter(Boolean).map((item) => `${ipv4Address(item!.network)}/${item!.prefix}`);
+      const elsewhere = await tx.subnet.findMany({ where: { cidr: { in: requested } }, select: { cidr: true } });
+      const { accepted, problems } = validateCommitBlocks(info.cidr, allocations, blocks, new Set(elsewhere.map((item: { cidr: string }) => item.cidr)));
+      if (problems.length) throw new ConflictException({ code: 'PLANNING_CONFLICT', message: `Nada foi criado: ${problems.length === 1 ? 'um bloco já não está disponível' : `${problems.length} blocos já não estão disponíveis`}. Atualiza o planeamento.`, conflicts: problems });
+      const created = [];
+      for (const block of accepted) {
+        const child = await tx.subnet.create({ data: { cidr: block.cidr, version: 4, purpose: block.purpose, environment: current.environment ?? null, siteId: current.siteId ?? null, vrfId: current.vrfId ?? null, parentSubnetId: current.id, scanMethods: ['ICMP'], scanTcpPorts: [22, 80, 443, 3389] } });
+        await this.audit.recordInTransaction(tx, { userId: user.id, action: 'SUBNET_CREATED', entityType: 'Subnet', entityId: child.id, metadata: { cidr: child.cidr, version: 4, parentSubnetId: current.id, source: 'PLANNING' } });
+        created.push(child);
+      }
+      await this.audit.recordInTransaction(tx, { userId: user.id, action: 'SUBNET_PLAN_COMMITTED', entityType: 'Subnet', entityId: current.id, metadata: { parentCidr: current.cidr, created: created.map((child) => child.cidr) } });
+      return created;
+    };
+    let created;
+    try {
+      created = await this.prisma.$transaction(run, { isolationLevel: 'Serializable' });
+    } catch (error) {
+      const code = (error as { code?: string })?.code;
+      if (code === 'P2034') throw new ConflictException({ code: 'PLANNING_CONCURRENT_UPDATE', message: 'A subnet mudou em paralelo. Nada foi criado; atualiza o planeamento e tenta novamente.' });
+      if (code === 'P2002') throw new ConflictException({ code: 'PLANNING_CONFLICT', message: 'Uma das subnets foi criada entretanto. Nada foi criado; atualiza o planeamento.', conflicts: [] });
+      throw error;
+    }
+    await this.audit.scheduleInventoryQualityReconcile('Subnet');
+    return { parentId: id, created: created.map((child: { id: string; cidr: string; purpose: string | null }) => ({ id: child.id, cidr: child.cidr, purpose: child.purpose })) };
   }
   async subnetTree(id: string, user?: AuthenticatedUser) { const subnet = await this.getSubnet(id, user); return { root: subnet, children: subnet.childSubnets }; }
   async createSubnet(dto: CreateSubnetDto, user: AuthenticatedUser) {
