@@ -3207,7 +3207,7 @@ a.dashboard-kpi:focus-visible { box-shadow:0 9px 24px rgba(35,55,87,.09); outlin
 
 /* Item 1: from 1181px to 1440px the module tabs and the global controls share one top-bar row without "Mais secções".
    The site picker and search narrow (the search hides its shortcut hint, as at 1180px and below) and the tabs tighten. */
-.app-shell .global-topbar .module-tabs-slot .responsive-tab-navigation > nav.infra-menu.natural-width-tabs > button { flex:1 1 auto; padding-right:6px; padding-left:6px; }
+.app-shell .global-topbar .module-tabs-slot .responsive-tab-navigation > nav.infra-menu.natural-width-tabs > button { flex:0 1 auto; padding-right:6px; padding-left:6px; }
 @media (min-width:1181px) and (max-width:1440px) {
   .app-shell .global-site-switcher { flex:0 0 200px; }
   .app-shell .global-topbar .topbar-globals { flex:0 0 auto; }

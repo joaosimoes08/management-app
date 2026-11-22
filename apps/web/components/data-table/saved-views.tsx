@@ -83,11 +83,11 @@ export function SavedViews<F extends TableFilters>({ pageId, config, table }: Sa
   };
   const copyLink = async () => {
     // Confirm through the app's toast (same as every other confirmation), not inline text that shifts the toolbar.
-    try { await navigator.clipboard.writeText(window.location.href); toast?.success('Copiar ligação desta vista', 'Ligação copiada'); } catch { /* Clipboard unavailable: nothing was copied, so nothing to confirm. */ }
+    try { await navigator.clipboard.writeText(window.location.href); toast?.success('Copiar ligação desta vista', 'Ligação copiada'); } catch { toast?.error('Copiar ligação desta vista', 'Não foi possível copiar a ligação'); }
   };
 
   return <div className="interface-toolbar-controls saved-views" role="group" aria-label="Vistas guardadas">
-    <label><span className="toolbar-filter-label">Vista</span><select aria-label="Aplicar vista guardada" value={active} onChange={(event) => apply(event.target.value)}>
+    <label><span className="toolbar-filter-label">Vista</span><select aria-label="Aplicar vista guardada" title="Aplicar vista guardada" value={active} onChange={(event) => apply(event.target.value)}>
       <option value="">{views.length ? 'Vista atual' : 'Sem vistas guardadas'}</option>
       {views.map((view) => <option key={view.name} value={view.name}>{view.name}</option>)}
     </select></label>

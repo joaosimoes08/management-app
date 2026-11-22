@@ -84,4 +84,22 @@ describe('SavedViews', () => {
     expect(toast.closest('.toast-region')).not.toBeNull();
     expect(document.querySelector('.form-help')).toBeNull();
   });
+
+  it('shows the error toast when the clipboard refuses the link', async () => {
+    const writeText = vi.fn(() => Promise.reject(new Error('denied')));
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    render(<ToastProvider><Harness /></ToastProvider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Copiar ligação desta vista' }));
+    const toast = await screen.findByText('Não foi possível copiar a ligação');
+    expect(toast.closest('.toast-error')).not.toBeNull();
+    expect(screen.queryByText('Ligação copiada')).not.toBeInTheDocument();
+  });
+
+  it('keeps a name and a tooltip on every control whose visible label can be hidden', () => {
+    render(<Harness />);
+    for (const control of document.querySelectorAll('.saved-views select, .saved-views button')) {
+      expect(control.getAttribute('aria-label')).toBeTruthy();
+      expect(control.getAttribute('title')).toBeTruthy();
+    }
+  });
 });

@@ -59,7 +59,7 @@ export function TagFilter({ siteId, value, onChange, className = '' }: TagFilter
   const known = !current || tags.some((tag) => tag.id === current);
   if (!siteId) return null;
   return (
-    <select className={`tag-filter${className ? ` ${className}` : ''}`} aria-label="Filtrar por etiqueta" value={current} onChange={(event) => onChange(event.target.value)}>
+    <select className={`tag-filter${className ? ` ${className}` : ''}`} aria-label="Filtrar por etiqueta" title="Filtrar por etiqueta" value={current} onChange={(event) => onChange(event.target.value)}>
       <option value="">Todas as etiquetas</option>
       {!known ? <option value={current}>Etiqueta removida</option> : null}
       {tags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}
