@@ -2551,7 +2551,6 @@ body { color:var(--ink); background:#e9eef5; }
 .app-shell .context-toolbar-actions:has(> .context-toolbar-contribution .critical-assets-filters) { flex-wrap:wrap; row-gap:8px; }
 .context-toolbar-actions > .context-toolbar-contribution:has(.critical-assets-filters) { flex:1 1 100%; grid-column:1 / -1; min-width:0; }
 .context-toolbar-contribution .critical-assets-filters { flex:1 1 auto; flex-wrap:wrap; justify-content:flex-end; min-width:0; }
-.critical-assets-filters .critical-assets-filter-label { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
 @media (min-width:781px) {
   .app-shell .context-toolbar-actions:has(> .context-toolbar-contribution .critical-assets-filters) { flex-wrap:nowrap; }
   .context-toolbar-actions:has(.critical-assets-filters) { flex:1 1 auto; min-width:0; }
@@ -2560,7 +2559,6 @@ body { color:var(--ink); background:#e9eef5; }
   .context-toolbar-contribution .critical-assets-filters { flex-wrap:nowrap; gap:6px; }
   .context-toolbar-contribution .critical-assets-filters > label { flex:1 1 0; min-width:84px; max-width:150px; }
   .context-toolbar-contribution .critical-assets-filters > label > select { width:100%; min-width:0; text-overflow:ellipsis; }
-  .context-toolbar:has(.critical-assets-filters) .responsive-toolbar-actions .toolbar-action-label { display:none; }
 }
 /* On the phone grid the actions get the whole row too, so the primary button is never squeezed into one 130px column. */
 .context-toolbar-actions:has(> .context-toolbar-contribution .critical-assets-filters) > .responsive-toolbar-actions { grid-column:1 / -1; }
@@ -3206,3 +3204,30 @@ a.dashboard-kpi:focus-visible { box-shadow:0 9px 24px rgba(35,55,87,.09); outlin
 .rack-overview-row > #rack-power-summary > .detail-grid { grid-column:2; grid-row:1 / span 2; margin-top:0; }
 .rack-overview-row > #rack-power-summary > .ipam-alert,.rack-overview-row > .ipam-alert { grid-column:1 / -1; }
 @media (max-width:1100px) { .rack-overview-row { grid-template-columns:1fr; } .rack-overview-row > .panel-heading,.rack-overview-row > #rack-power-summary > .table-actions,.rack-overview-row > #rack-power-summary > .detail-grid { grid-column:auto; grid-row:auto; } }
+
+/* Item 1: from 1181px to 1440px the module tabs and the global controls share one top-bar row without "Mais secções".
+   The site picker and search narrow (the search hides its shortcut hint, as at 1180px and below) and the tabs tighten. */
+.app-shell .global-topbar .module-tabs-slot .responsive-tab-navigation > nav.infra-menu.natural-width-tabs > button { flex:1 1 auto; padding-right:6px; padding-left:6px; }
+@media (min-width:1181px) and (max-width:1440px) {
+  .app-shell .global-site-switcher { flex:0 0 200px; }
+  .app-shell .global-topbar .topbar-globals { flex:0 0 auto; }
+  .app-shell .global-topbar .topbar-search-trigger { flex:0 0 150px; width:150px; }
+  .app-shell .global-topbar .topbar-search-trigger kbd { display:none; }
+  .app-shell .global-topbar .module-tabs-slot nav,
+  .app-shell .global-topbar .module-tabs-slot .responsive-tab-navigation > nav.infra-menu { gap:2px; }
+  .app-shell .global-topbar .module-tabs-slot nav button { gap:5px; padding-right:6px; padding-left:6px; }
+}
+@media (min-width:1181px) and (max-width:1366px) {
+  .app-shell .global-topbar .module-tabs-slot nav.settings-tabs button > svg { display:none; }
+}
+/* Page toolbars: a filter whose select names itself (empty option = filter name, aria-label kept) clips its visible label,
+   like the rack toolbar labels; up to 1440px secondary actions show icons only (each keeps aria-label and title). */
+.context-toolbar .toolbar-filter-label { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+@media (min-width:781px) and (max-width:1440px) {
+  .context-toolbar .toolbar-action-label { display:none; }
+  .context-toolbar .interface-toolbar-controls > label > select,
+  .context-toolbar .saved-views > label > select { max-width:124px; text-overflow:ellipsis; }
+  .context-toolbar .interface-toolbar-controls { gap:6px; }
+  .context-toolbar .interface-toolbar-controls > label:has(> input[type="date"]) { gap:5px; }
+  .context-toolbar .interface-toolbar-controls > label > input[type="date"] { width:112px; min-width:0; padding-right:6px; padding-left:6px; }
+}

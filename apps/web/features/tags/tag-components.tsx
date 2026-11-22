@@ -218,5 +218,5 @@ export function TagManager({ siteId, close, onChanged = () => undefined, canMana
 }
 
 export function ManageTagsButton({ onClick }: { onClick: () => void }) {
-  return <button type="button" className="secondary-button" onClick={onClick}><Tags size={14} /> Gerir etiquetas</button>;
+  return <button type="button" className="secondary-button" aria-label="Gerir etiquetas" title="Gerir etiquetas" onClick={onClick}><Tags size={14} /> <span className="toolbar-action-label">Gerir etiquetas</span></button>;
 }

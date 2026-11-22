@@ -117,6 +117,14 @@ export function ResponsiveOverflowMenu({ children, label, onSelect }: { children
   </div>;
 }
 
+/** Equal-width slots are kept while every tab fits one; when only natural widths fit, every tab stays visible at its own width instead of overflowing. */
+export function visibleTabLayout(widths: number[], activeIndex: number, availableWidth: number, equalSlots: boolean, itemGap = 0, navPadding = 0): { visible: number[]; naturalWidths: boolean } {
+  const natural = visibleOverflowIndexes(widths, activeIndex, availableWidth, 36, itemGap, navPadding, 4);
+  if (!equalSlots) return { visible: natural, naturalWidths: false };
+  const equal = visibleEqualSlotIndexes(widths, activeIndex, availableWidth, 36, itemGap, navPadding, 4);
+  return equal.length < widths.length && natural.length === widths.length ? { visible: natural, naturalWidths: true } : { visible: equal, naturalWidths: false };
+}
+
 /** Keeps an active tab visible and moves lower-priority tabs into a keyboard-operable menu. */
 export function ResponsiveTabNavigation({ navigation }: { navigation: ReactElement<{ children?: ReactNode; className?: string }> }) {
   const items = Children.toArray(navigation.props.children);
@@ -124,14 +132,15 @@ export function ResponsiveTabNavigation({ navigation }: { navigation: ReactEleme
   const containerRef = useRef<HTMLDivElement>(null);
   const { available, widths, itemGap, navPadding, measureRef } = useMeasuredWidths(containerRef, items.length);
   const isInfrastructureMenu = String(navigation.props.className ?? '').split(' ').includes('infra-menu');
-  const visible = widths.length === items.length
-    ? isInfrastructureMenu
-      ? visibleEqualSlotIndexes(widths, activeIndex, available, 36, itemGap, navPadding, 4)
-      : visibleOverflowIndexes(widths, activeIndex, available, 36, itemGap, navPadding, 4)
-    : items.map((_, index) => index);
+  const { visible, naturalWidths } = widths.length === items.length
+    ? visibleTabLayout(widths, activeIndex, available, isInfrastructureMenu, itemGap, navPadding)
+    : { visible: items.map((_, index) => index), naturalWidths: false };
   const visibleSet = new Set(visible);
   const hiddenItems = items.filter((_, index) => !visibleSet.has(index));
-  const renderedNavigation = cloneElement(navigation, { children: items.filter((_, index) => visibleSet.has(index)) });
+  const renderedNavigation = cloneElement(navigation, {
+    children: items.filter((_, index) => visibleSet.has(index)),
+    ...(naturalWidths ? { className: `${navigation.props.className ?? ''} natural-width-tabs`.trim() } : {}),
+  });
   return <div className="responsive-tab-navigation" ref={containerRef}>
     {renderedNavigation}
     {!!hiddenItems.length && <ResponsiveOverflowMenu label="Mais secções" onSelect={() => {}}>{hiddenItems}</ResponsiveOverflowMenu>}

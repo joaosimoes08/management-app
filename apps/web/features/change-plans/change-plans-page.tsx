@@ -5,7 +5,7 @@ import { DateTimeInput } from '@/components/ui/date-time-input';
 import { useEscapeClose } from '@/components/ui/use-escape-close';
 import { useDialogFocusRef } from '@/components/ui/use-dialog-focus';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, List, X } from 'lucide-react';
+import { CalendarDays, List, X, RefreshCw } from 'lucide-react';
 import { AppShell, PageToolbarPortal } from '@/components/layout/app-shell';
 import { CsvExportButton, DataTable, EntityLink, HistoryBlock, SavedViews, sortByColumns, useTableUrlState, type CsvColumn, type DataTableColumn } from '@/components/data-table';
 import { useConfirm } from '@/components/ui/confirm-dialog';
@@ -356,14 +356,14 @@ export function ChangePlansPage() {
 
   return <AppShell section="Alterações" search={{ value: search, onChange: setSearch, placeholder: 'Pesquisar título, motivo, operação ou alvo…', ariaLabel: 'Pesquisar alterações' }}><div className="module-page change-plans-page aligned-workspace">{confirmDialog}<PageToolbarPortal><div className="change-page-actions">
       {siteId && listing && <div className="interface-toolbar-controls">
-        <label>Tipo de alvo<select aria-label="Filtrar por tipo de alvo" value={filters.type} onChange={(event) => setFilter('type', event.target.value)}><option value="">Todos</option>{changeTypes.map((type) => <option key={type} value={type}>{typeLabels[type]}</option>)}</select></label>
+        <label><span className="toolbar-filter-label">Tipo de alvo</span><select aria-label="Filtrar por tipo de alvo" value={filters.type} onChange={(event) => setFilter('type', event.target.value)}><option value="">Tipo de alvo</option>{changeTypes.map((type) => <option key={type} value={type}>{typeLabels[type]}</option>)}</select></label>
         {view === 'list' && <><label>De<input type="date" aria-label="Janela a partir de" value={filters.from} max={filters.to || undefined} onChange={(event) => setFilter('from', event.target.value)} /></label><label>Até<input type="date" aria-label="Janela até" value={filters.to} min={filters.from || undefined} onChange={(event) => setFilter('to', event.target.value)} /></label></>}
-        {filtering && <button className="secondary-button" onClick={clearFilters}><X size={14} /> Limpar filtros</button>}
-        <button className="secondary-button" aria-pressed={view === 'calendar'} onClick={() => setFilter('view', view === 'calendar' ? '' : 'calendar')}>{view === 'calendar' ? <><List size={14} /> Lista</> : <><CalendarDays size={14} /> Calendário</>}</button>
+        {filtering && <button className="secondary-button" aria-label="Limpar filtros" title="Limpar filtros" onClick={clearFilters}><X size={14} /> <span className="toolbar-action-label">Limpar filtros</span></button>}
+        <button className="secondary-button" aria-pressed={view === 'calendar'} aria-label={view === 'calendar' ? 'Lista' : 'Calendário'} title={view === 'calendar' ? 'Lista' : 'Calendário'} onClick={() => setFilter('view', view === 'calendar' ? '' : 'calendar')}>{view === 'calendar' ? <><List size={14} /> <span className="toolbar-action-label">Lista</span></> : <><CalendarDays size={14} /> <span className="toolbar-action-label">Calendário</span></>}</button>
         {view === 'list' && <CsvExportButton rows={sorted} columns={csvColumns} fileName="alteracoes" />}
         <SavedViews pageId="changes" config={changeTableConfig} table={table} />
       </div>}
-      <button className="secondary-button" disabled={!siteId || busy} onClick={() => void load()}>Atualizar</button>{canDraft && <button className="primary-button" disabled={!siteId || busy} onClick={openNew}>＋ Criar alteração</button>}</div></PageToolbarPortal>
+      <button className="secondary-button" disabled={!siteId || busy} aria-label="Atualizar" title="Atualizar" onClick={() => void load()}><RefreshCw size={14} /> <span className="toolbar-action-label">Atualizar</span></button>{canDraft && <button className="primary-button" disabled={!siteId || busy} onClick={openNew}>＋ Criar alteração</button>}</div></PageToolbarPortal>
     {error && <div className="ipam-alert error" role="alert">{error}</div>}{notice && <div className="ipam-alert change-success" role="status">{notice}</div>}
     {selected && currentPreviewState?.status === 'calculating' && <div className="ipam-alert" role="status">A calcular a pré-visualização…</div>}
     {selected && currentPreviewState?.status === 'complete' && savedPreview === currentPreviewState.snapshot && <div className="ipam-alert change-success" role="status">Pré-visualização atualizada. Revê os impactos e a cobertura antes de submeter.</div>}

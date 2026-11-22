@@ -87,7 +87,7 @@ export function SavedViews<F extends TableFilters>({ pageId, config, table }: Sa
   };
 
   return <div className="interface-toolbar-controls saved-views" role="group" aria-label="Vistas guardadas">
-    <label>Vista<select aria-label="Aplicar vista guardada" value={active} onChange={(event) => apply(event.target.value)}>
+    <label><span className="toolbar-filter-label">Vista</span><select aria-label="Aplicar vista guardada" value={active} onChange={(event) => apply(event.target.value)}>
       <option value="">{views.length ? 'Vista atual' : 'Sem vistas guardadas'}</option>
       {views.map((view) => <option key={view.name} value={view.name}>{view.name}</option>)}
     </select></label>
@@ -98,7 +98,7 @@ export function SavedViews<F extends TableFilters>({ pageId, config, table }: Sa
         <button type="submit" className="secondary-button" disabled={!name.trim()}>Guardar</button>
         <button type="button" className="secondary-button" onClick={() => { setNaming(false); setName(''); }}>Cancelar</button>
       </form>
-      : <button type="button" className="secondary-button" onClick={() => { setName(active); setNaming(true); }}><Bookmark size={14} /> Guardar vista</button>}
+      : <button type="button" className="secondary-button" aria-label="Guardar vista" title="Guardar vista" onClick={() => { setName(active); setNaming(true); }}><Bookmark size={14} /> <span className="toolbar-action-label">Guardar vista</span></button>}
     {active && <button type="button" className="icon-button subtle" aria-label={`Apagar vista ${active}`} title="Apagar vista" onClick={() => writeSavedViews(key, removeSavedView(readSavedViews(key), active))}><Trash2 size={14} /></button>}
     <button type="button" className="icon-button subtle" aria-label="Copiar ligação desta vista" title="Copiar ligação desta vista" onClick={() => void copyLink()}><Link2 size={14} /></button>
   </div>;
