@@ -1,8 +1,9 @@
 import type { Prisma, PrismaClient } from '@simoes/database';
 import { RACK_POWER_PDU_INCLUDE } from '../power/rack-power.service';
 import { summarizeRackPower } from '../power/rack-power';
+import { activeReservationWhere, rackSpaceUsage } from '../reservations/rack-unit-reservations';
 
-const rackCapacitySelect = {
+const rackCapacitySelect = (now: Date) => ({
   id: true, name: true, units: true, roomId: true,
   room: { select: { buildingId: true } },
   pdus: { include: RACK_POWER_PDU_INCLUDE },
@@ -14,12 +15,14 @@ const rackCapacitySelect = {
       model: { select: { powerPlugCount: true, typicalWatts: true, maxWatts: true } },
     },
   },
-} satisfies Prisma.RackSelect;
+  // Round 2 #18: U-space held for planned installs counts as used.
+  unitReservations: { where: activeReservationWhere(now), select: { startUnit: true, size: true } },
+}) satisfies Prisma.RackSelect;
 
-export function readCapacityRacks(prisma: PrismaClient, where: Prisma.RackWhereInput, page?: { after?: string; take: number }) {
+export function readCapacityRacks(prisma: PrismaClient, where: Prisma.RackWhereInput, page?: { after?: string; take: number }, now = new Date()) {
   return prisma.rack.findMany({
     where: page?.after ? { AND: [where, { id: { gt: page.after } }] } : where,
-    select: rackCapacitySelect,
+    select: rackCapacitySelect(now),
     orderBy: { id: 'asc' },
     take: page?.take,
   });
@@ -28,18 +31,13 @@ export function readCapacityRacks(prisma: PrismaClient, where: Prisma.RackWhereI
 export type CapacityRack = Awaited<ReturnType<typeof readCapacityRacks>>[number];
 
 export function rackMeasurements(rack: CapacityRack) {
-  const occupied = new Set<number>();
-  for (const device of rack.devices) {
-    if (!device.rackUnitStart || !device.rackUnitSize) continue;
-    const end = Math.min(rack.units, device.rackUnitStart + device.rackUnitSize - 1);
-    for (let unit = Math.max(1, device.rackUnitStart); unit <= end; unit++) occupied.add(unit);
-  }
+  const space = rackSpaceUsage(rack.units, rack.devices, rack.unitReservations ?? []);
   const power = summarizeRackPower(rack.pdus, rack.devices);
   const rackBudget = power.pdus.length && power.pdus.every((pdu) => pdu.budgetWatts !== null)
     ? power.pdus.reduce((sum, pdu) => sum + (pdu.budgetWatts ?? 0), 0)
     : null;
   return [
-    { kind: 'RACK_SPACE' as const, resourceKey: 'space', name: rack.name, source: null, used: occupied.size, total: rack.units },
+    { kind: 'RACK_SPACE' as const, resourceKey: 'space', name: rack.name, source: null, used: space.used, total: rack.units, reservedUnits: space.reserved },
     { kind: 'RACK_POWER' as const, resourceKey: 'power', name: rack.name, source: null, used: power.totals.estimatedWatts, total: rackBudget },
     ...power.pdus.map((pdu) => ({
       kind: 'PDU_POWER' as const, resourceKey: `pdu:${pdu.id}`,

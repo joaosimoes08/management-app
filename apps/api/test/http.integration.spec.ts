@@ -2728,3 +2728,48 @@ test('Step 36 tags: site-scoped catalogue, RBAC, audit, device and subnet filter
   const deleted = actions.find((entry) => entry.action === 'TAG_DELETED')?.metadata as { removedFromDevices: number; removedFromSubnets: number };
   assert.deepEqual([deleted.removedFromDevices, deleted.removedFromSubnets], [1, 1]);
 });
+
+test('Round 2 #18 rack U reservations: validated, conflict-checked, scoped, audited, and counted in the capacity outlook', async () => {
+  const admin = 'qa-admin';
+  const failure = (response: { statusCode: number; body: string }, status: number, code: string) => { assert.equal(response.statusCode, status, response.body); assert.equal(json(response).code, code); };
+  const created = await request('POST', '/api/v1/racks', admin, { name: 'Reservations Rack', roomId: ids.roomA });
+  assert.equal(created.statusCode, 201, created.body);
+  const rackId = json(created).id as string;
+  await prisma.device.create({ data: { name: 'r2-18-srv', type: 'SERVER', siteId: ids.siteA, rackId, rackUnitStart: 1, rackUnitSize: 2, status: 'ACTIVE' } });
+  const url = `/api/v1/racks/${rackId}/unit-reservations`;
+  const outlookSpace = async () => (json(await request('GET', `/api/v1/sites/${ids.siteA}/capacity-outlook`, 'qa-readonly')).items as any[]).find((item) => item.kind === 'RACK_SPACE' && item.id === rackId);
+  const before = await outlookSpace();
+  assert.equal(before.reservedUnits, 0);
+
+  failure(await request('POST', url, admin, { startUnit: 2, size: 2, reason: 'Novo servidor' }), 409, 'RACK_UNITS_OCCUPIED');
+  failure(await request('POST', url, admin, { startUnit: 41, size: 4, reason: 'Novo servidor' }), 400, 'RACK_UNIT_RESERVATION_OUT_OF_RANGE');
+  failure(await request('POST', url, admin, { startUnit: 10, size: 2, reason: 'Novo servidor', expiresAt: '2020-01-01T00:00:00.000Z' }), 400, 'RACK_UNIT_RESERVATION_EXPIRED');
+  assert.equal((await request('POST', url, admin, { startUnit: 0, size: 2, reason: 'Novo servidor' })).statusCode, 400);
+  assert.equal((await request('POST', url, admin, { startUnit: 10, size: 2 })).statusCode, 400);
+  assert.equal((await request('POST', url, 'qa-readonly', { startUnit: 10, size: 4, reason: 'Novo servidor' })).statusCode, 403);
+  assert.equal((await request('GET', `/api/v1/racks/${ids.rackSibling}/unit-reservations`, 'qa-systems-scoped')).statusCode, 404);
+  assert.equal((await request('GET', '/api/v1/racks/not-a-uuid/unit-reservations', admin)).statusCode, 400);
+
+  const reserved = await request('POST', url, admin, { startUnit: 10, size: 4, reason: 'Storage planeado Q1' });
+  assert.equal(reserved.statusCode, 201, reserved.body);
+  const reservationId = json(reserved).id as string;
+  failure(await request('POST', url, admin, { startUnit: 12, size: 4, reason: 'Outro' }), 409, 'RACK_UNIT_RESERVATION_OVERLAP');
+  const listed = await request('GET', url, 'qa-readonly');
+  assert.equal(listed.statusCode, 200, listed.body);
+  assert.deepEqual(json(listed).map((item: any) => [item.startUnit, item.size, item.reason, item.createdBy?.username]), [[10, 4, 'Storage planeado Q1', 'qa-admin']]);
+
+  const during = await outlookSpace();
+  assert.equal(during.reservedUnits, 4);
+  assert.ok(during.currentPercent > before.currentPercent, `${during.currentPercent} > ${before.currentPercent}`);
+
+  assert.equal((await request('DELETE', `${url}/${reservationId}`, 'qa-readonly')).statusCode, 403);
+  assert.equal((await request('DELETE', `${url}/99999999-0000-4000-8000-000000000018`, admin)).statusCode, 404);
+  const released = await request('DELETE', `${url}/${reservationId}`, admin);
+  assert.equal(released.statusCode, 200, released.body);
+  assert.equal((await request('DELETE', `${url}/${reservationId}`, admin)).statusCode, 200);
+  assert.deepEqual(json(await request('GET', url, admin)), []);
+  assert.equal((await outlookSpace()).reservedUnits, 0);
+
+  const audit = await prisma.auditLog.findMany({ where: { entityType: 'Rack', entityId: rackId, action: { in: ['RACK_UNITS_RESERVED', 'RACK_UNIT_RESERVATION_RELEASED'] } }, orderBy: { createdAt: 'asc' } });
+  assert.deepEqual(audit.map((entry) => entry.action), ['RACK_UNITS_RESERVED', 'RACK_UNIT_RESERVATION_RELEASED']);
+});

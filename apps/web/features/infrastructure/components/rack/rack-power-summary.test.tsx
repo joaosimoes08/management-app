@@ -8,6 +8,7 @@ import { RackDetail } from './rack-detail';
 const api = vi.hoisted(() => ({ getRackPowerSummary: vi.fn() }));
 vi.mock('../../api', async (importOriginal) => ({ ...(await importOriginal<typeof import('../../api')>()), getRackPowerSummary: api.getRackPowerSummary }));
 vi.mock('./rack-device-zoom', () => ({ RackDeviceZoom: () => null }));
+vi.mock('./rack-unit-reservations', () => ({ RackUnitReservations: () => null }));
 vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ locale: 'en', t: (key: string, fallback?: string) => fallback ?? key }) }));
 
 class TestResizeObserver { observe() {} disconnect() {} unobserve() {} }

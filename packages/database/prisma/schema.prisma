@@ -209,6 +209,7 @@ model User {
   accessGroupMemberships      AccessGroupMember[]
   auditLogs                   AuditLog[]
   createdIpReservations       IpReservation[]
+  rackUnitReservations        RackUnitReservation[]
   roleRequests                RoleRequest[]
   reviewedRoleRequests        RoleRequest[]               @relation("RoleRequestReviewer")
   notifications               Notification[]
@@ -487,12 +488,31 @@ model Rack {
   devices      Device[]
   pdus         RackPdu[]
   capacitySamples RackCapacitySample[]
+  unitReservations RackUnitReservation[]
 
   @@unique([roomId, name])
   @@index([roomId, displayOrder])
 }
 
 /// Daily inventory-derived capacity for rack units, rack power and individual PDUs.
+/// Round 2 #18: rack U-space held for a planned install. Active while releasedAt is null and expiresAt is null or in the future.
+model RackUnitReservation {
+  id           String    @id @default(uuid()) @db.Uuid
+  rackId       String    @db.Uuid
+  startUnit    Int
+  size         Int
+  reason       String    @db.VarChar(500)
+  expiresAt    DateTime?
+  createdById  String?   @db.Uuid
+  createdAt    DateTime  @default(now())
+  releasedAt   DateTime?
+  releasedById String?   @db.Uuid
+  rack         Rack      @relation(fields: [rackId], references: [id], onDelete: Cascade)
+  createdBy    User?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([rackId, releasedAt])
+}
+
 model RackCapacitySample {
   rackId      String   @db.Uuid
   resourceKey String
