@@ -49,7 +49,7 @@ test('row 5: conflicts name the overlapping child, hosts, reservation and gatewa
     'Endereço reservado/excluído 10.0.0.70',
   ]);
   const hidden = collectAllocations(parent, { subnets: [{ id: 'x', cidr: '10.0.0.128/25', purpose: 'Privado', hidden: true }] });
-  assert.deepEqual(blockConflicts(parent.network, parent.broadcast, hidden).map((item) => item.label), ['Subnet 10.0.0.128/25 (sem acesso)']);
+  assert.deepEqual(blockConflicts(parent.network, parent.broadcast, hidden).map((item) => item.label), ['Subnet sem acesso']);
 });
 
 test('row 4/5: commit validation rejects every kind of bad block with a reason', () => {
@@ -84,7 +84,7 @@ test('row 4/5: commit validation rejects every kind of bad block with a reason',
 // (no Redis queue) and given an in-memory Prisma fake.
 // ---------------------------------------------------------------------------
 type Row = Record<string, any>;
-function harness(options: { ips?: Row[]; subnets?: Row[]; failCreate?: string; denyCreate?: boolean; txError?: { code: string }; mutateBeforeCommit?: (state: { ips: Row[]; subnets: Row[] }) => void } = {}) {
+function harness(options: { ips?: Row[]; subnets?: Row[]; unreadable?: string[]; failCreate?: string; denyCreate?: boolean; txError?: { code: string }; mutateBeforeCommit?: (state: { ips: Row[]; subnets: Row[] }) => void } = {}) {
   const parentRow = { id: 'p', cidr: '10.0.0.0/24', version: 4, siteId: 'site-1', vrfId: null, vlanId: null, gateway: '10.0.0.1', environment: 'prod', purpose: 'Produção', site: { name: 'LX' }, vrf: null, childSubnets: [] };
   const state = { ips: [...(options.ips ?? [])], subnets: [parentRow, ...(options.subnets ?? [])] as Row[] };
   const audits: Row[] = [];
@@ -121,7 +121,7 @@ function harness(options: { ips?: Row[]; subnets?: Row[]; failCreate?: string; d
   };
   const access = {
     assertSubnet: async () => parentRow,
-    assertContext: async () => undefined,
+    assertContext: async (_user: unknown, action: string, context: Row) => { if (action === 'READ' && options.unreadable?.includes(context.subnetId)) throw new ForbiddenException({ code: 'IPAM_SCOPE_FORBIDDEN' }); },
     assertSubnetPlacement: async (_user: unknown, action: string, placement: Row) => { placements.push({ action, ...placement }); if (options.denyCreate) throw new ForbiddenException({ code: 'IPAM_SCOPE_FORBIDDEN' }); return placement; },
   };
   const audit = { recordInTransaction: async (tx: any, input: Row) => tx.auditLog.create({ data: input }), scheduleInventoryQualityReconcile: async () => undefined };
@@ -197,4 +197,31 @@ test('row 1/7: the preview endpoint counts children, hosts and the gateway and r
   assert.deepEqual(plan.split.rows.map((row: any) => [row.cidr, row.used, row.planned]), [['10.0.0.0/26', 2, false], ['10.0.0.64/26', 0, true], ['10.0.0.128/26', 64, false], ['10.0.0.192/26', 64, false]]);
   assert.deepEqual(plan.scope, { vrfId: null, vrfName: null, siteId: 'site-1', siteName: 'LX' });
   assert.equal(h.created.length + h.audits.length, 0, 'the preview never writes');
+});
+
+test('security: a direct child the user cannot read still takes its space but shows only "Subnet sem acesso"', async () => {
+  const secret = { id: 'c-secret', cidr: '10.0.0.128/25', purpose: 'Rede reservada', parentSubnetId: 'p', siteId: 'site-2', vrfId: 'vrf-secret', vlanId: 'vlan-9' };
+  const h = harness({ unreadable: ['c-secret'], subnets: [secret, { id: 'c-ok', cidr: '10.0.0.0/26', purpose: 'Voz', parentSubnetId: 'p', siteId: 'site-1', vrfId: null }] });
+  (h.service as any).getSubnet = async () => ({ ...h.state.subnets[0], childSubnets: [secret, h.state.subnets[2]] });
+  const plan: any = await h.service.subnetPlanning('p', user, '26', '');
+  assert.deepEqual(plan.planned.map((block: any) => block.cidr), ['10.0.0.64/26'], 'the unreadable /25 is still used space');
+  assert.equal(plan.childSubnets, 2);
+  const taken = plan.segments.filter((segment: any) => segment.status === 'TAKEN').map((segment: any) => [segment.label, segment.subnetId]);
+  assert.deepEqual(taken, [['10.0.0.0/26 · Voz', 'c-ok'], ['Subnet sem acesso', undefined]]);
+  assert.deepEqual(plan.split.rows.filter((row: any) => row.conflicts.length).map((row: any) => row.conflicts.map((c: any) => c.label)), [['Subnet 10.0.0.0/26 · Voz', 'Gateway 10.0.0.1'], ['Subnet sem acesso'], ['Subnet sem acesso']]);
+  assert.deepEqual(plan.subnet.childSubnets[0], { id: null, cidr: '10.0.0.128/25', hidden: true, label: 'Subnet sem acesso' });
+  assert.equal(plan.subnet.childSubnets[1].id, 'c-ok');
+  const body = JSON.stringify(plan);
+  for (const leaked of ['c-secret', 'Rede reservada', 'vrf-secret', 'site-2', 'vlan-9']) assert.ok(!body.includes(leaked), `${leaked} must not appear in the preview`);
+});
+
+test('security: commit rechecks with the same rule and names an unreadable child only as "Subnet sem acesso"', async () => {
+  const h = harness({ unreadable: ['c-secret'], subnets: [{ id: 'c-secret', cidr: '10.0.0.128/25', purpose: 'Rede reservada', parentSubnetId: 'p', siteId: 'site-1', vrfId: null }] });
+  await assert.rejects(h.service.commitPlanning('p', [{ cidr: '10.0.0.128/26' }], user), (error: any) => {
+    const body: any = error.getResponse();
+    assert.deepEqual(body.conflicts[0].conflicts.map((c: any) => [c.label, c.subnetId]), [['Subnet sem acesso', undefined]]);
+    assert.ok(!JSON.stringify(body).includes('Rede reservada'));
+    return true;
+  });
+  assert.equal(h.created.length, 0);
 });

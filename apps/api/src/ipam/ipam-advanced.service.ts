@@ -12,7 +12,7 @@ import { CalculatorDto, CreateNatRuleDto, RIPE_PASTE_MAX_PREFIXES, RipePreviewDt
 import * as net from 'node:net';
 import { countTokens, diffPrefixes, extractRipestatPrefixes, parsePrefixList, summarizeDiff } from './ripe-diff';
 import { DISCOVERY_JOB_OPTIONS } from '../discovery/discovery-scan';
-import { collectAllocations, MAX_COMMIT_BLOCKS, parseIpv4Cidr, parsePlanningQuery, planIpv4Subnet, splitPreview, validateCommitBlocks, type CommitBlockInput, type PlanningAddressRow, type PlanningRequest, type PlanningSubnetRow } from './subnet-planning';
+import { collectAllocations, MAX_COMMIT_BLOCKS, parseIpv4Cidr, parsePlanningQuery, planIpv4Subnet, splitPreview, validateCommitBlocks, HIDDEN_SUBNET_LABEL, type CommitBlockInput, type PlanningAddressRow, type PlanningRequest, type PlanningSubnetRow } from './subnet-planning';
 
 function normalizeIpv4(address: string) { const parts = address.split('.').map(Number); if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) throw new BadRequestException('IPv4 inválido'); return parts.join('.'); }
 function ipv4Number(address: string) { return normalizeIpv4(address).split('.').reduce((n, part) => n * 256 + Number(part), 0); }
@@ -54,8 +54,8 @@ export class IpamAdvancedService implements OnModuleDestroy {
    * What already occupies a parent: its IP rows, and every other IPv4 subnet in
    * the same address scope that lies inside it (its children, plus any subnet
    * of the same VRF; with no VRF, the global table: subnets with no VRF).
-   * Subnets the user cannot read still block space but are shown without
-   * purpose or id. `db` is the Prisma client or an open transaction.
+   * Subnets the user cannot read (direct children included) still block space
+   * but are shown without purpose, VRF or id. `db` is the Prisma client or an open transaction.
    */
   private async planningInputs(db: any, subnet: { id: string; cidr: string; vrfId?: string | null }, user: AuthenticatedUser) {
     const info = ipv4Cidr(subnet.cidr);
@@ -66,9 +66,10 @@ export class IpamAdvancedService implements OnModuleDestroy {
     const inside = scoped.filter((item: { cidr: string }) => { try { const child = ipv4Cidr(item.cidr); return child.network <= info.broadcast && child.broadcast >= info.network && child.prefix > info.prefix; } catch { return false; } });
     const subnets: PlanningSubnetRow[] = [];
     for (const item of inside) {
+      // Every subnet inside, direct children included, needs its own READ: one the user cannot read still takes its space but is named only "Subnet sem acesso".
       let hidden = false;
-      if (item.parentSubnetId !== subnet.id) { try { await this.access.assertContext(user, 'READ', { siteId: item.siteId, vrfId: item.vrfId, vlanId: item.vlanId, subnetId: item.id }); } catch { hidden = true; } }
-      subnets.push({ id: item.id, cidr: item.cidr, purpose: item.purpose, hidden });
+      try { await this.access.assertContext(user, 'READ', { siteId: item.siteId, vrfId: item.vrfId, vlanId: item.vlanId, subnetId: item.id }); } catch { hidden = true; }
+      subnets.push(hidden ? { id: null, cidr: item.cidr, purpose: null, hidden } : { id: item.id, cidr: item.cidr, purpose: item.purpose, hidden });
     }
     return { rows, subnets };
   }
@@ -81,7 +82,10 @@ export class IpamAdvancedService implements OnModuleDestroy {
     if ('error' in query) throw new BadRequestException({ code: 'INVALID_PLANNING_REQUEST', message: query.error });
     const { rows, subnets } = await this.planningInputs(this.prisma, subnet, user);
     const plan = calculateIpv4SubnetPlan(subnet.cidr, rows, { subnets, gateway: subnet.gateway, requests: query.requests });
-    return { subnet, version: 4, scope: { vrfId: subnet.vrfId ?? null, vrfName: subnet.vrf?.name ?? null, siteId: subnet.siteId ?? null, siteName: subnet.site?.name ?? null }, ...plan };
+    // The parent's own child list must not reveal what planningInputs hid: unreadable children keep only their range.
+    const hiddenCidrs = new Set(subnets.filter((item) => item.hidden).map((item) => item.cidr));
+    const childSubnets = (subnet.childSubnets ?? []).map((child: { cidr: string }) => hiddenCidrs.has(child.cidr) ? { id: null, cidr: child.cidr, hidden: true, label: HIDDEN_SUBNET_LABEL } : child);
+    return { subnet: { ...subnet, childSubnets }, version: 4, scope: { vrfId: subnet.vrfId ?? null, vrfName: subnet.vrf?.name ?? null, siteId: subnet.siteId ?? null, siteName: subnet.site?.name ?? null }, ...plan };
   }
 
   /**

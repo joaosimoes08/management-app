@@ -203,6 +203,27 @@ describe('Planeamento de endereços', () => {
     expect(screen.queryByText(/Subnets criadas/)).not.toBeInTheDocument();
   });
 
+  it('review: more than 64 planned blocks cannot be confirmed and the limit is explained; 64 still can', async () => {
+    const blocks = (n: number) => Array.from({ length: n }, (_, i) => ({ cidr: `10.0.0.${i}/32`, prefix: 32, start: `10.0.0.${i}`, end: `10.0.0.${i}`, size: 1, usable: 1 }));
+    mockedFetch.mockResolvedValue({ ...withPlan, planned: blocks(65) });
+    render(<SubnetPlanningView subnets={[parent]} canCreate />);
+    fireEvent.change(screen.getByLabelText('Subnet'), { target: { value: 'p1' } });
+    await screen.findByRole('region', { name: 'Mapa da subnet' });
+    fireEvent.change(screen.getByLabelText('Tamanho dos blocos'), { target: { value: '32' } });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Rever e confirmar' })).toBeDisabled());
+    const hint = screen.getByText('No máximo 64 subnets por confirmação; reduz a quantidade.');
+    expect(hint).toHaveClass('ipam-alert', 'warning');
+    expect(screen.getByRole('button', { name: 'Rever e confirmar' })).toHaveAccessibleDescription('No máximo 64 subnets por confirmação; reduz a quantidade.');
+    fireEvent.click(screen.getByRole('button', { name: 'Rever e confirmar' }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(mockedFetch.mock.calls.some(([path]) => String(path).endsWith('/commit'))).toBe(false);
+
+    mockedFetch.mockResolvedValue({ ...withPlan, planned: blocks(64) });
+    fireEvent.change(screen.getByLabelText('Quantidade'), { target: { value: '64' } });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Rever e confirmar' })).toBeEnabled());
+    expect(screen.queryByText('No máximo 64 subnets por confirmação; reduz a quantidade.')).not.toBeInTheDocument();
+  });
+
   it('row 4: users without IPAM create permission only see the preview', async () => {
     await pickPrefix(false);
     expect(screen.queryByRole('button', { name: 'Rever e confirmar' })).not.toBeInTheDocument();

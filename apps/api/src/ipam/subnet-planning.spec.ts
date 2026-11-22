@@ -245,7 +245,7 @@ test('edge: in-scope subnets outside the parent, the parent itself and a superne
 test('edge: hidden subnets still block space but expose no purpose or id', () => {
   const plan = calculateIpv4SubnetPlan('10.0.0.0/24', [], { subnets: [{ id: 'secret', cidr: '10.0.0.0/25', purpose: 'Privado', hidden: true }], requests: [{ prefix: 25, count: 1 }] });
   assert.deepEqual(cidrs(plan), ['10.0.0.128/25']);
-  assert.equal(plan.segments[0].label, null);
+  assert.equal(plan.segments[0].label, 'Subnet sem acesso');
   assert.equal(plan.segments[0].subnetId, undefined);
 });
 

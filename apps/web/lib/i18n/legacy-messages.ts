@@ -335,6 +335,7 @@ const enUS: LegacyDictionary = {
   'Apagar vista': 'Delete view',
   'Copiar ligação desta vista': 'Copy link to this view',
   'Ligação copiada': 'Link copied',
+  'Não foi possível copiar a ligação': 'Could not copy the link',
   'Vista 360 do equipamento': 'Device 360 view',
   'Tudo sobre um equipamento numa só página.': 'Everything about a device on one page.',
   'As ligações para um equipamento (tabelas, pesquisa ⌘ K, vistos recentemente e Qualidade) abrem a sua página 360.': 'Links to a device (tables, ⌘ K search, recently viewed and Quality) open its 360 page.',

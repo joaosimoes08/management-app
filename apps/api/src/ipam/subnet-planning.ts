@@ -23,6 +23,8 @@ export type PlanningAllocationKind = 'SUBNET' | 'HOST' | 'RESERVED' | 'GATEWAY';
 export type PlanningAllocation = { kind: PlanningAllocationKind; start: number; end: number; label?: string | null; subnetId?: string | null };
 
 export type PlanningAddressRow = { address: string; state: string; deviceId?: string | null; interfaceId?: string | null; hostId?: string | null };
+/** How a subnet the user cannot read is named in the plan: no purpose, VRF or id. */
+export const HIDDEN_SUBNET_LABEL = 'Subnet sem acesso';
 export type PlanningSubnetRow = { id?: string | null; cidr: string; purpose?: string | null; hidden?: boolean };
 
 export type PlanningRequest = { prefix: number; count?: number | null };
@@ -307,7 +309,7 @@ export function planIpv4Subnet(cidr: string, allocations: PlanningAllocation[], 
   for (const block of planned) marks.push({ start: block.start, end: block.start + blockSize(block.prefix) - 1, status: 'PLANNED' });
   // Subnets keep their own row; host-level rows next to each other are merged into one run.
   const subnets = clipped.filter((item) => item.kind === 'SUBNET').sort((a, b) => a.start - b.start);
-  for (const item of subnets) marks.push({ start: item.start, end: item.end, status: 'TAKEN', kinds: ['SUBNET'], label: item.label ?? null, subnetId: item.subnetId ?? null });
+  for (const item of subnets) marks.push({ start: item.start, end: item.end, status: 'TAKEN', kinds: ['SUBNET'], label: item.label ?? HIDDEN_SUBNET_LABEL, subnetId: item.subnetId ?? null });
   const subnetIntervals = mergeIntervals(subnets);
   const singles = clipped.filter((item) => item.kind !== 'SUBNET' && !subnetIntervals.some((s) => item.start >= s.start && item.end <= s.end)).sort((a, b) => a.start - b.start);
   for (const item of singles) {
@@ -417,7 +419,7 @@ export function blockConflicts(start: number, end: number, allocations: Planning
   const hits = allocations.filter((item) => item.start <= end && item.end >= start);
   const out: PlanningConflict[] = [];
   for (const item of hits.filter((hit) => hit.kind === 'SUBNET').sort((a, b) => a.start - b.start)) {
-    out.push({ kind: 'SUBNET', start: formatIpv4(item.start), end: formatIpv4(item.end), count: item.end - item.start + 1, label: item.label ? `Subnet ${item.label}` : `Subnet ${rangeToCidrs(item.start, item.end).join(', ')} (sem acesso)`, ...(item.subnetId ? { subnetId: item.subnetId } : {}) });
+    out.push({ kind: 'SUBNET', start: formatIpv4(item.start), end: formatIpv4(item.end), count: item.end - item.start + 1, label: item.label ? `Subnet ${item.label}` : HIDDEN_SUBNET_LABEL, ...(item.subnetId ? { subnetId: item.subnetId } : {}) });
   }
   for (const kind of ['GATEWAY', 'HOST', 'RESERVED'] as const) {
     const values = [...new Set(hits.filter((hit) => hit.kind === kind).flatMap((hit) => { const list: number[] = []; for (let v = Math.max(hit.start, start); v <= Math.min(hit.end, end); v++) list.push(v); return list; }))].sort((a, b) => a - b);

@@ -1,4 +1,4 @@
-import { ArrayMaxSize, ArrayMinSize, ArrayUnique, IsArray, IsBoolean, IsIn, IsInt, IsIP, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateIf, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, ArrayUnique, IsArray, IsBoolean, IsIn, IsInt, IsIP, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, MinLength, ValidateIf, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { PartialType } from '@nestjs/swagger';
 
@@ -207,7 +207,7 @@ export class MissingIpsQueryDto {
 }
 
 export class PlanningCommitBlockDto {
-  @IsString() @MinLength(9) @MaxLength(18) cidr!: string;
+  @IsString() @MinLength(9) @MaxLength(18) @Matches(/^\d{1,3}(\.\d{1,3}){3}\/\d{1,2}$/, { message: 'cidr deve ser um bloco IPv4 (a.b.c.d/n)' }) cidr!: string;
   @IsOptional() @IsString() @MaxLength(100) purpose?: string;
 }
 /** Blocks confirmed in the planning preview; the API rechecks every one before creating anything. */

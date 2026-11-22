@@ -8,6 +8,10 @@ import { ApiRequestError } from '@/lib/api/errors';
 import type { Subnet } from '../types';
 import { commitSubnetPlanning, getSubnetPlanning, type SubnetPlanCommitProblem, type SubnetPlanning, type SubnetPlanningAllocationKind, type SubnetPlannedBlock, type SubnetPlanningSegment, type SubnetPlanningShortfall, type SubnetSkippedBlock, type SubnetSplitRow } from '../api';
 
+/** The API creates at most this many blocks per confirmation (MAX_COMMIT_BLOCKS in apps/api/src/ipam/subnet-planning.ts). */
+export const PLANNING_COMMIT_MAX_BLOCKS = 64;
+const PLANNING_COMMIT_LIMIT_HINT = `No máximo ${PLANNING_COMMIT_MAX_BLOCKS} subnets por confirmação; reduz a quantidade.`;
+
 const kindLabel: Record<SubnetPlanningAllocationKind, string> = { SUBNET: 'Subnet existente', HOST: 'Hosts', RESERVED: 'Reservados / excluídos', GATEWAY: 'Gateway' };
 const segmentBadge: Record<SubnetPlanningSegment['status'], { className: string; label: string }> = {
   FREE: { className: 'free', label: 'Livre' },
@@ -93,8 +97,9 @@ export function SubnetPlanningView({ subnets, search = '', canCreate = false }: 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['ipam'] });
   const planned = plan && plan.subnet?.id === subnetId ? plan.planned ?? [] : [];
   const skipped = plan && plan.subnet?.id === subnetId ? plan.skipped ?? [] : [];
+  const overCommitLimit = planned.length > PLANNING_COMMIT_MAX_BLOCKS;
   const review = async () => {
-    if (!planned.length || committing) return;
+    if (!planned.length || overCommitLimit || committing) return;
     const label = purpose.trim();
     const ok = await confirm({
       title: 'Criar subnets planeadas',
@@ -148,7 +153,8 @@ export function SubnetPlanningView({ subnets, search = '', canCreate = false }: 
           {!planned.length && <div className="no-data">Nenhum bloco planeado.</div>}
           {canCreate && planned.length > 0 && <div className="modal-form">
             <label>Finalidade das novas subnets<input maxLength={100} placeholder="Opcional" value={purpose} onChange={(event) => setPurpose(event.target.value)} /></label>
-            <div className="modal-actions"><button type="button" className="primary-button" onClick={() => void review()} disabled={committing || loading}>{committing ? 'A criar…' : 'Rever e confirmar'}</button></div>
+            {overCommitLimit && <div className="ipam-alert warning" role="status" id="planning-commit-limit">{PLANNING_COMMIT_LIMIT_HINT}</div>}
+            <div className="modal-actions"><button type="button" className="primary-button" onClick={() => void review()} disabled={committing || loading || overCommitLimit} aria-describedby={overCommitLimit ? 'planning-commit-limit' : undefined}>{committing ? 'A criar…' : 'Rever e confirmar'}</button></div>
           </div>}
           {plan.split && plan.split.rows.length > 0 && <>
             <h3>Divisão em /{prefix}</h3>
