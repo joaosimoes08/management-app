@@ -134,6 +134,9 @@ export class CreateDiscoveryJobDto {
   @IsOptional() @IsIn(['defaults', 'icmp-only', 'web', 'network', 'custom']) profileId?: string;
   @IsOptional() @IsArray() @ArrayMaxSize(64) @IsInt({ each: true }) @Min(1, { each: true }) @Max(65535, { each: true }) tcpPorts?: number[];
   @IsOptional() @IsBoolean() reverseDns?: boolean;
+  /** Round 2 #11: stop the scan after this many seconds or probes (defaults: DISCOVERY_MAX_DURATION_SECONDS, DISCOVERY_MAX_PROBES). */
+  @IsOptional() @IsInt() @Min(10) @Max(86400) maxDurationSeconds?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(1000000) maxProbes?: number;
 }
 export class UpdateDiscoveryScheduleDto {
   @IsBoolean() enabled!: boolean;

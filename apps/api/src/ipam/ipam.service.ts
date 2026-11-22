@@ -15,6 +15,7 @@ import { assertDiscoveryAllowed, DiscoveryPolicyError, normalizeDiscoveryPorts, 
 import { resolveDiscoveryProfile } from '../discovery/discovery-profiles';
 import { compareDiscoveryResults } from '../discovery/discovery-comparison';
 import { discoveryJobDurationMs, parseSubnetListOptions, SubnetStateCounts, subnetNonUsableAddresses, subnetUtilizationFromCounts } from './ipam-workflow-helpers';
+import { DISCOVERY_JOB_OPTIONS } from '../discovery/discovery-scan';
 
 const execFileAsync = promisify(execFile);
 const MAX_DISCOVERY_HOSTS = 4096;
@@ -220,15 +221,60 @@ export class IpamService implements OnModuleDestroy {
     if (!methods.length) throw new BadRequestException({ code: 'DISCOVERY_METHOD_REQUIRED', message: 'Escolhe pelo menos um método.' });
     if (methods.includes('TCP') && !tcpPorts.length) throw new BadRequestException({ code: 'TCP_PORT_REQUIRED', message: 'Define pelo menos uma porta para Discovery TCP.' });
     try {
-      const job = await this.prisma.discoveryJob.create({ data: { name: dto.name, subnetId: dto.subnetId, methods, tcpPorts, reverseDns } });
-      await this.discoveryQueue.add('scan-subnet', { jobId: job.id }, { jobId: job.id, removeOnComplete: 100, removeOnFail: 100 });
-      await this.auditChange(user, 'DISCOVERY_QUEUED', 'DiscoveryJob', job.id, { profileId: dto.profileId ?? null, methods, tcpPorts, subnet: fullSubnet.cidr, reverseDns });
+      const job = await this.prisma.discoveryJob.create({ data: { name: dto.name, subnetId: dto.subnetId, methods, tcpPorts, reverseDns, maxDurationSeconds: dto.maxDurationSeconds ?? null, maxProbes: dto.maxProbes ?? null } });
+      await this.discoveryQueue.add('scan-subnet', { jobId: job.id }, { jobId: job.id, ...DISCOVERY_JOB_OPTIONS });
+      await this.auditChange(user, 'DISCOVERY_QUEUED', 'DiscoveryJob', job.id, { profileId: dto.profileId ?? null, methods, tcpPorts, subnet: fullSubnet.cidr, reverseDns, maxDurationSeconds: dto.maxDurationSeconds ?? null, maxProbes: dto.maxProbes ?? null });
       return job;
     } catch { throw new ConflictException({ code: 'DISCOVERY_ALREADY_ACTIVE', message: 'Já existe uma execução ativa para esta subnet.' }); }
   }
 
+  /**
+   * Round 2 #10: cancels a scan. A queued (or retry-waiting) scan is cancelled at once; a running one is asked to stop
+   * and ends as CANCELLED before its next batch, keeping the results already saved.
+   */
+  async cancelDiscoveryJob(user: AuthenticatedUser, id: string) {
+    const job = await this.prisma.discoveryJob.findUnique({ where: { id }, select: { id: true, subnetId: true, status: true } });
+    if (!job) throw new NotFoundException('Execução de discovery não encontrada');
+    await this.access.assertSubnet(user, 'DISCOVER', job.subnetId);
+    const now = new Date();
+    const queued = await this.prisma.discoveryJob.updateMany({ where: { id, status: 'PENDING' }, data: { status: 'CANCELLED', stopReason: 'CANCELLED', cancelRequestedAt: now, completedAt: now } });
+    if (queued.count) await this.discoveryQueue.remove(id).catch(() => undefined);
+    else {
+      const running = await this.prisma.discoveryJob.updateMany({ where: { id, status: 'RUNNING' }, data: { cancelRequestedAt: now } });
+      if (!running.count) throw new ConflictException({ code: 'DISCOVERY_NOT_ACTIVE', message: 'Esta execução já terminou.' });
+    }
+    await this.auditChange(user, 'DISCOVERY_CANCEL_REQUESTED', 'DiscoveryJob', id, { previousStatus: queued.count ? 'PENDING' : 'RUNNING' });
+    return this.getDiscoveryJob(user, id);
+  }
+
+  /**
+   * Round 2 #10: retries a failed scan. It resumes after the last saved batch (results are not duplicated) and is
+   * refused while another scan of the same subnet is active.
+   */
+  async retryDiscoveryJob(user: AuthenticatedUser, id: string) {
+    const job = await this.prisma.discoveryJob.findUnique({ where: { id }, select: { id: true, subnetId: true, status: true } });
+    if (!job) throw new NotFoundException('Execução de discovery não encontrada');
+    await this.access.assertSubnet(user, 'DISCOVER', job.subnetId);
+    if (job.status !== 'FAILED') throw new ConflictException({ code: 'DISCOVERY_NOT_RETRYABLE', message: 'Só é possível repetir execuções falhadas.' });
+    try {
+      const reopened = await this.prisma.discoveryJob.updateMany({ where: { id, status: 'FAILED' }, data: { status: 'PENDING', completedAt: null, errorMessage: null } });
+      if (!reopened.count) throw new ConflictException({ code: 'DISCOVERY_NOT_RETRYABLE', message: 'Só é possível repetir execuções falhadas.' });
+    } catch (error) {
+      if (error instanceof ConflictException) throw error;
+      throw new ConflictException({ code: 'DISCOVERY_ALREADY_ACTIVE', message: 'Já existe uma execução ativa para esta subnet.' });
+    }
+    await this.discoveryQueue.remove(id).catch(() => undefined);
+    try { await this.discoveryQueue.add('scan-subnet', { jobId: id }, { jobId: `${id}-retry-${Date.now()}`, ...DISCOVERY_JOB_OPTIONS }); }
+    catch (error) {
+      await this.prisma.discoveryJob.updateMany({ where: { id, status: 'PENDING' }, data: { status: 'FAILED', completedAt: new Date(), errorMessage: 'DISCOVERY_QUEUE_UNAVAILABLE' } });
+      throw error;
+    }
+    await this.auditChange(user, 'DISCOVERY_RETRY_QUEUED', 'DiscoveryJob', id, {});
+    return this.getDiscoveryJob(user, id);
+  }
+
   async getDiscoverySchedule(user: AuthenticatedUser, subnetId: string) { await this.access.assertSubnet(user, 'READ', subnetId); const [existing, settings] = await Promise.all([this.prisma.discoverySchedule.findUnique({ where: { subnetId } }), this.prisma.systemSettings.findFirst()]); return existing ?? { subnetId, enabled: false, intervalHours: settings?.discoveryDefaultIntervalHours ?? 12, methods: settings?.discoveryDefaultMethods ?? ['ICMP', 'TCP'], tcpPorts: settings?.discoveryDefaultTcpPorts ?? [22, 80, 443, 3389], reverseDns: settings?.discoveryDefaultReverseDns ?? true, lastRunAt: null, nextRunAt: null, lastStatus: null, lastError: null }; }
-  async updateDiscoverySchedule(subnetId: string, dto: UpdateDiscoveryScheduleDto, user: AuthenticatedUser) { const [subnet, defaults] = await Promise.all([this.access.assertSubnet(user, 'DISCOVER', subnetId), this.prisma.systemSettings.findFirst()]); const fullSubnet = await this.prisma.subnet.findUniqueOrThrow({ where: { id: subnet.id } }); const methods = [...new Set(dto.methods)].filter((method) => method === 'ICMP' || method === 'TCP'); let tcpPorts: number[]; try { tcpPorts = normalizeDiscoveryPorts(dto.tcpPorts ?? []); const target = assertDiscoveryAllowed(fullSubnet.cidr, defaults?.discoveryAllowedCidrs); if (target.version !== 4) throw new DiscoveryPolicyError('DISCOVERY_IPV6_UNSUPPORTED', 'A enumeração de subnets IPv6 ainda não é suportada.'); } catch (error) { if (error instanceof DiscoveryPolicyError) throw new BadRequestException({ code: error.code, message: error.message }); throw error; } if (!methods.length) throw new BadRequestException('Escolhe pelo menos um método'); if (methods.includes('TCP') && !tcpPorts.length) throw new BadRequestException('Define pelo menos uma porta TCP'); const intervalHours = dto.intervalHours ?? defaults?.discoveryDefaultIntervalHours ?? 12; const reverseDns = dto.reverseDns ?? defaults?.discoveryDefaultReverseDns ?? true; const every = intervalHours * 60 * 60 * 1000; const nextRunAt = dto.enabled ? new Date(Date.now() + every) : null; const schedule = await this.prisma.discoverySchedule.upsert({ where: { subnetId }, create: { subnetId, enabled: dto.enabled, intervalHours, methods, tcpPorts, reverseDns, nextRunAt }, update: { enabled: dto.enabled, intervalHours, methods, tcpPorts, reverseDns, nextRunAt, lastError: null } }); if (dto.enabled) await this.discoveryQueue.upsertJobScheduler(`subnet-${subnetId}`, { every }, { name: 'scheduled-subnet-scan', data: { subnetId } }); else await this.discoveryQueue.removeJobScheduler(`subnet-${subnetId}`); await this.auditChange(user, 'DISCOVERY_SCHEDULE_UPDATED', 'DiscoverySchedule', schedule.id, { subnetId, enabled: dto.enabled, intervalHours, reverseDns }); return schedule; }
+  async updateDiscoverySchedule(subnetId: string, dto: UpdateDiscoveryScheduleDto, user: AuthenticatedUser) { const [subnet, defaults] = await Promise.all([this.access.assertSubnet(user, 'DISCOVER', subnetId), this.prisma.systemSettings.findFirst()]); const fullSubnet = await this.prisma.subnet.findUniqueOrThrow({ where: { id: subnet.id } }); const methods = [...new Set(dto.methods)].filter((method) => method === 'ICMP' || method === 'TCP'); let tcpPorts: number[]; try { tcpPorts = normalizeDiscoveryPorts(dto.tcpPorts ?? []); const target = assertDiscoveryAllowed(fullSubnet.cidr, defaults?.discoveryAllowedCidrs); if (target.version !== 4) throw new DiscoveryPolicyError('DISCOVERY_IPV6_UNSUPPORTED', 'A enumeração de subnets IPv6 ainda não é suportada.'); } catch (error) { if (error instanceof DiscoveryPolicyError) throw new BadRequestException({ code: error.code, message: error.message }); throw error; } if (!methods.length) throw new BadRequestException('Escolhe pelo menos um método'); if (methods.includes('TCP') && !tcpPorts.length) throw new BadRequestException('Define pelo menos uma porta TCP'); const intervalHours = dto.intervalHours ?? defaults?.discoveryDefaultIntervalHours ?? 12; const reverseDns = dto.reverseDns ?? defaults?.discoveryDefaultReverseDns ?? true; const every = intervalHours * 60 * 60 * 1000; const nextRunAt = dto.enabled ? new Date(Date.now() + every) : null; const schedule = await this.prisma.discoverySchedule.upsert({ where: { subnetId }, create: { subnetId, enabled: dto.enabled, intervalHours, methods, tcpPorts, reverseDns, nextRunAt }, update: { enabled: dto.enabled, intervalHours, methods, tcpPorts, reverseDns, nextRunAt, lastError: null } }); if (dto.enabled) await this.discoveryQueue.upsertJobScheduler(`subnet-${subnetId}`, { every }, { name: 'scheduled-subnet-scan', data: { subnetId }, opts: DISCOVERY_JOB_OPTIONS }); else await this.discoveryQueue.removeJobScheduler(`subnet-${subnetId}`); await this.auditChange(user, 'DISCOVERY_SCHEDULE_UPDATED', 'DiscoverySchedule', schedule.id, { subnetId, enabled: dto.enabled, intervalHours, reverseDns }); return schedule; }
   async runScheduledDiscovery(subnetId: string, user: AuthenticatedUser) { const schedule = await this.prisma.discoverySchedule.findUnique({ where: { subnetId } }); if (!schedule || !schedule.enabled) throw new ConflictException('O auto-discovery está desligado para esta subnet'); const methods = Array.isArray(schedule.methods) ? schedule.methods.filter((value): value is string => typeof value === 'string') : ['ICMP']; const tcpPorts = Array.isArray(schedule.tcpPorts) ? schedule.tcpPorts.filter((value): value is number => typeof value === 'number') : []; const job = await this.runDiscovery({ name: `Discovery agendado · ${new Date().toISOString()}`, subnetId, methods, tcpPorts, reverseDns: schedule.reverseDns }, user); await this.prisma.discoverySchedule.update({ where: { subnetId }, data: { lastRunAt: new Date(), nextRunAt: new Date(Date.now() + schedule.intervalHours * 60 * 60 * 1000), lastStatus: 'QUEUED' } }); return job; }
 
   private async executeDiscovery(jobId: string, cidr: string, methods: string[], tcpPorts: number[]) {
