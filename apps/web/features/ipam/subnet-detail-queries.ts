@@ -8,15 +8,15 @@ type EpochRef = { readonly current: number };
  * The page's useQuery hooks and the prefetch in openSubnet share them, so a prefetched result
  * lands in exactly the cache entry the panel reads.
  */
-export function subnetDetailQueries(subnetId: string, search: string, reservationEpoch: EpochRef) {
+export function subnetDetailQueries(subnetId: string, search: string, reservationEpoch: EpochRef, page = 1) {
   return {
     usage: { queryKey: ['ipam', 'usage', subnetId] as const, queryFn: () => getSubnetUsage(subnetId) },
     capacityHistory: { queryKey: ['ipam', 'capacity-history', subnetId] as const, queryFn: () => getSubnetCapacityHistory(subnetId) },
     ips: {
-      queryKey: ['ipam', 'ips', subnetId, search] as const,
+      queryKey: ['ipam', 'ips', subnetId, search, page] as const,
       queryFn: async () => {
         const requestEpoch = reservationEpoch.current;
-        return { ...await listIpAddresses(subnetId, search), reservationRequestEpoch: requestEpoch };
+        return { ...await listIpAddresses(subnetId, search, page), reservationRequestEpoch: requestEpoch };
       },
     },
   };

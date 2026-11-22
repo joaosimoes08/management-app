@@ -87,8 +87,11 @@ export function getIpAddress(id: string): Promise<IpAddressRow> {
   return apiFetch<IpAddressRow>(`/api/v1/ip-addresses/${id}`);
 }
 
-export function listIpAddresses(subnetId: string, search: string): Promise<PaginatedResponse<IpAddressRow>> {
-  return apiFetch<PaginatedResponse<IpAddressRow>>(`/api/v1/ip-addresses?subnetId=${subnetId}&pageSize=250&search=${encodeURIComponent(search)}`);
+/** Page size of a subnet's IP list: the most the API returns per page (it caps pageSize at 200). */
+export const IP_LIST_PAGE_SIZE = 200;
+
+export function listIpAddresses(subnetId: string, search: string, page = 1): Promise<PaginatedResponse<IpAddressRow>> {
+  return apiFetch<PaginatedResponse<IpAddressRow>>(`/api/v1/ip-addresses?subnetId=${subnetId}&page=${page}&pageSize=${IP_LIST_PAGE_SIZE}&search=${encodeURIComponent(search)}`);
 }
 
 export function getHost(id: string): Promise<HostDetail> {

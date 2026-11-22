@@ -1,6 +1,7 @@
 'use client';
 
 import { ipStateLabel } from '../ip-state';
+import { IP_LIST_PAGE_SIZE } from '../api';
 import { useMemo, useState } from 'react';
 import { Edit3, ListChecks, Network, Plus, Tags, Trash2 } from 'lucide-react';
 import type { IpAddressRow, ReserveNextIpsResult, Subnet, SubnetCapacityHistory, SubnetUsage } from '../types';
@@ -31,6 +32,11 @@ export interface SubnetsViewProps {
   capacityHistory: SubnetCapacityHistory | null;
   capacityHistoryLoading?: boolean;
   ips: IpAddressRow[];
+  /** Server paging of the IP list (the API returns at most 200 addresses per page). */
+  ipPage?: number;
+  ipTotalPages?: number;
+  ipTotal?: number;
+  setIpPage?: (page: number) => void;
   loadingIps?: boolean;
   search: string;
   setSearch: (search: string) => void;
@@ -84,7 +90,7 @@ function SubnetTable({ items, loading, canEdit, siteId, openSubnet, editSubnet, 
 }
 
 /** Subnet list of the site, or the selected subnet with its IP table. */
-export function SubnetsView({ selected, items, loading = false, usage, usageLoading = false, capacityHistory, capacityHistoryLoading = false, ips, loadingIps = false, search, setSearch, openSubnet, openHost, canEdit, canReserve, canReleaseReservations, siteId, newSubnet, editSubnet, removeSubnet, editIp, newIp, createHost, reserveIp, releaseReservation, reservedNext, tagsChanged, canManageTags = false }: SubnetsViewProps) {
+export function SubnetsView({ selected, items, loading = false, usage, usageLoading = false, capacityHistory, capacityHistoryLoading = false, ips, loadingIps = false, ipPage = 1, ipTotalPages = 1, ipTotal = 0, setIpPage, search, setSearch, openSubnet, openHost, canEdit, canReserve, canReleaseReservations, siteId, newSubnet, editSubnet, removeSubnet, editIp, newIp, createHost, reserveIp, releaseReservation, reservedNext, tagsChanged, canManageTags = false }: SubnetsViewProps) {
   const [nextFreeOpen, setNextFreeOpen] = useState(false);
   const [editingTags, setEditingTags] = useState(false);
 
@@ -115,6 +121,7 @@ export function SubnetsView({ selected, items, loading = false, usage, usageLoad
         <td className="table-actions">{canReleaseReservations && reservation ? <button className="secondary-button danger" aria-label={`Libertar reserva de ${ip.address}`} onClick={() => releaseReservation(ip)}>Libertar</button> : canReserve && ip.state === 'FREE' && !reservation && !ip.host && !ip.interface ? <button className="secondary-button" aria-label={`Reservar ${ip.address}`} onClick={() => reserveIp(ip)}>Reservar</button> : null}<button className="icon-button subtle" title={`Abrir endereço IP ${ip.address}`} aria-label={`Abrir endereço IP ${ip.address}`} onClick={() => editIp(ip)}><Edit3 size={14} /></button></td>
       </tr>; })}</tbody>
     </table></div>
+    {setIpPage && ipTotalPages > 1 && <nav className="calculator-pagination" aria-label="Páginas dos endereços IP"><span>{(ipPage - 1) * IP_LIST_PAGE_SIZE + 1}-{Math.min(ipPage * IP_LIST_PAGE_SIZE, ipTotal)} de {ipTotal}</span><div className="calculator-page-buttons"><button type="button" aria-label="Página anterior" disabled={ipPage <= 1 || loadingIps} onClick={() => setIpPage(ipPage - 1)}>‹</button><span aria-live="polite">Página {ipPage} de {ipTotalPages}</span><button type="button" aria-label="Página seguinte" disabled={ipPage >= ipTotalPages || loadingIps} onClick={() => setIpPage(ipPage + 1)}>›</button></div></nav>}
     {!loadingIps && !ips.length && <Empty title={search ? 'Sem IPs correspondentes' : 'Ainda não existem endereços nesta subnet'} text={search ? 'Experimenta outra pesquisa.' : 'Adiciona o primeiro IP ou executa Discovery.'} />}
     {editingTags && selected.siteId && <TagEditor siteId={selected.siteId} canCreate={canManageTags} itemLabel={selected.cidr} selected={selected.tags ?? []} save={async (tagIds) => { await setSubnetTags(selected.id, tagIds); tagsChanged?.(); }} close={() => setEditingTags(false)} />}
     {nextFreeOpen && <NextFreeIpModal subnet={selected} canReserve={canReserve} close={() => setNextFreeOpen(false)} reserved={(result) => { setNextFreeOpen(false); reservedNext?.(result); }} />}
