@@ -42,6 +42,8 @@ export type DataTableProps<Row> = {
   defaultSort?: SortState;
   selection?: DataTableSelection<Row>;
   loading?: boolean;
+  /** While loading, show this many placeholder rows instead of the rows (the pages' skeleton look). */
+  skeletonRows?: number;
   /** Shown under the table when it has no rows and is not loading. */
   empty?: ReactNode;
 };
@@ -64,7 +66,7 @@ const ariaSort = (sort: SortState | undefined, id: string) => (sort?.column === 
  * and optional row selection. Presentational: state lives in the page, usually
  * via `useTableUrlState`.
  */
-export function DataTable<Row>({ rows, columns, rowKey, label, className, sort, onSortChange, defaultSort = null, selection, loading = false, empty }: DataTableProps<Row>) {
+export function DataTable<Row>({ rows, columns, rowKey, label, className, sort, onSortChange, defaultSort = null, selection, loading = false, skeletonRows = 0, empty }: DataTableProps<Row>) {
   const selectable = (row: Row) => selection?.isSelectable?.(row) ?? true;
   const selectableKeys = selection ? rows.filter(selectable).map(rowKey) : [];
   const selectedVisible = selection ? selectableKeys.filter((key) => selection.selected.has(key)).length : 0;
@@ -107,7 +109,9 @@ export function DataTable<Row>({ rows, columns, rowKey, label, className, sort, 
             </th>;
           })}
         </tr></thead>
-        <tbody>{rows.map((row) => {
+        <tbody>{loading && skeletonRows > 0 ? Array.from({ length: skeletonRows }, (_, index) => <tr className="ip-table-skeleton-row" aria-hidden="true" key={`skeleton-${index}`}>
+          <td colSpan={columns.length + (selection ? 1 : 0)}><span className="content-skeleton ip-table-skeleton-line" /></td>
+        </tr>) : rows.map((row) => {
           const key = rowKey(row);
           const canSelect = selectable(row);
           return <tr key={key}>

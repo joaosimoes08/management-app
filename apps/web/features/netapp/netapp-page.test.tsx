@@ -71,6 +71,14 @@ describe('NetApp site workspace', () => {
     await waitFor(() => expect(getNetAppIntegration).toHaveBeenCalledTimes(2));
   });
 
+  it('renders the snapshot node table as a labelled shared table', async () => {
+    vi.mocked(getNetAppIntegration).mockResolvedValue({ ...knownIntegration, lastErrorCode: null });
+    renderPage();
+    const region = await screen.findByRole('region', { name: 'Nós' });
+    expect(within(region).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual(['Nó', 'Saúde', 'Elegibilidade']);
+    expect(within(region).getAllByRole('cell').map((cell) => cell.textContent)).toEqual(['node-a', 'healthy', '—']);
+  });
+
   it('sends configuration only for the selected Site and clears the password after save', async () => {
     vi.mocked(getNetAppIntegration).mockRejectedValue(new Error('NETAPP_INTEGRATION_NOT_CONFIGURED'));
     vi.mocked(configureNetAppIntegration).mockResolvedValue(knownIntegration);

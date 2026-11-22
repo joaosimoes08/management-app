@@ -373,3 +373,38 @@ describe('RipeView', () => {
     expect(api.listVrfs).not.toHaveBeenCalled();
   });
 });
+
+describe('shared DataTable markup (VRFs, NAT, RIPE history)', () => {
+  const base = { siteId: 'site-1', siteName: 'Lisboa', search: '', vlans: [], canCreate: true, canUpdate: true, canDelete: true, canPreview: true, canImport: true, openSubnet: vi.fn(), success: vi.fn(), toastError: vi.fn() };
+  const cases = [
+    { name: 'VRFs', view: VrfsView, region: 'VRFs do Site', list: api.listVrfs, headers: ['Nome', 'Route distinguisher', 'Site', 'Subnets', 'Regras NAT', 'Estado', 'Ações'], empty: 'Este Site ainda não tem VRFs' },
+    { name: 'NAT', view: NatView, region: 'Regras NAT do Site', list: api.listNatRules, headers: ['Nome', 'Tipo', 'Interno ↔ Externo', 'Protocolo', 'VRF', 'Site', 'Estado', 'Ações'], empty: 'Este Site ainda não tem regras NAT' },
+    { name: 'RIPE history', view: RipeView, region: 'Histórico de importações RIPE', list: api.listRipeImports, headers: ['Data', 'Consulta', 'Tipo', 'Estado', 'Prefixos', 'Criadas / ignoradas', 'Ações'], empty: 'Ainda não existem importações RIPE' },
+  ] as const;
+
+  for (const item of cases) {
+    it(`${item.name}: keeps the headers and the three skeleton rows, then the empty state`, async () => {
+      let resolve: (value: unknown[]) => void = () => {};
+      item.list.mockReturnValue(new Promise((done) => { resolve = done; }));
+      renderWithQuery(createElement(item.view as never, base as never));
+      const region = screen.getByRole('region', { name: item.region });
+      expect(region).toHaveClass('ip-table-wrap');
+      expect(region).toHaveAttribute('aria-busy', 'true');
+      expect(within(region).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual(item.headers);
+      const skeletons = region.querySelectorAll('tr.ip-table-skeleton-row');
+      expect(skeletons).toHaveLength(3);
+      expect(skeletons[0].querySelector('td')).toHaveAttribute('colspan', String(item.headers.length));
+      resolve([]);
+      expect(await screen.findByText(item.empty)).toBeInTheDocument();
+      expect(region).toHaveAttribute('aria-busy', 'false');
+      expect(region.querySelectorAll('tbody tr')).toHaveLength(0);
+    });
+
+    it(`${item.name}: shows the API error without the empty state`, async () => {
+      item.list.mockRejectedValue(new Error('Falha na API'));
+      renderWithQuery(createElement(item.view as never, base as never));
+      expect(await screen.findByText('Falha na API')).toBeInTheDocument();
+      expect(screen.queryByText(item.empty)).not.toBeInTheDocument();
+    });
+  }
+});

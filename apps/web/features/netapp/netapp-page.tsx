@@ -8,6 +8,7 @@ import { useAuth } from '@/lib/auth';
 import { useSiteContext } from '@/lib/site-context';
 import { configureNetAppIntegration, getNetAppIntegration, refreshNetAppSnapshot, type NetAppIntegrationInput, type NetAppSnapshot } from './api';
 import { formatDateTime } from '@/lib/format/date';
+import { DataTable } from '@/components/data-table/data-table';
 import { CapacityTable, formatBytes, NetAppCapacityTrend, TopFullest, type TrendTarget } from './netapp-capacity';
 
 const emptyForm = { endpointUrl: '', username: '', password: '' };
@@ -110,5 +111,5 @@ function SnapshotTables({ siteId, snapshot }: { siteId: string; snapshot: NetApp
 }
 
 function SnapshotTable({ title, rows, headings }: { title: string; rows: string[][]; headings: string[] }) {
-  return <section className="ipam-card"><div className="panel-heading"><div><span className="section-kicker">SNAPSHOT</span><h2>{title}</h2></div><span>{rows.length}</span></div>{rows.length ? <div className="ip-table-wrap"><table className="ip-table"><thead><tr>{headings.map((heading) => <th key={heading}>{heading}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr key={`${row[0]}-${index}`}>{row.map((value, cell) => <td key={`${cell}-${value}`}>{value}</td>)}</tr>)}</tbody></table></div> : <p>Sem registos neste snapshot.</p>}</section>;
+  return <section className="ipam-card"><div className="panel-heading"><div><span className="section-kicker">SNAPSHOT</span><h2>{title}</h2></div><span>{rows.length}</span></div>{rows.length ? <DataTable<{ key: string; cells: string[] }> rows={rows.map((cells, index) => ({ key: `${cells[0]}-${index}`, cells }))} rowKey={(row) => row.key} label={title} columns={headings.map((heading, cell) => ({ id: String(cell), header: heading, cell: (row) => row.cells[cell] }))} /> : <p>Sem registos neste snapshot.</p>}</section>;
 }
