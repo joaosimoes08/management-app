@@ -17,7 +17,7 @@ describe('subnet detail prefetch', () => {
     prefetchSubnetDetail(client, 'subnet-1', '', { current: 0 });
     expect(api.getSubnetUsage).toHaveBeenCalledWith('subnet-1');
     expect(api.getSubnetCapacityHistory).toHaveBeenCalledWith('subnet-1');
-    expect(api.listIpAddresses).toHaveBeenCalledWith('subnet-1', '');
+    expect(api.listIpAddresses).toHaveBeenCalledWith('subnet-1', '', 1);
   });
 
   it('fills the same cache entries the subnet panels read', async () => {
@@ -31,7 +31,7 @@ describe('subnet detail prefetch', () => {
     await vi.waitFor(() => expect(client.getQueryData(queries.ips.queryKey)).toBeDefined());
     expect(queries.usage.queryKey).toEqual(['ipam', 'usage', 'subnet-1']);
     expect(queries.capacityHistory.queryKey).toEqual(['ipam', 'capacity-history', 'subnet-1']);
-    expect(queries.ips.queryKey).toEqual(['ipam', 'ips', 'subnet-1', '10.0']);
+    expect(queries.ips.queryKey).toEqual(['ipam', 'ips', 'subnet-1', '10.0', 1]);
     expect(client.getQueryData(queries.usage.queryKey)).toEqual({ used: 3 });
     expect(client.getQueryData(queries.capacityHistory.queryKey)).toEqual({ points: [] });
     // The reservation epoch is captured when the request starts, as the page hook always did.
@@ -43,5 +43,14 @@ describe('subnet detail prefetch', () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     expect(() => prefetchSubnetDetail(client, 'subnet-x', '', { current: 0 })).not.toThrow();
     await vi.waitFor(() => expect(client.getQueryState(['ipam', 'usage', 'subnet-x'])?.status).toBe('error'));
+  });
+
+  it('keys and requests each page of the IP list separately', async () => {
+    api.listIpAddresses.mockResolvedValue({ items: [{ id: 'ip-401' }], page: 3, totalPages: 4 });
+    const client = new QueryClient();
+    const queries = subnetDetailQueries('subnet-1', '10.0', { current: 0 }, 3);
+    expect(queries.ips.queryKey).toEqual(['ipam', 'ips', 'subnet-1', '10.0', 3]);
+    await client.fetchQuery(queries.ips);
+    expect(api.listIpAddresses).toHaveBeenCalledWith('subnet-1', '10.0', 3);
   });
 });

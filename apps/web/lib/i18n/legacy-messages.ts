@@ -884,6 +884,7 @@ const enUS: LegacyDictionary = {
   'Operações': 'Operations',
   'Os resultados de discovery permanecem pendentes até aprovação.': 'Discovery results remain pending until approval.',
   'Páginas das subnets': 'Subnet pages',
+  'Páginas dos endereços IP': 'IP address pages',
   'Pesquisar uma definição…': 'Search for a setting…',
   'Para remover também os dados locais, usa docker compose down -v. Esta ação elimina volumes de PostgreSQL, Redis e Keycloak.': 'To also remove local data, use docker compose down -v. This deletes PostgreSQL, Redis, and Keycloak volumes.',
   'Para uma instalação limpa, volta a iniciar os containers, instala dependências, gera Prisma, migra e inicia os processos.': 'For a clean installation, restart the containers, install dependencies, generate Prisma, migrate, and start the processes.',
