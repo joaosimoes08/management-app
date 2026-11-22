@@ -5,6 +5,7 @@ import helmet from '@fastify/helmet';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { ApiExceptionFilter } from './api-exception.filter';
+import { trustProxyHops, trustProxyOptions } from './common/trust-proxy';
 
 export type ConfigureAppOptions = { swagger?: boolean };
 
@@ -46,7 +47,7 @@ export async function configureApp(app: NestFastifyApplication, options: Configu
 export async function createApp() {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter({ bodyLimit: 15 * 1024 * 1024 }),
+    new FastifyAdapter({ bodyLimit: 15 * 1024 * 1024, ...trustProxyOptions(trustProxyHops()) }),
   );
   app.enableShutdownHooks();
   return configureApp(app);
