@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { CheckCircle2, X } from 'lucide-react';
 import { IpamModal } from '@/features/ipam/components/ipam-modal';
+import { DataTable } from '@/components/data-table/data-table';
 
 /** Most ids the bulk-review endpoints accept per request (Descoberta and SNMP). */
 export const BULK_REVIEW_MAX = 200;
@@ -74,20 +75,17 @@ export function BulkReviewDialog({ title, actionLabel, noun, items, run, onDone,
     {tooMany && <div className="ipam-alert warning" role="note">{`Seleciona no máximo ${BULK_REVIEW_MAX} itens por pedido.`}</div>}
     {error && <div className="ipam-alert error" role="alert"><X size={15} />{error}</div>}
     {done && <div className={`ipam-alert ${succeeded === total ? 'success' : 'error'}`} role="status">{succeeded === total ? <CheckCircle2 size={15} /> : <X size={15} />}{`${succeeded} de ${total} aplicados.`}</div>}
-    <div className="ip-table-wrap" role="region" aria-label="Itens da revisão em massa" tabIndex={0}><table className="ip-table">
-      <thead><tr><th>Item</th><th>Resultado</th></tr></thead>
-      <tbody>{rows.map((item) => {
+    <DataTable rows={rows} rowKey={(item) => item.id} label="Itens da revisão em massa" columns={[
+      { id: 'item', header: 'Item', cell: (item) => <><strong>{item.label}</strong>{item.detail ? <small>{item.detail}</small> : null}</> },
+      { id: 'result', header: 'Resultado', cell: (item) => {
         const result = byId.get(item.id);
-        return <tr key={item.id}>
-          <td><strong>{item.label}</strong>{item.detail ? <small>{item.detail}</small> : null}</td>
-          <td>{result
-            ? result.ok
-              ? <span className="state-badge occupied"><i />{typeof result.status === 'string' && result.status ? `Aplicado · ${result.status}` : 'Aplicado'}</span>
-              : <><span className="state-badge excluded"><i />Falhou</span><small>{bulkItemErrorMessage(result)}</small></>
-            : <span className="muted-cell">{running ? 'A aplicar…' : done ? 'Sem resposta' : 'Por aplicar'}</span>}</td>
-        </tr>;
-      })}</tbody>
-    </table></div>
+        return result
+          ? result.ok
+            ? <span className="state-badge occupied"><i />{typeof result.status === 'string' && result.status ? `Aplicado · ${result.status}` : 'Aplicado'}</span>
+            : <><span className="state-badge excluded"><i />Falhou</span><small>{bulkItemErrorMessage(result)}</small></>
+          : <span className="muted-cell">{running ? 'A aplicar…' : done ? 'Sem resposta' : 'Por aplicar'}</span>;
+      } },
+    ]} />
     <div className="modal-actions">{done
       ? <button type="button" className="primary-button" onClick={close}>Fechar</button>
       : <><button type="button" className="secondary-button" disabled={running} onClick={close}>Cancelar</button><button type="button" className="primary-button" disabled={running || !items.length || tooMany} onClick={() => void submit()}>{running ? 'A aplicar…' : `${actionLabel} ${items.length}`}</button></>}</div>
