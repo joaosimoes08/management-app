@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ChangePlansPage } from './change-plans-page';
+import { ChangePlansPage, duplicateDraft } from './change-plans-page';
 import type { CalendarChangePlan, ChangePlan, ImpactPreview } from './api';
 
 const mocks = vi.hoisted(() => ({
@@ -351,6 +351,46 @@ describe('ChangePlansPage implementation and close-out (Step 30)', () => {
   };
   afterEach(() => { window.history.replaceState(null, '', '/'); });
 
+  it('duplicates a plan into a new draft that is created, not updated, on save', async () => {
+    const done = plan({ id: 'done-1', status: 'COMPLETED', plannedStartAt: '2026-11-01T22:00:00.000Z', plannedEndAt: '2026-11-01T23:00:00.000Z',
+      items: [{ id: 'item-1', entityType: 'DEVICE', entityId: 'device-1', operationSummary: 'Atualizar firmware', proposedValue: { firmware: '9.4.2' } }] as ChangePlan['items'] });
+    setup(done);
+    const created = { ...done, id: 'copy-1', title: 'Cópia de Firmware core', status: 'DRAFT' as const, revision: 1 };
+    mocks.createChangePlan.mockResolvedValue(created);
+    render(<ChangePlansPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Duplicar plano' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Criar alteração' });
+    expect(within(dialog).getByLabelText('Título')).toHaveValue('Cópia de Firmware core');
+    expect(within(dialog).getByLabelText('Motivo')).toHaveValue('Segurança');
+    expect(dialog).toHaveTextContent('Atualizar firmware');
+    // The original window is in the past, so a new one must be chosen before saving.
+    expect(within(dialog).getByRole('button', { name: 'Guardar rascunho' })).toBeDisabled();
+    const starts = within(within(dialog).getByRole('group', { name: 'Início planeado' }));
+    fireEvent.change(starts.getByLabelText('Início planeado'), { target: { value: '2026-12-01' } });
+    fireEvent.change(starts.getByLabelText('Hora (24 h)'), { target: { value: '22:00' } });
+    const ends = within(within(dialog).getByRole('group', { name: 'Fim planeado' }));
+    fireEvent.change(ends.getByLabelText('Fim planeado'), { target: { value: '2026-12-01' } });
+    fireEvent.change(ends.getByLabelText('Hora (24 h)'), { target: { value: '23:00' } });
+    mocks.getChangePlan.mockImplementation(async () => created);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Guardar rascunho' }));
+
+    await vi.waitFor(() => expect(mocks.createChangePlan).toHaveBeenCalledTimes(1));
+    expect(mocks.createChangePlan).toHaveBeenCalledWith(expect.objectContaining({
+      siteId: 'site-1', title: 'Cópia de Firmware core', reason: 'Segurança',
+      items: [{ entityType: 'DEVICE', entityId: 'device-1', operationSummary: 'Atualizar firmware', proposedValue: { firmware: '9.4.2' } }],
+    }));
+    expect(vi.mocked((await import('./api')).updateChangePlan)).not.toHaveBeenCalled();
+  });
+
+  it('hides Duplicar plano from read-only roles', async () => {
+    auth.roles = ['AUDITOR'];
+    setup(plan());
+    render(<ChangePlansPage />);
+    expect(await screen.findByRole('heading', { name: 'Firmware core' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Duplicar plano' })).not.toBeInTheDocument();
+  });
+
   it('shows non-blocking conflict warnings and starts an approved plan after confirmation', async () => {
     const approved = plan();
     setup(approved);
@@ -454,5 +494,27 @@ describe('ChangePlansPage implementation and close-out (Step 30)', () => {
     for (const label of ['Em curso', 'Concluída', 'Falhou', 'Revertida', 'Cancelada']) expect(legend).toHaveTextContent(label);
     await vi.waitFor(() => expect(mocks.getChangeCalendar).toHaveBeenCalledWith('site-1', expect.any(String), expect.any(String), true));
     expect(screen.getByRole('button', { name: /Falhadas/ })).toBeInTheDocument();
+  });
+});
+
+describe('duplicateDraft', () => {
+  const source = { id: 'p', siteId: 'site-1', title: 'Troca do core', reason: 'Fim de vida', plannedStartAt: '2026-12-10T10:00:00.000Z', plannedEndAt: '2026-12-10T12:00:00.000Z',
+    status: 'APPROVED', revision: 4, previewRevision: 4, previewSnapshot: null, previewedAt: null, submittedAt: null,
+    items: [{ id: 'i1', entityType: 'DEVICE', entityId: 'd1', operationSummary: 'Substituir', currentValue: { model: 'A' } }] } as ChangePlan;
+
+  it('keeps a future window and copies only the fields the API accepts', () => {
+    const draft = duplicateDraft(source, 'Cópia de', Date.parse('2026-11-22T00:00:00Z'));
+    expect(draft.title).toBe('Cópia de Troca do core');
+    expect(draft.plannedStartAt).not.toBe('');
+    expect(draft.items).toEqual([{ entityType: 'DEVICE', entityId: 'd1', operationSummary: 'Substituir', currentValue: { model: 'A' } }]);
+    expect(draft.items[0].currentValue).not.toBe(source.items[0].currentValue);
+  });
+
+  it('clears a past window and keeps the title within 160 characters', () => {
+    const draft = duplicateDraft({ ...source, title: 'x'.repeat(160) }, 'Copy of', Date.parse('2027-01-01T00:00:00Z'));
+    expect(draft.plannedStartAt).toBe('');
+    expect(draft.plannedEndAt).toBe('');
+    expect(draft.title).toHaveLength(160);
+    expect(draft.title.startsWith('Copy of ')).toBe(true);
   });
 });
