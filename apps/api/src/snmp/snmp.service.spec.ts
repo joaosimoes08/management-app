@@ -117,3 +117,53 @@ describe('SNMP interface change impact preview', () => {
     }
   });
 });
+
+// Round 2 #12: scheduler reconciliation repairs only missing schedulers and records failures instead of swallowing them.
+describe('SNMP scheduler reconciliation', () => {
+  const quietLogger = { errors: [] as string[], error(message: string) { this.errors.push(message); } };
+  function harness(options: { schedulers?: string[]; queueDown?: boolean; upsertFails?: string[] }) {
+    const svc = Object.create(SnmpService.prototype) as any;
+    const updates: Array<{ id: string; data: any }> = [];
+    const upserts: string[] = [];
+    svc.logger = { ...quietLogger, errors: [] };
+    svc.prisma = { snmpDeviceConfig: {
+      findMany: async () => [
+        { id: '00000000-0000-4000-8000-000000000001', deviceId: 'd1', enabled: true, intervalMinutes: 15, nextPollAt: new Date() },
+        { id: '00000000-0000-4000-8000-000000000002', deviceId: 'd2', enabled: true, intervalMinutes: 15, nextPollAt: new Date() },
+        { id: '00000000-0000-4000-8000-000000000003', deviceId: 'd3', enabled: true, intervalMinutes: 15, nextPollAt: null },
+      ],
+      update: async (args: { where: { id: string }; data: any }) => { updates.push({ id: args.where.id, data: args.data }); return {}; },
+    } };
+    svc.queue = {
+      getJobSchedulers: async () => { if (options.queueDown) throw new Error('ECONNREFUSED'); return (options.schedulers ?? []).map((key) => ({ key, name: 'poll' })); },
+      upsertJobScheduler: async (id: string) => { if (options.upsertFails?.includes(id)) throw new Error('boom'); upserts.push(id); },
+    };
+    return { svc, updates, upserts };
+  }
+
+  it('creates only the missing schedulers (and one whose next poll was cleared), leaving existing cadences alone', async () => {
+    const { svc, upserts } = harness({ schedulers: ['snmp-device-d1', 'snmp-device-d3'] });
+    const health = await svc.reconcileSchedulers(new Date('2026-11-22T10:00:00Z'));
+    assert.deepEqual(upserts.sort(), ['snmp-device-d2', 'snmp-device-d3']);
+    assert.deepEqual({ ok: health.ok, checked: health.checked, repaired: health.repaired, failed: health.failed }, { ok: true, checked: 3, repaired: 2, failed: 0 });
+    assert.equal(svc.schedulerHealth, health);
+  });
+
+  it('records a per-device error and logs it when a scheduler cannot be created', async () => {
+    const { svc, updates } = harness({ schedulers: ['snmp-device-d1', 'snmp-device-d3'], upsertFails: ['snmp-device-d2'] });
+    const health = await svc.reconcileSchedulers();
+    assert.equal(health.ok, false);
+    assert.equal(health.failed, 1);
+    assert.deepEqual(updates.find((item) => item.id === '00000000-0000-4000-8000-000000000002')?.data, { nextPollAt: null, lastErrorCode: 'SNMP_SCHEDULER_FAILED' });
+    assert.equal(svc.logger.errors.length, 1);
+  });
+
+  it('marks every enabled device when the queue is unreachable', async () => {
+    const { svc, updates, upserts } = harness({ queueDown: true });
+    const health = await svc.reconcileSchedulers();
+    assert.equal(health.errorCode, 'SNMP_QUEUE_UNAVAILABLE');
+    assert.equal(health.failed, 3);
+    assert.equal(upserts.length, 0);
+    assert.ok(updates.every((item) => item.data.lastErrorCode === 'SNMP_QUEUE_UNAVAILABLE' && item.data.nextPollAt === null));
+  });
+});
