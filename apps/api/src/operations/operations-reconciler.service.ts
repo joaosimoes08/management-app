@@ -5,11 +5,16 @@ import { AlertSeverityDto, UpsertOperationalAlert } from './dto';
 import { OperationsService } from './operations.service';
 import { collectTrapAlerts } from './trap-alerts';
 import { snmpPollingStopReason } from '../snmp/snmp-fleet.service';
+import { collectInterfaceAlerts, INTERFACE_ALERT_SOURCE } from './interface-alerts';
+
+/** Round 2 #7: interface alerts read snapshots and observations, so they are recomputed at most once a minute. */
+const INTERFACE_ALERT_INTERVAL_MS = 60_000;
 
 @Injectable()
 export class OperationsReconcilerService implements OnModuleInit, OnModuleDestroy {
   private timer?: NodeJS.Timeout;
   private running = false;
+  private interfaceAlertsAt = 0;
   private readonly queue = new Queue('discovery', { connection: this.connection() });
   constructor(private readonly prisma: PrismaClient, private readonly operations: OperationsService) {}
   private connection() { const url = new URL(process.env.REDIS_URL ?? 'redis://localhost:6379'); return { host: url.hostname, port: Number(url.port || 6379), connectTimeout: 1500, maxRetriesPerRequest: 1, ...(url.password ? { password: url.password } : {}) }; }
@@ -46,6 +51,11 @@ export class OperationsReconcilerService implements OnModuleInit, OnModuleDestro
     ], undefined, failedSnmp.length <= 100 && stoppedPolling.length <= 100);
     await this.operations.reconcileSource('SNMP_TRAP', trapAlerts.candidates, undefined, trapAlerts.resolveMissing, trapAlerts.resolveKeys);
     await this.operations.reconcileSource('SNMP_DRIFT', drifts.slice(0, 100).map((drift) => ({ dedupKey: `snmp:drift:${drift.id}`, source: 'SNMP_DRIFT', severity: AlertSeverityDto.HIGH, siteId: drift.device.siteId, entityType: 'SnmpDrift', entityId: drift.id, title: 'Divergência SNMP pendente', detail: `${drift.device.name}: ${drift.field}`, actionHref: '/snmp' })), undefined, drifts.length <= 100);
+    if (Date.now() - this.interfaceAlertsAt >= INTERFACE_ALERT_INTERVAL_MS) {
+      this.interfaceAlertsAt = Date.now();
+      const interfaceAlerts = await collectInterfaceAlerts(this.prisma);
+      await this.operations.reconcileSource(INTERFACE_ALERT_SOURCE, interfaceAlerts.candidates, undefined, false, interfaceAlerts.resolveKeys);
+    }
     } finally { this.running = false; }
   }
 }
