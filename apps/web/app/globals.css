@@ -2546,14 +2546,21 @@ body { color:var(--ink); background:#e9eef5; }
 .critical-assets-counts button:hover,.critical-assets-counts button.active { background:var(--soft-blue); }
 .critical-assets-counts button.active { border-color:var(--blue); }
 .critical-assets-counts button:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
-/* Five filters do not fit beside the title and actions: they take their own full-width row under the actions (flex and grid toolbars alike). */
+/* Desktop: the five filters share the title row with the actions. Each select names its filter (empty option = the filter name,
+   aria-label kept), so the visible label text is hidden like the rack toolbar labels, and the secondary actions show icons only (title + aria-label). */
 .app-shell .context-toolbar-actions:has(> .context-toolbar-contribution .critical-assets-filters) { flex-wrap:wrap; row-gap:8px; }
 .context-toolbar-actions > .context-toolbar-contribution:has(.critical-assets-filters) { flex:1 1 100%; grid-column:1 / -1; min-width:0; }
 .context-toolbar-contribution .critical-assets-filters { flex:1 1 auto; flex-wrap:wrap; justify-content:flex-end; min-width:0; }
-/* Zero basis: the filters share the row and wrap only once each is down to its label plus the 90px select minimum. */
+.critical-assets-filters .critical-assets-filter-label { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
 @media (min-width:781px) {
-  .context-toolbar-contribution .critical-assets-filters > label { flex:1 1 0; min-width:min-content; }
-  .context-toolbar-contribution .critical-assets-filters > label > select { flex:1 1 auto; width:0; max-width:none; }
+  .app-shell .context-toolbar-actions:has(> .context-toolbar-contribution .critical-assets-filters) { flex-wrap:nowrap; }
+  .context-toolbar-actions:has(.critical-assets-filters) { flex:1 1 auto; min-width:0; }
+  .context-toolbar-actions:has(.critical-assets-filters) > .responsive-toolbar-actions { flex:0 0 var(--toolbar-actions-width, auto); }
+  .context-toolbar-actions > .context-toolbar-contribution:has(.critical-assets-filters) { flex:1 1 0; }
+  .context-toolbar-contribution .critical-assets-filters { flex-wrap:nowrap; gap:6px; }
+  .context-toolbar-contribution .critical-assets-filters > label { flex:1 1 0; min-width:84px; max-width:150px; }
+  .context-toolbar-contribution .critical-assets-filters > label > select { width:100%; min-width:0; text-overflow:ellipsis; }
+  .context-toolbar:has(.critical-assets-filters) .responsive-toolbar-actions .toolbar-action-label { display:none; }
 }
 /* On the phone grid the actions get the whole row too, so the primary button is never squeezed into one 130px column. */
 .context-toolbar-actions:has(> .context-toolbar-contribution .critical-assets-filters) > .responsive-toolbar-actions { grid-column:1 / -1; }

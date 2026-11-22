@@ -163,7 +163,9 @@ export function ResponsiveToolbarActions({ children }: { children: ReactNode }) 
   const visibleIndexes = new Set(widths.length === items.length ? visibleActionIndexes(widths, isPrimary, available) : items.map((_, index) => index));
   const hidden = items.filter((_, index) => !visibleIndexes.has(index));
   if (!items.length) return null;
-  return <div className="responsive-toolbar-actions" ref={containerRef}>
+  // Natural width of every action side by side (6px gap), so a toolbar can reserve room for them before shrinking its other contents.
+  const naturalWidth = widths.length === items.length ? Math.ceil(widths.reduce((sum, width) => sum + width, 0) + Math.max(0, widths.length - 1) * 6) : undefined;
+  return <div className="responsive-toolbar-actions" ref={containerRef} style={naturalWidth ? { '--toolbar-actions-width': `${naturalWidth}px` } as React.CSSProperties : undefined}>
     <div className="responsive-toolbar-actions-visible">{items.filter((_, index) => visibleIndexes.has(index))}</div>
     {!!hidden.length && <ResponsiveOverflowMenu label="Mais ações" onSelect={() => {}}>{hidden}</ResponsiveOverflowMenu>}
     <div className="responsive-overflow-measure" ref={measureRef} aria-hidden="true">{items.map((item, index) => <span className="responsive-overflow-measure-item" key={isValidElement(item) ? item.key ?? index : index}>{item}</span>)}</div>

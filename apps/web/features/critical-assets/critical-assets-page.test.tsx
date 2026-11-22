@@ -478,6 +478,19 @@ describe('CriticalAssetsPage', () => {
     await waitFor(() => expect(visibleNames()).toHaveLength(4));
   });
 
+  it('names each filter inside its select so the filters fit on the toolbar row (item 4)', async () => {
+    renderPage();
+    await rowFor('Core switch');
+    const names: Array<[string, string]> = [['Filtrar por tipo', 'Tipo'], ['Filtrar por grupo responsável', 'Responsável'], ['Filtrar por último resultado', 'Último resultado'], ['Filtrar por prazo', 'Prazo'], ['Filtrar por criticidade', 'Criticidade']];
+    for (const [aria, name] of names) {
+      const select = screen.getByLabelText(aria) as HTMLSelectElement;
+      expect(select.options[0]).toHaveValue('');
+      expect(select.options[0]).toHaveTextContent(name);
+    }
+    const actions = within(screen.getByTestId('toolbar-actions'));
+    expect(actions.getByRole('button', { name: 'Exportar CSV' })).toHaveAttribute('title', 'Exportar CSV');
+  });
+
   it('exports the filtered, sorted rows to CSV with readable values', async () => {
     const blobs: Blob[] = [];
     Object.assign(URL, { createObjectURL: vi.fn((blob: Blob) => { blobs.push(blob); return 'blob:x'; }), revokeObjectURL: vi.fn() });
