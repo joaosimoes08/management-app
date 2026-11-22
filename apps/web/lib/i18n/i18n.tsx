@@ -341,62 +341,100 @@ const translatedText = new WeakMap<Text, string>();
 const translatedAttributeValues = new WeakMap<Element, Map<string, string>>();
 const translatedAttributes = ['aria-label', 'placeholder', 'title'] as const;
 
+/** Translations of legacy strings already seen (the same labels repeat on every refresh). */
+const legacyTranslationCache = new Map<string, string>();
+const legacyTranslationCacheLimit = 5000;
+/** True once an English pass has changed the page, so switching back to Portuguese knows it must restore. */
+let legacyDomTranslated = false;
+
+function translateLegacy(locale: AppLocale, input: string) {
+  if (locale === 'pt-PT') return input;
+  let translated = legacyTranslationCache.get(input);
+  if (translated === undefined) {
+    translated = translateLegacyText(locale, input);
+    if (legacyTranslationCache.size >= legacyTranslationCacheLimit) legacyTranslationCache.clear();
+    legacyTranslationCache.set(input, translated);
+  }
+  return translated;
+}
+
+function translateTextNode(locale: AppLocale, node: Text) {
+  const current = node.nodeValue ?? '';
+  const previousTranslation = translatedText.get(node);
+  if (!originalText.has(node) || (previousTranslation !== undefined && current !== previousTranslation)) {
+    // React may reuse a text node for new state. Treat that value as the new
+    // source instead of restoring the text that was first rendered here.
+    originalText.set(node, current);
+  }
+  const source = originalText.get(node) ?? current;
+  const next = translateLegacy(locale, source);
+  if (current !== next) node.nodeValue = next;
+  translatedText.set(node, next);
+}
+
+function translateAttribute(locale: AppLocale, element: Element, attribute: string) {
+  if (!element.hasAttribute(attribute)) return;
+  let saved = originalAttributes.get(element);
+  if (!saved) { saved = new Map(); originalAttributes.set(element, saved); }
+  let translated = translatedAttributeValues.get(element);
+  if (!translated) { translated = new Map(); translatedAttributeValues.set(element, translated); }
+  const current = element.getAttribute(attribute) ?? '';
+  const previousTranslation = translated.get(attribute);
+  if (!saved.has(attribute) || (previousTranslation !== undefined && current !== previousTranslation)) saved.set(attribute, current);
+  const source = saved.get(attribute) ?? '';
+  const next = translateLegacy(locale, source);
+  if (current !== next) element.setAttribute(attribute, next);
+  translated.set(attribute, next);
+}
+
+function translateElement(locale: AppLocale, element: Element) {
+  for (const attribute of translatedAttributes) translateAttribute(locale, element, attribute);
+}
+
 export function translateLegacyDom(locale: AppLocale, root: Node) {
-  const translateNode = (node: Text) => {
-    const current = node.nodeValue ?? '';
-    const previousTranslation = translatedText.get(node);
-    if (!originalText.has(node) || (previousTranslation !== undefined && current !== previousTranslation)) {
-      // React may reuse a text node for new state. Treat that value as the new
-      // source instead of restoring the text that was first rendered here.
-      originalText.set(node, current);
-    }
-    const source = originalText.get(node) ?? current;
-    const next = translateLegacyText(locale, source);
-    if (current !== next) node.nodeValue = next;
-    translatedText.set(node, next);
-  };
-  const translateElement = (element: Element) => {
-    let saved = originalAttributes.get(element);
-    if (!saved) { saved = new Map(); originalAttributes.set(element, saved); }
-    let translated = translatedAttributeValues.get(element);
-    if (!translated) { translated = new Map(); translatedAttributeValues.set(element, translated); }
-    for (const attribute of translatedAttributes) {
-      if (!element.hasAttribute(attribute)) continue;
-      const current = element.getAttribute(attribute) ?? '';
-      const previousTranslation = translated.get(attribute);
-      if (!saved.has(attribute) || (previousTranslation !== undefined && current !== previousTranslation)) saved.set(attribute, current);
-      const source = saved.get(attribute) ?? '';
-      const next = translateLegacyText(locale, source);
-      if (current !== next) element.setAttribute(attribute, next);
-      translated.set(attribute, next);
-    }
-  };
-  if (root.nodeType === Node.TEXT_NODE) translateNode(root as Text);
-  if (root.nodeType === Node.ELEMENT_NODE) translateElement(root as Element);
+  if (locale !== 'pt-PT') legacyDomTranslated = true;
+  if (root.nodeType === Node.TEXT_NODE) translateTextNode(locale, root as Text);
+  if (root.nodeType === Node.ELEMENT_NODE) translateElement(locale, root as Element);
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
   let current: Node | null;
   while ((current = walker.nextNode())) {
-    if (current.nodeType === Node.TEXT_NODE) translateNode(current as Text);
-    else translateElement(current as Element);
+    if (current.nodeType === Node.TEXT_NODE) translateTextNode(locale, current as Text);
+    else translateElement(locale, current as Element);
   }
 }
 
+/**
+ * Keeps hard-coded Portuguese text in English while the app runs in en-US.
+ * Portuguese is the source language, so pt-PT only restores what an earlier English pass changed
+ * and then watches nothing. In en-US each batch of mutations touches only what changed: the edited
+ * text node, the edited attribute, or each newly added subtree once. The observer's own edits are
+ * dropped instead of being processed again in the next batch.
+ */
 export function observeLegacyDom(locale: AppLocale, root: Node) {
-  let translating = false;
-  const apply = (node: Node) => {
-    if (translating) return;
-    translating = true;
-    translateLegacyDom(locale, node);
-    translating = false;
-  };
-  apply(root);
+  if (locale === 'pt-PT') {
+    if (legacyDomTranslated) { translateLegacyDom(locale, root); legacyDomTranslated = false; }
+    return () => undefined;
+  }
+  translateLegacyDom(locale, root);
   const observer = new MutationObserver((mutations) => {
-    if (translating) return;
+    const added = new Set<Node>();
     for (const mutation of mutations) {
-      if (mutation.type === 'characterData') apply(mutation.target);
-      if (mutation.type === 'attributes') apply(mutation.target);
-      for (const node of mutation.addedNodes) apply(node);
+      if (mutation.type === 'characterData') {
+        if (mutation.target.isConnected) translateTextNode(locale, mutation.target as Text);
+      } else if (mutation.type === 'attributes') {
+        if (mutation.attributeName && mutation.target.isConnected) translateAttribute(locale, mutation.target as Element, mutation.attributeName);
+      } else {
+        for (const node of mutation.addedNodes) added.add(node);
+      }
     }
+    for (const node of added) {
+      if (!node.isConnected) continue;
+      let ancestor = node.parentNode;
+      while (ancestor && !added.has(ancestor)) ancestor = ancestor.parentNode;
+      if (!ancestor) translateLegacyDom(locale, node);
+    }
+    // Everything still queued was written by the passes above.
+    observer.takeRecords();
   });
   observer.observe(root, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: [...translatedAttributes] });
   return () => observer.disconnect();
