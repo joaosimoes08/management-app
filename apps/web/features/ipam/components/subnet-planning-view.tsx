@@ -71,7 +71,11 @@ export function SubnetPlanningView({ subnets }: { subnets: Subnet[] }) {
         {plan.segments?.length ? <div className="ip-table-wrap" role="region" aria-label="Mapa da subnet" tabIndex={0}><table className="ip-table">
           <thead><tr><th>Estado</th><th>Intervalo</th><th>Endereços</th><th>Detalhe</th></tr></thead>
           <tbody>{plan.segments.map((segment) => <tr key={`${segment.status}-${segment.start}`}><td><span className={`state-badge ${segmentBadge[segment.status].className}`}><i />{segmentBadge[segment.status].label}</span></td><td>{segment.start} – {segment.end}</td><td>{segment.count}</td><td>{segmentDetail(segment)}</td></tr>)}</tbody>
-        </table></div> : <div className="no-data">Não existem gaps utilizáveis nesta subnet.</div>}
+        </table></div> : plan.segments ? <div className="no-data">Não existem gaps utilizáveis nesta subnet.</div> : <>
+          {/* An API that predates the parent map still returns the flat list of gaps. */}
+          {plan.usableGaps.map((gap) => <div className="activity-row" key={`${gap.start}-${gap.end}`}><span>{gap.start} – {gap.end}</span><small>{gap.count} endereços</small></div>)}
+          {!plan.usableGaps.length && <div className="no-data">Não existem gaps utilizáveis nesta subnet.</div>}
+        </>}
         {plan.segmentsTruncated && <div className="no-data">O mapa mostra só as primeiras linhas.</div>}
       </>}
     </div>}

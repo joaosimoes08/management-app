@@ -58,6 +58,16 @@ describe('Planeamento de endereços', () => {
     await screen.findByRole('region', { name: 'Mapa da subnet' });
   });
 
+  it('falls back to the flat gap list when the API predates the parent map', async () => {
+    const legacy: Record<string, unknown> = { ...basePlan };
+    delete legacy.segments; delete legacy.planned; delete legacy.shortfalls;
+    mockedFetch.mockResolvedValue({ ...legacy, usableGaps: [{ start: '10.0.0.2', end: '10.0.0.31', count: 30 }] });
+    render(<SubnetPlanningView subnets={[parent]} />);
+    fireEvent.change(screen.getByLabelText('Subnet'), { target: { value: 'p1' } });
+    expect(await screen.findByText('10.0.0.2 – 10.0.0.31')).toBeInTheDocument();
+    expect(screen.queryByText('Não existem gaps utilizáveis nesta subnet.')).not.toBeInTheDocument();
+  });
+
   it('explains a prefix larger than the parent', () => {
     expect(shortfallMessage({ prefix: 23, requested: 1, planned: 0, missing: 1, reason: 'PREFIX_SHORTER_THAN_PARENT' })).toBe('Um bloco /23 é maior do que a subnet selecionada.');
   });
