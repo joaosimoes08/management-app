@@ -13,7 +13,8 @@ function schedulerService(options: { failFirstNotification?: boolean } = {}) {
   let notificationAttempts = 0;
   const prisma: any = {
     site: { findMany: async () => [site] },
-    device: { findMany: async () => [device] },
+    device: { findMany: async () => (attestationExists ? [] : [device]) },
+    criticalAssetGroupMapping: { findMany: async () => [{ assetType: 'ROUTER' }] },
     $transaction: async (callback: (tx: any) => Promise<unknown>) => {
       const transactionState = { attestationExists, notificationWrites };
       const result = await callback({

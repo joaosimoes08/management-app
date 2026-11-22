@@ -5,6 +5,7 @@ import { Prisma, PrismaClient } from '@simoes/database';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { InfrastructureAccessService } from '../infrastructure/infrastructure-access.service';
 import { isIanaTimeZone } from '../common/time-zone';
+import { runWithTaskLease, type TaskRunOutcome } from '../common/background-task-lease';
 
 function localParts(date: Date, timezone: string) {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: timezone, weekday: 'short', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(date);
@@ -192,6 +193,15 @@ function withReviewer<T extends { confirmedBy: string | null }>(row: T, reviewer
 }
 
 export type BulkReviewItem = { id: string; outcome: string; notes?: string };
+/** Name of the critical-asset sweep's row in BackgroundTaskRun. */
+export const CRITICAL_ASSET_SWEEP_TASK = 'critical-asset-weekly-sweep';
+const SWEEP_INTERVAL_MS = 60_000;
+/** Gap between two sweeps across all replicas: just under the timer, so clock jitter never skips a whole minute. */
+const SWEEP_MIN_GAP_MS = 50_000;
+/** A crashed holder blocks the sweep for at most this long. */
+const SWEEP_LEASE_TTL_MS = 10 * 60_000;
+export type SweepSummary = { sitesDue: number; candidates: number; created: number; failed: number };
+
 export type BulkReviewResult = { id: string; ok: true; outcome: CriticalAssetOutcomeValue } | { id: string; ok: false; code: string; message: string };
 
 @Injectable()
@@ -200,27 +210,65 @@ export class CriticalAssetsService implements OnModuleInit, OnModuleDestroy {
   private timer?: NodeJS.Timeout;
   constructor(private readonly prisma: PrismaClient, private readonly access: InfrastructureAccessService) {}
 
-  onModuleInit() { this.timer = setInterval(() => void this.runWeeklyChecks().catch((error) => this.logger.error('Weekly critical asset checks failed', error instanceof Error ? error.stack : String(error))), 60_000); this.timer.unref(); void this.runWeeklyChecks().catch((error) => this.logger.error('Weekly critical asset checks failed', error instanceof Error ? error.stack : String(error))); }
+  /** Set while this process runs the sweep, so a slow run is never overlapped by the next minute's tick. */
+  private sweeping = false;
+
+  onModuleInit() {
+    if (process.env.CRITICAL_ASSET_SWEEP_DISABLED === 'true') return;
+    this.timer = setInterval(() => void this.runScheduledSweep(), SWEEP_INTERVAL_MS);
+    this.timer.unref();
+    void this.runScheduledSweep();
+  }
   onModuleDestroy() { if (this.timer) clearInterval(this.timer); }
 
-  async runWeeklyChecks(now = new Date()) {
+  /**
+   * Round 2 #13: the minute timer's entry point. One sweep at a time in this process, and one per minute across every
+   * API replica (lease in BackgroundTaskRun, which also records the last run). Failures are logged, never thrown.
+   */
+  async runScheduledSweep(now = new Date()): Promise<TaskRunOutcome<SweepSummary>> {
+    if (this.sweeping) return { ran: false, reason: 'IN_PROCESS' };
+    this.sweeping = true;
+    try {
+      const outcome = await runWithTaskLease(this.prisma, CRITICAL_ASSET_SWEEP_TASK, { ttlMs: SWEEP_LEASE_TTL_MS, minIntervalMs: SWEEP_MIN_GAP_MS, now }, () => this.runWeeklyChecks(now), (summary) => summary);
+      if (!outcome.ran) this.logger.debug(`Critical asset sweep skipped: ${outcome.reason}`);
+      return outcome;
+    } catch (error) {
+      this.logger.error('Weekly critical asset checks failed', error instanceof Error ? error.stack : String(error));
+      return { ran: false, reason: 'FAILED' };
+    } finally { this.sweeping = false; }
+  }
+
+  /**
+   * Opens this week's attestation cycles. Set-based (round 2 #13): per due Site it reads the asset types that have a
+   * reviewer group, then only the critical assets of those types that have no attestation for this week yet. Once a
+   * week's cycles exist, each later minute costs one small query per due Site instead of one transaction per asset.
+   */
+  async runWeeklyChecks(now = new Date()): Promise<SweepSummary> {
+    const summary: SweepSummary = { sitesDue: 0, candidates: 0, created: 0, failed: 0 };
     const sites = await this.prisma.site.findMany({ select: { id: true, name: true, timezone: true, criticalCadenceT1Weeks: true, criticalCadenceT2Weeks: true, criticalCadenceT3Weeks: true } });
     for (const site of sites) {
       let window;
       try { window = weeklyWindow(now, site.timezone); } catch { continue; }
       if (!window.due) continue;
+      summary.sitesDue += 1;
       const weekStart = window.weekStart;
       try {
-        const devices = await this.prisma.device.findMany({ where: { siteId: site.id, isCritical: true, status: { not: 'RETIRED' } }, select: { id: true, name: true, type: true, criticalityTier: true } });
+        const mapped = await this.prisma.criticalAssetGroupMapping.findMany({ where: { siteId: site.id }, select: { assetType: true } });
+        if (!mapped.length) continue;
+        const devices = await this.prisma.device.findMany({
+          where: { siteId: site.id, isCritical: true, status: { not: 'RETIRED' }, type: { in: mapped.map(({ assetType }) => assetType) }, criticalAssetAttestations: { none: { weekStart } } },
+          select: { id: true, name: true, type: true, criticalityTier: true },
+        });
         for (const device of devices) {
           // A cycle is generated only on this device's cadence Mondays (T2 every 2 weeks, for example).
           if (!isCycleWeek(weekStart, cadenceWeeks(device.criticalityTier, site))) continue;
+          summary.candidates += 1;
           try {
-            await this.prisma.$transaction(async (tx) => {
+            const created = await this.prisma.$transaction(async (tx) => {
               const mapping = await tx.criticalAssetGroupMapping.findUnique({ where: { siteId_assetType: { siteId: site.id, assetType: device.type } }, include: { group: { include: { members: { select: { userId: true } } } } } });
-              if (!mapping) return;
+              if (!mapping) return false;
               const created = await tx.criticalAssetAttestation.createMany({ data: [{ siteId: site.id, deviceId: device.id, weekStart }], skipDuplicates: true });
-              if (!created.count) return;
+              if (!created.count) return false;
               const type = NotificationTopic.CRITICAL_ASSET_ATTESTATION;
               const recipients = await unmutedRecipients(tx, mapping.group.members.map(({ userId }) => userId), type);
               const source = new URLSearchParams({ siteId: site.id, assetId: device.id, week: weekStart.toISOString().slice(0, 10) });
@@ -231,8 +279,11 @@ export class CriticalAssetsService implements OnModuleInit, OnModuleDestroy {
                 await tx.notification.createMany({ data: recipients.map((userId) => ({ userId, type, title, message, sourceHref })) });
                 await queueUserDeliveries(tx, recipients.map((userId) => ({ userId, type, title, message, href: sourceHref })));
               }
+              return true;
             });
+            if (created) summary.created += 1;
           } catch (error) {
+            summary.failed += 1;
             this.logger.error(`Weekly attestation failed for device ${device.id} at site ${site.id}`, error instanceof Error ? error.stack : String(error));
           }
         }
@@ -240,6 +291,7 @@ export class CriticalAssetsService implements OnModuleInit, OnModuleDestroy {
         this.logger.error(`Weekly critical asset checks failed for site ${site.id}`, error instanceof Error ? error.stack : String(error));
       }
     }
+    return summary;
   }
 
   private async userGroupIds(user: AuthenticatedUser): Promise<string[] | null> {
