@@ -1635,6 +1635,45 @@ test('Round 2 #6/#14 Desaparecidos: scoped list, Marcar livre per item with role
   assert.equal(findings.items.some((item: { entityId: string }) => item.entityId === ipA.id), false);
 });
 
+test('Round 2 #6/#14 + #11: a scan stopped at a limit is not coverage for Desaparecidos, mark-free or free-but-reachable', async () => {
+  const at = (daysAgo: number) => new Date(Date.now() - daysAgo * 86_400_000);
+  const scan = (subnetId: string, daysAgo: number, stopReason: 'LIMIT_DURATION' | 'LIMIT_PROBES' | null) => prisma.discoveryJob.create({ data: { name: 'R2 partial coverage', subnetId, methods: ['ICMP'], status: 'COMPLETED', stopReason, startedAt: at(daysAgo), completedAt: new Date(at(daysAgo).getTime() + 30_000), createdAt: at(daysAgo) } });
+  const [partialOnly, mixed] = await Promise.all(['10.250.12.0/28', '10.250.13.0/28'].map((cidr) => prisma.subnet.create({ data: { cidr, version: 4, siteId: ids.siteA } })));
+  const occupied = await prisma.ipAddress.create({ data: { subnetId: partialOnly.id, address: '10.250.12.5', state: 'OCCUPIED' } });
+  const free = await prisma.ipAddress.create({ data: { subnetId: mixed.id, address: '10.250.13.6', state: 'FREE' } });
+  await prisma.$executeRaw`UPDATE "IpAddress" SET "updatedAt" = now() - interval '10 days' WHERE "id" IN (${occupied.id}::uuid, ${free.id}::uuid)`;
+  // Subnet 1: two scans after the record changed, both stopped at a limit before reaching .5 (no result for it).
+  await scan(partialOnly.id, 2, 'LIMIT_PROBES');
+  await scan(partialOnly.id, 1, 'LIMIT_DURATION');
+  // Subnet 2: a full scan saw the FREE address answer; a newer scan stopped at a limit before reaching it.
+  const full = await scan(mixed.id, 3, null);
+  await prisma.discoveryResult.create({ data: { jobId: full.id, address: free.address, icmpReachable: true, openPorts: [] } });
+  await scan(mixed.id, 1, 'LIMIT_DURATION');
+
+  const missing = async () => json(await request('GET', `/api/v1/discovery/missing?subnetId=${partialOnly.id}`, 'qa-admin')).items.map((item: { address: string }) => item.address);
+  assert.deepEqual(await missing(), [], 'partial scans alone do not make an address Desaparecido');
+  const refused = await request('POST', '/api/v1/discovery/missing/mark-free', 'qa-admin', { ipIds: [occupied.id] });
+  assert.equal(refused.statusCode, 201, refused.body);
+  assert.deepEqual(json(refused).results.map((item: { ok: boolean; code: string }) => [item.ok, item.code]), [[false, 'NOT_MISSING']]);
+  assert.equal((await prisma.ipAddress.findUniqueOrThrow({ where: { id: occupied.id } })).state, 'OCCUPIED');
+
+  const findings = async (rule: string) => {
+    assert.equal((await request('POST', '/api/v1/inventory-quality/reconcile', 'qa-admin', {})).statusCode, 201);
+    return json(await request('GET', `/api/v1/inventory-quality/findings?rule=${rule}&pageSize=100`, 'qa-admin')).items.map((item: { entityId: string }) => item.entityId);
+  };
+  assert.equal((await findings('IP_OCCUPIED_NOT_SEEN')).includes(occupied.id), false);
+  // The latest FULL scan decides free-but-reachable; the newer partial scan never reached the address and does not hide it.
+  assert.equal((await findings('IP_FREE_BUT_REACHABLE')).includes(free.id), true);
+
+  // Control: one full scan of subnet 1 is coverage, so the address becomes missing and can be freed.
+  await scan(partialOnly.id, 0.5, null);
+  assert.deepEqual(await missing(), ['10.250.12.5']);
+  assert.equal((await findings('IP_OCCUPIED_NOT_SEEN')).includes(occupied.id), true);
+  const freed = json(await request('POST', '/api/v1/discovery/missing/mark-free', 'qa-admin', { ipIds: [occupied.id] }));
+  assert.deepEqual(freed.results.map((item: { ok: boolean }) => item.ok), [true]);
+  await prisma.subnet.deleteMany({ where: { id: { in: [partialOnly.id, mixed.id] } } });
+});
+
 test('Round 2 #10/#11 discovery: cancel queued and running scans, retry a failed scan, limits are validated', async () => {
   const subnet = await prisma.subnet.create({ data: { cidr: '10.250.9.0/28', version: 4, siteId: ids.siteA } });
   const invalid = await request('POST', '/api/v1/discovery/jobs', 'qa-admin', { name: 'R2 limits', subnetId: subnet.id, methods: ['ICMP'], maxDurationSeconds: 5 });

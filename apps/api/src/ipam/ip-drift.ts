@@ -7,6 +7,10 @@ import { Prisma, PrismaClient } from '@simoes/database';
  * "has a DiscoveryResult in a COMPLETED scan of its subnet". Both rules only compare an address with scans that
  * started after the record last changed (`IpAddress.updatedAt`), so a record edited after the last scan is never flagged.
  *
+ * Only full scans count as coverage: a scan that stopped at a limit ends COMPLETED with a `stopReason`
+ * (LIMIT_DURATION / LIMIT_PROBES) and never reached part of its subnet, so it can neither be the "latest scan" nor make an
+ * address "Desaparecido". An address that did answer in a partial scan still counts as seen (that answer is real).
+ *
  * - FREE but reachable: the address is FREE and answered in the subnet's latest COMPLETED scan of the last 7 days.
  * - OCCUPIED not seen ("Desaparecidos"): the address is OCCUPIED, its subnet had a COMPLETED scan in the last 30 days
  *   that started after the record changed, it answered in none of those scans, and `lastSeenAt` is empty or older than 30 days.
@@ -31,7 +35,7 @@ export async function findFreeButReachable(prisma: PrismaClient, options: { site
     WITH latest AS (
       SELECT DISTINCT ON (j."subnetId") j."id", j."subnetId", COALESCE(j."startedAt", j."createdAt") AS "startedAt", j."completedAt"
       FROM "DiscoveryJob" j
-      WHERE j."status" = 'COMPLETED' AND j."completedAt" >= ${since} ${subnetFilter(Prisma.sql`j."subnetId"`, subnetIds)}
+      WHERE j."status" = 'COMPLETED' AND j."stopReason" IS NULL AND j."completedAt" >= ${since} ${subnetFilter(Prisma.sql`j."subnetId"`, subnetIds)}
       ORDER BY j."subnetId", j."completedAt" DESC
     )
     SELECT ip."id" AS "ipId", ip."address", ip."subnetId", s."cidr", s."siteId", COALESCE(r."hostname", ip."hostname") AS "hostname", l."id" AS "jobId", l."completedAt" AS "scanAt"
@@ -53,7 +57,7 @@ export async function findMissingIps(prisma: PrismaClient, options: { siteId?: s
            max(j."completedAt") AS "lastScanAt", count(j."id") AS "scanCount"
     FROM "IpAddress" ip
     JOIN "Subnet" s ON s."id" = ip."subnetId"
-    JOIN "DiscoveryJob" j ON j."subnetId" = ip."subnetId" AND j."status" = 'COMPLETED' AND j."completedAt" >= ${since}
+    JOIN "DiscoveryJob" j ON j."subnetId" = ip."subnetId" AND j."status" = 'COMPLETED' AND j."stopReason" IS NULL AND j."completedAt" >= ${since}
       AND COALESCE(j."startedAt", j."createdAt") > ip."updatedAt"
     WHERE ip."state" = 'OCCUPIED'
       AND (ip."lastSeenAt" IS NULL OR ip."lastSeenAt" < ${since})
