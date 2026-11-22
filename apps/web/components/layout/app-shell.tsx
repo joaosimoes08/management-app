@@ -8,6 +8,7 @@ import * as m from 'motion/react-m';
 import { usePathname } from 'next/navigation';
 import { AppHeader } from './app-header';
 import { AppSidebar } from './app-sidebar';
+import { useUiText } from '@/components/ui/use-ui-text';
 import { GlobalSearchPalette, type LocalSearchContext, type RackSearchContext } from './global-search';
 import { UserMenu } from './user-menu';
 import { ResponsiveToolbarActions } from './responsive-overflow';
@@ -22,8 +23,9 @@ export function PageToolbarPortal({ children }: { children: ReactNode }) {
   return target ? createPortal(<div className="context-toolbar-contribution">{children}</div>, target) : <div className="context-toolbar-contribution">{children}</div>;
 }
 
-export function ToolbarMore({ children, label = 'Mais ações', className = '' }: { children: ReactNode; label?: string; className?: string }) {
-  return <details className={`context-toolbar-more ${className}`.trim()}><summary><MoreHorizontal size={16} /><span>{label}</span></summary><div className="context-toolbar-more-menu">{children}</div></details>;
+export function ToolbarMore({ children, label, className = '' }: { children: ReactNode; label?: string; className?: string }) {
+  const ui = useUiText();
+  return <details className={`context-toolbar-more ${className}`.trim()}><summary><MoreHorizontal size={16} /><span>{label ?? ui('ui.moreActions')}</span></summary><div className="context-toolbar-more-menu">{children}</div></details>;
 }
 
 /** Application chrome: sidebar + topbar + global search palette around page content. */

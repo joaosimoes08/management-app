@@ -16,6 +16,7 @@ import {
   assetTypes, buildRows, countRows, dueLabels, dueOrder, dueTone, emptyFilters, filterRows, hasActiveFilters, MAX_SERVER_PAGE, NO_OUTCOME, NO_OWNER, outcomeLabel, outcomeTone, PAGE_SIZE, toRow, withRecordedAttestation, currentCycle, hasOlderPending,
   type AssetPage, type AssetRow, type Attestation, type ComplianceCell, type CriticalAssetsResult, type Correction, type Filters, type Group, type Outcome, complianceCells,
 } from './workbench';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 type View = 'assets' | 'corrections' | 'compliance';
 type Connection = { id: string; label?: string | null; type?: string; sourceDevice: { id: string; name: string }; targetDevice: { id: string; name: string } };
@@ -47,6 +48,7 @@ export function assetsPageUrl(siteId: string, filters: Filters, search: string, 
 const tableConfig: TableStateConfig<Filters> = { filters: emptyFilters, sortable: ['name', 'type', 'owner', 'outcome', 'due'] };
 
 export function CriticalAssetsPage() {
+  const ui = useUiText();
   const { siteId } = useSiteContext();
   const { hasRole } = useAuth();
   const isAdmin = hasRole('ADMIN');
@@ -416,9 +418,9 @@ export function CriticalAssetsPage() {
         empty={error ? null : <Empty title={filtering ? 'Sem ativos correspondentes' : 'Ainda não existem ativos críticos'} text={filtering ? 'Muda a pesquisa ou limpa os filtros.' : 'Marca equipamentos como críticos no inventário para os rever aqui.'} />}
       />
       {total > PAGE_SIZE && <nav className="table-actions" aria-label="Paginação de ativos">
-        <button className="secondary-button" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Anterior</button>
-        <span>{`Página ${page} de ${pageCount}`}</span>
-        <button className="secondary-button" disabled={page >= pageCount} onClick={() => setPage((current) => Math.min(pageCount, current + 1))}>Seguinte</button>
+        <button className="secondary-button" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>{ui('common.previous')}</button>
+        <span>{ui('ui.pageOf', undefined, { page, total: pageCount })}</span>
+        <button className="secondary-button" disabled={page >= pageCount} onClick={() => setPage((current) => Math.min(pageCount, current + 1))}>{ui('common.next')}</button>
       </nav>}
       </>}
       {view === 'corrections' && <>

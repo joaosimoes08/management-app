@@ -3,6 +3,7 @@
 import { useEscapeClose } from '@/components/ui/use-escape-close';
 import { X } from 'lucide-react';
 import { useEffect, type ReactNode } from 'react';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 export interface ModalProps {
   title: string;
@@ -14,6 +15,7 @@ export interface ModalProps {
 }
 
 export function Modal({ title, children, close, entryMotion = false, className = '' }: ModalProps) {
+  const ui = useUiText();
   useEscapeClose(close);
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -28,7 +30,7 @@ export function Modal({ title, children, close, entryMotion = false, className =
       <section className={`modal-card wide-modal${entryMotion ? ' entry-motion' : ''}${className ? ` ${className}` : ''}`} role="dialog" aria-modal="true" aria-label={title}>
         <div className="modal-heading">
           <h2>{title}</h2>
-          <button type="button" className="icon-button subtle" onClick={close} aria-label="Fechar">
+          <button type="button" className="icon-button subtle" onClick={close} aria-label={ui('ui.close')}>
             <X size={16} />
           </button>
         </div>

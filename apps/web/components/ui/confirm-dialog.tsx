@@ -4,6 +4,7 @@ import { useEscapeClose } from '@/components/ui/use-escape-close';
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 export interface ConfirmOptions {
   /** Main question, e.g. "Eliminar a regra NAT X?". Line breaks are kept. */
@@ -20,7 +21,8 @@ export type ConfirmFn = (options: ConfirmOptions | string) => Promise<boolean>;
 const focusableSelector = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /** Accessible replacement for window.confirm, built on the existing modal classes. */
-export function ConfirmDialog({ message, title, confirmLabel, cancelLabel = 'Cancelar', destructive = false, onResolve }: ConfirmOptions & { onResolve: (confirmed: boolean) => void }) {
+export function ConfirmDialog({ message, title, confirmLabel, cancelLabel, destructive = false, onResolve }: ConfirmOptions & { onResolve: (confirmed: boolean) => void }) {
+  const ui = useUiText();
   const titleId = useId();
   const messageId = useId();
   const cardRef = useRef<HTMLElement>(null);
@@ -58,12 +60,12 @@ export function ConfirmDialog({ message, title, confirmLabel, cancelLabel = 'Can
 
   return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onResolve(false)}>
     <section ref={cardRef} className="modal-card" role="alertdialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={messageId}>
-      <div className="modal-heading"><h2 id={titleId}>{title ?? (destructive ? 'Confirmar eliminação' : 'Confirmar')}</h2><button type="button" className="icon-button subtle" onClick={() => onResolve(false)} aria-label="Fechar"><X size={16} /></button></div>
+      <div className="modal-heading"><h2 id={titleId}>{title ?? (destructive ? ui('ui.confirmDeleteTitle') : ui('ui.confirm'))}</h2><button type="button" className="icon-button subtle" onClick={() => onResolve(false)} aria-label={ui('ui.close')}><X size={16} /></button></div>
       <div className="modal-form">
         <p className="panel-description" id={messageId}>{body}</p>
         <div className="modal-actions">
-          <button ref={cancelRef} type="button" className="secondary-button" onClick={() => onResolve(false)}>{cancelLabel}</button>
-          <button ref={confirmRef} type="button" className={destructive ? 'secondary-button danger' : 'primary-button'} onClick={() => onResolve(true)}>{confirmLabel ?? (destructive ? 'Eliminar' : 'Confirmar')}</button>
+          <button ref={cancelRef} type="button" className="secondary-button" onClick={() => onResolve(false)}>{cancelLabel ?? ui('common.cancel')}</button>
+          <button ref={confirmRef} type="button" className={destructive ? 'secondary-button danger' : 'primary-button'} onClick={() => onResolve(true)}>{confirmLabel ?? (destructive ? ui('common.delete') : ui('ui.confirm'))}</button>
         </div>
       </div>
     </section>

@@ -8,6 +8,7 @@ import { apiFetch } from '@/lib/api/client';
 import { useI18n } from '@/lib/i18n';
 import { useSiteContext } from '@/lib/site-context';
 import { usePathname } from 'next/navigation';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 type Site = { id: string; name: string; code: string };
 type SiteForm = { name: string; code: string; address: string; city: string; region: string; country: string; buildingName: string; roomName: string; rackName: string };
@@ -15,6 +16,7 @@ type SiteForm = { name: string; code: string; address: string; city: string; reg
 const emptyForm: SiteForm = { name: '', code: '', address: '', city: '', region: '', country: 'Portugal', buildingName: '', roomName: '', rackName: '' };
 
 export function SiteSwitcher() {
+  const ui = useUiText();
   const { hasRole } = useAuth();
   const pathname = usePathname();
   const { t } = useI18n();
@@ -45,7 +47,7 @@ export function SiteSwitcher() {
         <span className="workspace-switcher-copy" key={siteId || 'all-sites'}><small>COCIBER — Site Ativo</small><strong><MapPin size={12} aria-hidden="true" />{activeSite?.name ?? t('shell.allSites')}</strong></span>
         <ChevronDown className="workspace-switcher-chevron" size={15} aria-hidden="true" />
       </button>
-      {open && <div className="site-switcher-menu" role="menu" aria-label="Selecionar Site">
+      {open && <div className="site-switcher-menu" role="menu" aria-label={ui('ui.selectSite')}>
         {sites.length > 1 && supportsAggregate && <button className={!siteId ? 'active' : ''} role="menuitemradio" aria-checked={!siteId} onClick={() => activate('')}><span className="site-option-mark">T</span><span><strong>{t('shell.allSites')}</strong><small>{t('shell.globalView')}</small></span>{!siteId && <Check size={14} />}</button>}
         {sites.map((site) => <button className={site.id === siteId ? 'active' : ''} role="menuitemradio" aria-checked={site.id === siteId} key={site.id} onClick={() => activate(site.id)}><span className="site-option-mark">{site.code.charAt(0)}</span><span><strong>{site.name}</strong><small>{site.code}</small></span>{site.id === siteId && <Check size={14} />}</button>)}
         {hasRole('ADMIN') && <><div className="site-switcher-divider"/><button className="site-create-trigger" role="menuitem" onClick={() => { setOpen(false); setCreating(true); }}><span className="site-option-mark"><Plus size={14}/></span><span><strong>{t('shell.createSite')}</strong><small>{t('shell.addLocation')}</small></span></button></>}
@@ -56,6 +58,7 @@ export function SiteSwitcher() {
 }
 
 function SiteWalkthrough({ onClose, onCreated, onActivate }: { onClose: () => void; onCreated: (site: Site) => void; onActivate: (siteId: string) => void }) {
+  const ui = useUiText();
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<SiteForm>(emptyForm);
   const [created, setCreated] = useState<Site | null>(null);
@@ -74,7 +77,7 @@ function SiteWalkthrough({ onClose, onCreated, onActivate }: { onClose: () => vo
   };
   return <div className="site-walkthrough-backdrop" role="presentation" onMouseDown={() => { if (!saving) onClose(); }}><section className="site-walkthrough" role="dialog" aria-modal="true" aria-labelledby="site-walkthrough-title" onMouseDown={(event) => event.stopPropagation()}>
     <aside className="site-walkthrough-aside"><span className="section-kicker">NOVO SITE</span><h2 id="site-walkthrough-title">Adicionar localização</h2><p>Cria a base do Site e, se quiseres, a primeira hierarquia física.</p><div className="setup-steps">{['Identificação', 'Localização', 'Confirmar', 'Concluído'].map((label, index) => <div className={index === step ? 'setup-step active' : index < step ? 'setup-step done' : 'setup-step'} key={label}><span>{index < step ? <Check size={13}/> : index + 1}</span>{label}</div>)}</div></aside>
-    <div className="site-walkthrough-content"><button className="site-walkthrough-close" type="button" onClick={onClose} disabled={saving} aria-label="Fechar"><X size={16}/></button>{error && <div className="setup-error">{error}</div>}
+    <div className="site-walkthrough-content"><button className="site-walkthrough-close" type="button" onClick={onClose} disabled={saving} aria-label={ui('ui.close')}><X size={16}/></button>{error && <div className="setup-error">{error}</div>}
       {step === 0 && <div className="setup-panel"><span className="section-kicker">PASSO 1 DE 3</span><h2>Como identificamos este Site?</h2><p>O nome é apresentado na navegação. O código curto distingue o Site em listas e integrações.</p><div className="form-row">{field('name', 'Nome do Site', 'Ex.: Sede Lisboa', true)}{field('code', 'Código curto', 'Ex.: LIS-01', true)}</div><div className="form-row">{field('address', 'Morada', 'Rua, número')}{field('city', 'Cidade', 'Lisboa')}</div><div className="form-row">{field('region', 'Região', 'Lisboa')}{field('country', 'País', 'Portugal')}</div><div className="setup-actions"><button className="secondary-button" type="button" onClick={onClose}>Cancelar</button><button className="primary-button" type="button" disabled={!form.name.trim() || !form.code.trim()} onClick={() => setStep(1)}>Continuar <ArrowRight size={15}/></button></div></div>}
       {step === 1 && <div className="setup-panel"><span className="section-kicker">PASSO 2 DE 3</span><h2>Queres criar a hierarquia física?</h2><p>Estes campos são opcionais. Podes adicionar edifícios, salas e bastidores mais tarde em Infraestrutura.</p><div className="setup-location"><MapPin size={16}/><strong>Hierarquia física opcional</strong><div className="form-row">{field('buildingName', 'Edifício', 'Ex.: Edifício principal')}{field('roomName', 'Sala', 'Ex.: Sala técnica')}</div>{field('rackName', 'Primeiro bastidor', 'Ex.: RACK-01')}</div><div className="setup-actions"><button className="secondary-button" type="button" onClick={() => setStep(0)}><ArrowLeft size={15}/> Voltar</button><button className="primary-button" type="button" onClick={() => setStep(2)}>Rever <ArrowRight size={15}/></button></div></div>}
       {step === 2 && <div className="setup-panel"><span className="section-kicker">PASSO 3 DE 3</span><h2>Confirmar novo Site</h2><p>Confirma os dados antes de criar a localização.</p><dl className="site-review"><div><dt>Site</dt><dd>{form.name}</dd></div><div><dt>Código</dt><dd>{form.code.toUpperCase()}</dd></div><div><dt>Localização</dt><dd>{[form.city, form.region, form.country].filter(Boolean).join(' · ') || 'Não indicada'}</dd></div><div><dt>Hierarquia</dt><dd>{[form.buildingName, form.roomName, form.rackName].filter(Boolean).join(' → ') || 'Criar mais tarde'}</dd></div></dl><div className="setup-actions"><button className="secondary-button" type="button" disabled={saving} onClick={() => setStep(1)}><ArrowLeft size={15}/> Voltar</button><button className="primary-button" type="button" disabled={saving} onClick={() => void create()}>{saving ? 'A criar…' : <><Check size={15}/> Criar Site</>}</button></div></div>}
