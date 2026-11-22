@@ -2,6 +2,7 @@
 
 import { ipStateLabel } from '../ip-state';
 import { useEscapeClose } from '@/components/ui/use-escape-close';
+import { useDialogFocusRef } from '@/components/ui/use-dialog-focus';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Activity, Edit3, LoaderCircle, RefreshCw, X } from 'lucide-react';
 import { checkIpAddress, getIpCheckHistory, updateIpAddress, type IpCheckHistoryEntry } from '../api';
@@ -30,6 +31,7 @@ export function IpAddressPanel({ ip, canUpdate, canCheck, close, updated, saved,
   const [totalPages, setTotalPages] = useState(1);
 
   useEscapeClose(close);
+  const dialogRef = useDialogFocusRef<HTMLElement>();
 
   const loadHistory = async (requestedPage = page) => {
     setHistoryError('');
@@ -70,7 +72,7 @@ export function IpAddressPanel({ ip, canUpdate, canCheck, close, updated, saved,
 
   return <>
     <button className="ip-panel-backdrop" aria-label="Fechar detalhes do IP" onClick={close} />
-    <aside className="host-panel ip-address-panel" role="dialog" aria-modal="true" aria-labelledby="ip-panel-title">
+    <aside ref={dialogRef} className="host-panel ip-address-panel" role="dialog" aria-modal="true" aria-labelledby="ip-panel-title">
       <div className="host-panel-head"><div><span className="section-kicker">ENDEREÇO IP</span><h2 id="ip-panel-title">{ip.address}</h2><span>{ip.hostname || 'Sem hostname'}</span></div><button className="icon-button" onClick={close} aria-label="Fechar"><X size={18} /></button></div>
       <div className="host-status-line"><span>Estado: <strong>{ipStateLabel(ip.state)}</strong></span><span>Observado: <strong>{ipStateLabel(ip.observedState)}</strong></span><span>Subnet: <strong>{ip.subnet?.cidr || ip.subnetId}</strong></span></div>
       {editing ? <form className="modal-form host-edit-form" onSubmit={save}>

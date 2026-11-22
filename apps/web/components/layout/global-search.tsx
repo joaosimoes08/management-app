@@ -1,6 +1,7 @@
 'use client';
 
 import { useEscapeClose } from '@/components/ui/use-escape-close';
+import { useDialogFocusRef } from '@/components/ui/use-dialog-focus';
 import { useEffect, useRef, useState } from 'react';
 import { ChevronRight, ClipboardCheck, GitPullRequestArrow, History, Loader2, Search, Wrench } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -106,10 +107,11 @@ export function GlobalSearchPalette({ open, onClose, rackSearch, localSearch }: 
   const handleClose = () => { if (scope === 'local' && rackSearch) rackSearch.onChange(''); onClose(); };
 
   useEscapeClose(handleClose, open);
+  const dialogRef = useDialogFocusRef<HTMLElement>(open);
   if (!open) return null;
 
   return <div className="command-backdrop" role="presentation" onMouseDown={handleClose}>
-    <section className="command-palette" role="dialog" aria-modal="true" aria-label="Pesquisa global" onMouseDown={(event) => event.stopPropagation()}>
+    <section ref={dialogRef} className="command-palette" role="dialog" aria-modal="true" aria-label="Pesquisa global" onMouseDown={(event) => event.stopPropagation()}>
       {(rackSearch || localSearch) && <div className="global-search-scopes" role="group" aria-label="Âmbito da pesquisa">
         <button type="button" aria-pressed={scope === 'local'} onClick={() => { setScope('local'); setQuery(localValue); setActiveIndex(0); }}>{localLabel}</button>
         <button type="button" aria-pressed={scope === 'platform'} onClick={() => { if (scope === 'local') changeLocalQuery(''); setScope('platform'); setActiveIndex(0); }}>Toda a plataforma</button>

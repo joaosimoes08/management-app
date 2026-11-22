@@ -1,6 +1,7 @@
 'use client';
 
 import { useEscapeClose } from '@/components/ui/use-escape-close';
+import { useDialogFocusRef } from '@/components/ui/use-dialog-focus';
 import Link from 'next/link';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { Bell, Check, ChevronLeft, ChevronRight, DatabaseBackup, Edit3, FileText, FolderTree, MapPin, Plus, RadioTower, Radar, RefreshCw, ScrollText, Search, Settings, ShieldCheck, Trash2, Users, UsersRound, X } from 'lucide-react';
@@ -33,7 +34,7 @@ type Tab = 'organization' | 'sites' | 'groups' | 'users' | 'directory' | 'notifi
 type SiteForm = { id: string; name: string; code: string; address: string; city: string; region: string; country: string };
 const emptySite: SiteForm = { id: '', name: '', code: '', address: '', city: '', region: '', country: 'Portugal' };
 
-function Modal({ title, children, close }: { title: string; children: React.ReactNode; close: () => void }) { useEscapeClose(close); return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && close()}><section className="modal-card" role="dialog" aria-modal="true"><div className="modal-heading"><h2>{title}</h2><button className="icon-button subtle" onClick={close} aria-label="Fechar"><X size={16}/></button></div>{children}</section></div>; }
+function Modal({ title, children, close }: { title: string; children: React.ReactNode; close: () => void }) { useEscapeClose(close); const dialogRef = useDialogFocusRef<HTMLElement>(); return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && close()}><section ref={dialogRef} className="modal-card" role="dialog" aria-modal="true"><div className="modal-heading"><h2>{title}</h2><button className="icon-button subtle" onClick={close} aria-label="Fechar"><X size={16}/></button></div>{children}</section></div>; }
 
 export default function SettingsPage() {
   const { hasRole, logout } = useAuth(); const { success, error: toastError } = useToast(); const { t, locale, setLocale, formatDate } = useI18n();

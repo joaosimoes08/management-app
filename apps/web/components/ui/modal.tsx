@@ -1,6 +1,7 @@
 'use client';
 
 import { useEscapeClose } from '@/components/ui/use-escape-close';
+import { useDialogFocusRef } from '@/components/ui/use-dialog-focus';
 import { X } from 'lucide-react';
 import { useEffect, type ReactNode } from 'react';
 
@@ -22,10 +23,12 @@ export function Modal({ title, children, close, entryMotion = false, className =
       document.body.style.overflow = previousOverflow;
     };
   }, []);
+  // Focus moves into the dialog, Tab stays inside it, and closing returns focus to the opener.
+  const cardRef = useDialogFocusRef<HTMLElement>();
 
   return (
     <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && close()}>
-      <section className={`modal-card wide-modal${entryMotion ? ' entry-motion' : ''}${className ? ` ${className}` : ''}`} role="dialog" aria-modal="true" aria-label={title}>
+      <section ref={cardRef} className={`modal-card wide-modal${entryMotion ? ' entry-motion' : ''}${className ? ` ${className}` : ''}`} role="dialog" aria-modal="true" aria-label={title}>
         <div className="modal-heading">
           <h2>{title}</h2>
           <button type="button" className="icon-button subtle" onClick={close} aria-label="Fechar">

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEscapeClose } from '@/components/ui/use-escape-close';
+import { useDialogFocusRef } from '@/components/ui/use-dialog-focus';
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, ChevronDown, MapPin, Plus, ShieldCheck, X } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
@@ -63,6 +64,7 @@ function SiteWalkthrough({ onClose, onCreated, onActivate }: { onClose: () => vo
   const [error, setError] = useState('');
   const update = (field: keyof SiteForm, value: string) => setForm((current) => ({ ...current, [field]: value }));
   useEscapeClose(() => { if (!saving) onClose(); });
+  const dialogRef = useDialogFocusRef<HTMLElement>();
   const field = (name: keyof SiteForm, label: string, placeholder: string, required = false) => <label className="setup-field">{label}{required && <b> *</b>}<input autoFocus={name === 'name' && step === 0} required={required} value={form[name]} onChange={(event) => update(name, event.target.value)} placeholder={placeholder}/></label>;
   const create = async () => {
     setSaving(true); setError('');
@@ -72,7 +74,7 @@ function SiteWalkthrough({ onClose, onCreated, onActivate }: { onClose: () => vo
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Não foi possível criar o Site.'); }
     finally { setSaving(false); }
   };
-  return <div className="site-walkthrough-backdrop" role="presentation" onMouseDown={() => { if (!saving) onClose(); }}><section className="site-walkthrough" role="dialog" aria-modal="true" aria-labelledby="site-walkthrough-title" onMouseDown={(event) => event.stopPropagation()}>
+  return <div className="site-walkthrough-backdrop" role="presentation" onMouseDown={() => { if (!saving) onClose(); }}><section ref={dialogRef} className="site-walkthrough" role="dialog" aria-modal="true" aria-labelledby="site-walkthrough-title" onMouseDown={(event) => event.stopPropagation()}>
     <aside className="site-walkthrough-aside"><span className="section-kicker">NOVO SITE</span><h2 id="site-walkthrough-title">Adicionar localização</h2><p>Cria a base do Site e, se quiseres, a primeira hierarquia física.</p><div className="setup-steps">{['Identificação', 'Localização', 'Confirmar', 'Concluído'].map((label, index) => <div className={index === step ? 'setup-step active' : index < step ? 'setup-step done' : 'setup-step'} key={label}><span>{index < step ? <Check size={13}/> : index + 1}</span>{label}</div>)}</div></aside>
     <div className="site-walkthrough-content"><button className="site-walkthrough-close" type="button" onClick={onClose} disabled={saving} aria-label="Fechar"><X size={16}/></button>{error && <div className="setup-error">{error}</div>}
       {step === 0 && <div className="setup-panel"><span className="section-kicker">PASSO 1 DE 3</span><h2>Como identificamos este Site?</h2><p>O nome é apresentado na navegação. O código curto distingue o Site em listas e integrações.</p><div className="form-row">{field('name', 'Nome do Site', 'Ex.: Sede Lisboa', true)}{field('code', 'Código curto', 'Ex.: LIS-01', true)}</div><div className="form-row">{field('address', 'Morada', 'Rua, número')}{field('city', 'Cidade', 'Lisboa')}</div><div className="form-row">{field('region', 'Região', 'Lisboa')}{field('country', 'País', 'Portugal')}</div><div className="setup-actions"><button className="secondary-button" type="button" onClick={onClose}>Cancelar</button><button className="primary-button" type="button" disabled={!form.name.trim() || !form.code.trim()} onClick={() => setStep(1)}>Continuar <ArrowRight size={15}/></button></div></div>}

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEscapeClose } from '@/components/ui/use-escape-close';
+import { useDialogFocus } from '@/components/ui/use-dialog-focus';
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
@@ -17,8 +18,6 @@ export interface ConfirmOptions {
 
 export type ConfirmFn = (options: ConfirmOptions | string) => Promise<boolean>;
 
-const focusableSelector = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
 /** Accessible replacement for window.confirm, built on the existing modal classes. */
 export function ConfirmDialog({ message, title, confirmLabel, cancelLabel = 'Cancelar', destructive = false, onResolve }: ConfirmOptions & { onResolve: (confirmed: boolean) => void }) {
   const titleId = useId();
@@ -28,30 +27,16 @@ export function ConfirmDialog({ message, title, confirmLabel, cancelLabel = 'Can
   const confirmRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    (destructive ? cancelRef : confirmRef).current?.focus();
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = previousOverflow; };
-  }, [destructive]);
+  }, []);
 
   useEscapeClose(() => onResolve(false));
 
-  // Keep Tab inside the dialog even if focus falls back to the body.
-  useEffect(() => {
-    const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== 'Tab' || !cardRef.current) return;
-      const focusable = [...cardRef.current.querySelectorAll<HTMLElement>(focusableSelector)];
-      if (!focusable.length) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      const active = document.activeElement;
-      if (!active || !cardRef.current.contains(active)) { event.preventDefault(); (event.shiftKey ? last : first).focus(); }
-      else if (event.shiftKey && active === first) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && active === last) { event.preventDefault(); first.focus(); }
-    };
-    document.addEventListener('keydown', onKeyDown, true);
-    return () => document.removeEventListener('keydown', onKeyDown, true);
-  }, []);
+  // Focus starts on Cancelar for destructive actions (Confirmar otherwise) and Tab stays inside;
+  // useConfirm returns focus to the opener, so the shared hook does not.
+  useDialogFocus(cardRef, true, { initialFocus: destructive ? cancelRef : confirmRef, returnFocus: false });
 
   const lines = message.split('\n');
   const body: ReactNode = lines.map((line, index) => <span key={index}>{line}{index < lines.length - 1 && <br />}</span>);
