@@ -1,12 +1,12 @@
-import { Worker, Job } from 'bullmq';
+import { Worker, Job, UnrecoverableError } from 'bullmq';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { reverse } from 'node:dns/promises';
 import * as net from 'node:net';
 import { PrismaClient } from '@simoes/database';
-import { hostsFor } from './discovery-network';
 import { runAuditRetentionCleanup } from '../audit/audit-retention';
-import { assertDiscoveryAllowed, normalizeDiscoveryPorts, parseNetwork } from './discovery-policy';
+import { normalizeDiscoveryPorts } from './discovery-policy';
+import { DiscoveryConfigurationError, recordDiscoveryFailure, runDiscoveryScan } from './discovery-scan';
 import { runInventoryQualityReconciliation } from '../inventory-quality/inventory-quality.service';
 import { deliverLifecycleReminders } from '../infrastructure/lifecycle-reminders';
 
@@ -19,6 +19,14 @@ async function ping(address: string) { const started = Date.now(); try { const a
 function testPort(address: string, port: number) { return new Promise<boolean>((resolve) => { const socket = net.createConnection({ host: address, port, timeout: 800 }); const done = (result: boolean) => { socket.destroy(); resolve(result); }; socket.once('connect', () => done(true)); socket.once('timeout', () => done(false)); socket.once('error', () => done(false)); }); }
 
 type DiscoveryData = { jobId?: string; subnetId?: string; cidr?: string; methods?: string[]; tcpPorts?: number[]; reverseDns?: boolean };
+
+async function probe(address: string, methods: string[], tcpPorts: number[]) {
+  const icmp = methods.includes('ICMP') ? await ping(address) : { reachable: false, responseMs: undefined };
+  const openPorts = methods.includes('TCP') ? (await Promise.all(tcpPorts.map(async (port) => (await testPort(address, port)) ? port : null))).filter((port): port is number => port !== null) : [];
+  return { address, icmp, openPorts };
+}
+async function reverseName(address: string) { return (await reverse(address))[0]; }
+
 async function processJob(job: Job<DiscoveryData>) {
   let { jobId } = job.data;
   if (!jobId && job.data.subnetId) {
@@ -29,43 +37,20 @@ async function processJob(job: Job<DiscoveryData>) {
     const reverseDns = schedule.reverseDns;
     const created = await prisma.discoveryJob.create({ data: { name: `Discovery agendado · ${new Date().toISOString()}`, subnetId: schedule.subnetId, methods, tcpPorts, reverseDns } });
     jobId = created.id;
+    // Round 2 #10: a retry of this BullMQ job resumes the same scan instead of creating another one.
+    await job.updateData({ ...job.data, jobId });
     await prisma.discoverySchedule.update({ where: { id: schedule.id }, data: { lastRunAt: new Date(), nextRunAt: new Date(Date.now() + schedule.intervalHours * 60 * 60 * 1000), lastStatus: 'RUNNING', lastError: null } });
   }
-  if (!jobId) throw new Error('Dados de discovery incompletos');
-  const [storedJob, settings] = await Promise.all([
-    prisma.discoveryJob.findUnique({ where: { id: jobId }, include: { subnet: true } }),
-    prisma.systemSettings.findFirst(),
-  ]);
-  if (!storedJob) throw new Error('Execução de discovery inexistente');
-  const cidr = storedJob.subnet.cidr;
-  const methods = Array.isArray(storedJob.methods) ? storedJob.methods.filter((value): value is string => value === 'ICMP' || value === 'TCP') : [];
-  const tcpPorts = normalizeDiscoveryPorts(storedJob.tcpPorts);
-  const reverseDns = storedJob.reverseDns;
-  await prisma.discoveryJob.update({ where: { id: jobId }, data: { status: 'RUNNING', startedAt: new Date(), errorMessage: null } });
+  if (!jobId) throw new UnrecoverableError('Dados de discovery incompletos');
   try {
-    const target = assertDiscoveryAllowed(cidr, settings?.discoveryAllowedCidrs);
-    if (target.version !== 4) throw Object.assign(new Error('A enumeração de subnets IPv6 ainda não é suportada.'), { code: 'DISCOVERY_IPV6_UNSUPPORTED' });
-    if (!methods.length || (methods.includes('TCP') && !tcpPorts.length)) throw new Error('Configuração de discovery inválida');
-    const results: { jobId: string; address: string; hostname?: string; icmpReachable: boolean; responseMs?: number; openPorts: number[] }[] = [];
-    let icmpReachableCount = 0; let tcpReachableCount = 0;
-    const addresses = hostsFor(cidr);
-    for (let index = 0; index < addresses.length; index += 32) {
-      const batch = addresses.slice(index, index + 32);
-      const batchResults = await Promise.all(batch.map(async (address) => {
-        const icmp = methods.includes('ICMP') ? await ping(address) : { reachable: false, responseMs: undefined };
-        const openPorts = methods.includes('TCP') ? (await Promise.all(tcpPorts.map(async (port) => (await testPort(address, port)) ? port : null))).filter((port): port is number => port !== null) : [];
-        return { address, icmp, openPorts };
-      }));
-      for (const item of batchResults) { if (item.icmp.reachable) icmpReachableCount++; if (item.openPorts.length) tcpReachableCount++; if (!item.icmp.reachable && !item.openPorts.length) continue; let hostname: string | undefined; if (reverseDns !== false) try { hostname = (await reverse(item.address))[0]; } catch { /* reverse DNS is best effort */ } results.push({ jobId, address: item.address, hostname, icmpReachable: item.icmp.reachable, responseMs: item.icmp.responseMs, openPorts: item.openPorts }); }
-    }
-    if (results.length) await prisma.discoveryResult.createMany({ data: results.map((result) => ({ ...result, openPorts: result.openPorts })) });
-    await prisma.discoveryJob.update({ where: { id: jobId }, data: { scannedCount: addresses.length, icmpReachableCount, tcpReachableCount, reachableCount: results.length, unreachableCount: addresses.length - results.length, resultCount: results.length } });
-    if (job.data.subnetId) await prisma.discoverySchedule.updateMany({ where: { subnetId: job.data.subnetId }, data: { lastStatus: 'COMPLETED', lastError: null } });
-    return prisma.discoveryJob.update({ where: { id: jobId }, data: { status: 'COMPLETED', completedAt: new Date() } });
+    const outcome = await runDiscoveryScan(prisma, jobId, { probe, reverse: reverseName });
+    if (job.data.subnetId && !outcome.skipped) await prisma.discoverySchedule.updateMany({ where: { subnetId: job.data.subnetId }, data: { lastStatus: outcome.status, lastError: outcome.stopReason ?? null } });
+    return outcome;
   } catch (error) {
-    const publicError = typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string' ? error.code : 'DISCOVERY_EXECUTION_FAILED';
-    if (job.data.subnetId) await prisma.discoverySchedule.updateMany({ where: { subnetId: job.data.subnetId }, data: { lastStatus: 'FAILED', lastError: publicError } });
-    await prisma.discoveryJob.update({ where: { id: jobId }, data: { status: 'FAILED', completedAt: new Date(), errorMessage: publicError } });
+    const finalAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
+    const { code, final } = await recordDiscoveryFailure(prisma, jobId, error, finalAttempt);
+    if (job.data.subnetId && final) await prisma.discoverySchedule.updateMany({ where: { subnetId: job.data.subnetId }, data: { lastStatus: 'FAILED', lastError: code } });
+    if (error instanceof DiscoveryConfigurationError) throw new UnrecoverableError(code);
     throw error;
   }
 }
