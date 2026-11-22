@@ -1,8 +1,17 @@
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render as rtlRender, screen, waitFor, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/api/client';
 import { ApiRequestError } from '@/lib/api/errors';
 import { SubnetPlanningView, shortfallMessage, subnetOptionLabel } from './subnet-planning-view';
+
+let client: QueryClient;
+function render(element: ReactElement) {
+  client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  const result = rtlRender(<QueryClientProvider client={client}>{element}</QueryClientProvider>);
+  return { ...result, rerender: (next: ReactElement) => result.rerender(<QueryClientProvider client={client}>{next}</QueryClientProvider>) };
+}
 import type { Subnet } from '../types';
 
 vi.mock('@/lib/api/client', () => ({ apiFetch: vi.fn() }));
@@ -82,15 +91,14 @@ describe('Planeamento de endereços', () => {
       { cidr: '10.0.0.64/27', start: '10.0.0.64', end: '10.0.0.95', size: 32, usable: 30, used: 0, free: 32, available: true, planned: true, conflicts: [] },
     ] },
   };
-  async function pickPrefix(canCreate = true, onChanged = vi.fn()) {
+  async function pickPrefix(canCreate = true) {
     mockedFetch.mockResolvedValue(withPlan);
-    render(<SubnetPlanningView subnets={[parent]} canCreate={canCreate} onChanged={onChanged} />);
+    render(<SubnetPlanningView subnets={[parent]} canCreate={canCreate} />);
     fireEvent.change(screen.getByLabelText('Subnet'), { target: { value: 'p1' } });
     await screen.findByRole('region', { name: 'Mapa da subnet' });
     fireEvent.change(screen.getByLabelText('Tamanho dos blocos'), { target: { value: '27' } });
     await screen.findByRole('region', { name: 'Divisão em /27' });
     await waitFor(() => expect(screen.queryByText('A calcular…')).not.toBeInTheDocument());
-    return onChanged;
   }
 
   it('row 3/5: the split table shows used and free per child and names what occupies each block', async () => {
@@ -105,7 +113,7 @@ describe('Planeamento de endereços', () => {
   });
 
   it('row 4: nothing is created until the user confirms; Confirm posts the planned blocks and refreshes', async () => {
-    const onChanged = await pickPrefix();
+    await pickPrefix();
     fireEvent.change(screen.getByLabelText('Finalidade das novas subnets'), { target: { value: 'LAN A' } });
     fireEvent.click(screen.getByRole('button', { name: 'Rever e confirmar' }));
     const dialog = await screen.findByRole('alertdialog');
@@ -120,12 +128,12 @@ describe('Planeamento de endereços', () => {
     fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Confirmar e criar' }));
     expect(await screen.findByText('Subnets criadas: 10.0.0.64/27.')).toBeInTheDocument();
     expect(mockedFetch).toHaveBeenCalledWith('/api/v1/subnets/p1/planning/commit', { method: 'POST', body: JSON.stringify({ blocks: [{ cidr: '10.0.0.64/27', purpose: 'LAN A' }] }) });
-    expect(onChanged).toHaveBeenCalledTimes(1);
+    // The plan (and every other IPAM query) is refetched after the children were created.
     await waitFor(() => expect(mockedFetch.mock.calls.slice(callsBefore).filter(([path]) => String(path).includes('/planning?')).length).toBe(1));
   });
 
   it('row 4/5: a rejected commit lists each conflict and creates nothing', async () => {
-    const onChanged = await pickPrefix();
+    await pickPrefix();
     mockedFetch.mockImplementation(async (path) => {
       if (String(path).endsWith('/commit')) throw new ApiRequestError('conflict', 409, { code: 'PLANNING_CONFLICT', conflicts: [{ cidr: '10.0.0.64/27', reason: 'OVERLAPS_EXISTING', message: '10.0.0.64/27 já não está livre: Host 10.0.0.70.', conflicts: [] }] } as never);
       return withPlan;
@@ -134,7 +142,7 @@ describe('Planeamento de endereços', () => {
     fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Confirmar e criar' }));
     expect(await screen.findByText('10.0.0.64/27 já não está livre: Host 10.0.0.70.')).toBeInTheDocument();
     expect(screen.getByRole('alert')).toHaveTextContent('Nada foi criado: um bloco já não está disponível');
-    expect(onChanged).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Subnets criadas/)).not.toBeInTheDocument();
   });
 
   it('row 4: users without IPAM create permission only see the preview', async () => {
@@ -142,23 +150,30 @@ describe('Planeamento de endereços', () => {
     expect(screen.queryByRole('button', { name: 'Rever e confirmar' })).not.toBeInTheDocument();
   });
 
-  it('row 6: options show VRF and Site and the search filters them', () => {
+  it('row 6: options show VRF and Site and the page search filters them, keeping the selected subnet', () => {
     const subnets: Subnet[] = [
       { ...parent, purpose: 'Servidores', vrf: { id: 'v1', name: 'MGMT' }, vrfId: 'v1', site: { id: 'site-1', name: 'LX' } as never },
       { id: 'p2', cidr: '10.0.0.0/24', version: 4, purpose: 'Voz', site: { id: 'site-2', name: 'Porto' } as never },
     ];
     expect(subnetOptionLabel(subnets[0])).toBe('10.0.0.0/24 · Servidores · VRF MGMT · LX');
     expect(subnetOptionLabel(subnets[1])).toBe('10.0.0.0/24 · Voz · Global · Porto');
-    render(<SubnetPlanningView subnets={subnets} />);
+    mockedFetch.mockReturnValue(new Promise(() => undefined));
+    const view = render(<SubnetPlanningView subnets={subnets} />);
     const optionsText = () => within(screen.getByLabelText('Subnet')).getAllByRole('option').map((option) => option.textContent);
     expect(optionsText()).toEqual(['Seleciona uma subnet', '10.0.0.0/24 · Servidores · VRF MGMT · LX', '10.0.0.0/24 · Voz · Global · Porto']);
-    fireEvent.change(screen.getByLabelText('Procurar subnet'), { target: { value: 'porto' } });
+    view.rerender(<SubnetPlanningView subnets={subnets} search="porto" />);
     expect(optionsText()).toEqual(['Seleciona uma subnet', '10.0.0.0/24 · Voz · Global · Porto']);
-    fireEvent.change(screen.getByLabelText('Procurar subnet'), { target: { value: 'xyz' } });
+    view.rerender(<SubnetPlanningView subnets={subnets} search="mgmt" />);
+    expect(optionsText()).toEqual(['Seleciona uma subnet', '10.0.0.0/24 · Servidores · VRF MGMT · LX']);
+    fireEvent.change(screen.getByLabelText('Subnet'), { target: { value: 'p1' } });
+    view.rerender(<SubnetPlanningView subnets={subnets} search="xyz" />);
+    expect(optionsText()).toEqual(['Seleciona uma subnet', '10.0.0.0/24 · Servidores · VRF MGMT · LX']);
+    expect(screen.getByLabelText('Subnet')).toHaveValue('p1');
+    view.rerender(<SubnetPlanningView subnets={[subnets[1]]} search="xyz" />);
     expect(optionsText()).toEqual(['Nenhuma subnet corresponde à pesquisa']);
   });
 
-  it('row 8: shows a loading state, aborts the stale request and refreshes on demand', async () => {
+  it('row 8: shows a loading state, aborts the stale request and refreshes when IPAM data is invalidated', async () => {
     const pending: Array<{ resolve: (value: unknown) => void; signal?: AbortSignal }> = [];
     mockedFetch.mockImplementation((_path, init) => new Promise((resolve) => { pending.push({ resolve, signal: (init as RequestInit | undefined)?.signal ?? undefined }); }));
     const other: Subnet = { id: 'p2', cidr: '10.0.1.0/24', version: 4 };
@@ -173,8 +188,10 @@ describe('Planeamento de endereços', () => {
     expect(await screen.findByText('10.0.1.255')).toBeInTheDocument();
     expect(screen.queryByText('A calcular…')).not.toBeInTheDocument();
     const before = pending.length;
-    fireEvent.click(screen.getByRole('button', { name: /Atualizar/ }));
+    // The page's Atualizar button invalidates ['ipam'].
+    await act(async () => { void client.invalidateQueries({ queryKey: ['ipam'] }); });
     expect(pending.length).toBe(before + 1);
+    expect(await screen.findByText('A calcular…')).toBeInTheDocument();
     expect(mockedFetch).toHaveBeenLastCalledWith('/api/v1/subnets/p2/planning', { signal: expect.any(AbortSignal) });
   });
 });

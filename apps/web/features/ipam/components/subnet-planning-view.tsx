@@ -2,7 +2,7 @@
 
 import { formatIpamPercent } from '../utilization';
 import { useEffect, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { ApiRequestError } from '@/lib/api/errors';
 import type { Subnet } from '../types';
@@ -39,47 +39,46 @@ function splitBadge(row: SubnetSplitRow) {
   return row.available ? segmentBadge.FREE : segmentBadge.TAKEN;
 }
 
-function isAbort(cause: unknown) {
-  return cause instanceof DOMException ? cause.name === 'AbortError' : cause instanceof Error && cause.name === 'AbortError';
+/** The page search (top bar) narrows the selector by CIDR, purpose, VLAN, VRF or Site; the selected subnet always stays listed. */
+export function matchesPlanningSearch(item: Subnet, term: string) {
+  return !term || `${subnetOptionLabel(item)} ${item.vlan?.name ?? ''}`.toLowerCase().includes(term);
 }
 
 /**
  * IPv4 planning: free space inside a subnet, where aligned child blocks would go, and how the parent splits.
  * The preview never writes; child subnets are only created after "Rever e confirmar" and an explicit confirmation.
  */
-export function SubnetPlanningView({ subnets, canCreate = false, onChanged }: { subnets: Subnet[]; canCreate?: boolean; onChanged?: () => void }) {
+export function SubnetPlanningView({ subnets, search = '', canCreate = false }: { subnets: Subnet[]; search?: string; canCreate?: boolean }) {
   const { confirm, confirmDialog } = useConfirm();
+  const queryClient = useQueryClient();
   const [subnetId, setSubnetId] = useState('');
-  const [search, setSearch] = useState('');
   const [prefix, setPrefix] = useState('');
   const [count, setCount] = useState('');
   const [purpose, setPurpose] = useState('');
-  const [plan, setPlan] = useState<SubnetPlanning | null>(null);
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
   const [committing, setCommitting] = useState(false);
   const [conflicts, setConflicts] = useState<SubnetPlanCommitProblem[]>([]);
   const [created, setCreated] = useState<string[]>([]);
   const selected = subnets.find((item) => item.id === subnetId);
   const term = search.trim().toLowerCase();
-  const options = subnets.filter((item) => item.id === subnetId || !term || subnetOptionLabel(item).toLowerCase().includes(term));
+  const options = subnets.filter((item) => item.id === subnetId || matchesPlanningSearch(item, term));
   const parentPrefix = selected ? Number(selected.cidr.split('/')[1]) : 0;
   const prefixOptions = selected && selected.version === 4 ? Array.from({ length: 33 - parentPrefix }, (_, index) => parentPrefix + index) : [];
   useEffect(() => { setPrefix(''); setCount(''); setPurpose(''); setConflicts([]); setCreated([]); }, [subnetId]);
   useEffect(() => { setConflicts([]); setCreated([]); }, [prefix, count]);
-  useEffect(() => {
-    if (!subnetId) { setPlan(null); setLoading(false); return; }
-    // Each change aborts the previous request, so a slow answer for an old selection never replaces a newer one.
-    const controller = new AbortController();
-    const requestedCount = count && Number(count) > 0 ? Number(count) : null;
-    setLoading(true);
-    void getSubnetPlanning(subnetId, { prefix: prefix ? Number(prefix) : null, count: requestedCount }, controller.signal)
-      .then((data) => { if (!controller.signal.aborted) { setPlan(data); setError(''); } })
-      .catch((cause) => { if (!controller.signal.aborted && !isAbort(cause)) setError(cause instanceof Error ? cause.message : 'Não foi possível calcular o planeamento.'); })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
-    return () => controller.abort();
-  }, [subnetId, prefix, count, refreshKey]);
+  const requestedCount = count && Number(count) > 0 ? Number(count) : null;
+  // Keyed per selection: a changed selection drops (and aborts) the previous request, so a slow answer for an
+  // old selection never replaces a newer one, and the page's Atualizar (invalidates ['ipam']) refreshes the plan.
+  const planQuery = useQuery({
+    queryKey: ['ipam', 'planning', subnetId, prefix, requestedCount],
+    queryFn: ({ signal }) => getSubnetPlanning(subnetId, { prefix: prefix ? Number(prefix) : null, count: requestedCount }, signal),
+    enabled: Boolean(subnetId),
+    retry: false,
+  });
+  const plan: SubnetPlanning | null = subnetId ? planQuery.data ?? null : null;
+  const loading = Boolean(subnetId) && planQuery.isFetching;
+  const loadError = planQuery.error ? (planQuery.error instanceof Error ? planQuery.error.message : 'Não foi possível calcular o planeamento.') : '';
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ['ipam'] });
   const planned = plan && plan.subnet?.id === subnetId ? plan.planned ?? [] : [];
   const review = async () => {
     if (!planned.length || committing) return;
@@ -94,28 +93,24 @@ export function SubnetPlanningView({ subnets, canCreate = false, onChanged }: { 
     try {
       const result = await commitSubnetPlanning(subnetId, planned.map((block) => (label ? { cidr: block.cidr, purpose: label } : { cidr: block.cidr })));
       setCreated(result.created.map((item) => item.cidr));
-      onChanged?.();
-      setRefreshKey((value) => value + 1);
+      void refresh();
     } catch (cause) {
       const problems = cause instanceof ApiRequestError ? (cause.payload as { conflicts?: SubnetPlanCommitProblem[] } | undefined)?.conflicts : undefined;
-      if (problems?.length) { setConflicts(problems); setRefreshKey((value) => value + 1); }
+      if (problems?.length) { setConflicts(problems); void refresh(); }
       else setError(cause instanceof Error ? cause.message : 'Não foi possível criar as subnets.');
     } finally {
       setCommitting(false);
     }
   };
   return <section className="ipam-card" aria-busy={loading}>
-    <div className="panel-heading"><div><h2>Intervalos e endereços livres</h2><p>Consulta o espaço livre de uma subnet IPv4 e pré-visualiza onde ficariam novos blocos alinhados (por exemplo /27 ou ligações ponto a ponto /30 e /31). Nada é criado sem confirmação.</p></div>
-      {subnetId && <button type="button" className="secondary-button" onClick={() => setRefreshKey((value) => value + 1)} disabled={loading}><RefreshCw size={15} /> Atualizar</button>}
-    </div>
-    <label>Procurar subnet<input type="search" placeholder="CIDR, finalidade, VRF ou Site" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
+    <div className="panel-heading"><div><h2>Intervalos e endereços livres</h2><p>Consulta o espaço livre de uma subnet IPv4 e pré-visualiza onde ficariam novos blocos alinhados (por exemplo /27 ou ligações ponto a ponto /30 e /31). Nada é criado sem confirmação.</p></div></div>
     <label>Subnet<select value={subnetId} onChange={(event) => setSubnetId(event.target.value)}><option value="">{options.length || !term ? 'Seleciona uma subnet' : 'Nenhuma subnet corresponde à pesquisa'}</option>{options.map((item) => <option key={item.id} value={item.id}>{subnetOptionLabel(item)}</option>)}</select></label>
     {prefixOptions.length > 0 && <>
       <label>Tamanho dos blocos<select value={prefix} onChange={(event) => setPrefix(event.target.value)}><option value="">Só ver o espaço livre</option>{prefixOptions.map((value) => <option key={value} value={value}>/{value}{value === 31 ? ' · ponto a ponto (RFC 3021)' : value === 30 ? ' · ponto a ponto' : ''}</option>)}</select></label>
       {prefix && <label>Quantidade<input type="number" min="1" max="1024" step="1" placeholder="Todos os que couberem" value={count} onChange={(event) => setCount(event.target.value)} /></label>}
     </>}
     {loading && <div className="no-data" role="status">A calcular…</div>}
-    {error && <div className="ipam-alert error">{error}</div>}
+    {(error || loadError) && <div className="ipam-alert error">{error || loadError}</div>}
     {created.length > 0 && <div className="ipam-alert success" role="status">Subnets criadas: {created.join(', ')}.</div>}
     {conflicts.length > 0 && <>
       <div className="ipam-alert error" role="alert">Nada foi criado: {conflicts.length === 1 ? 'um bloco já não está disponível' : `${conflicts.length} blocos já não estão disponíveis`}. O plano foi recalculado.</div>
