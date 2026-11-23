@@ -56,6 +56,11 @@ const operationalFiles = [
   'apps/web/features/snmp/snmp-drifts.tsx',
   'apps/web/features/snmp/snmp-bounds.ts',
   'apps/web/features/snmp/snmp-change-plan-attach.tsx',
+  // SNMP Phase 1 guided setup and trap panel
+  'apps/web/features/snmp/snmp-setup.ts',
+  'apps/web/features/snmp/snmp-setup-panel.tsx',
+  'apps/web/features/snmp/snmp-setup-wizard.tsx',
+  'apps/web/features/snmp/snmp-unknown-traps.tsx',
   // Step 34 impact analysis and path view
   'apps/web/features/topology/impact-panel.tsx',
   'apps/web/features/topology/impact-api.ts',

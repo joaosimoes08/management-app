@@ -30,11 +30,12 @@ export class PollProcessor {
     await this.prisma.snmpJob.update({ where: { id: job.id }, data: { status: 'RUNNING', startedAt: new Date() } });
     const config = await this.prisma.snmpDeviceConfig.findUnique({ where: { deviceId: job.deviceId } });
     let session: ReturnType<typeof createSnmpSession> | undefined;
+    const startedAt = Date.now();
     try {
       session = createSnmpSession(job.device.managementIp, config?.port ?? 161, config?.timeoutMs ?? 5000, 0, job.credential as any);
       const values = await get(session, ['1.3.6.1.2.1.1.5.0']);
       await this.prisma.$transaction([
-        this.prisma.snmpJob.update({ where: { id: job.id }, data: { status: 'COMPLETED', completedAt: new Date(), result: { reachable: true } } }),
+        this.prisma.snmpJob.update({ where: { id: job.id }, data: { status: 'COMPLETED', completedAt: new Date(), result: credentialTestResult(values, startedAt) } }),
         this.prisma.snmpCredential.update({ where: { id: job.credential.id }, data: { lastTestedAt: new Date(), lastTestStatus: 'COMPLETED', lastUsedAt: new Date() } }),
         this.prisma.auditLog.create({ data: { userId: job.requestedBy, action: 'SNMP_CREDENTIAL_TEST_COMPLETED', entityType: 'SnmpCredential', entityId: job.credential.id, metadata: { deviceId: job.deviceId, jobId: job.id } } }),
       ]);
@@ -42,7 +43,7 @@ export class PollProcessor {
     } catch (error) {
       const code = publicErrorCode(error);
       await this.prisma.$transaction([
-        this.prisma.snmpJob.update({ where: { id: job.id }, data: { status: 'FAILED', completedAt: new Date(), errorCode: code } }),
+        this.prisma.snmpJob.update({ where: { id: job.id }, data: { status: 'FAILED', completedAt: new Date(), errorCode: code, result: { reachable: false, durationMs: Date.now() - startedAt } } }),
         this.prisma.snmpCredential.update({ where: { id: job.credential.id }, data: { lastTestedAt: new Date(), lastTestStatus: 'FAILED' } }),
         this.prisma.auditLog.create({ data: { userId: job.requestedBy, action: 'SNMP_CREDENTIAL_TEST_FAILED', entityType: 'SnmpCredential', entityId: job.credential.id, metadata: { deviceId: job.deviceId, jobId: job.id, errorCode: code } } }),
       ]);
@@ -179,4 +180,11 @@ export class PollProcessor {
       ...(drifts.length ? [this.prisma.snmpDrift.createMany({ data: drifts as any })] : []),
     ]);
   }
+}
+
+/** SNMP Phase 1 step 4.2: what the credential test shows inline: reachable, response time and the sysName it read. */
+export function credentialTestResult(varbinds: Array<{ value?: unknown }>, startedAt: number, now = Date.now()) {
+  const raw = varbinds[0]?.value;
+  const sysName = Buffer.isBuffer(raw) ? raw.toString('utf8') : typeof raw === 'string' ? raw : null;
+  return { reachable: true, durationMs: Math.max(0, now - startedAt), sysName: sysName && /^[\x20-\x7E]{1,255}$/.test(sysName) ? sysName : null };
 }

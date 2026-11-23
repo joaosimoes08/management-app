@@ -38,6 +38,10 @@ export class ReviewSnmpDriftDto {
   @IsIn(['ACCEPTED', 'IGNORED']) status!: 'ACCEPTED' | 'IGNORED';
 }
 
+export class IgnoreUnmatchedTrapsDto {
+  @IsIP() sourceAddress!: string;
+}
+
 export class CreateSnmpTrapEnrollmentDto extends SnmpCredentialSecretDto {
   @IsUUID() siteId!: string;
   @IsIP(4) sourceAddress!: string;

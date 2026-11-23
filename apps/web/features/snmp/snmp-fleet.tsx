@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { RadioTower, X } from 'lucide-react';
+import { RadioTower, Settings2, X } from 'lucide-react';
 import { ApiRequestError } from '@/lib/api/errors';
 import { formatDateTime } from '@/lib/format/date';
 import { DataTable, type DataTableColumn } from '@/components/data-table/data-table';
@@ -13,6 +13,7 @@ const reasonBadges: Record<string, { tone: string; label: string }> = {
   NO_SCHEDULE: { tone: 'excluded', label: 'Sem agendamento' },
   STALE: { tone: 'reserved', label: 'Desatualizado' },
   NEVER_POLLED: { tone: 'pending', label: 'Nunca sincronizado' },
+  NOT_CONFIGURED: { tone: 'pending', label: 'Não configurado' },
 };
 
 /** Badge for an attention reason; unknown reasons render as a neutral badge with the raw code. */
@@ -29,27 +30,33 @@ export function fleetErrorMessage(cause: unknown): string {
 
 const count = (value: number | undefined) => value ?? 0;
 
-type Props = { siteId: string; openDevice: (deviceId: string) => void; openDrifts: () => void };
+type Props = {
+  siteId: string;
+  openDevice: (deviceId: string) => void;
+  openDrifts: () => void;
+  /** SNMP Phase 1 step 5: opens the "Configurar SNMP" wizard for a device without SNMP config (ADMIN only). */
+  configureDevice?: (deviceId: string, name: string) => void;
+};
 type AttentionRow = NonNullable<SnmpFleetSummary['attention']>[number];
 
-const attentionColumns = (openDevice: Props['openDevice']): DataTableColumn<AttentionRow>[] => [
+const attentionColumns = (openDevice: Props['openDevice'], configureDevice?: Props['configureDevice']): DataTableColumn<AttentionRow>[] => [
   { id: 'device', header: 'Equipamento', cell: (item) => <><strong>{item.name}</strong>{item.lastStatus ? <small>{item.lastStatus}</small> : null}</> },
   { id: 'reason', header: 'Motivo', cell: (item) => <SnmpAttentionBadge reason={item.reason} /> },
   { id: 'lastPoll', header: 'Último poll', cell: (item) => (item.lastPollAt ? formatDateTime(item.lastPollAt) : <span className="muted-cell">Nunca</span>) },
   { id: 'error', header: 'Erro', cell: (item) => (item.lastErrorCode ? <span className="mono">{item.lastErrorCode}</span> : <span className="muted-cell">—</span>) },
   { id: 'drifts', header: 'Divergências', cell: (item) => count(item.pendingDrifts) },
-  { id: 'actions', header: null, className: 'table-actions', cell: (item) => <button type="button" className="secondary-button" aria-label={`Abrir ${item.name}`} onClick={() => openDevice(item.deviceId)}>Abrir</button> },
+  { id: 'actions', header: null, className: 'table-actions', cell: (item) => <span className="button-row">{item.reason === 'NOT_CONFIGURED' && configureDevice && <button type="button" className="primary-button" aria-label={`Configurar SNMP em ${item.name}`} onClick={() => configureDevice(item.deviceId, item.name)}><Settings2 size={13} /> Configurar</button>}<button type="button" className="secondary-button" aria-label={`Abrir ${item.name}`} onClick={() => openDevice(item.deviceId)}>Abrir</button></span> },
 ];
 
 /** Fleet-wide SNMP health for the active Site: configuration, polling state, drift and the devices needing attention. */
-export function SnmpFleetSummaryView({ siteId, openDevice, openDrifts }: Props) {
+export function SnmpFleetSummaryView({ siteId, openDevice, openDrifts, configureDevice }: Props) {
   const { data, error, isLoading } = useQuery({ queryKey: ['snmp', 'fleet', siteId], queryFn: () => getSnmpFleetSummary(siteId || undefined), refetchInterval: 60_000, retry: false });
   if (error) return <div className="ipam-alert error" role="alert"><X size={15} />{fleetErrorMessage(error)}</div>;
   if (isLoading || !data) return <div className="empty-context" aria-busy="true"><RadioTower size={24} /><strong>A carregar o resumo da frota…</strong></div>;
-  return <FleetSummaryContent data={data} openDevice={openDevice} openDrifts={openDrifts} />;
+  return <FleetSummaryContent data={data} openDevice={openDevice} openDrifts={openDrifts} configureDevice={configureDevice} />;
 }
 
-function FleetSummaryContent({ data, openDevice, openDrifts }: { data: SnmpFleetSummary; openDevice: (deviceId: string) => void; openDrifts: () => void }) {
+function FleetSummaryContent({ data, openDevice, openDrifts, configureDevice }: { data: SnmpFleetSummary; openDevice: (deviceId: string) => void; openDrifts: () => void; configureDevice?: Props['configureDevice'] }) {
   const byStatus = data.polling?.byStatus ?? {};
   const attention = data.attention ?? [];
   const attentionTotal = data.attentionTotal ?? attention.length;
@@ -64,8 +71,8 @@ function FleetSummaryContent({ data, openDevice, openDrifts }: { data: SnmpFleet
     </div>
     <p className="ipam-scope-note">{`Último poll: ${data.polling?.lastPollAt ? formatDateTime(data.polling.lastPollAt) : '—'} · Poll mais antigo: ${data.polling?.oldestPollAt ? formatDateTime(data.polling.oldestPollAt) : '—'}`}{data.generatedAt ? ` · Gerado em ${formatDateTime(data.generatedAt)}` : ''}{data.scheduler?.ok === false ? ` · Agendamento do polling com falhas (${data.scheduler.errorCode ?? `${data.scheduler.failed} equipamento(s)`})` : ''}</p>
     <section className="ipam-card">
-      <div className="panel-heading"><div><h2>Equipamentos que precisam de atenção</h2><p className="panel-description">{attentionTotal > attention.length ? `A mostrar ${attention.length} de ${attentionTotal} equipamentos.` : 'Polling falhado, bloqueado, desatualizado ou nunca executado.'}</p></div>{count(data.drift?.pending) > 0 && <button type="button" className="secondary-button" onClick={openDrifts}>Rever divergências</button>}</div>
-      {attention.length ? <DataTable rows={attention} columns={attentionColumns(openDevice)} rowKey={(item) => item.deviceId} label="Equipamentos que precisam de atenção" /> : <div className="no-data">Nenhum equipamento precisa de atenção.</div>}
+      <div className="panel-heading"><div><h2>Equipamentos que precisam de atenção</h2><p className="panel-description">{attentionTotal > attention.length ? `A mostrar ${attention.length} de ${attentionTotal} equipamentos.` : 'Polling falhado, bloqueado, desatualizado, nunca executado ou SNMP por configurar.'}</p></div>{count(data.drift?.pending) > 0 && <button type="button" className="secondary-button" onClick={openDrifts}>Rever divergências</button>}</div>
+      {attention.length ? <DataTable rows={attention} columns={attentionColumns(openDevice, configureDevice)} rowKey={(item) => item.deviceId} label="Equipamentos que precisam de atenção" /> : <div className="no-data">Nenhum equipamento precisa de atenção.</div>}
     </section>
   </>;
 }

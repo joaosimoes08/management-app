@@ -128,6 +128,8 @@ enum SnmpTrapStatus {
   DISCOVERED
   /// SNMP Phase 1 step 2: refused by the receiver (unknown user or community, bad auth, v1, v2c disabled). Rate-limited per source.
   REJECTED
+  /// SNMP Phase 1 step 4.3: unmatched traps an admin chose to ignore (Traps de equipamentos desconhecidos).
+  IGNORED
 }
 
 enum SnmpTrapEnrollmentStatus {

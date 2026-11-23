@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { SnmpCredentialPurpose } from '@simoes/database';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { Roles } from '../auth/roles.decorator';
-import { AcceptSnmpEnrollmentDto, AcknowledgeSnmpWriteImpactDto, CreateSnmpCredentialDto, CreateSnmpTrapEnrollmentDto, CreateSnmpWritePreviewDto, ReviewSnmpDriftDto, BulkReviewSnmpDriftsDto, SnmpOnboardingDeviceDto, UpsertSnmpConfigDto } from './dto';
+import { AcceptSnmpEnrollmentDto, AcknowledgeSnmpWriteImpactDto, CreateSnmpCredentialDto, CreateSnmpTrapEnrollmentDto, CreateSnmpWritePreviewDto, IgnoreUnmatchedTrapsDto, ReviewSnmpDriftDto, BulkReviewSnmpDriftsDto, SnmpOnboardingDeviceDto, UpsertSnmpConfigDto } from './dto';
 import { SnmpService } from './snmp.service';
 import { TopologyReconciliationService } from './topology-reconciliation.service';
 import { SnmpFleetService } from './snmp-fleet.service';
@@ -20,6 +20,8 @@ export class SnmpController {
   @Post('topology-proposals/:id/reject') @Roles('ADMIN', 'NETWORK_OPERATOR') rejectProposal(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.reconciliation.reject(id, req.user); }
   @Post('topology-proposals/:id/undo') @Roles('ADMIN', 'NETWORK_OPERATOR') undoProposal(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.reconciliation.undo(id, req.user); }
   @Get('traps/unmatched') @Roles('ADMIN') unmatchedTraps() { return this.service.unmatchedTraps(); }
+  @Get('traps/unmatched/sources') @Roles('ADMIN') unmatchedTrapSources() { return this.service.unmatchedTrapSources(); }
+  @Post('traps/unmatched/ignore') @Roles('ADMIN') ignoreUnmatchedTraps(@Body() dto: IgnoreUnmatchedTrapsDto, @Req() req: { user: AuthenticatedUser }) { return this.service.ignoreUnmatchedTraps(dto.sourceAddress, req.user); }
   @Get('devices/:deviceId') @Roles('ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY') overview(@Param('deviceId') deviceId: string, @Req() req: { user: AuthenticatedUser }) { return this.service.overview(deviceId, req.user); }
   @Get('devices/:deviceId/metrics') @Roles('ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY') metrics(@Param('deviceId') deviceId: string, @Query('interfaceIndex') interfaceIndex: string | undefined, @Query('days') days: string | undefined, @Req() req: { user: AuthenticatedUser }) { return this.service.metrics(deviceId, req.user, interfaceIndex === undefined ? undefined : Number(interfaceIndex), days === undefined ? 7 : Number(days)); }
   @Patch('devices/:deviceId/config') @Roles('ADMIN') config(@Param('deviceId') deviceId: string, @Body() dto: UpsertSnmpConfigDto, @Req() req: { user: AuthenticatedUser }) { return this.service.upsertConfig(deviceId, dto, req.user); }

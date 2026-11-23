@@ -136,3 +136,15 @@ describe('Step 35 labels', () => {
     expect(translateLegacyText('en-US', pt)).toBe(en);
   });
 });
+
+describe('unknown SNMP trap sources: hide existing traps', () => {
+  it.each([
+    ['Ocultar traps existentes', 'Hide existing traps'],
+    ['Ocultar as traps existentes de 10.9.9.9', 'Hide existing traps from 10.9.9.9'],
+    ['Ocultar as traps já recebidas de 10.9.9.9? Deixam de aparecer nesta lista e o alerta desta origem fecha. O IP não fica bloqueado: traps novas deste IP voltam a aparecer aqui.', 'Hide the traps already received from 10.9.9.9? They stop showing in this list and this source\'s alert closes. The IP is not blocked: new traps from this IP will show here again.'],
+    ['10.9.9.9: 12 traps existentes ocultadas.', '10.9.9.9: 12 existing traps hidden.'],
+    ['Não foi possível ocultar as traps.', 'Could not hide the traps.'],
+  ])('translates %s', (pt, en) => {
+    expect(translateLegacyText('en-US', pt)).toBe(en);
+  });
+});

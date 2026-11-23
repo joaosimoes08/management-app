@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Activity, ExternalLink, Pencil, Plus, Route, Server, Tags } from 'lucide-react';
 import { setDeviceTags } from '@/features/tags/api';
@@ -42,7 +42,17 @@ const ROLES = {
 const CLOSED_CHANGE = new Set(['COMPLETED', 'CANCELLED', 'REJECTED', 'CLOSED', 'IMPLEMENTED']);
 
 type Connection = { id: string; type?: string; label?: string | null; sourceDeviceId: string; targetDeviceId: string; sourceDevice?: { id: string; name: string } | null; targetDevice?: { id: string; name: string } | null; sourceInterface?: { name: string } | null; targetInterface?: { name: string } | null };
-type SnmpOverview = { config?: { enabled?: boolean } | null; latestSnapshot?: { collectedAt?: string; createdAt?: string; status?: string } | null; drifts?: Array<{ id: string; status?: string }>; traps?: Array<{ id: string }> };
+/** SNMP Phase 1 step 5.4: drift statuses as the API stores them (PENDING / ACCEPTED / IGNORED), in Portuguese. */
+const driftStatusLabels: Record<string, string> = { PENDING: 'Pendente', ACCEPTED: 'Aceite', IGNORED: 'Ignorada' };
+export const snmpDriftStatusLabel = (status?: string | null) => (status ? driftStatusLabels[status] ?? status : driftStatusLabels.PENDING);
+/** Pending drifts (a drift without a status is pending), plus a count per other status if the API ever returns them. */
+export function driftCounts(drifts?: Array<{ status?: string }>): { pending: number; other: Array<[string, number]> } {
+  const counts = new Map<string, number>();
+  for (const drift of drifts ?? []) { const status = drift.status || 'PENDING'; counts.set(status, (counts.get(status) ?? 0) + 1); }
+  const pending = counts.get('PENDING') ?? 0; counts.delete('PENDING');
+  return { pending, other: [...counts.entries()] };
+}
+type SnmpOverview = { config?: { enabled?: boolean } | null; latestSnapshot?: { observedAt?: string; collectedAt?: string; createdAt?: string; status?: string } | null; drifts?: Array<{ id: string; status?: string }>; traps?: Array<{ id: string }> };
 type LifecycleDate = { id: string; deviceId: string; kind: string; dueDate: string };
 type ChangeItem = { entityType: string; entityId: string };
 type ChangePlan = { id: string; title: string; status: string; plannedStartAt: string; items?: ChangeItem[] };
@@ -181,7 +191,7 @@ export function Device360Page({ deviceId }: { deviceId: string }) {
       </Section>
 
       {can('snmp') && <Section id="snmp" title="SNMP" fullHref={`/snmp${q({ deviceId: device.id })}`} fullLabel="Ver no SNMP">
-        <SectionBody query={snmp} empty={(r) => (r.config ? null : 'Sem SNMP configurado.')}>{(r) => { const open = (r.drifts ?? []).filter((d) => !d.status || d.status === 'OPEN').length; return <dl className="device-360-facts"><dt>Estado</dt><dd>{r.config?.enabled === false ? 'Desativado' : 'Ativo'}</dd><dt>Última recolha</dt><dd>{fmt(r.latestSnapshot?.collectedAt ?? r.latestSnapshot?.createdAt)}</dd><dt>Drifts abertos</dt><dd>{open}</dd><dt>Traps recentes</dt><dd>{(r.traps ?? []).length}</dd></dl>; }}</SectionBody>
+        <SectionBody query={snmp} empty={(r) => (r.config ? null : 'Sem SNMP configurado.')}>{(r) => { const drifts = driftCounts(r.drifts); return <dl className="device-360-facts"><dt>Estado</dt><dd>{r.config?.enabled === false ? 'Desativado' : 'Ativo'}</dd><dt>Última recolha</dt><dd>{fmt(r.latestSnapshot?.observedAt ?? r.latestSnapshot?.collectedAt ?? r.latestSnapshot?.createdAt)}</dd><dt>Divergências pendentes</dt><dd>{drifts.pending}</dd>{drifts.other.map(([status, count]) => <Fragment key={status}><dt>{`Divergências: ${snmpDriftStatusLabel(status)}`}</dt><dd>{count}</dd></Fragment>)}<dt>Traps recentes</dt><dd>{(r.traps ?? []).length}</dd></dl>; }}</SectionBody>
       </Section>}
 
       {can('hosts') && <Section id="host" title="Host e serviços" fullHref={`/infraestrutura${q({ tab: 'devices', type: 'SERVER', 'hosts-site': siteId })}`} fullLabel="Ver servidores em Equipamentos">
