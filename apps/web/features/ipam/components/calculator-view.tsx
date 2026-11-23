@@ -62,7 +62,7 @@ export function CalculatorView({ calc, setCalc, result, clearResult, pending, on
   const overlapResult = result && 'overlaps' in result ? result : null;
 
   return <section className="ipam-card calculator-panel">
-    <div className="panel-heading"><div><span className="section-kicker">SUBNETTING</span><h2>Calculadora CIDR IPv4 e IPv6</h2><p className="panel-description">Consulta subnets IPv4 e IPv6 sem enumerar endereços. A divisão em subnets continua disponível para IPv4.</p></div><Calculator size={18} /></div>
+    <div className="panel-heading"><div><h2>Calculadora CIDR IPv4 e IPv6</h2><p className="panel-description">Consulta subnets IPv4 e IPv6 sem enumerar endereços. A divisão em subnets continua disponível para IPv4.</p></div><Calculator size={18} /></div>
     <PageToolbarPortal><button type="submit" form="ipam-calculator-form" className="primary-button" disabled={pending} aria-busy={pending}><Calculator size={14} /> {pending ? 'A calcular…' : 'Calcular'}</button></PageToolbarPortal>
     <form id="ipam-calculator-form" className="calculator-form" onSubmit={submit}>
       <label>Operação<select value={operation} onChange={(event) => { setFieldErrors({}); updateCalc({ operation: event.target.value as CalculatorOperation }); }}><option value="split">Dividir subnet IPv4</option><option value="summary">Resumo IPv4/IPv6</option><option value="contains">Verificar endereço</option><option value="overlap">Verificar sobreposição</option></select></label>

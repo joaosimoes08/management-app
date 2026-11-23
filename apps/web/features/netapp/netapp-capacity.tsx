@@ -55,7 +55,7 @@ export function CapacityTable({ title, kind, items, onTrend }: { title: string; 
     { id: 'percent', header: '% utilizado', cell: (row) => <PercentBar value={row.percent} />, sortValue: (row) => row.percent },
     { id: 'actions', header: '', cell: (row) => <div className="table-actions"><button type="button" className="icon-button subtle" onClick={() => onTrend({ kind, key: row.uuid ?? row.name })} aria-label={`Ver tendência de ${row.name}`} title="Ver tendência"><LineChart size={14} aria-hidden="true" /></button></div> },
   ];
-  return <section className="ipam-card"><div className="panel-heading"><div><span className="section-kicker">SNAPSHOT</span><h2>{title}</h2></div><span>{rows.length}</span></div>
+  return <section className="ipam-card"><div className="panel-heading"><div><h2>{title}</h2></div><span>{rows.length}</span></div>
     {rows.length ? <DataTable rows={sortByColumns(rows, columns, sort)} columns={columns} rowKey={(row) => row.key} label={title} sort={sort} onSortChange={setSort} defaultSort={defaultSort} /> : <p>Sem registos neste snapshot.</p>}
   </section>;
 }
@@ -70,7 +70,7 @@ export function TopFullest({ snapshot, onTrend }: { snapshot: NetAppSnapshot; on
     .filter((entry): entry is typeof entry & { percent: number } => entry.percent !== null)
     .sort((a, b) => b.percent - a.percent || a.item.name.localeCompare(b.item.name))
     .slice(0, 10);
-  return <section className="ipam-card" aria-labelledby="netapp-top-fullest"><div className="panel-heading"><div><span className="section-kicker">CAPACIDADE</span><h2 id="netapp-top-fullest">Top 10 mais cheios</h2></div></div>
+  return <section className="ipam-card" aria-labelledby="netapp-top-fullest"><div className="panel-heading"><div><h2 id="netapp-top-fullest">Top 10 mais cheios</h2></div></div>
     {items.length ? <div className="inventory-bars" data-testid="netapp-top-fullest">{items.map(({ kind, label, item, percent }) => <div className="inventory-bar" key={`${kind}-${item.uuid ?? item.name}`}>
       <div><span><button type="button" className="link-button" onClick={() => onTrend({ kind, key: item.uuid ?? item.name })}>{item.name}</button>{` · ${label}`}</span><strong>{percentLabel(percent)}</strong></div>
       <div className="bar-track"><i className={barColour(percent)} style={{ width: `${Math.min(100, percent)}%` }} /></div>
@@ -127,7 +127,7 @@ export function NetAppCapacityTrend({ siteId, target, onTarget }: { siteId: stri
   const selectedMissing = Boolean(objectKind && key && objectsQuery.data && !objects.some((item) => item.key === key || item.name === key));
 
   return <section className="ipam-card" aria-labelledby="netapp-trend-title" id="netapp-capacity-trend">
-    <div className="panel-heading"><div><span className="section-kicker">TENDÊNCIA DE CAPACIDADE</span><h2 id="netapp-trend-title">{`Últimos ${days} dias`}</h2><p className="panel-description">Amostras diárias guardadas a cada atualização do snapshot.</p></div></div>
+    <div className="panel-heading"><div><h2 id="netapp-trend-title">{`Últimos ${days} dias`}</h2><p className="panel-description">Amostras diárias guardadas a cada atualização do snapshot.</p></div></div>
     <div className="snmp-form-grid">
       <label><span>Objeto</span><select value={target.kind} onChange={(event) => onTarget({ kind: event.target.value as NetAppTrendKind, key: null })}><option value="CLUSTER">Cluster (total)</option><option value="AGGREGATE">Aggregate</option><option value="VOLUME">Volume</option></select></label>
       {objectKind && <label><span>{objectKind === 'VOLUME' ? 'Volume' : 'Aggregate'}</span><select value={key ?? ''} disabled={objectsQuery.isLoading} onChange={(event) => onTarget({ kind: target.kind, key: event.target.value || null })}>
