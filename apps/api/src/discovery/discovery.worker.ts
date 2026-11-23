@@ -7,7 +7,7 @@ import { PrismaClient } from '@simoes/database';
 import { runAuditRetentionCleanup } from '../audit/audit-retention';
 import { normalizeDiscoveryPorts } from './discovery-policy';
 import { DiscoveryConfigurationError, recordDiscoveryFailure, runDiscoveryScan } from './discovery-scan';
-import type { ProbeLimiter } from './discovery-limiter';
+import type { ProbeRunner } from './discovery-limiter';
 import { runInventoryQualityReconciliation } from '../inventory-quality/inventory-quality.service';
 import { deliverLifecycleReminders } from '../infrastructure/lifecycle-reminders';
 
@@ -21,8 +21,8 @@ function testPort(address: string, port: number) { return new Promise<boolean>((
 
 type DiscoveryData = { jobId?: string; subnetId?: string; cidr?: string; methods?: string[]; tcpPorts?: number[]; reverseDns?: boolean };
 
-/** Each ping and each TCP connect waits for the scan's limiter (per-subnet rate limit and socket cap). */
-async function probe(address: string, methods: string[], tcpPorts: number[], limiter: ProbeLimiter) {
+/** Each ping and each TCP connect waits for the subnet's shared limiter (rate, subnet socket cap, process ceiling); a cancelled scan aborts the queued ones. */
+async function probe(address: string, methods: string[], tcpPorts: number[], limiter: ProbeRunner) {
   const icmp = methods.includes('ICMP') ? await limiter.run(() => ping(address)) : { reachable: false, responseMs: undefined };
   const openPorts = methods.includes('TCP') ? (await Promise.all(tcpPorts.map(async (port) => (await limiter.run(() => testPort(address, port))) ? port : null))).filter((port): port is number => port !== null) : [];
   return { address, icmp, openPorts };

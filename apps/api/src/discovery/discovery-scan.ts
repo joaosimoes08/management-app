@@ -1,7 +1,7 @@
 import { Prisma, PrismaClient } from '@simoes/database';
 import { hostsFor } from './discovery-network';
 import { assertDiscoveryAllowed, normalizeDiscoveryPorts } from './discovery-policy';
-import { ProbeLimiter, resolveDiscoveryLimits, type LimiterClock } from './discovery-limiter';
+import { ProbeAbortedError, resolveDiscoveryLimits, subnetProbeLimiter, type LimiterClock, type ProbeRunner } from './discovery-limiter';
 
 /**
  * Round 2 #10/#11: one discovery scan, saved batch by batch.
@@ -9,12 +9,14 @@ import { ProbeLimiter, resolveDiscoveryLimits, type LimiterClock } from './disco
  * - Progress: each batch's results and counters are written in one transaction, guarded by the resume cursor
  *   (`processedCount`). A retry or a re-delivered job resumes after the last saved batch, and two workers that pick up
  *   the same job never count a batch twice (the second one's guarded update matches no row and it stops).
- * - Cancel: `cancelRequestedAt` is checked before every batch; the scan ends as CANCELLED and keeps what it saved.
+ * - Cancel: `cancelRequestedAt` is checked before every batch and, while a batch runs, every `controlPollMs` (1 s). A
+ *   cancel or a passed deadline aborts the probes still queued in the limiter; the unfinished batch is not saved
+ *   (a retry would probe it again) and the scan ends as CANCELLED / LIMIT_DURATION, keeping the saved batches.
  * - Limits: `maxDurationSeconds` (from the first start, across retries) and `maxProbes` (ICMP pings plus TCP connects).
  *   Reaching one ends the scan as COMPLETED with stopReason LIMIT_DURATION / LIMIT_PROBES ("stopped at limit").
- * - Load (discovery P0): every probe goes through one `ProbeLimiter` per scan, built from the subnet's
- *   `discoveryProbesPerSecond` / `discoveryMaxSockets` (null = defaults). `probe` must run each ping and TCP connect
- *   through `limiter.run`, so a batch never opens more than `maxSockets` sockets at once.
+ * - Load (discovery P0): every probe goes through the subnet's process-wide `ProbeLimiter` (shared by all scans of the
+ *   subnet, see discovery-limiter.ts), built from `discoveryProbesPerSecond` / `discoveryMaxSockets` (null = defaults),
+ *   plus the process-wide socket ceiling. `probe` must run each ping and TCP connect through `limiter.run`.
  */
 export const DISCOVERY_BATCH_SIZE = 32;
 export const DISCOVERY_DEFAULT_MAX_DURATION_SECONDS = positiveInt(process.env.DISCOVERY_MAX_DURATION_SECONDS, 3600);
@@ -26,12 +28,14 @@ export const DISCOVERY_JOB_OPTIONS = { attempts: DISCOVERY_JOB_ATTEMPTS, backoff
 export type DiscoveryStopReason = 'CANCELLED' | 'LIMIT_DURATION' | 'LIMIT_PROBES';
 export type ProbeOutcome = { address: string; icmp: { reachable: boolean; responseMs?: number }; openPorts: number[] };
 export type ScanDependencies = {
-  probe: (address: string, methods: string[], tcpPorts: number[], limiter: ProbeLimiter) => Promise<ProbeOutcome>;
+  probe: (address: string, methods: string[], tcpPorts: number[], limiter: ProbeRunner) => Promise<ProbeOutcome>;
   reverse?: (address: string) => Promise<string | undefined>;
   now?: () => Date;
   batchSize?: number;
   /** Test hook for the limiter's clock. */
   limiterClock?: LimiterClock;
+  /** How often a running batch checks for cancel and the deadline (ms). */
+  controlPollMs?: number;
 };
 export type ScanOutcome = { status: 'COMPLETED' | 'CANCELLED' | 'FAILED' | 'PENDING' | 'RUNNING'; stopReason?: DiscoveryStopReason | null; skipped?: 'TERMINAL' | 'SUPERSEDED' };
 
@@ -53,7 +57,7 @@ export async function runDiscoveryScan(prisma: PrismaClient, jobId: string, deps
   const now = deps.now ?? (() => new Date());
   const batchSize = deps.batchSize ?? DISCOVERY_BATCH_SIZE;
   const [job, settings] = await Promise.all([
-    prisma.discoveryJob.findUnique({ where: { id: jobId }, include: { subnet: { select: { cidr: true, discoveryProbesPerSecond: true, discoveryMaxSockets: true } } } }),
+    prisma.discoveryJob.findUnique({ where: { id: jobId }, include: { subnet: { select: { id: true, cidr: true, discoveryProbesPerSecond: true, discoveryMaxSockets: true } } } }),
     prisma.systemSettings.findFirst({ select: { discoveryAllowedCidrs: true } }),
   ]);
   if (!job) throw new DiscoveryConfigurationError('DISCOVERY_JOB_NOT_FOUND', 'Execução de discovery inexistente');
@@ -78,7 +82,8 @@ export async function runDiscoveryScan(prisma: PrismaClient, jobId: string, deps
   const maxDurationMs = (job.maxDurationSeconds ?? DISCOVERY_DEFAULT_MAX_DURATION_SECONDS) * 1000;
   const maxProbes = job.maxProbes ?? DISCOVERY_DEFAULT_MAX_PROBES;
   const perAddress = Math.max(1, probesPerAddress(methods, tcpPorts));
-  const limiter = new ProbeLimiter(resolveDiscoveryLimits(job.subnet), deps.limiterClock);
+  const limiter = subnetProbeLimiter(job.subnet.id, resolveDiscoveryLimits(job.subnet), deps.limiterClock);
+  const controlPollMs = deps.controlPollMs ?? 1000;
   let cursor = Math.min(job.processedCount, addresses.length);
   let probes = job.probeCount;
 
@@ -96,7 +101,30 @@ export async function runDiscoveryScan(prisma: PrismaClient, jobId: string, deps
     if (size <= 0) return finish('COMPLETED', 'LIMIT_PROBES');
 
     const batch = addresses.slice(cursor, cursor + size);
-    const outcomes = await Promise.all(batch.map((address) => deps.probe(address, methods, tcpPorts, limiter)));
+    const abort = new AbortController();
+    let abortReason = null as DiscoveryStopReason | null;
+    const deadlineAt = startedAt.getTime() + maxDurationMs;
+    let checking = false;
+    const watcher = setInterval(() => {
+      if (checking || abort.signal.aborted) return;
+      checking = true;
+      void (async () => {
+        if (now().getTime() >= deadlineAt) { abortReason = 'LIMIT_DURATION'; abort.abort(); return; }
+        const state = await prisma.discoveryJob.findUnique({ where: { id: jobId }, select: { cancelRequestedAt: true } });
+        if (state?.cancelRequestedAt) { abortReason = 'CANCELLED'; abort.abort(); }
+      })().catch(() => undefined).finally(() => { checking = false; });
+    }, controlPollMs);
+    watcher.unref?.();
+    const runner = limiter.bind(abort.signal);
+    let outcomes: ProbeOutcome[];
+    try {
+      outcomes = await Promise.all(batch.map((address) => deps.probe(address, methods, tcpPorts, runner)));
+    } catch (error) {
+      if (!(error instanceof ProbeAbortedError) || !abortReason) throw error;
+      return abortReason === 'CANCELLED' ? finish('CANCELLED', 'CANCELLED') : finish('COMPLETED', 'LIMIT_DURATION');
+    } finally {
+      clearInterval(watcher);
+    }
     const rows: Prisma.DiscoveryResultCreateManyInput[] = [];
     let icmp = 0; let tcp = 0;
     for (const item of outcomes) {
