@@ -123,7 +123,7 @@ Invoke-RestMethod http://localhost:3001/api/v1/health
    Para o modo alternativo de agente do host, constrói a imagem SNMP e inicia o agente fora do container:
 
    ```bash
-   docker compose --profile snmp build snmp
+   docker compose build snmp
    npm run snmp:host-agent
    ```
 
