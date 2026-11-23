@@ -15,7 +15,7 @@ const API = env('LAB_API_URL', 'http://api:3001/api/v1');
 const OIDC = env('LAB_OIDC_URL', 'http://oidc:8080');
 const METRICS = env('LAB_SNMP_METRICS_URL', 'http://snmp:3002/metrics');
 const RECEIVER = env('LAB_RECEIVER', '10.250.62.10:1162');
-const RECEIVER_V2C = env('LAB_RECEIVER_V2C', '10.250.62.11:1162');
+const RECEIVER_V3ONLY = env('LAB_RECEIVER_V3ONLY', '10.250.62.11:1162');
 const CORE_SWITCH = env('LAB_CORE_SWITCH', '10.250.62.30:1161');
 const BUDGET = Number(env('LAB_UNTRUSTED_ROWS_PER_MINUTE', '30'));
 /** The API reconciler runs every 10 s; "no alert" checks wait for at least two full passes. */
@@ -135,7 +135,7 @@ async function seed() {
   for (const [deviceId, profile] of [[ids.sw1, v3.sha1], [ids.sw2, v3.sha256]]) {
     await credential(deviceId, 'V3', { username: profile.user, authProtocol: profile.authProtocol, privProtocol: profile.privProtocol }, { username: profile.user, authKey: profile.authKey, privKey: profile.privKey });
   }
-  // A v2c TRAP credential written straight to the DB: the API refuses it without the lab flag (Phase 1 step 1.3).
+  // A v2c TRAP credential written straight to the DB (Phase 1 step 1.3, rev. 4: v2c is accepted unless SNMP_ALLOW_V2C=false).
   await credential(ids.sw3, 'V2C', {}, { community: COMMUNITY });
 }
 
@@ -239,24 +239,27 @@ test('case 6: an unregistered source is stored as UNMATCHED and raises an SNMP_T
   assert.ok(!(await alerts({ source: 'SNMP_TRAP' })).some((item) => item.title.includes(ip.unregistered) || item.detail.includes(ip.unregistered)), 'no device trap alert for an unknown source');
 });
 
-test('case 7: v2c is refused unless SNMP_ALLOW_V2C=true', { timeout: 120_000 }, async () => {
+test('case 7: v2c is accepted by default and refused only when SNMP_ALLOW_V2C=false', { timeout: 120_000 }, async () => {
   const v2c = ['-v2c', '-c', COMMUNITY];
-  const refused = await linkDown(ip.sw3, v2c, 48, 'Gi1/0/48');
-  const { value: [row] } = await waitFor('REJECTED v2c row', async () => {
+  // (b) The receiver started with the admin opt-out SNMP_ALLOW_V2C=false loads no community: stored REJECTED, no alert.
+  const refused = await linkDown(ip.sw3, v2c, 48, 'Gi1/0/48', { to: RECEIVER_V3ONLY });
+  const { value: [row] } = await waitFor('REJECTED v2c row (SNMP_ALLOW_V2C=false)', async () => {
     const rows = await trapRows({ sourceAddress: ip.sw3, status: 'REJECTED' }, refused);
     return rows.length ? rows : undefined;
   });
   assert.equal(row.version, 'V2C');
   assert.equal(row.errorCode, 'SNMP_V2C_DISABLED');
+  assert.deepEqual(row.varbinds, [], 'a rejected trap keeps no payload');
   await sleep(RECONCILE_MS * 2 + 1000);
   assert.equal(await portAlert(ids.sw3, 'Gi1/0/48'), undefined, 'refused v2c trap must not alert');
-  // Same trap to the receiver started with the lab flag: accepted, processed and alerted.
-  const accepted = await linkDown(ip.sw3, v2c, 48, 'Gi1/0/48', { to: RECEIVER_V2C });
-  const { value: [processed] } = await waitFor('PROCESSED v2c row (lab flag on)', async () => {
+  // (a) Same trap with the valid community to the default receiver (SNMP_ALLOW_V2C unset): accepted, processed and alerted.
+  const accepted = await linkDown(ip.sw3, v2c, 48, 'Gi1/0/48');
+  const { value: [processed] } = await waitFor('PROCESSED v2c row (default receiver)', async () => {
     const rows = await trapRows({ deviceId: ids.sw3, status: 'PROCESSED' }, accepted);
     return rows.length ? rows : undefined;
   });
   assert.equal(processed.version, 'V2C');
+  assert.equal(processed.sourceAddress, ip.sw3);
   await waitFor('sw-access-03 uplink alert', () => portAlert(ids.sw3, 'Gi1/0/48'));
 });
 

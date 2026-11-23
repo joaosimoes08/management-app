@@ -114,7 +114,7 @@ services:
       retries: 30
       start_period: 30s
 
-  # Production-like receiver: SNMPv3 only (SNMP_ALLOW_V2C unset), poll/trap worker included.
+  # Production-like receiver: default policy (SNMP_ALLOW_V2C unset, so v3 and v2c are accepted), poll/trap worker included.
   snmp:
     image: snmplab-snmp:local
     build: *snmp-build
@@ -140,17 +140,17 @@ services:
       timeout: 3s
       retries: 30
 
-  # Second receiver with the lab flag SNMP_ALLOW_V2C=true (case 7). Receiver only; the main worker processes its traps.
-  snmp-v2c:
+  # Second receiver with the admin opt-out SNMP_ALLOW_V2C=false (case 7). Receiver only; the main worker processes its traps.
+  snmp-v3only:
     image: snmplab-snmp:local
     build: *snmp-build
     depends_on:
       snmp: { condition: service_healthy }
     environment:
       <<: *snmp-env
-      SNMP_INSTANCE_ID: snmplab-v2c
+      SNMP_INSTANCE_ID: snmplab-v3only
       SNMP_ROLE: receiver
-      SNMP_ALLOW_V2C: "true"
+      SNMP_ALLOW_V2C: "false"
     secrets:
       - snmp_keyring
     read_only: true
@@ -182,7 +182,7 @@ services:
       context: ../..
       dockerfile: e2e/snmp-trap-lab/sender.Dockerfile
     depends_on:
-      snmp-v2c: { condition: service_healthy }
+      snmp-v3only: { condition: service_healthy }
       snmpsim: { condition: service_started }
     cap_add: [NET_ADMIN]
     environment:
@@ -191,7 +191,7 @@ services:
       LAB_OIDC_URL: http://oidc:8080
       LAB_SNMP_METRICS_URL: http://snmp:3002/metrics
       LAB_RECEIVER: 10.250.62.10:1162
-      LAB_RECEIVER_V2C: 10.250.62.11:1162
+      LAB_RECEIVER_V3ONLY: 10.250.62.11:1162
       LAB_CORE_SWITCH: 10.250.62.30:1161
       LAB_UNTRUSTED_ROWS_PER_MINUTE: "30"
       SNMP_KEYRING_FILE: /run/secrets/snmp_keyring
