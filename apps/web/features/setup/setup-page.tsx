@@ -1,23 +1,26 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { AnimatePresence, LazyMotion, MotionConfig, domMax, useReducedMotion } from 'motion/react';
+import * as m from 'motion/react-m';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, Building2, Check, Flag, MapPin, ShieldCheck, Sparkles, type LucideIcon } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { currentSearch, designPreviewStep, isDesignPreview } from '@/lib/design-preview';
 import { AppLocale, useI18n } from '@/lib/i18n';
 import { getConfiguredLocale, resolveOrganizationLocale } from '@/lib/runtime-config';
+import { ringTransition, stepIndicatorTransition, stepPanelVariants, type StepDirection } from './setup-motion';
 import { completeSetup, createSetupOrganization, createSetupSite, getSetupStatus, type SetupStatus } from './api';
 
 type SetupForm = { organizationName: string; organizationCode: string; timezone: string; locale: AppLocale; siteName: string; siteCode: string; address: string; city: string; region: string; country: string; buildingName: string; roomName: string; rackName: string };
 
 const SETUP_STEP_ICONS: LucideIcon[] = [Sparkles, Building2, MapPin, Flag];
 
-function ProgressRing({ current, total, label }: { current: number; total: number; label: string }) {
+function ProgressRing({ current, total, label, reduceMotion }: { current: number; total: number; label: string; reduceMotion: boolean }) {
   const radius = 24;
   const circumference = 2 * Math.PI * radius;
   return <div className="onboarding-ring" role="img" aria-label={label}>
-    <svg viewBox="0 0 60 60" aria-hidden="true"><circle className="onboarding-ring-track" cx="30" cy="30" r={radius} /><circle className="onboarding-ring-value" cx="30" cy="30" r={radius} strokeDasharray={circumference} strokeDashoffset={circumference * (1 - current / total)} /></svg>
+    <svg viewBox="0 0 60 60" aria-hidden="true"><circle className="onboarding-ring-track" cx="30" cy="30" r={radius} /><m.circle className="onboarding-ring-value" cx="30" cy="30" r={radius} strokeDasharray={circumference} initial={false} animate={{ strokeDashoffset: circumference * (1 - current / total) }} transition={ringTransition(reduceMotion)} /></svg>
     <span aria-hidden="true">{current}/{total}</span>
   </div>;
 }
@@ -31,7 +34,13 @@ export default function SetupPage() {
   // Dev-only, admin-only design preview (/setup?preview=1&step=N): no redirect, no API writes.
   const [search] = useState(currentSearch);
   const preview = isDesignPreview(search, { isAdmin: hasRole('ADMIN') });
-  const [step, setStep] = useState(() => (preview ? designPreviewStep(search, 3) : 0));
+  const [step, setStepValue] = useState(() => (preview ? designPreviewStep(search, 3) : 0));
+  // Direction drives the slide (Next from the right, Back from the left); `navigated` keeps the first render still.
+  const [direction, setDirection] = useState<StepDirection>(1);
+  const [navigated, setNavigated] = useState(false);
+  const setStep = (next: number) => { setDirection(next < step ? -1 : 1); setNavigated(true); setStepValue(next); };
+  const reduceMotion = useReducedMotion() ?? false;
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const [form, setForm] = useState(initialForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -81,18 +90,23 @@ export default function SetupPage() {
   const stepLabels = [t('setup.welcomeStep'), t('setup.organization'), t('setup.firstSite'), t('setup.finish')];
   const backButton = (target: number) => <button type="button" className="onboarding-back" aria-label={t('setup.back')} title={t('setup.back')} onClick={() => setStep(target)}><ArrowLeft size={17} /></button>;
 
-  return <main className="setup-page onboarding-page">
+  // After a step change, move focus to the new step's heading so keyboard and screen-reader users land on it.
+  const focusNewStep = (definition: unknown) => { if (definition === 'center' && navigated) headingRef.current?.focus({ preventScroll: true }); };
+  const heading = (text: string) => <h2 ref={headingRef} tabIndex={-1}>{text}</h2>;
+
+  return <MotionConfig reducedMotion="user"><LazyMotion features={domMax} strict><main className="setup-page onboarding-page">
     <section className="onboarding-card" aria-labelledby="onboarding-title">
       <aside className="onboarding-nav">
         <header className="onboarding-head">
           <div><h1 id="onboarding-title">{t('setup.onboardingTitle')}</h1><p>{t('setup.onboardingSubtitle')}</p></div>
-          <ProgressRing current={step + 1} total={stepLabels.length} label={t('setup.progress', undefined, { current: step + 1, total: stepLabels.length })} />
+          <ProgressRing reduceMotion={reduceMotion} current={step + 1} total={stepLabels.length} label={t('setup.progress', undefined, { current: step + 1, total: stepLabels.length })} />
         </header>
         <ol className="onboarding-steps">{stepLabels.map((label, index) => {
           const Icon = SETUP_STEP_ICONS[index];
           const state = index === step ? 'current' : index < step ? 'done' : 'upcoming';
           return <li className={`onboarding-step ${state}`} key={label} aria-current={state === 'current' ? 'step' : undefined}>
-            <span className="onboarding-step-icon">{state === 'done' ? <Check size={16} strokeWidth={2.4} /> : <Icon size={16} />}</span>
+            {state === 'current' && <m.span className="onboarding-step-highlight" layoutId="onboarding-step-highlight" transition={stepIndicatorTransition(reduceMotion)} aria-hidden="true" />}
+            <m.span className="onboarding-step-icon" key={state} initial={navigated && !reduceMotion ? { scale: 0.6, opacity: 0 } : false} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', stiffness: 520, damping: 26 }}>{state === 'done' ? <Check size={16} strokeWidth={2.4} /> : <Icon size={16} />}</m.span>
             <span className="onboarding-step-label">{label}</span>
             {state === 'current' && <ArrowRight className="onboarding-step-arrow" size={16} aria-hidden="true" />}
           </li>;
@@ -101,11 +115,15 @@ export default function SetupPage() {
       <div className="onboarding-content">
         {preview && <span className="onboarding-preview-badge" role="status">{t('setup.previewBadge')}</span>}
         {error && <div className="setup-error" role="alert">{error}</div>}
-        {step === 0 && <div className="onboarding-panel"><div className="onboarding-body"><h2>{t('setup.welcomeTitle')}</h2><p>{t('setup.welcomeDescription')}</p></div><div className="onboarding-actions"><button className="onboarding-primary" onClick={() => setStep(1)}>{t('setup.start')} <ArrowRight size={16} /></button></div></div>}
-        {step === 1 && <div className="onboarding-panel"><div className="onboarding-body"><h2>{t('setup.orgQuestion')}</h2><p>{t('setup.orgDescription')}</p><label className="setup-field">{t('setup.language')}<select value={form.locale} onChange={(event) => { const next = event.target.value as AppLocale; update('locale', next); setLocale(next); }}><option value="pt-PT">Português (Portugal)</option><option value="en-US">English (United States)</option></select></label>{fields('organizationName', t('setup.orgName'), t('setup.orgNameExample'), true)}{fields('organizationCode', t('setup.shortCode'), t('setup.shortCodeExample'))}<label className="setup-field">{t('setup.timezone')}<select value={form.timezone} onChange={(event) => update('timezone', event.target.value)}><option>Europe/Lisbon</option><option>UTC</option><option>Europe/London</option><option>Europe/Madrid</option></select></label></div><div className="onboarding-actions">{backButton(0)}<button className="onboarding-primary" disabled={!form.organizationName.trim() || saving} onClick={() => void saveOrganization()}>{saving ? t('setup.saving') : <>{t('setup.continue')} <ArrowRight size={16} /></>}</button></div></div>}
-        {step === 2 && <div className="onboarding-panel"><div className="onboarding-body"><h2>{t('setup.siteTitle')}</h2><p>{t('setup.siteDescription')}</p><div className="form-row">{fields('siteName', t('setup.siteName'), t('setup.siteNameExample'), true)}{fields('siteCode', t('setup.siteCode'), t('setup.siteCodeExample'), true)}</div><div className="form-row">{fields('address', t('setup.address'), t('setup.addressExample'))}{fields('city', t('setup.city'), t('setup.city'))}</div><div className="form-row">{fields('region', t('setup.region'), t('setup.region'))}{fields('country', t('setup.country'), t('setup.country'))}</div><div className="setup-location"><MapPin size={16} /><strong>{t('setup.optionalHierarchy')}</strong><div className="form-row">{fields('buildingName', t('setup.building'), t('setup.buildingExample'))}{fields('roomName', t('setup.room'), t('setup.roomExample'))}</div>{fields('rackName', t('setup.rack'), t('setup.rackExample'))}</div></div><div className="onboarding-actions">{backButton(1)}<button className="onboarding-primary" disabled={!form.siteName.trim() || !form.siteCode.trim() || saving} onClick={() => void saveSite()}>{saving ? t('setup.creating') : <>{t('setup.createSite')} <ArrowRight size={16} /></>}</button></div></div>}
-        {step === 3 && <div className="onboarding-panel"><div className="onboarding-body"><div className="setup-success"><Check size={25} /></div><h2>{t('setup.ready')}</h2><p>{t('setup.readyDescription').replace('{organization}', form.organizationName).replace('{site}', form.siteName).replace('{code}', form.siteCode.toUpperCase())}</p></div><div className="onboarding-actions"><button className="onboarding-primary" disabled={saving} onClick={() => void complete()}>{saving ? t('setup.finishing') : <>{t('setup.enter')} <ArrowRight size={16} /></>}</button></div></div>}
+        <AnimatePresence mode="wait" initial={false} custom={direction}>
+        <m.div className={navigated ? 'onboarding-stage stagger' : 'onboarding-stage'} key={step} custom={direction} variants={stepPanelVariants(reduceMotion)} initial="enter" animate="center" exit="exit" onAnimationComplete={focusNewStep}>
+        {step === 0 && <div className="onboarding-panel"><div className="onboarding-body">{heading(t('setup.welcomeTitle'))}<p>{t('setup.welcomeDescription')}</p></div><div className="onboarding-actions"><button className="onboarding-primary" onClick={() => setStep(1)}>{t('setup.start')} <ArrowRight size={16} /></button></div></div>}
+        {step === 1 && <div className="onboarding-panel"><div className="onboarding-body">{heading(t('setup.orgQuestion'))}<p>{t('setup.orgDescription')}</p><label className="setup-field">{t('setup.language')}<select value={form.locale} onChange={(event) => { const next = event.target.value as AppLocale; update('locale', next); setLocale(next); }}><option value="pt-PT">Português (Portugal)</option><option value="en-US">English (United States)</option></select></label>{fields('organizationName', t('setup.orgName'), t('setup.orgNameExample'), true)}{fields('organizationCode', t('setup.shortCode'), t('setup.shortCodeExample'))}<label className="setup-field">{t('setup.timezone')}<select value={form.timezone} onChange={(event) => update('timezone', event.target.value)}><option>Europe/Lisbon</option><option>UTC</option><option>Europe/London</option><option>Europe/Madrid</option></select></label></div><div className="onboarding-actions">{backButton(0)}<button className="onboarding-primary" disabled={!form.organizationName.trim() || saving} onClick={() => void saveOrganization()}>{saving ? t('setup.saving') : <>{t('setup.continue')} <ArrowRight size={16} /></>}</button></div></div>}
+        {step === 2 && <div className="onboarding-panel"><div className="onboarding-body">{heading(t('setup.siteTitle'))}<p>{t('setup.siteDescription')}</p><div className="form-row">{fields('siteName', t('setup.siteName'), t('setup.siteNameExample'), true)}{fields('siteCode', t('setup.siteCode'), t('setup.siteCodeExample'), true)}</div><div className="form-row">{fields('address', t('setup.address'), t('setup.addressExample'))}{fields('city', t('setup.city'), t('setup.city'))}</div><div className="form-row">{fields('region', t('setup.region'), t('setup.region'))}{fields('country', t('setup.country'), t('setup.country'))}</div><div className="setup-location"><MapPin size={16} /><strong>{t('setup.optionalHierarchy')}</strong><div className="form-row">{fields('buildingName', t('setup.building'), t('setup.buildingExample'))}{fields('roomName', t('setup.room'), t('setup.roomExample'))}</div>{fields('rackName', t('setup.rack'), t('setup.rackExample'))}</div></div><div className="onboarding-actions">{backButton(1)}<button className="onboarding-primary" disabled={!form.siteName.trim() || !form.siteCode.trim() || saving} onClick={() => void saveSite()}>{saving ? t('setup.creating') : <>{t('setup.createSite')} <ArrowRight size={16} /></>}</button></div></div>}
+        {step === 3 && <div className="onboarding-panel"><div className="onboarding-body"><div className="setup-success"><Check size={25} /></div>{heading(t('setup.ready'))}<p>{t('setup.readyDescription').replace('{organization}', form.organizationName).replace('{site}', form.siteName).replace('{code}', form.siteCode.toUpperCase())}</p></div><div className="onboarding-actions"><button className="onboarding-primary" disabled={saving} onClick={() => void complete()}>{saving ? t('setup.finishing') : <>{t('setup.enter')} <ArrowRight size={16} /></>}</button></div></div>}
+        </m.div>
+        </AnimatePresence>
       </div>
     </section>
-  </main>;
+  </main></LazyMotion></MotionConfig>;
 }

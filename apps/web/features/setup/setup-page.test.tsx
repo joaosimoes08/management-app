@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import SetupPage from './setup-page';
@@ -52,6 +52,23 @@ describe('SetupPage design preview', () => {
     expect(mocks.completeSetup).not.toHaveBeenCalled();
     expect(mocks.replace).toHaveBeenCalledTimes(1);
     expect(mocks.replace).toHaveBeenCalledWith('/');
+  });
+
+  it('switches step content on Next and Back, keeps a single panel and focuses the new heading', async () => {
+    renderAt('?preview=1&step=1');
+    expect(await screen.findByText('setup.orgQuestion')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /setup.continue/ }));
+    const siteHeading = await screen.findByRole('heading', { name: 'setup.siteTitle' });
+    await waitFor(() => expect(screen.queryByText('setup.orgQuestion')).toBeNull());
+    await waitFor(() => expect(siteHeading).toHaveFocus());
+    expect(screen.getByRole('listitem', { current: 'step' })).toHaveTextContent('setup.firstSite');
+
+    fireEvent.click(screen.getByRole('button', { name: 'setup.back' }));
+    const orgHeading = await screen.findByRole('heading', { name: 'setup.orgQuestion' });
+    await waitFor(() => expect(screen.queryByText('setup.siteTitle')).toBeNull());
+    await waitFor(() => expect(orgHeading).toHaveFocus());
+    expect(document.querySelectorAll('.onboarding-stage')).toHaveLength(1);
+    expect(screen.getByRole('listitem', { current: 'step' })).toHaveTextContent('setup.organization');
   });
 
   it('opens the requested step with &step=N', async () => {
