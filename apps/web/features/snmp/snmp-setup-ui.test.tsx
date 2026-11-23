@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/api/client';
 import { SnmpSetupPanel } from './snmp-setup-panel';
-import { preRegisterHref, SnmpUnknownTrapsView } from './snmp-unknown-traps';
+import { APP_TEST_TRAP_OID, preRegisterHref, SnmpUnknownTrapsView, unknownTrapName } from './snmp-unknown-traps';
 import { SnmpSetupWizard } from './snmp-setup-wizard';
 import { SnmpFleetSummaryView } from './snmp-fleet';
 
@@ -36,6 +36,31 @@ describe('SnmpSetupPanel', () => {
     expect(mockedFetch).toHaveBeenCalledWith('/api/v1/settings/snmp-listeners');
   });
 
+  it('does not present v2c as allowed (or as disabled) while the receiver settings are loading', async () => {
+    mockedFetch.mockReturnValue(new Promise(() => undefined));
+    wrap(<SnmpSetupPanel managementIp="10.1.1.1" canReadReceiver lastTrapReceivedAt={null} />);
+    expect(await screen.findByText('A verificar se o SNMPv2c está disponível…')).toBeInTheDocument();
+    expect(screen.queryByText('SNMPv2c (polling e traps)')).not.toBeInTheDocument();
+    expect(screen.queryByText(/O SNMPv2c foi desativado/)).not.toBeInTheDocument();
+  });
+
+  it('clears the "Copiado" reset timer when the panel unmounts', async () => {
+    mockedFetch.mockResolvedValue(receiver());
+    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
+    const setTimer = vi.spyOn(window, 'setTimeout');
+    const clearTimer = vi.spyOn(window, 'clearTimeout');
+    const view = wrap(<SnmpSetupPanel managementIp="10.1.1.1" canReadReceiver lastTrapReceivedAt={null} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Copiar: SNMPv3 authPriv (polling e traps)' }));
+    expect(await screen.findByText('Copiado')).toBeInTheDocument();
+    const index = setTimer.mock.calls.findIndex((call) => call[1] === 2500);
+    expect(index).toBeGreaterThanOrEqual(0);
+    const id = setTimer.mock.results[index].value;
+    view.unmount();
+    expect(clearTimer).toHaveBeenCalledWith(id);
+    setTimer.mockRestore();
+    clearTimer.mockRestore();
+  });
+
   it('says the engine ID is not generated yet, shows the last trap, and adds v2c lines with the trade-off note after v3', async () => {
     mockedFetch.mockResolvedValue(receiver({ engineId: null, engineIdSource: null, v2cAllowed: true, trapPort: 1162 }));
     wrap(<SnmpSetupPanel managementIp="10.1.1.1" canReadReceiver lastTrapReceivedAt="2026-11-23T10:00:00.000Z" />);
@@ -48,6 +73,46 @@ describe('SnmpSetupPanel', () => {
     expect(screen.getByText(/snmp-server host 10\.0\.0\.5 version 2c <COMMUNITY> udp-port 1162/)).toBeInTheDocument();
     expect(screen.queryByText(/laborat/i)).not.toBeInTheDocument();
     expect(screen.queryByText('Opcional: informs SNMPv3 (com confirmação de entrega)')).not.toBeInTheDocument();
+  });
+
+  it('container mode: shows the deployment address as address:port with a Copiar button and uses it in the switch lines', async () => {
+    mockedFetch.mockResolvedValue(receiver({ interfaces: [], selectedInterfaceIds: [], listenAll: true, trapPort: 10162, receiverMode: 'CONTAINER_INGRESS', containerReceiver: { address: 'traps.example.internal', addressSource: 'SNMP_TRAP_PUBLIC_ADDRESS', reason: null, port: 10162 } }));
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    wrap(<SnmpSetupPanel managementIp="10.1.1.1" username="netops" canReadReceiver />);
+    expect(await screen.findByText('traps.example.internal:10162')).toBeInTheDocument();
+    expect(screen.queryByText(/o recetor SNMP não reportou interfaces/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Endereço do recetor' })).not.toBeInTheDocument();
+    expect(screen.getByText(/snmp-server host traps\.example\.internal version 3 priv netops udp-port 10162/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Copiar endereço do recetor' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('traps.example.internal:10162'));
+  });
+
+  it('container mode: tells the admin to set SNMP_TRAP_PUBLIC_ADDRESS, with different wording for missing and invalid values', async () => {
+    const container = (reason: string) => receiver({ interfaces: [], selectedInterfaceIds: [], receiverMode: 'CONTAINER_INGRESS', containerReceiver: { address: null, addressSource: null, reason, port: 162 } });
+    mockedFetch.mockResolvedValue(container('SNMP_TRAP_PUBLIC_ADDRESS_REQUIRED'));
+    const first = wrap(<SnmpSetupPanel managementIp="10.1.1.1" canReadReceiver />);
+    const required = await screen.findByText(/não tem SNMP_TRAP_PUBLIC_ADDRESS definido/);
+    expect(required).toHaveAttribute('data-reason', 'REQUIRED');
+    expect(required).toHaveTextContent('Define SNMP_TRAP_PUBLIC_ADDRESS no servidor');
+    expect(screen.queryByRole('button', { name: 'Copiar endereço do recetor' })).not.toBeInTheDocument();
+    expect(screen.getByText(/snmp-server host <IP-DA-APP> version 3/)).toBeInTheDocument();
+    first.unmount();
+
+    mockedFetch.mockResolvedValue(container('SNMP_TRAP_PUBLIC_ADDRESS_INVALID'));
+    wrap(<SnmpSetupPanel managementIp="10.1.1.1" canReadReceiver />);
+    const invalid = await screen.findByText(/não é um IP nem um nome DNS válido/);
+    expect(invalid).toHaveAttribute('data-reason', 'INVALID');
+    expect(invalid).toHaveTextContent('Corrige SNMP_TRAP_PUBLIC_ADDRESS no servidor');
+    expect(screen.queryByText(/não tem SNMP_TRAP_PUBLIC_ADDRESS definido/)).not.toBeInTheDocument();
+  });
+
+  it('host-agent mode is unchanged: interface addresses are used and the container receiver is ignored', async () => {
+    mockedFetch.mockResolvedValue(receiver({ receiverMode: 'HOST_AGENT', containerReceiver: null }));
+    wrap(<SnmpSetupPanel managementIp="10.1.1.1" canReadReceiver />);
+    expect(await screen.findByText('10.0.0.5')).toBeInTheDocument();
+    expect(screen.queryByText(/SNMP_TRAP_PUBLIC_ADDRESS/)).not.toBeInTheDocument();
+    expect(screen.queryByText('10.0.0.5:162')).not.toBeInTheDocument();
   });
 
   it('does not read the receiver settings for non-admins', () => {
@@ -85,6 +150,24 @@ describe('SnmpUnknownTrapsView', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Ocultar traps existentes' }));
     await waitFor(() => expect(mockedFetch).toHaveBeenCalledWith('/api/v1/snmp/traps/unmatched/ignore', { method: 'POST', body: JSON.stringify({ sourceAddress: '10.9.9.9' }) }));
     expect(await screen.findByText('10.9.9.9: 12 traps existentes ocultadas.')).toBeInTheDocument();
+  });
+
+  it('names the latest trap and keeps the raw OID as secondary text (N-F)', async () => {
+    mockedFetch.mockResolvedValue({ items: [
+      { sourceAddress: '144.202.100.225', count: 3, firstSeenAt: '2026-09-03T10:00:00.000Z', lastSeenAt: '2026-09-03T10:00:00.000Z', lastTrapLabel: null, lastTrapOid: APP_TEST_TRAP_OID, preRegistered: false },
+      { sourceAddress: '10.7.7.7', count: 1, firstSeenAt: '2026-11-23T09:00:00.000Z', lastSeenAt: '2026-11-23T09:00:00.000Z', lastTrapLabel: null, lastTrapOid: '1.3.6.1.4.1.99999.1.2', preRegistered: false },
+    ] });
+    wrap(<SnmpUnknownTrapsView />);
+    const table = await screen.findByRole('region', { name: 'Traps de equipamentos desconhecidos' });
+    const testRow = within(table).getByText('144.202.100.225').closest('tr')!;
+    const testCell = within(testRow).getByText('Trap de teste da app').closest('td')!;
+    expect(testCell).toHaveAttribute('data-label', 'Última trap');
+    expect(within(testCell).getByText(APP_TEST_TRAP_OID).tagName).toBe('SMALL');
+    const vendorRow = within(table).getByText('10.7.7.7').closest('tr')!;
+    expect(within(vendorRow).getByText('Trap de fabricante')).toBeInTheDocument();
+    expect(within(vendorRow).getByText('1.3.6.1.4.1.99999.1.2')).toBeInTheDocument();
+    expect(unknownTrapName({ lastTrapLabel: 'Porta em baixo', lastTrapOid: '1.3.6.1.6.3.1.1.5.3' })).toBe('Porta em baixo');
+    expect(unknownTrapName({ lastTrapLabel: null, lastTrapOid: null })).toBeNull();
   });
 
   it('shows the empty state', async () => {

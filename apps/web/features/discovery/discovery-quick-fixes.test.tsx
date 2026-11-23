@@ -100,9 +100,10 @@ describe('Step 5.5: discovery flow header', () => {
     const region = screen.getByRole('region', { name: 'Como funciona a descoberta' });
     const steps = within(region).getAllByRole('listitem').map((item) => item.querySelector('strong')?.textContent?.replace(/^\d\s*/, ''));
     expect(steps).toEqual(['Descobrir', 'Rever', 'Aceitar']);
-    expect(region.textContent).toMatch(/pré-registo por trap/);
+    expect(region.textContent).toMatch(/Pré-registar um equipamento é dizer à app/);
     expect(region.textContent).toMatch(/24 horas/);
-    expect(region.textContent).toMatch(/traps não reconhecidas/);
+    expect(region.textContent).not.toMatch(/traps não reconhecidas/);
+    expect(within(region).getByRole('link', { name: 'Ver em SNMP → Traps desconhecidas' }).getAttribute('href')).toBe('/snmp?view=unknown');
   });
 });
 

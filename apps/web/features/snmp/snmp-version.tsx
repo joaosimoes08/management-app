@@ -14,8 +14,14 @@ export const V2C_TRADEOFF = 'SNMPv2c envia a community em texto simples e não c
 export const V2C_DISABLED = 'O SNMPv2c foi desativado por um administrador (SNMP_ALLOW_V2C=false). Só o SNMPv3 (authPriv) está disponível.';
 export const COMMUNITY_TOO_SHORT = `A community deve ter pelo menos ${snmpCredentialBounds.secret.min} caracteres.`;
 
-/** v2c is on unless the receiver settings say it was switched off; the API refuses it anyway when it is off. */
-export function isV2cAllowed(receiver?: { v2cAllowed?: boolean } | null): boolean {
+export const V2C_PENDING = 'A verificar se o SNMPv2c está disponível…';
+
+/**
+ * v2c is on unless the receiver settings say it was switched off; the API refuses it anyway when it is off.
+ * While those settings are still loading the answer is unknown (null), so v2c is not offered as allowed yet.
+ */
+export function isV2cAllowed(receiver?: { v2cAllowed?: boolean } | null, loading = false): boolean | null {
+  if (loading && !receiver) return null;
   return receiver?.v2cAllowed !== false;
 }
 
@@ -31,7 +37,8 @@ export function SnmpV2cDisabledNote() {
 type FieldProps = {
   value: SnmpVersionChoice;
   onChange: (value: SnmpVersionChoice) => void;
-  v2cAllowed: boolean;
+  /** null while the receiver settings are loading: v2c shows as disabled until it is known. */
+  v2cAllowed: boolean | null;
   legend?: string;
 };
 
@@ -39,14 +46,15 @@ type FieldProps = {
 export function SnmpVersionField({ value, onChange, v2cAllowed, legend = 'Versão' }: FieldProps) {
   const name = useId();
   const noteId = `${name}-v2c-note`;
-  useEffect(() => { if (!v2cAllowed && value === 'V2C') onChange('V3'); }, [v2cAllowed, value, onChange]);
+  useEffect(() => { if (v2cAllowed === false && value === 'V2C') onChange('V3'); }, [v2cAllowed, value, onChange]);
   return <fieldset className="snmp-version-field">
     <legend>{legend}</legend>
     <div className="snmp-version-options">
       <label className={value === 'V3' ? 'selected' : ''}><input type="radio" name={name} value="V3" checked={value === 'V3'} onChange={() => onChange('V3')} /><span>SNMPv3 (authPriv)</span><span className="snmp-version-badge">Recomendado</span></label>
-      {v2cAllowed && <label className={value === 'V2C' ? 'selected' : ''}><input type="radio" name={name} value="V2C" checked={value === 'V2C'} aria-describedby={value === 'V2C' ? noteId : undefined} onChange={() => onChange('V2C')} /><span>SNMPv2c</span></label>}
+      {v2cAllowed === null && <label className="pending" aria-busy="true"><input type="radio" name={name} value="V2C" checked={false} disabled aria-describedby={noteId} onChange={() => undefined} /><span>SNMPv2c</span></label>}
+      {v2cAllowed === true && <label className={value === 'V2C' ? 'selected' : ''}><input type="radio" name={name} value="V2C" checked={value === 'V2C'} aria-describedby={value === 'V2C' ? noteId : undefined} onChange={() => onChange('V2C')} /><span>SNMPv2c</span></label>}
     </div>
-    {!v2cAllowed ? <SnmpV2cDisabledNote /> : value === 'V2C' && <SnmpV2cNote id={noteId} />}
+    {v2cAllowed === null ? <p id={noteId} className="snmp-v2c-pending" role="status">{V2C_PENDING}</p> : v2cAllowed === false ? <SnmpV2cDisabledNote /> : value === 'V2C' && <SnmpV2cNote id={noteId} />}
   </fieldset>;
 }
 

@@ -345,7 +345,8 @@ const originalText = new WeakMap<Text, string>();
 const originalAttributes = new WeakMap<Element, Map<string, string>>();
 const translatedText = new WeakMap<Text, string>();
 const translatedAttributeValues = new WeakMap<Element, Map<string, string>>();
-const translatedAttributes = ['aria-label', 'placeholder', 'title'] as const;
+/** data-label: the column name a table cell shows before its value when tables collapse to cards on phones. */
+const translatedAttributes = ['aria-label', 'placeholder', 'title', 'data-label'] as const;
 
 /** Translations of legacy strings already seen (the same labels repeat on every refresh). */
 const legacyTranslationCache = new Map<string, string>();

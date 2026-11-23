@@ -35,7 +35,7 @@ export function SnmpSetupWizard({ deviceId, deviceName, close, onDone }: Props) 
   const [pollJobId, setPollJobId] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const { data: receiver } = useQuery({ queryKey: snmpReceiverKey, queryFn: getSnmpReceiverSettings, staleTime: 30_000, retry: false });
+  const { data: receiver, isLoading: receiverLoading } = useQuery({ queryKey: snmpReceiverKey, queryFn: getSnmpReceiverSettings, staleTime: 30_000, retry: false });
   const waitingJob = (step === 1 && testJobId) || (step === 3 && pollJobId);
   const { data: overview } = useQuery({ queryKey: ['snmp', 'overview', deviceId], queryFn: () => getSnmpOverview(deviceId), refetchInterval: waitingJob ? 2_000 : false });
   const existingRead = overview?.credentials.find((item) => item.purpose === 'READ');
@@ -75,7 +75,7 @@ export function SnmpSetupWizard({ deviceId, deviceName, close, onDone }: Props) 
 
     {step === 0 && <form className="modal-form" onSubmit={saveCredential}>
       <p className="form-help">{existingRead ? `Já existe uma credencial de leitura (${existingRead.version}${existingRead.username ? ` · ${existingRead.username}` : ''}). Podes substituí-la ou continuar com ela.` : 'Credencial de leitura igual à configurada no switch. As chaves e a community não voltam a ser mostradas.'}</p>
-      <SnmpVersionField value={credential.version} v2cAllowed={isV2cAllowed(receiver)} onChange={setVersion} />
+      <SnmpVersionField value={credential.version} v2cAllowed={isV2cAllowed(receiver, receiverLoading)} onChange={setVersion} />
       {credential.version === 'V2C' ? <SnmpCommunityField label="Community" value={credential.community} onChange={(community) => setCredential((current) => ({ ...current, community }))} /> : <>
         <label>Username<input autoComplete="off" maxLength={snmpCredentialBounds.username.max} value={credential.username} onChange={(event) => setCredential({ ...credential, username: event.target.value })} /></label>
         <div className="form-row"><label>Protocolo auth<select className="context-toolbar-selector" value={credential.authProtocol} onChange={(event) => setCredential({ ...credential, authProtocol: event.target.value })}><option>SHA256</option><option>SHA384</option><option>SHA512</option><option>SHA1</option></select></label><label>Privacidade<select className="context-toolbar-selector" value={credential.privProtocol} onChange={(event) => setCredential({ ...credential, privProtocol: event.target.value })}><option>AES128</option><option>AES256</option></select></label></div>
