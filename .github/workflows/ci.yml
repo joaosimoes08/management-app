@@ -13,7 +13,8 @@ permissions:
 jobs:
   verify:
     runs-on: [self-hosted, Linux, ARM64]
-    timeout-minutes: 20
+    # 40, not 20: the 1 GiB ARM runner is slow; run 45210028713 hit the 20-minute cap mid unit tests.
+    timeout-minutes: 40
     # The runner (mac-runner-1) is itself a container on Joao's Docker Desktop, so service
     # ports are published on the Mac host, next to the simoes-mgmtapp-* stack (5432, 6379).
     # Use unusual host ports to avoid clashing, and reach them via host.docker.internal:
@@ -75,12 +76,22 @@ jobs:
         run: npm run typecheck --workspace=@simoes/web
       - name: Frontend lint
         run: npm run lint --workspace=@simoes/web
+      - name: Backend typecheck
+        run: |
+          npx tsc -p packages/snmp-core/tsconfig.json --noEmit
+          npx tsc -p apps/api/tsconfig.json --noEmit
+          npx tsc -p apps/snmp/tsconfig.json --noEmit
+      # Types are checked once above, so ts-node only transpiles each spec file (about 5x faster).
       - name: Unit tests
+        env:
+          TS_NODE_TRANSPILE_ONLY: "true"
         run: |
           npm test --workspace=@simoes/snmp-core
           npm test --workspace=@simoes/api
           npm test --workspace=@simoes/snmp
       - name: HTTP integration tests
+        env:
+          TS_NODE_TRANSPILE_ONLY: "true"
         run: npm run test:http
       - name: Build API and web
         run: npm run build
