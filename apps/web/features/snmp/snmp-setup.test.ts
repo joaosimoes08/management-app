@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { describeCredentialTest, iosXeSetupLines, latestJob, receiverAddresses, RECEIVER_PLACEHOLDER, type SnmpReceiverSettings } from './snmp-setup';
+import { containerReceiverView, describeCredentialTest, iosXeSetupLines, lastTestLabel, latestJob, receiverAddresses, RECEIVER_PLACEHOLDER, type SnmpReceiverSettings } from './snmp-setup';
+import { translateLegacyText } from '@/lib/i18n/legacy-messages';
 
 const iface = (id: string, address: string, internal = false) => ({ id, instanceId: 'i1', name: id, address, internal, lastSeenAt: '2026-11-23T10:00:00.000Z' });
 const settings = (patch: Partial<SnmpReceiverSettings> = {}): SnmpReceiverSettings => ({ listenAll: true, selectedInterfaceIds: [], interfaces: [iface('eth0', '10.0.0.5'), iface('lo', '127.0.0.1', true), iface('ll', '169.254.1.2'), iface('v6', 'fe80::1'), iface('eth1', '10.0.1.5')], ...patch });
@@ -29,9 +30,17 @@ describe('iosXeSetupLines', () => {
     const lines = iosXeSetupLines({ receiver: null, port: 1162, engineId: '800000090300AABBCCDDEEFF', v2cAllowed: true });
     expect(lines.v3).toContain(`snmp-server host ${RECEIVER_PLACEHOLDER} version 3 priv mgmt-app udp-port 1162`);
     expect(lines.informs).toContain(`snmp-server engineID remote ${RECEIVER_PLACEHOLDER} udp-port 1162 800000090300AABBCCDDEEFF`);
-    expect(lines.v2c).toContain('snmp-server community <COMMUNITY> RO MGMT-APP-SNMP');
+    expect(lines.v2c).toContain('snmp-server community <COMMUNITY> RO MGMT-APP-SNMP-V2C');
     expect(lines.v2c).toContain(`snmp-server host ${RECEIVER_PLACEHOLDER} version 2c <COMMUNITY> udp-port 1162`);
-    expect(lines.v2c).toContain('snmp-server enable traps');
+    // Its own ACL, so the v3 and v2c blocks can be pasted together without one ACL overwriting the other.
+    expect(lines.v2c).toContain('ip access-list standard MGMT-APP-SNMP-V2C');
+    expect(lines.v2c).not.toMatch(/^ip access-list standard MGMT-APP-SNMP$/m);
+    expect(lines.v3).toMatch(/^ip access-list standard MGMT-APP-SNMP$/m);
+    // The same specific trap classes as v3, never a bare "enable traps" that turns on every class.
+    const trapLines = (text: string | null) => (text ?? '').split('\n').filter((line) => line.startsWith('snmp-server enable traps'));
+    expect(trapLines(lines.v2c)).toEqual(trapLines(lines.v3));
+    expect(trapLines(lines.v2c)).toEqual(expect.arrayContaining(['snmp-server enable traps config', 'snmp-server enable traps envmon', 'snmp-server enable traps stackwise', 'snmp-server enable traps cpu threshold']));
+    expect(trapLines(lines.v2c)).not.toContain('snmp-server enable traps');
     expect(lines.v2c).toContain('snmp-server trap-source <INTERFACE-DE-GESTAO>');
     expect(lines.v2c).not.toMatch(/laborat/i);
   });
@@ -54,5 +63,45 @@ describe('describeCredentialTest', () => {
     expect(latestJob(jobs, 'CREDENTIAL_TEST')?.id).toBe('b');
     expect(latestJob(jobs, 'CREDENTIAL_TEST', 'a')?.id).toBe('a');
     expect(latestJob(jobs, 'CREDENTIAL_TEST', 'zzz')).toBeNull();
+  });
+});
+
+describe('containerReceiverView', () => {
+  const container = (patch: Partial<NonNullable<SnmpReceiverSettings['containerReceiver']>>) => settings({ receiverMode: 'CONTAINER_INGRESS', containerReceiver: { address: null, addressSource: null, reason: null, port: 162, ...patch } });
+  it('is null in host-agent mode and with an older API that sends no mode', () => {
+    expect(containerReceiverView(settings({ receiverMode: 'HOST_AGENT', containerReceiver: null }))).toBeNull();
+    expect(containerReceiverView(settings({}))).toBeNull();
+    expect(containerReceiverView(null)).toBeNull();
+  });
+  it('shows address:port, bracketing IPv6 addresses', () => {
+    expect(containerReceiverView(container({ address: '192.0.2.20', addressSource: 'SNMP_TRAP_PUBLIC_ADDRESS', port: 10162 }))).toMatchObject({ state: 'address', address: '192.0.2.20', display: '192.0.2.20:10162', port: 10162 });
+    expect(containerReceiverView(container({ address: '10.1.1.5', addressSource: 'SNMP_TRAP_HOST_IP' }))).toMatchObject({ display: '10.1.1.5:162', source: 'SNMP_TRAP_HOST_IP' });
+    expect(containerReceiverView(container({ address: '2001:db8::5' }))).toMatchObject({ display: '[2001:db8::5]:162' });
+  });
+  it('explains a missing or invalid SNMP_TRAP_PUBLIC_ADDRESS with distinct messages', () => {
+    const required = containerReceiverView(container({ reason: 'SNMP_TRAP_PUBLIC_ADDRESS_REQUIRED' }));
+    const invalid = containerReceiverView(container({ reason: 'SNMP_TRAP_PUBLIC_ADDRESS_INVALID' }));
+    expect(required).toMatchObject({ state: 'missing', reason: 'REQUIRED' });
+    expect(invalid).toMatchObject({ state: 'missing', reason: 'INVALID' });
+    expect(required && 'message' in required && required.message).toMatch(/Define SNMP_TRAP_PUBLIC_ADDRESS no servidor/);
+    expect(invalid && 'message' in invalid && invalid.message).toMatch(/não é um IP nem um nome DNS válido/);
+    expect(containerReceiverView(container({ reason: null }))).toMatchObject({ reason: 'REQUIRED' });
+  });
+});
+
+describe('lastTestLabel', () => {
+  it('names every stored test status in words, including a test still running or blocked', () => {
+    expect(lastTestLabel('COMPLETED')).toBe('último teste: OK');
+    expect(lastTestLabel('FAILED')).toBe('último teste: falhou');
+    expect(lastTestLabel('PENDING')).toBe('teste em curso');
+    expect(lastTestLabel('RUNNING')).toBe('teste em curso');
+    expect(lastTestLabel('BLOCKED')).toBe('último teste: bloqueado');
+    expect(lastTestLabel(null)).toBe('ainda não testada');
+  });
+  it('has an EN translation for every label', () => {
+    for (const status of ['COMPLETED', 'FAILED', 'PENDING', 'RUNNING', 'BLOCKED', null]) {
+      const label = lastTestLabel(status);
+      expect(translateLegacyText('en-US', label), label).not.toBe(label);
+    }
   });
 });

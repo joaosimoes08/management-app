@@ -11,9 +11,40 @@ export type SnmpReceiverSettings = {
   engineIdSource?: 'ENV' | 'STORED' | null;
   trapPort?: number;
   v2cAllowed?: boolean;
+  /** HOST_AGENT: addresses come from the host agent's interfaces. CONTAINER_INGRESS: from containerReceiver. */
+  receiverMode?: 'HOST_AGENT' | 'CONTAINER_INGRESS';
+  containerReceiver?: SnmpContainerReceiver | null;
   updatedAt?: string | null;
   refreshSeconds?: number;
 };
+
+export type SnmpContainerReceiver = {
+  address: string | null;
+  addressSource: 'SNMP_TRAP_PUBLIC_ADDRESS' | 'SNMP_TRAP_HOST_IP' | null;
+  reason: 'SNMP_TRAP_PUBLIC_ADDRESS_REQUIRED' | 'SNMP_TRAP_PUBLIC_ADDRESS_INVALID' | null;
+  port: number;
+};
+
+export type ContainerReceiverView =
+  | { state: 'address'; address: string; port: number; display: string; source: string | null }
+  | { state: 'missing'; reason: 'REQUIRED' | 'INVALID'; port: number; message: string };
+
+export const CONTAINER_RECEIVER_REQUIRED = 'Sem endereço do recetor: o servidor não tem SNMP_TRAP_PUBLIC_ADDRESS definido. Define SNMP_TRAP_PUBLIC_ADDRESS no servidor com o IP ou o nome DNS para onde os switches enviam as traps e reinicia a app.';
+export const CONTAINER_RECEIVER_INVALID = 'O valor de SNMP_TRAP_PUBLIC_ADDRESS no servidor não é um IP nem um nome DNS válido. Corrige SNMP_TRAP_PUBLIC_ADDRESS no servidor e reinicia a app.';
+
+/**
+ * Container-only receiver (no host agent): the address switches send to comes from the deployment, not from interfaces.
+ * Returns null in host-agent mode (or with an older API), so the interface-based behaviour stays as it was.
+ */
+export function containerReceiverView(settings?: SnmpReceiverSettings | null): ContainerReceiverView | null {
+  if (!settings || settings.receiverMode !== 'CONTAINER_INGRESS' || !settings.containerReceiver) return null;
+  const { address, addressSource, reason, port } = settings.containerReceiver;
+  const safePort = Number.isInteger(port) && port >= 1 && port <= 65535 ? port : 162;
+  if (address) return { state: 'address', address, port: safePort, display: `${address.includes(':') ? `[${address}]` : address}:${safePort}`, source: addressSource };
+  return reason === 'SNMP_TRAP_PUBLIC_ADDRESS_INVALID'
+    ? { state: 'missing', reason: 'INVALID', port: safePort, message: CONTAINER_RECEIVER_INVALID }
+    : { state: 'missing', reason: 'REQUIRED', port: safePort, message: CONTAINER_RECEIVER_REQUIRED };
+}
 
 const ipv4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
 
@@ -44,6 +75,18 @@ export type IosXeSetupInput = {
   v2cAllowed?: boolean;
 };
 
+/** The trap classes the app catalogues (snmp-core trap catalog); v3 and v2c enable the same set, never a bare "enable traps". */
+const TRAP_CLASSES = [
+    'snmp-server enable traps snmp authentication linkdown linkup coldstart warmstart',
+    'snmp-server enable traps envmon',
+    'snmp-server enable traps entity-sensor',
+    'snmp-server enable traps fru-ctrl',
+    'snmp-server enable traps stackwise',
+    'snmp-server enable traps cpu threshold',
+    'snmp-server enable traps errdisable',
+    'snmp-server enable traps config',
+];
+
 /** Copy-ready Cisco IOS-XE lines for SNMPv3 authPriv polling and traps to this app, then v2c unless SNMP_ALLOW_V2C=false. */
 export function iosXeSetupLines(input: IosXeSetupInput): { v3: string; informs: string | null; v2c: string | null } {
   const receiver = input.receiver || RECEIVER_PLACEHOLDER;
@@ -61,14 +104,7 @@ export function iosXeSetupLines(input: IosXeSetupInput): { v3: string; informs: 
     'snmp-server ifindex persist',
     '! trap-source: a interface cujo IP é o IP de gestão deste equipamento na app',
     'snmp-server trap-source <INTERFACE-DE-GESTAO>',
-    'snmp-server enable traps snmp authentication linkdown linkup coldstart warmstart',
-    'snmp-server enable traps envmon',
-    'snmp-server enable traps entity-sensor',
-    'snmp-server enable traps fru-ctrl',
-    'snmp-server enable traps stackwise',
-    'snmp-server enable traps cpu threshold',
-    'snmp-server enable traps errdisable',
-    'snmp-server enable traps config',
+    ...TRAP_CLASSES,
     `snmp-server host ${receiver} version 3 priv ${user}${portSuffix}`,
   ].join('\n');
   const informs = input.engineId ? [
@@ -78,12 +114,12 @@ export function iosXeSetupLines(input: IosXeSetupInput): { v3: string; informs: 
   ].join('\n') : null;
   const v2c = input.v2cAllowed ? [
     '! SNMPv2c: a community segue em texto simples. Use apenas em redes de gestão isoladas.',
-    'ip access-list standard MGMT-APP-SNMP',
+    'ip access-list standard MGMT-APP-SNMP-V2C',
     ` permit host ${receiver}`,
-    'snmp-server community <COMMUNITY> RO MGMT-APP-SNMP',
+    'snmp-server community <COMMUNITY> RO MGMT-APP-SNMP-V2C',
     '! trap-source: a interface cujo IP é o IP de gestão deste equipamento na app',
     'snmp-server trap-source <INTERFACE-DE-GESTAO>',
-    'snmp-server enable traps',
+    ...TRAP_CLASSES,
     `snmp-server host ${receiver} version 2c <COMMUNITY>${portSuffix}`,
   ].join('\n') : null;
   return { v3, informs, v2c };
@@ -130,4 +166,13 @@ export function latestJob(jobs: SnmpJobView[] | undefined, type: string, id?: st
   if (!jobs?.length) return null;
   if (id) return jobs.find((job) => job.id === id) ?? null;
   return jobs.filter((job) => job.type === type).sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))[0] ?? null;
+}
+
+/** The stored outcome of the last test or poll with this credential, in words; never a generic "success". */
+export function lastTestLabel(status?: string | null): string {
+  if (status === 'COMPLETED') return 'último teste: OK';
+  if (status === 'FAILED') return 'último teste: falhou';
+  if (status === 'PENDING' || status === 'RUNNING') return 'teste em curso';
+  if (status === 'BLOCKED') return 'último teste: bloqueado';
+  return 'ainda não testada';
 }

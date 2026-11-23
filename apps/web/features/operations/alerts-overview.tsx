@@ -77,7 +77,7 @@ export function AlertList({ siteId, table }: { siteId: string; table: TableUrlSt
   const selection = canAct ? { selected, onChange: setSelected, isSelectable: (row: AlertListItem) => isAlertActionable(row, isAdmin), rowLabel: (row: AlertListItem, selectable: boolean) => (selectable ? `Selecionar ${row.title}` : `${row.title} sem ações disponíveis`), allLabel: 'Selecionar todos os alertas visíveis' } : undefined;
   return <>
     {actions.confirmDialog}
-    <PageToolbarPortal><div className="interface-toolbar-controls">
+    <PageToolbarPortal><div className="interface-toolbar-controls alerts-filters">
       <label>Severidade<select aria-label="Filtrar por severidade" value={filters.severity} onChange={(event) => setFilter('severity', event.target.value)}><option value="">Todas</option>{alertSeverities.map((value) => <option key={value} value={value}>{severityNames[value]}</option>)}</select></label>
       <label>Estado<select aria-label="Filtrar por estado" value={filters.status} onChange={(event) => setFilter('status', event.target.value)}><option value="">Por resolver</option>{Object.entries(alertStatusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       <label>Âmbito<select aria-label="Filtrar por âmbito" value={filters.scope} onChange={(event) => setFilter('scope', event.target.value)}><option value="">Site ativo</option><option value="all">Todos os Sites</option></select></label>
@@ -92,7 +92,7 @@ export function AlertList({ siteId, table }: { siteId: string; table: TableUrlSt
       {query.error && <div className="ipam-alert error" role="alert"><X size={15} />{query.error instanceof Error ? query.error.message : 'Não foi possível carregar os alertas.'}</div>}
       <AlertActionStatus outcome={actions.outcome} error={actions.error} onClose={actions.clear} />
       {canAct && <AlertBulkBar selected={selectedRows} disabled={actions.running} run={(action, alerts, hours) => void actions.run(action, alerts, hours)} clearSelection={() => setSelected(new Set())} />}
-      <DataTable label="Alertas ativos" rows={rows} columns={columns} rowKey={(row) => row.id} sort={sort} onSortChange={setSort} defaultSort={defaultSort} loading={query.isLoading} selection={selection}
+      <DataTable className="alerts-table" label="Alertas ativos" rows={rows} columns={columns} rowKey={(row) => row.id} sort={sort} onSortChange={setSort} defaultSort={defaultSort} loading={query.isLoading} selection={selection}
         empty={!query.error && <div className="no-data">{filtering ? 'Nenhum alerta corresponde aos filtros.' : 'Sem alertas ativos.'}</div>} />
       {total > items.length && <p className="panel-description">{`A mostrar ${items.length} de ${total} alertas. Use os filtros para refinar.`}</p>}
     </section>
