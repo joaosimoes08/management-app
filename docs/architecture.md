@@ -9,7 +9,7 @@ Docker Compose
 └── snmp           Receiver UDP, polling e SET controlado
 ```
 
-Um agente local do host complementa o Compose: enumera os IPs que os equipamentos conseguem alcançar e gere os bindings `IP-do-host:162/udp → snmp:1162/udp`. As interfaces internas do container não são apresentadas nas Definições.
+O serviço `snmp` do Compose é o único receiver de traps; arranca com a aplicação e publica `IP-do-host:162/udp → snmp:1162/udp`. Um agente local do host é opcional: enumera os IPs do host e gere o override que limita esses bindings aos IPs escolhidos. As interfaces internas do container não são apresentadas nas Definições.
 
 ## IPAM avançado
 
