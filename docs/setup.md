@@ -115,12 +115,22 @@ Invoke-RestMethod http://localhost:3001/api/v1/health
 2. Aplica a migração aditiva com `npm run db:migrate`.
 3. Por omissão, o container reutiliza `POSTGRES_USER`, `POSTGRES_PASSWORD` e `POSTGRES_DB`. Em produção, aplica `scripts/snmp-database-grants.sql`, associa o utilizador de login ao role `simoes_snmp_runtime` e define `SNMP_DATABASE_URL` com o hostname `postgres`. O role não pode criar schema nem executar migrações.
 
-4. O engine ID SNMPv3 é gerido pela aplicação e guardado por instalação. Não defina `SNMP_ENGINE_ID`. SNMPv2c e SNMPv3 são aceites; SNMPv3 (authPriv) é o recomendado e SNMPv1 é sempre recusado. SNMPv2c envia a community em texto simples e não cifra os dados: usa-o apenas em redes de gestão isoladas. A community v2c tem de ter pelo menos 8 caracteres. Para recusar v2c nesta instalação, define `SNMP_ALLOW_V2C=false` (o valor predefinido é `true`).
-5. Para traps de switches ou outros equipamentos na rede, usa um host Linux. O Docker Desktop no macOS pode reescrever o IP de origem, impedindo a associação exata do equipamento. O arranque de desenvolvimento inclui o receiver `snmp` e publica UDP 162 em `0.0.0.0`; configura `SNMP_TRAP_HOST_IP` e `SNMP_TRAP_HOST_PORT` no `.env` se precisares de escolher o endereço e a porta do host. A firewall deve permitir UDP apenas da rede de gestão. O valor predefinido `SNMP_TRAP_HOST_IP=0.0.0.0` publica em todas as interfaces; define-o como o IP da interface LAN para limitar o bind a esse endereço. `SNMP_ALLOW_V2C` é `true` por omissão; define-o como `false` para recusar traps e credenciais v2c. O receiver limita linhas de traps não confiáveis a 120 por minuto por omissão; ajusta `SNMP_TRAP_UNTRUSTED_ROWS_PER_MINUTE` se necessário.
+4. **Engine ID e versões SNMP.** O engine ID SNMPv3 é gerado uma vez por instalação pela aplicação e guardado na base de dados; não precisas de o configurar. `SNMP_ENGINE_ID` é apenas um override explícito: se estiver definido (e não for o valor partilhado antigo), tem prioridade sobre o valor guardado e não o substitui na base de dados. O engine ID em uso aparece na secção **Engine ID da app** de **Configurar o switch**, na vista do equipamento SNMP.
+   - **SNMPv3 (authPriv) é o recomendado.** SNMPv1 é sempre recusado.
+   - **SNMPv2c** é aceite por omissão (`SNMP_ALLOW_V2C=true`). Envia a community em texto simples e não cifra os dados: usa-o apenas em redes de gestão isoladas. A community tem de ter pelo menos 8 caracteres. Para recusar v2c nesta instalação, define `SNMP_ALLOW_V2C=false`.
+5. **Receção de traps.** O serviço `snmp` do `docker-compose.yml` é o único receiver de traps e informs. Arranca com a aplicação (`docker compose up -d`, que inclui `snmp`) e corre na mesma máquina que a API e a web; não é preciso um host Linux nem uma VM separados para traps.
+   - O container escuta em `1162/udp` e o Compose publica `${SNMP_TRAP_HOST_IP:-0.0.0.0}:${SNMP_TRAP_HOST_PORT:-162}` → `1162/udp` no host. O valor predefinido publica em todas as interfaces; define `SNMP_TRAP_HOST_IP` com o IP da interface de gestão para limitar o bind. Para mudar a porta do host, define `SNMP_TRAP_HOST_PORT`.
+   - **Endereço a configurar nos switches:** o IP do host da aplicação alcançável pela rede de gestão, na porta UDP do passo anterior (162 por omissão). Os switches devem enviar a partir do IP de gestão registado na app (o trap-source).
+   - **Onde ver o endereço:** em **Definições → SNMP** aparece a lista "Interfaces de escuta SNMP", e o endereço do recetor é mostrado em **Configurar o switch**. Esta lista só é preenchida pelo agente do host (ver passo opcional abaixo). Sem o agente, a lista fica vazia e o IP do host tem de ser indicado manualmente na configuração do switch.
+   - **Firewall:**
+     - switch → aplicação: UDP 162 (ou `SNMP_TRAP_HOST_PORT`), apenas a partir da rede de gestão;
+     - aplicação → switch: UDP 161 para polling (porta configurável nas definições SNMP; 161 por omissão).
+   - **Limitação no macOS (apenas desenvolvimento):** o Docker Desktop pode reescrever o IP de origem das traps. Nesse caso, as traps podem aparecer como desconhecidas porque não associam ao equipamento. A produção corre num host Linux, onde o IP de origem é preservado.
+   - O receiver limita linhas de traps não confiáveis a 120 por minuto por omissão; ajusta `SNMP_TRAP_UNTRUSTED_ROWS_PER_MINUTE` se necessário.
 
    O API e o receiver usam o mesmo secret Compose `snmp_keyring`, proveniente de `SNMP_KEYRING_HOST_FILE` (por omissão `./secrets/snmp-keyring.json`). No host, define `SNMP_KEYRING_FILE` para o caminho do keyring (por omissão `./secrets/snmp-keyring.json`); os containers usam o secret montado em `/run/secrets/snmp_keyring`.
 
-   Para o modo alternativo de agente do host, constrói a imagem SNMP e inicia o agente fora do container:
+   **Passo opcional: agente do host.** Só é preciso se quiseres escolher IPs específicos do host em vez de `0.0.0.0` e ver a lista de interfaces em Definições → SNMP. O agente não recebe traps: enumera os IPv4 do host e escreve `.runtime/snmp-listeners.compose.yml`, que publica apenas os IPs escolhidos para o mesmo `snmp:1162/udp`. O receiver continua a ser o container. Para o iniciar, constrói a imagem SNMP e corre o agente fora do container:
 
    ```bash
    docker compose build snmp
@@ -131,7 +141,7 @@ Invoke-RestMethod http://localhost:3001/api/v1/health
 
 6. Em **Definições → SNMP**, um administrador escolhe todas as interfaces IPv4 do host ou vários IPs específicos. O agente atualiza o inventário e aplica a configuração em até 30 segundos. Um endereço removido do host deixa de ser elegível e nunca é aceite apenas por ter permanecido guardado na base de dados.
 
-No modo de agente, o Docker publica `162/udp` nos IPs do host selecionados e encaminha para `1162/udp` no container não-root. O agente não recebe o keyring nem lê credenciais SNMP. Em produção, cria um login associado ao role `simoes_snmp_host_agent`, configura `SNMP_HOST_AGENT_DATABASE_URL` e protege a conta que pode executar Docker. `SNMP_SET_ENABLED=false` deve permanecer até à validação laboratorial.
+Com o agente, o Docker publica `162/udp` apenas nos IPs do host selecionados e encaminha para `1162/udp` no container não-root. O agente não recebe o keyring nem lê credenciais SNMP. Em produção, cria um login associado ao role `simoes_snmp_host_agent`, configura `SNMP_HOST_AGENT_DATABASE_URL` e protege a conta que pode executar Docker. `SNMP_SET_ENABLED=false` deve permanecer até à validação laboratorial.
 
 ### Autoteste de traps no próprio host
 
