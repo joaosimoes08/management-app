@@ -18,7 +18,7 @@ beforeEach(() => { mockedFetch.mockReset(); });
 afterEach(cleanup);
 
 describe('SnmpSetupPanel', () => {
-  it('shows the receiver, port, engine ID, trap-source warning and copy-ready v3 lines without v2c', async () => {
+  it('shows the receiver, port, engine ID, trap-source warning and copy-ready v3 lines, and no v2c lines when an admin disabled it', async () => {
     mockedFetch.mockResolvedValue(receiver());
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText } });
@@ -27,7 +27,8 @@ describe('SnmpSetupPanel', () => {
     expect(screen.getByText('10.0.0.5')).toBeInTheDocument();
     expect(screen.getByText('A aguardar a primeira trap deste equipamento.')).toBeInTheDocument();
     expect(screen.getByText(/O trap-source tem de ser o IP de gestão \(10\.1\.1\.1\)/)).toBeInTheDocument();
-    expect(screen.queryByText('SNMPv2c (só laboratório)')).not.toBeInTheDocument();
+    expect(screen.queryByText('SNMPv2c (polling e traps)')).not.toBeInTheDocument();
+    expect(screen.getByText(/O SNMPv2c foi desativado por um administrador \(SNMP_ALLOW_V2C=false\)/)).toBeInTheDocument();
     expect(screen.getByText('Opcional: informs SNMPv3 (com confirmação de entrega)')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Copiar: SNMPv3 authPriv (polling e traps)' }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(expect.stringContaining('snmp-server host 10.0.0.5 version 3 priv netops')));
@@ -35,13 +36,17 @@ describe('SnmpSetupPanel', () => {
     expect(mockedFetch).toHaveBeenCalledWith('/api/v1/settings/snmp-listeners');
   });
 
-  it('says the engine ID is not generated yet, shows the last trap, and adds v2c only for the lab flag', async () => {
+  it('says the engine ID is not generated yet, shows the last trap, and adds v2c lines with the trade-off note after v3', async () => {
     mockedFetch.mockResolvedValue(receiver({ engineId: null, engineIdSource: null, v2cAllowed: true, trapPort: 1162 }));
     wrap(<SnmpSetupPanel managementIp="10.1.1.1" canReadReceiver lastTrapReceivedAt="2026-11-23T10:00:00.000Z" />);
     expect(await screen.findByText('1162')).toBeInTheDocument();
     expect(screen.getByText(/Ainda não gerado: o recetor SNMP ainda não arrancou/)).toBeInTheDocument();
     expect(screen.getByText(/Última trap recebida:/)).toBeInTheDocument();
-    expect(screen.getByText('SNMPv2c (só laboratório)')).toBeInTheDocument();
+    const titles = screen.getAllByRole('button', { name: /^Copiar: / }).map((button) => button.getAttribute('aria-label'));
+    expect(titles).toEqual(['Copiar: SNMPv3 authPriv (polling e traps)', 'Copiar: SNMPv2c (polling e traps)']);
+    expect(screen.getByRole('note')).toHaveTextContent('Use apenas em redes de gestão isoladas; prefira SNMPv3 (authPriv).');
+    expect(screen.getByText(/snmp-server host 10\.0\.0\.5 version 2c <COMMUNITY> udp-port 1162/)).toBeInTheDocument();
+    expect(screen.queryByText(/laborat/i)).not.toBeInTheDocument();
     expect(screen.queryByText('Opcional: informs SNMPv3 (com confirmação de entrega)')).not.toBeInTheDocument();
   });
 
@@ -106,7 +111,10 @@ describe('SnmpSetupWizard', () => {
     const close = vi.fn(); const onDone = vi.fn();
     wrap(<SnmpSetupWizard deviceId="d1" deviceName="core-sw-01" close={close} onDone={onDone} />);
     expect(screen.getByRole('dialog', { name: 'Configurar SNMP' })).toBeInTheDocument();
-    expect(screen.queryByText('Versão')).not.toBeInTheDocument();
+    // SNMP_ALLOW_V2C=false in this receiver: v3 is preselected and v2c is not offered.
+    expect(screen.getByRole('radio', { name: /SNMPv3 \(authPriv\)/ })).toBeChecked();
+    expect(await screen.findByText(/O SNMPv2c foi desativado por um administrador/)).toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: /SNMPv2c/ })).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'netops' } });
     fireEvent.change(screen.getByLabelText('Auth key'), { target: { value: 'auth-secret-1' } });
     fireEvent.change(screen.getByLabelText('Privacy key'), { target: { value: 'priv-secret-1' } });

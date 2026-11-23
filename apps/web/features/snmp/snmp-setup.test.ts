@@ -25,11 +25,15 @@ describe('iosXeSetupLines', () => {
     expect(lines.informs).toBeNull();
     expect(lines.v2c).toBeNull();
   });
-  it('adds the UDP port when it is not 162, informs once the engine ID exists, and v2c only for the lab flag', () => {
+  it('adds the UDP port when it is not 162, informs once the engine ID exists, and v2c lines when v2c is allowed', () => {
     const lines = iosXeSetupLines({ receiver: null, port: 1162, engineId: '800000090300AABBCCDDEEFF', v2cAllowed: true });
     expect(lines.v3).toContain(`snmp-server host ${RECEIVER_PLACEHOLDER} version 3 priv mgmt-app udp-port 1162`);
     expect(lines.informs).toContain(`snmp-server engineID remote ${RECEIVER_PLACEHOLDER} udp-port 1162 800000090300AABBCCDDEEFF`);
-    expect(lines.v2c).toContain('snmp-server community <COMUNIDADE> RO MGMT-APP-SNMP');
+    expect(lines.v2c).toContain('snmp-server community <COMMUNITY> RO MGMT-APP-SNMP');
+    expect(lines.v2c).toContain(`snmp-server host ${RECEIVER_PLACEHOLDER} version 2c <COMMUNITY> udp-port 1162`);
+    expect(lines.v2c).toContain('snmp-server enable traps');
+    expect(lines.v2c).toContain('snmp-server trap-source <INTERFACE-DE-GESTAO>');
+    expect(lines.v2c).not.toMatch(/laborat/i);
   });
 });
 

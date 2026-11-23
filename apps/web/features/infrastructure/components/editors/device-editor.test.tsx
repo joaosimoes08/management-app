@@ -6,6 +6,7 @@ import type { DeviceForm } from '../../forms';
 import type { AssetFile, DeviceModel, Rack } from '../../types';
 import { REQUIRED_CONFIGS_QUERY_KEY, type MappedFieldError, type RequiredConfigRegistry } from '../../device-requirements';
 import { DeviceEditor } from './device-editor';
+import { snmpReceiverKey } from '@/features/snmp/api';
 
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: () => true, token: '' }) }));
 vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string, fallback?: string) => fallback ?? key }) }));
@@ -29,9 +30,9 @@ const empty: DeviceForm = { name: '', type: 'SWITCH', hostname: '', managementIp
 /** An existing device in a rack that predates rear images and outlets (API requiredConfig.missing). */
 const legacy: DeviceForm = { ...empty, name: 'SW-OLD', rackId: 'rack-1', rackUnitStart: '10', savedRackId: 'rack-1', requiredMissing: ['rearImage', 'power'], savedAssetIds: { front: '', rear: '' }, powerPlugCount: '', estimatedWatts: '', savedPower: { plugs: '', watts: '' } };
 
-function Harness({ initial = empty, editingId = '', save = vi.fn().mockResolvedValue(undefined), fieldErrors, initialTab, models = [] as DeviceModel[], registryData = registry }: { initial?: DeviceForm; editingId?: string; save?: (path: string, body: Record<string, unknown>) => Promise<void>; fieldErrors?: MappedFieldError[]; initialTab?: 'geral' | 'localizacao' | 'rede' | 'imagens' | 'energia'; models?: DeviceModel[]; registryData?: RequiredConfigRegistry }) {
+function Harness({ initial = empty, editingId = '', save = vi.fn().mockResolvedValue(undefined), fieldErrors, initialTab, models = [] as DeviceModel[], registryData = registry, v2cAllowed = true }: { initial?: DeviceForm; editingId?: string; save?: (path: string, body: Record<string, unknown>) => Promise<void>; fieldErrors?: MappedFieldError[]; initialTab?: 'geral' | 'localizacao' | 'rede' | 'imagens' | 'energia'; models?: DeviceModel[]; registryData?: RequiredConfigRegistry; v2cAllowed?: boolean }) {
   const [form, setForm] = useState(initial);
-  const [client] = useState(() => { const value = new QueryClient(); value.setQueryData(REQUIRED_CONFIGS_QUERY_KEY, registryData); return value; });
+  const [client] = useState(() => { const value = new QueryClient(); value.setQueryData(REQUIRED_CONFIGS_QUERY_KEY, registryData); value.setQueryData(snmpReceiverKey, { listenAll: true, selectedInterfaceIds: [], interfaces: [], v2cAllowed }); return value; });
   return <QueryClientProvider client={client}><DeviceEditor close={() => {}} editingId={editingId} form={form} setForm={setForm} racks={racks} models={models} assets={assets} ips={[]} save={save} fieldErrors={fieldErrors} initialTab={initialTab} /></QueryClientProvider>;
 }
 
@@ -262,6 +263,27 @@ describe('device editor required fields', () => {
       expect(save).toHaveBeenCalledWith('/api/v1/devices/dev-old', expect.objectContaining({ name: 'SW-OLD-3' }));
       expect(save.mock.calls[0][1]).not.toHaveProperty('power');
     });
+  });
+
+  it('new-device SNMP: v3 is recommended and preselected, v2c shows the trade-off note and checks the community length', () => {
+    render(<Harness initial={{ ...empty, snmpEnabled: true }} initialTab="rede" />);
+    const version = screen.getByRole('group', { name: 'Versão' });
+    expect(within(version).getByRole('radio', { name: /SNMPv3 \(authPriv\)/ })).toBeChecked();
+    expect(within(version).getByText('Recomendado')).toBeInTheDocument();
+    fireEvent.click(within(version).getByRole('radio', { name: 'SNMPv2c' }));
+    expect(within(version).getByRole('note')).toHaveTextContent('prefira SNMPv3 (authPriv)');
+    const community = screen.getByLabelText(/^Community READ/);
+    fireEvent.change(community, { target: { value: 'abc' } });
+    expect(community).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText('A community deve ter pelo menos 8 caracteres.')).toBeInTheDocument();
+  });
+
+  it('new-device SNMP: v2c is not offered when an admin set SNMP_ALLOW_V2C=false', () => {
+    render(<Harness initial={{ ...empty, snmpEnabled: true, snmpVersion: 'V2C' }} initialTab="rede" v2cAllowed={false} />);
+    const version = screen.getByRole('group', { name: 'Versão' });
+    expect(within(version).queryByRole('radio', { name: 'SNMPv2c' })).not.toBeInTheDocument();
+    expect(within(version).getByRole('radio', { name: /SNMPv3 \(authPriv\)/ })).toBeChecked();
+    expect(within(version).getByText(/SNMP_ALLOW_V2C=false/)).toBeInTheDocument();
   });
 
   it('shows API field errors on their fields and tabs, and clears one when the field changes', async () => {

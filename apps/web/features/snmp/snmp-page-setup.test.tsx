@@ -36,8 +36,11 @@ describe('SNMP device view: Phase 1 setup', () => {
     expect(await screen.findByText('A aguardar a primeira trap deste equipamento.')).toBeInTheDocument();
     expect(await screen.findByText('800000090300AABBCCDDEEFF')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Configurar SNMP/ })).toBeInTheDocument();
-    // The lab-only v2c option is hidden while SNMP_ALLOW_V2C is off.
-    expect(within(screen.getByRole('combobox', { name: 'Versão' })).queryByRole('option', { name: 'V2C' })).not.toBeInTheDocument();
+    // An admin opted out with SNMP_ALLOW_V2C=false: only v3 is offered, and the form says why.
+    const version = screen.getByRole('group', { name: 'Versão' });
+    expect(within(version).getByRole('radio', { name: /SNMPv3 \(authPriv\)/ })).toBeChecked();
+    expect(within(version).queryByRole('radio', { name: /SNMPv2c/ })).not.toBeInTheDocument();
+    expect(await within(version).findByText(/SNMP_ALLOW_V2C=false/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Testar' }));
     expect(await screen.findByText('Sem resposta (timeout)')).toBeInTheDocument();
@@ -46,6 +49,31 @@ describe('SNMP device view: Phase 1 setup', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Configurar SNMP/ }));
     expect(await screen.findByRole('dialog', { name: 'Configurar SNMP' })).toBeInTheDocument();
+  });
+
+  it('offers v2c next to the recommended v3 by default, with the trade-off note and the 8-character community check', async () => {
+    mockedFetch.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/v1/devices')) return { items: [device], total: 1, page: 1, totalPages: 1 };
+      if (url === '/api/v1/settings/snmp-listeners') return { ...receiver, v2cAllowed: true };
+      if (url === '/api/v1/snmp/devices/d1') return overview();
+      if (url.startsWith('/api/v1/snmp/devices/d1/metrics')) return { days: 7, expectedIntervalMinutes: null, selectedInterfaceIndex: null, interfaces: [], availability: [], interfacesHistory: [] };
+      return {};
+    });
+    wrap(<SnmpPage />);
+    const version = await screen.findByRole('group', { name: 'Versão' });
+    const radios = within(version).getAllByRole('radio');
+    expect(radios.map((radio) => radio.getAttribute('value'))).toEqual(['V3', 'V2C']);
+    expect(radios[0]).toBeChecked();
+    expect(within(version).getByText('Recomendado')).toBeInTheDocument();
+    expect(screen.queryByText(/laborat/i)).not.toBeInTheDocument();
+    fireEvent.click(within(version).getByRole('radio', { name: 'SNMPv2c' }));
+    expect(within(version).getByRole('note')).toHaveTextContent('SNMPv2c envia a community em texto simples e não cifra os dados.');
+    const community = screen.getByLabelText(/^Community/);
+    fireEvent.change(community, { target: { value: 'short' } });
+    expect(community).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText('A community deve ter pelo menos 8 caracteres.')).toBeInTheDocument();
+    fireEvent.change(community, { target: { value: 'longenough' } });
+    expect(screen.queryByText('A community deve ter pelo menos 8 caracteres.')).not.toBeInTheDocument();
   });
 
   it('offers the unknown-traps view to admins only', async () => {
