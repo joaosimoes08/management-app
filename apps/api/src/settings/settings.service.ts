@@ -38,25 +38,32 @@ export type SnmpContainerReceiver = {
   /** Host UDP port published for the receiver (SNMP_TRAP_HOST_PORT, default 162). */
   port: number;
 };
-const HOSTNAME = /^(?=.{1,253}$)(?!-)[a-z0-9-]{1,63}(?<!-)(?:\.(?!-)[a-z0-9-]{1,63}(?<!-))*$/i;
-/** Bind-all and loopback addresses are not something a switch can send to. */
-const unusableHostIp = (value: string) => value === '0.0.0.0' || value === '::' || value.startsWith('127.') || value === '::1';
+/** Bind-all, loopback (also IPv4-mapped) and anything that is not an IP literal cannot be a switch's trap target. */
+const unusableTrapIp = (value: string) => {
+  const v = value.toLowerCase();
+  const v4 = v.startsWith('::ffff:') ? v.slice(7) : v;
+  return v === '::' || v === '::1' || v4 === '0.0.0.0' || v4.startsWith('127.');
+};
+/** A usable trap target: an IPv4 or IPv6 literal that is not bind-all or loopback. Hostnames are refused because the
+ * IOS-XE ACL in "Configurar o switch" (`permit host <addr>`) needs an IP. */
+export const usableTrapIp = (value: string) => isIP(value) !== 0 && !unusableTrapIp(value);
 
 /**
  * Container-only receiver (SNMP_LISTENER_MODE container-ingress, no host agent): there are no host: interface rows,
- * so the address switches should send to comes from the deployment env. Order: SNMP_TRAP_PUBLIC_ADDRESS (IP or
- * hostname), then SNMP_TRAP_HOST_IP unless it is a bind-all/loopback address, else null with a reason code.
+ * so the address switches should send to comes from the deployment env. Order: SNMP_TRAP_PUBLIC_ADDRESS (an IP
+ * literal; a hostname, bind-all or loopback value is reported as SNMP_TRAP_PUBLIC_ADDRESS_INVALID, never silently
+ * replaced), then SNMP_TRAP_HOST_IP unless it is a bind-all/loopback address, else null with a reason code.
  */
 export function snmpContainerReceiverView(env: { publicAddress?: string; hostIp?: string; hostPort?: string }): SnmpContainerReceiver {
   const { trapPort: port } = snmpReceiverView(env.hostPort, false);
   const publicAddress = env.publicAddress?.trim();
   if (publicAddress) {
-    return isIP(publicAddress) || HOSTNAME.test(publicAddress)
+    return usableTrapIp(publicAddress)
       ? { address: publicAddress, addressSource: 'SNMP_TRAP_PUBLIC_ADDRESS', reason: null, port }
       : { address: null, addressSource: null, reason: 'SNMP_TRAP_PUBLIC_ADDRESS_INVALID', port };
   }
   const hostIp = env.hostIp?.trim();
-  if (hostIp && isIP(hostIp) && !unusableHostIp(hostIp)) return { address: hostIp, addressSource: 'SNMP_TRAP_HOST_IP', reason: null, port };
+  if (hostIp && usableTrapIp(hostIp)) return { address: hostIp, addressSource: 'SNMP_TRAP_HOST_IP', reason: null, port };
   return { address: null, addressSource: null, reason: 'SNMP_TRAP_PUBLIC_ADDRESS_REQUIRED', port };
 }
 /** HOST_AGENT when the host agent has reported interfaces in the last 2 minutes; then the UI keeps using that list. */
