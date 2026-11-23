@@ -88,6 +88,7 @@ export default function SetupPage() {
   const fields = (field: keyof SetupForm, label: string, placeholder: string, required = false) => <label className="setup-field">{label}{required && <b> *</b>}<input value={form[field]} onChange={(event) => update(field, event.target.value)} placeholder={placeholder} /></label>;
 
   const stepLabels = [t('setup.welcomeStep'), t('setup.organization'), t('setup.firstSite'), t('setup.finish')];
+  const stepDescriptions = [t('setup.welcomeStepHint'), t('setup.organizationStepHint'), t('setup.firstSiteStepHint'), t('setup.finishStepHint')];
   const backButton = (target: number) => <button type="button" className="onboarding-back" aria-label={t('setup.back')} title={t('setup.back')} onClick={() => setStep(target)}><ArrowLeft size={17} /></button>;
 
   // After a step change, move focus to the new step's heading so keyboard and screen-reader users land on it.
@@ -107,7 +108,7 @@ export default function SetupPage() {
           return <li className={`onboarding-step ${state}`} key={label} aria-current={state === 'current' ? 'step' : undefined}>
             {state === 'current' && <m.span className="onboarding-step-highlight" layoutId="onboarding-step-highlight" transition={stepIndicatorTransition(reduceMotion)} aria-hidden="true" />}
             <m.span className="onboarding-step-icon" key={state} initial={navigated && !reduceMotion ? { scale: 0.6, opacity: 0 } : false} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', stiffness: 520, damping: 26 }}>{state === 'done' ? <Check size={16} strokeWidth={2.4} /> : <Icon size={16} />}</m.span>
-            <span className="onboarding-step-label">{label}</span>
+            <span className="onboarding-step-text"><span className="onboarding-step-label">{label}</span><span className="onboarding-step-desc">{stepDescriptions[index]}</span></span>
             {state === 'current' && <ArrowRight className="onboarding-step-arrow" size={16} aria-hidden="true" />}
           </li>;
         })}</ol>

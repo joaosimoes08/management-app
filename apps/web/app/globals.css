@@ -3242,8 +3242,8 @@ a.dashboard-kpi:focus-visible { box-shadow:0 9px 24px rgba(35,55,87,.09); outlin
 .onboarding-page { padding:40px 24px; background:radial-gradient(ellipse at 20% 0%,#eef2fd 0%,#e2e8fa 45%,#d9e0f6 100%); }
 /* Fixed size on every step (sized to the tallest step, Site); the step content scrolls inside when a short window can't fit it. */
 .onboarding-card { display:grid; grid-template-columns:minmax(260px,380px) minmax(0,1fr); width:min(940px,100%); height:min(var(--onboarding-card-h), calc(100vh - 80px)); min-height:min(480px, calc(100vh - 80px)); overflow:hidden; --onboarding-card-h:700px; background:var(--panel); border:1px solid rgba(255,255,255,.8); border-radius:14px; box-shadow:0 24px 64px rgba(31,49,77,.16); }
-.onboarding-nav { display:flex; flex-direction:column; padding:34px 28px; background:#f9fafc; border-right:1px solid #edf0f5; }
-.onboarding-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:36px; }
+.onboarding-nav { display:flex; flex-direction:column; min-height:0; padding:34px 28px; background:#f9fafc; border-right:1px solid #edf0f5; }
+.onboarding-head { display:flex; flex:none; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:28px; }
 .onboarding-head h1 { margin:0; color:var(--ink); font-size:26px; font-weight:700; line-height:1.15; letter-spacing:-.6px; }
 .onboarding-head p { margin:8px 0 0; color:var(--muted); font-size:12px; line-height:1.5; }
 .onboarding-ring { position:relative; display:grid; place-items:center; flex:0 0 56px; width:56px; height:56px; }
@@ -3252,11 +3252,16 @@ a.dashboard-kpi:focus-visible { box-shadow:0 9px 24px rgba(35,55,87,.09); outlin
 .onboarding-ring-track { stroke:#e6ebf2; }
 .onboarding-ring-value { stroke:#4cb57f; stroke-linecap:round; }
 .onboarding-ring span { position:relative; color:var(--ink); font-size:13px; font-weight:600; font-variant-numeric:tabular-nums; }
-.onboarding-steps { display:grid; gap:24px; margin:0; padding:0; list-style:none; }
-.onboarding-step { position:relative; isolation:isolate; display:flex; align-items:center; gap:16px; min-height:56px; padding:8px 14px; margin:0 -14px; color:#9aa5b5; border-radius:10px; font-size:14px; }
-.onboarding-step:not(:last-child)::after { content:''; position:absolute; top:calc(50% + 22px); left:35px; height:calc(24px + 12px); border-left:1.5px dashed #c9d1dd; }
-.onboarding-step-icon { display:grid; place-items:center; flex:0 0 38px; width:38px; height:38px; color:#9aa5b5; background:#eef1f5; border-radius:50%; }
-.onboarding-step-label { flex:1; min-width:0; }
+/* Desktop: the step list fills the nav below the header; equal rows grow (capped) and shrink before anything clips. */
+.onboarding-steps { display:flex; flex:1; flex-direction:column; gap:8px; min-height:0; margin:0; padding:0; list-style:none; }
+.onboarding-step { position:relative; isolation:isolate; display:flex; flex:1 1 0; align-items:center; gap:16px; min-height:64px; max-height:132px; padding:10px 14px; margin:0 -14px; color:#9aa5b5; border-radius:10px; font-size:15px; }
+/* Connector: from 3px below this circle (40px) to 3px above the next one; rows are equal height and 8px apart. */
+.onboarding-step:not(:last-child)::after { content:''; position:absolute; top:calc(50% + 23px); left:33.25px; height:calc(100% + 8px - 46px); border-left:1.5px dashed #c9d1dd; }
+.onboarding-step-icon { display:grid; place-items:center; flex:0 0 40px; width:40px; height:40px; color:#9aa5b5; background:#eef1f5; border-radius:50%; }
+.onboarding-step-text { display:flex; flex:1; flex-direction:column; gap:3px; min-width:0; }
+.onboarding-step-label { line-height:1.25; }
+.onboarding-step-desc { color:#8a95a6; font-size:12px; font-weight:400; line-height:1.4; }
+.onboarding-step.done .onboarding-step-desc,.onboarding-step.current .onboarding-step-desc { color:var(--muted); }
 .onboarding-step.done { color:#3b4a60; }
 .onboarding-step.done .onboarding-step-icon { color:#3a9a6a; background:#e3f5eb; }
 .onboarding-step.current { color:var(--ink); font-weight:600; }
@@ -3296,8 +3301,10 @@ a.dashboard-kpi:focus-visible { box-shadow:0 9px 24px rgba(35,55,87,.09); outlin
   .onboarding-nav { flex:none; padding:22px 20px 16px; border-right:0; border-bottom:1px solid #edf0f5; }
   .onboarding-head { margin-bottom:18px; }
   .onboarding-head h1 { font-size:22px; }
-  .onboarding-steps { grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; }
-  .onboarding-step { flex-direction:column; gap:6px; min-height:0; margin:0; padding:8px 4px; text-align:center; font-size:10px; }
+  .onboarding-steps { display:grid; flex:none; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; }
+  .onboarding-step { flex-direction:column; gap:6px; min-height:0; max-height:none; margin:0; padding:8px 4px; text-align:center; font-size:10px; }
+  .onboarding-step-label { line-height:normal; }
+  .onboarding-step-desc { display:none; }
   .onboarding-step:not(:last-child)::after { display:none; }
   .onboarding-step-icon { flex-basis:32px; width:32px; height:32px; }
   .onboarding-step-arrow { display:none; }
