@@ -1,4 +1,4 @@
-import { LEGACY_SHARED_ENGINE_ID, normalizeEngineId } from '@simoes/snmp-core';
+import { normalizeEngineId } from '@simoes/snmp-core';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaClient } from '@simoes/database';
 import { AuditService } from '../audit/audit.service';
@@ -11,16 +11,14 @@ import { discoveryProfiles } from '../discovery/discovery-profiles';
 
 
 /**
- * SNMP Phase 1 step 2: the engine ID the trap receiver uses, for configuring SNMPv3 informs on devices. Same rule as
- * the receiver (snmp-core chooseEngineId): a valid SNMP_ENGINE_ID other than the old shared default wins, else the
- * one the receiver generated and stored. Null until the receiver has started once.
+ * SNMP Phase 1 step 2: the engine ID the trap receiver uses, for configuring SNMPv3 informs on devices. The receiver
+ * records the ID it actually uses and its source on every start (SnmpListenerConfig.activeEngineId/activeEngineIdSource),
+ * so this reports the receiver's truth and never reads the API's own env. Null until the receiver has started once.
  */
-export function snmpEngineIdView(envValue: string | undefined, stored: string | null | undefined): { engineId: string | null; engineIdSource: 'ENV' | 'STORED' | null } {
-  const env = normalizeEngineId(envValue);
-  if (env && env !== LEGACY_SHARED_ENGINE_ID) return { engineId: env, engineIdSource: 'ENV' };
-  const saved = normalizeEngineId(stored);
-  if (saved && saved !== LEGACY_SHARED_ENGINE_ID) return { engineId: saved, engineIdSource: 'STORED' };
-  return { engineId: null, engineIdSource: null };
+export function snmpEngineIdView(active: string | null | undefined, source: string | null | undefined): { engineId: string | null; engineIdSource: 'ENV' | 'STORED' | null } {
+  const engineId = normalizeEngineId(active);
+  if (!engineId) return { engineId: null, engineIdSource: null };
+  return { engineId, engineIdSource: source === 'ENV' ? 'ENV' : 'STORED' };
 }
 @Injectable()
 export class SettingsService {
@@ -65,7 +63,7 @@ export class SettingsService {
       listenAll: config?.listenAll ?? true,
       selectedInterfaceIds: interfaces.filter((item) => selected.some((entry) => entry.instanceId === item.instanceId && entry.name === item.name && entry.address === item.address)).map((item) => item.id),
       interfaces: interfaces.map(({ id, instanceId, name, address, internal, lastSeenAt }) => ({ id, instanceId, name, address, internal, lastSeenAt })),
-      ...snmpEngineIdView(process.env.SNMP_ENGINE_ID, config?.engineId),
+      ...snmpEngineIdView(config?.activeEngineId, config?.activeEngineIdSource),
       updatedAt: config?.updatedAt ?? null,
       refreshSeconds: 30,
     };

@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { collectTrapSourceAlerts, planTrapSourceAlerts, TRAP_SOURCE_ALERT_SOURCE, trapSourceDedupKey, trapSourceDeviceMap } from './trap-alerts';
+import { collectTrapSourceAlerts, planTrapSourceAlerts, TRAP_SOURCE_ALERT_SOURCE, TRAP_SOURCE_AMBIGUOUS_ENTITY, trapSourceDedupKey, trapSourceDeviceMap } from './trap-alerts';
+import { OperationsService } from './operations.service';
 
 // SNMP Phase 1 step 2: UNMATCHED and REJECTED traps raise one WARNING alert per source IP.
 const at = (minutesAgo: number) => new Date(Date.now() - minutesAgo * 60_000);
@@ -75,12 +76,65 @@ test('a source IP documented in two sites is logged and left without a site inst
     { managementIp: '10.0.0.1', siteId: 'site-a', name: 'sw-a' },
     { managementIp: '10.0.0.2', siteId: 'site-a', name: 'sw-2' },
     { managementIp: null, siteId: 'site-a', name: 'no-ip' },
-  ], (_message, meta) => warnings.push(meta));
-  assert.deepEqual(map.get('10.0.0.1'), { siteId: null, name: 'sw-a / sw-b' });
+  ], (_message, meta) => warnings.push(meta), new Map());
+  assert.deepEqual(map.get('10.0.0.1'), { siteId: null, name: 'sw-a / sw-b', ambiguous: true });
   assert.deepEqual(map.get('10.0.0.2'), { siteId: 'site-a', name: 'sw-2' });
   assert.equal(map.size, 2);
   assert.equal(warnings.length, 1);
   assert.deepEqual(warnings[0], { errorCode: 'SNMP_TRAP_SOURCE_AMBIGUOUS', sourceAddress: '10.0.0.1', siteIds: ['site-a', 'site-b'], devices: ['sw-a', 'sw-b'] });
   const plan = planTrapSourceAlerts([{ sourceAddress: '10.0.0.1', status: 'UNMATCHED', errorCode: null, count: 1, lastAt: new Date('2026-11-23T10:00:00Z') }], new Map(), map);
   assert.equal(plan.candidates[0].siteId, null);
+  assert.equal(plan.candidates[0].entityType, TRAP_SOURCE_AMBIGUOUS_ENTITY, 'ambiguous alert is admin-only');
+  assert.equal(plan.candidates[0].entityId, '10.0.0.1');
+  const plain = planTrapSourceAlerts([{ sourceAddress: '10.0.0.2', status: 'UNMATCHED', errorCode: null, count: 1, lastAt: new Date('2026-11-23T10:00:00Z') }], new Map(), map);
+  assert.equal(plain.candidates[0].entityType, null, 'single-site IP keeps the site-scoped alert');
+});
+
+test('SNMP_TRAP_SOURCE_AMBIGUOUS is logged once per IP until its sites or devices change', () => {
+  const warnings: Array<Record<string, unknown>> = [];
+  const warn = (_message: string, meta: Record<string, unknown>) => { warnings.push(meta); };
+  const logged = new Map<string, string>();
+  const two = [{ managementIp: '10.0.0.1', siteId: 'site-a', name: 'sw-a' }, { managementIp: '10.0.0.1', siteId: 'site-b', name: 'sw-b' }];
+  for (let cycle = 0; cycle < 5; cycle += 1) trapSourceDeviceMap(two, warn, logged);
+  assert.equal(warnings.length, 1, 'same ambiguity on every cycle: logged once');
+  trapSourceDeviceMap([...two, { managementIp: '10.0.0.1', siteId: 'site-c', name: 'sw-c' }], warn, logged);
+  assert.equal(warnings.length, 2, 'a third site is a change: logged again');
+  assert.deepEqual(warnings[1].siteIds, ['site-a', 'site-b', 'site-c']);
+  trapSourceDeviceMap([two[0]], warn, logged);
+  trapSourceDeviceMap(two, warn, logged);
+  assert.equal(warnings.length, 3, 'resolved and then ambiguous again: logged again');
+});
+
+test('a non-admin who sees only one of the two sites does not see the ambiguous alert or its device names', async () => {
+  const map = trapSourceDeviceMap([
+    { managementIp: '10.0.0.1', siteId: 'site-a', name: 'sw-a' },
+    { managementIp: '10.0.0.1', siteId: 'site-b', name: 'sw-b' },
+    { managementIp: '10.0.0.2', siteId: 'site-a', name: 'sw-2' },
+  ], () => undefined, new Map());
+  const lastAt = new Date('2026-11-23T10:00:00Z');
+  const plan = planTrapSourceAlerts([
+    { sourceAddress: '10.0.0.1', status: 'UNMATCHED', errorCode: null, count: 1, lastAt },
+    { sourceAddress: '10.0.0.2', status: 'UNMATCHED', errorCode: null, count: 1, lastAt },
+    { sourceAddress: '10.0.0.9', status: 'UNMATCHED', errorCode: null, count: 1, lastAt },
+  ], new Map(), map);
+  const stored = plan.candidates.map((alert, index) => ({ ...alert, id: `alert-${index}`, status: 'OPEN', userStates: [] }));
+  const prisma = {
+    site: { findMany: async () => [{ id: 'site-a' }, { id: 'site-b' }] },
+    alertRule: { findMany: async () => [] },
+    maintenanceWindow: { findMany: async () => [] },
+    operationalAlert: { findMany: async () => stored },
+    snmpJob: { findMany: async () => [] },
+    snmpDrift: { findMany: async () => [] },
+    snmpTrapEvent: { findMany: async () => [] },
+  };
+  const access = { assertSite: async (_user: unknown, _action: string, siteId: string) => { if (siteId !== 'site-a') throw new Error('forbidden'); } };
+  const service = new OperationsService(prisma as never, access as never, {} as never, {} as never);
+  const viewer = await service.list({ id: 'viewer', roles: ['VIEWER'] } as never);
+  const titles = viewer.items.map((item: any) => item.title as string);
+  assert.equal(titles.length, 2, 'site-a alert and the unknown-IP alert only');
+  assert.ok(titles.some((title) => title.includes('10.0.0.2 (sw-2)')));
+  assert.ok(titles.some((title) => title.includes('10.0.0.9')));
+  assert.ok(!titles.some((title) => title.includes('10.0.0.1') || title.includes('sw-b')), 'ambiguous IP and the other site\'s device stay hidden');
+  const admin = await service.list({ id: 'admin', roles: ['ADMIN'] } as never);
+  assert.equal(admin.items.length, 3, 'admins still see the ambiguous alert');
 });

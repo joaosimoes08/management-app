@@ -324,7 +324,7 @@ export type TrapSourceDb = {
  * than its latest accepted trap. It resolves when the source sends an accepted trap, or after 24 h without bad
  * traps. A manual resolve holds until a new bad trap arrives after it.
  */
-export function planTrapSourceAlerts(bad: TrapSourceRow[], acceptedAt: Map<string, Date>, sites: Map<string, { siteId: string | null; name: string }>, resolvedAt: Map<string, Date> = new Map()) {
+export function planTrapSourceAlerts(bad: TrapSourceRow[], acceptedAt: Map<string, Date>, sites: Map<string, TrapSourceDevice>, resolvedAt: Map<string, Date> = new Map()) {
   const bySource = new Map<string, { count: number; lastAt: Date; unmatched: number; rejected: number; codes: Set<string> }>();
   for (const row of bad) {
     const item = bySource.get(row.sourceAddress) ?? { count: 0, lastAt: row.lastAt, unmatched: 0, rejected: 0, codes: new Set<string>() };
@@ -346,7 +346,8 @@ export function planTrapSourceAlerts(bad: TrapSourceRow[], acceptedAt: Map<strin
     const parts = [item.unmatched ? `${item.unmatched} sem equipamento/credencial correspondente` : '', item.rejected ? `${item.rejected} rejeitado(s)${item.codes.size ? ` (${[...item.codes].sort().join(', ')})` : ''}` : ''].filter(Boolean);
     candidates.push({
       dedupKey: key, source: TRAP_SOURCE_ALERT_SOURCE, severity: AlertSeverityDto.WARNING, siteId: device?.siteId ?? null,
-      entityType: null, entityId: null, occurrenceCount: item.count,
+      // ambiguous IP: names devices from two sites, so it gets an entityType and canSeeAlert limits it to ADMIN
+      entityType: device?.ambiguous ? TRAP_SOURCE_AMBIGUOUS_ENTITY : null, entityId: device?.ambiguous ? sourceAddress : null, occurrenceCount: item.count,
       title: `Traps SNMP não aceites de ${sourceAddress}${device ? ` (${device.name})` : ''}`,
       detail: `Últimas 24 h: ${parts.join('; ')}. Último: ${item.lastAt.toISOString()}. Verifica o IP de gestão, a credencial TRAP (SNMPv3) e o Engine ID configurado no equipamento.`,
       actionHref: '/snmp',
@@ -355,25 +356,45 @@ export function planTrapSourceAlerts(bad: TrapSourceRow[], acceptedAt: Map<strin
   return { candidates: candidates.slice(0, TRAP_SOURCE_CAP), resolveMissing: candidates.length <= TRAP_SOURCE_CAP, resolveKeys };
 }
 
+/** entityType of ambiguous trap-source alerts: canSeeAlert shows a site-less alert with an entityType to ADMIN only. */
+export const TRAP_SOURCE_AMBIGUOUS_ENTITY = 'SnmpTrapSource';
+export type TrapSourceDevice = { siteId: string | null; name: string; ambiguous?: boolean };
+const AMBIGUOUS_LOG_CAP = 10_000;
+/** Last logged ambiguity per IP (sorted site ids + device names), so SNMP_TRAP_SOURCE_AMBIGUOUS is logged once per change, not every cycle. */
+const loggedAmbiguity = new Map<string, string>();
+
 /**
  * Maps a trap source IP to the device that owns it. One IP can be documented in two sites (overlapping private
- * ranges): then the alert is not guessed into one of them; it stays global (siteId null), names every candidate and
- * the ambiguity is logged.
+ * ranges): then the alert is not guessed into one of them; it stays global (siteId null) and is marked ambiguous so
+ * the planned alert is ADMIN-only (it names devices from both sites). The ambiguity is logged once per IP until the
+ * set of sites/devices for that IP changes.
  */
-export function trapSourceDeviceMap(devices: Array<{ managementIp: string | null; siteId: string | null; name: string }>, warn: (message: string, meta: Record<string, unknown>) => void = (message, meta) => logger.warn(`${message} ${JSON.stringify(meta)}`)) {
+export function trapSourceDeviceMap(
+  devices: Array<{ managementIp: string | null; siteId: string | null; name: string }>,
+  warn: (message: string, meta: Record<string, unknown>) => void = (message, meta) => logger.warn(`${message} ${JSON.stringify(meta)}`),
+  logged: Map<string, string> = loggedAmbiguity,
+) {
   const byIp = new Map<string, Array<{ siteId: string | null; name: string }>>();
   for (const device of devices) {
     if (!device.managementIp) continue;
     byIp.set(device.managementIp, [...(byIp.get(device.managementIp) ?? []), { siteId: device.siteId, name: device.name }]);
   }
-  const result = new Map<string, { siteId: string | null; name: string }>();
+  const result = new Map<string, TrapSourceDevice>();
   for (const [ip, list] of byIp) {
     const siteIds = [...new Set(list.map((item) => item.siteId))];
+    const names = list.map((item) => item.name).sort();
     if (siteIds.length > 1) {
-      warn('SNMP trap source IP is documented in more than one site; alert left without a site', { errorCode: 'SNMP_TRAP_SOURCE_AMBIGUOUS', sourceAddress: ip, siteIds: siteIds.sort(), devices: list.map((item) => item.name).sort() });
-      result.set(ip, { siteId: null, name: list.map((item) => item.name).sort().join(' / ') });
+      const sortedSites = [...siteIds].sort();
+      const signature = JSON.stringify([sortedSites, names]);
+      if (logged.get(ip) !== signature) {
+        warn('SNMP trap source IP is documented in more than one site; alert left without a site and shown to admins only', { errorCode: 'SNMP_TRAP_SOURCE_AMBIGUOUS', sourceAddress: ip, siteIds: sortedSites, devices: names });
+        if (logged.size >= AMBIGUOUS_LOG_CAP && !logged.has(ip)) logged.delete(logged.keys().next().value as string);
+        logged.set(ip, signature);
+      }
+      result.set(ip, { siteId: null, name: names.join(' / '), ambiguous: true });
     } else {
-      result.set(ip, { siteId: siteIds[0] ?? null, name: list.map((item) => item.name).sort().join(' / ') });
+      logged.delete(ip);
+      result.set(ip, { siteId: siteIds[0] ?? null, name: names.join(' / ') });
     }
   }
   return result;

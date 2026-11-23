@@ -1129,6 +1129,10 @@ model SnmpListenerConfig {
   selectedInterfaces Json     @default("[]")
   /// SNMP Phase 1 step 2: SNMPv3 engine ID generated once per install (hex). SNMP_ENGINE_ID overrides it unless it is the old shared compose default.
   engineId           String?
+  /// Engine ID the running trap receiver actually uses, written by the receiver on every start (ENV or STORED); the API reports this, never its own env.
+  activeEngineId       String?
+  /// 'ENV' | 'STORED': where activeEngineId came from.
+  activeEngineIdSource String?
   updatedBy          String?  @db.Uuid
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt

@@ -125,15 +125,21 @@ describe('SNMP Phase 1 receiver and poll policy', () => {
       findUnique: async () => row && { engineId: row.engineId },
       create: async ({ data }: any) => { row = { ...data }; return row; },
       updateMany: async ({ where, data }: any) => { if (row && row.engineId === where.engineId) row.engineId = data.engineId; return { count: 1 }; },
+      upsert: async ({ create, update }: any) => { row = row ? { ...row, ...update } : { ...create }; return row; },
     } } as any;
     const first = await new TrapReceiver(prisma, {} as any).resolveEngineId();
     assert.match(first, /^8000b98305[0-9a-f]{24}$/);
     assert.notEqual(first, LEGACY_SHARED_ENGINE_ID);
     assert.equal(row.engineId, first);
+    assert.deepEqual([row.activeEngineId, row.activeEngineIdSource], [first, 'STORED'], 'the generated ID in use is recorded');
     assert.equal(await new TrapReceiver(prisma, {} as any).resolveEngineId(), first, 'restarts reuse the stored ID');
     process.env.SNMP_ENGINE_ID = '8000b98305112233445566778899';
     assert.equal(await new TrapReceiver(prisma, {} as any).resolveEngineId(), '8000b98305112233445566778899');
     assert.equal(row.engineId, first, 'an explicit operator ID does not overwrite the stored one');
+    assert.deepEqual([row.activeEngineId, row.activeEngineIdSource], ['8000b98305112233445566778899', 'ENV'], 'the env override in use is recorded for the API');
+    delete process.env.SNMP_ENGINE_ID;
+    assert.equal(await new TrapReceiver(prisma, {} as any).resolveEngineId(), first, 'env removed: back to the install ID');
+    assert.deepEqual([row.activeEngineId, row.activeEngineIdSource], [first, 'STORED']);
   });
 
   it('counts a failed poll toward the unreachable threshold', async () => {

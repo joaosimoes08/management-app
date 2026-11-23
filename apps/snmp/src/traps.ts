@@ -159,17 +159,24 @@ export class TrapReceiver {
   /**
    * Phase 1 step 2: one SNMPv3 engine ID per install. SNMP_ENGINE_ID wins unless it is the old shared compose default;
    * otherwise the ID stored on SnmpListenerConfig; otherwise a new one is generated and stored once (first writer wins).
+   * The ID in use and its source are then always persisted (activeEngineId/activeEngineIdSource) so the API reports what
+   * this receiver uses, whatever env the API container has. An env override never replaces the stored install ID.
    */
   async resolveEngineId() {
     const stored = await this.prisma.snmpListenerConfig.findUnique({ where: { id: 'default' }, select: { engineId: true } });
     const choice = chooseEngineId(process.env.SNMP_ENGINE_ID, stored?.engineId);
-    if (choice.source !== 'GENERATED') return choice.engineId;
-    if (!stored) await this.prisma.snmpListenerConfig.create({ data: { id: 'default', engineId: choice.engineId } }).catch(() => undefined);
-    else await this.prisma.snmpListenerConfig.updateMany({ where: { id: 'default', engineId: stored.engineId }, data: { engineId: choice.engineId } });
-    const saved = await this.prisma.snmpListenerConfig.findUnique({ where: { id: 'default' }, select: { engineId: true } });
-    const winner = chooseEngineId(undefined, saved?.engineId, () => choice.engineId).engineId;
-    log('info', 'SNMP engine ID generated for this install', { engineId: winner });
-    return winner;
+    let engineId = choice.engineId;
+    if (choice.source === 'GENERATED') {
+      if (!stored) await this.prisma.snmpListenerConfig.create({ data: { id: 'default', engineId: choice.engineId } }).catch(() => undefined);
+      else await this.prisma.snmpListenerConfig.updateMany({ where: { id: 'default', engineId: stored.engineId }, data: { engineId: choice.engineId } });
+      const saved = await this.prisma.snmpListenerConfig.findUnique({ where: { id: 'default' }, select: { engineId: true } });
+      engineId = chooseEngineId(undefined, saved?.engineId, () => choice.engineId).engineId;
+      log('info', 'SNMP engine ID generated for this install', { engineId });
+    }
+    const activeEngineIdSource = choice.source === 'ENV' ? 'ENV' : 'STORED';
+    await this.prisma.snmpListenerConfig.upsert({ where: { id: 'default' }, create: { id: 'default', activeEngineId: engineId, activeEngineIdSource }, update: { activeEngineId: engineId, activeEngineIdSource } })
+      .catch((error: unknown) => log('warn', 'could not record the SNMP engine ID in use', { errorCode: 'SNMP_ENGINE_ID_PERSIST_FAILED', error: error instanceof Error ? error.message : String(error) }));
+    return engineId;
   }
 
   currentEngineId() { return this.engineId; }
@@ -289,11 +296,8 @@ export class TrapReceiver {
   }
 
   /**
-   * Phase 1 step 2: stores a refused trap as REJECTED (no varbinds, no identity) so the API can raise one alert per
-   * source IP. At most one row per source per REJECTED_TRAP_WINDOW_MS; the rest are only logged.
-   */
-  /**
-   * Global budget for REJECTED and UNMATCHED rows: per-source limits alone let rotating (spoofed) source IPs write
+   * Phase 1 review: one global per-minute budget (SNMP_TRAP_UNTRUSTED_ROWS_PER_MINUTE, default 120) shared by REJECTED
+   * rows and new non-self-test UNMATCHED rows: per-source limits alone let rotating (spoofed) source IPs write
    * thousands of rows a minute. Over budget the trap is only counted; the count is logged once per minute and exposed
    * as the snmp_trap_untrusted_rows_dropped_total metric.
    */
@@ -313,6 +317,12 @@ export class TrapReceiver {
 
   untrustedRowsDropped() { return this.untrustedDroppedTotal; }
 
+  /**
+   * Phase 1 step 2: stores a refused trap as REJECTED (no varbinds, no identity, the PDU's real version) so the API can
+   * raise one alert per source IP. At most one row per source per REJECTED_TRAP_WINDOW_MS, at most
+   * SNMP_TRAP_SOURCE_LIMIT tracked sources, and only while the shared untrusted-row budget allows; rows expire after
+   * REJECTED_TRAP_RETENTION_MS (7 days). Returns whether a row was written; refused ones are only logged/counted.
+   */
   async recordRejected(sourceAddress: string, sourcePort: number, rejection: { errorCode: string; version: 'V1' | 'V2C' | 'V3' }, now = Date.now()) {
     if (!sourceAddress) return false;
     const last = this.rejectedAt.get(sourceAddress);
