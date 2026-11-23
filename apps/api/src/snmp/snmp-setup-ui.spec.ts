@@ -40,13 +40,16 @@ test('the setup panel gets the published trap port (default 162) and whether v2c
 });
 
 test('container mode: the receiver address comes from SNMP_TRAP_PUBLIC_ADDRESS, then a real SNMP_TRAP_HOST_IP, else null with a reason', () => {
-  assert.deepEqual(snmpContainerReceiverView({ publicAddress: ' traps.example.internal ', hostIp: '10.1.1.5', hostPort: '10162' }), { address: 'traps.example.internal', addressSource: 'SNMP_TRAP_PUBLIC_ADDRESS', reason: null, port: 10162 });
+  assert.deepEqual(snmpContainerReceiverView({ publicAddress: ' 192.0.2.21 ', hostIp: '10.1.1.5', hostPort: '10162' }), { address: '192.0.2.21', addressSource: 'SNMP_TRAP_PUBLIC_ADDRESS', reason: null, port: 10162 });
+  assert.deepEqual(snmpContainerReceiverView({ publicAddress: '2001:db8::20' }), { address: '2001:db8::20', addressSource: 'SNMP_TRAP_PUBLIC_ADDRESS', reason: null, port: 162 }, 'IPv6 literal');
   assert.deepEqual(snmpContainerReceiverView({ publicAddress: '192.0.2.20', hostIp: '0.0.0.0' }), { address: '192.0.2.20', addressSource: 'SNMP_TRAP_PUBLIC_ADDRESS', reason: null, port: 162 });
   assert.deepEqual(snmpContainerReceiverView({ publicAddress: '', hostIp: '10.1.1.5' }), { address: '10.1.1.5', addressSource: 'SNMP_TRAP_HOST_IP', reason: null, port: 162 }, 'falls back to the host IP');
-  for (const hostIp of ['0.0.0.0', undefined, '', '::', '127.0.0.1']) {
+  for (const hostIp of ['0.0.0.0', undefined, '', '::', '::1', '127.0.0.1', '999.999.1.1', 'traps.example.internal']) {
     assert.deepEqual(snmpContainerReceiverView({ hostIp }), { address: null, addressSource: null, reason: 'SNMP_TRAP_PUBLIC_ADDRESS_REQUIRED', port: 162 }, `hostIp ${hostIp}`);
   }
-  assert.deepEqual(snmpContainerReceiverView({ publicAddress: 'not a host!', hostIp: '10.1.1.5' }), { address: null, addressSource: null, reason: 'SNMP_TRAP_PUBLIC_ADDRESS_INVALID', port: 162 }, 'a bad explicit value is reported, not silently replaced');
+  for (const publicAddress of ['not a host!', '0.0.0.0', '127.0.0.1', '127.1.2.3', '::', '::1', '::ffff:127.0.0.1', '999.999.1.1', 'traps.example.internal', 'snmp-receiver']) {
+    assert.deepEqual(snmpContainerReceiverView({ publicAddress, hostIp: '10.1.1.5' }), { address: null, addressSource: null, reason: 'SNMP_TRAP_PUBLIC_ADDRESS_INVALID', port: 162 }, `publicAddress ${publicAddress}: reported, not silently replaced`);
+  }
 });
 
 test('host-agent mode is unchanged: no container receiver while the agent reports interfaces', () => {
