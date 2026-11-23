@@ -1754,6 +1754,9 @@ const enUS: LegacyDictionary = {
   'último teste: OK': 'last test: OK',
   'último teste: falhou': 'last test: failed',
   'ainda não testada': 'not tested yet',
+  'teste em curso': 'test in progress',
+  'último teste: bloqueado': 'last test: blocked',
+  'A verificar se o SNMPv2c está disponível…': 'Checking whether SNMPv2c is available…',
   'Copiar endereço do recetor': 'Copy receiver address',
   // SNMP: container-only trap receiver address (SNMP_TRAP_PUBLIC_ADDRESS)
   'Sem endereço do recetor: o servidor não tem SNMP_TRAP_PUBLIC_ADDRESS definido. Define SNMP_TRAP_PUBLIC_ADDRESS no servidor com o IP ou o nome DNS para onde os switches enviam as traps e reinicia a app.': 'No receiver address: SNMP_TRAP_PUBLIC_ADDRESS is not set on the server. Set SNMP_TRAP_PUBLIC_ADDRESS on the server to the IP or DNS name the switches send traps to, then restart the app.',

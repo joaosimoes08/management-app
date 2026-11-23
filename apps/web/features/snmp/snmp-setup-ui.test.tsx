@@ -36,6 +36,31 @@ describe('SnmpSetupPanel', () => {
     expect(mockedFetch).toHaveBeenCalledWith('/api/v1/settings/snmp-listeners');
   });
 
+  it('does not present v2c as allowed (or as disabled) while the receiver settings are loading', async () => {
+    mockedFetch.mockReturnValue(new Promise(() => undefined));
+    wrap(<SnmpSetupPanel managementIp="10.1.1.1" canReadReceiver lastTrapReceivedAt={null} />);
+    expect(await screen.findByText('A verificar se o SNMPv2c está disponível…')).toBeInTheDocument();
+    expect(screen.queryByText('SNMPv2c (polling e traps)')).not.toBeInTheDocument();
+    expect(screen.queryByText(/O SNMPv2c foi desativado/)).not.toBeInTheDocument();
+  });
+
+  it('clears the "Copiado" reset timer when the panel unmounts', async () => {
+    mockedFetch.mockResolvedValue(receiver());
+    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
+    const setTimer = vi.spyOn(window, 'setTimeout');
+    const clearTimer = vi.spyOn(window, 'clearTimeout');
+    const view = wrap(<SnmpSetupPanel managementIp="10.1.1.1" canReadReceiver lastTrapReceivedAt={null} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Copiar: SNMPv3 authPriv (polling e traps)' }));
+    expect(await screen.findByText('Copiado')).toBeInTheDocument();
+    const index = setTimer.mock.calls.findIndex((call) => call[1] === 2500);
+    expect(index).toBeGreaterThanOrEqual(0);
+    const id = setTimer.mock.results[index].value;
+    view.unmount();
+    expect(clearTimer).toHaveBeenCalledWith(id);
+    setTimer.mockRestore();
+    clearTimer.mockRestore();
+  });
+
   it('says the engine ID is not generated yet, shows the last trap, and adds v2c lines with the trade-off note after v3', async () => {
     mockedFetch.mockResolvedValue(receiver({ engineId: null, engineIdSource: null, v2cAllowed: true, trapPort: 1162 }));
     wrap(<SnmpSetupPanel managementIp="10.1.1.1" canReadReceiver lastTrapReceivedAt="2026-11-23T10:00:00.000Z" />);

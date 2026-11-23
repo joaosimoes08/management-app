@@ -75,6 +75,18 @@ export type IosXeSetupInput = {
   v2cAllowed?: boolean;
 };
 
+/** The trap classes the app catalogues (snmp-core trap catalog); v3 and v2c enable the same set, never a bare "enable traps". */
+const TRAP_CLASSES = [
+    'snmp-server enable traps snmp authentication linkdown linkup coldstart warmstart',
+    'snmp-server enable traps envmon',
+    'snmp-server enable traps entity-sensor',
+    'snmp-server enable traps fru-ctrl',
+    'snmp-server enable traps stackwise',
+    'snmp-server enable traps cpu threshold',
+    'snmp-server enable traps errdisable',
+    'snmp-server enable traps config',
+];
+
 /** Copy-ready Cisco IOS-XE lines for SNMPv3 authPriv polling and traps to this app, then v2c unless SNMP_ALLOW_V2C=false. */
 export function iosXeSetupLines(input: IosXeSetupInput): { v3: string; informs: string | null; v2c: string | null } {
   const receiver = input.receiver || RECEIVER_PLACEHOLDER;
@@ -92,14 +104,7 @@ export function iosXeSetupLines(input: IosXeSetupInput): { v3: string; informs: 
     'snmp-server ifindex persist',
     '! trap-source: a interface cujo IP é o IP de gestão deste equipamento na app',
     'snmp-server trap-source <INTERFACE-DE-GESTAO>',
-    'snmp-server enable traps snmp authentication linkdown linkup coldstart warmstart',
-    'snmp-server enable traps envmon',
-    'snmp-server enable traps entity-sensor',
-    'snmp-server enable traps fru-ctrl',
-    'snmp-server enable traps stackwise',
-    'snmp-server enable traps cpu threshold',
-    'snmp-server enable traps errdisable',
-    'snmp-server enable traps config',
+    ...TRAP_CLASSES,
     `snmp-server host ${receiver} version 3 priv ${user}${portSuffix}`,
   ].join('\n');
   const informs = input.engineId ? [
@@ -109,12 +114,12 @@ export function iosXeSetupLines(input: IosXeSetupInput): { v3: string; informs: 
   ].join('\n') : null;
   const v2c = input.v2cAllowed ? [
     '! SNMPv2c: a community segue em texto simples. Use apenas em redes de gestão isoladas.',
-    'ip access-list standard MGMT-APP-SNMP',
+    'ip access-list standard MGMT-APP-SNMP-V2C',
     ` permit host ${receiver}`,
-    'snmp-server community <COMMUNITY> RO MGMT-APP-SNMP',
+    'snmp-server community <COMMUNITY> RO MGMT-APP-SNMP-V2C',
     '! trap-source: a interface cujo IP é o IP de gestão deste equipamento na app',
     'snmp-server trap-source <INTERFACE-DE-GESTAO>',
-    'snmp-server enable traps',
+    ...TRAP_CLASSES,
     `snmp-server host ${receiver} version 2c <COMMUNITY>${portSuffix}`,
   ].join('\n') : null;
   return { v3, informs, v2c };
@@ -161,4 +166,13 @@ export function latestJob(jobs: SnmpJobView[] | undefined, type: string, id?: st
   if (!jobs?.length) return null;
   if (id) return jobs.find((job) => job.id === id) ?? null;
   return jobs.filter((job) => job.type === type).sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))[0] ?? null;
+}
+
+/** The stored outcome of the last test or poll with this credential, in words; never a generic "success". */
+export function lastTestLabel(status?: string | null): string {
+  if (status === 'COMPLETED') return 'último teste: OK';
+  if (status === 'FAILED') return 'último teste: falhou';
+  if (status === 'PENDING' || status === 'RUNNING') return 'teste em curso';
+  if (status === 'BLOCKED') return 'último teste: bloqueado';
+  return 'ainda não testada';
 }

@@ -3637,3 +3637,5 @@ small.alert-next-step::before { content:'→ '; }
   .app-shell .global-topbar .module-tabs-slot .responsive-overflow-popover > * { gap:8px; }
   .app-shell .global-topbar .alerts-popover { position:fixed; top:58px; right:10px; left:10px; width:auto; }
 }
+.snmp-v2c-pending { margin:0; padding:9px 12px; color:var(--muted); border:1px dashed var(--line); border-radius:9px; font-size:12px; line-height:1.45; }
+.snmp-version-options label.pending { opacity:.75; cursor:progress; }

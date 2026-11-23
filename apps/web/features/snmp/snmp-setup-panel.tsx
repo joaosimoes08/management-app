@@ -1,12 +1,12 @@
 'use client';
 
-import { type ReactNode, useEffect, useId, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Check, Clock, Copy, RadioTower, TriangleAlert } from 'lucide-react';
 import { formatDateTime } from '@/lib/format/date';
 import { getSnmpReceiverSettings, snmpReceiverKey } from './api';
 import { containerReceiverView, iosXeSetupLines, receiverAddresses, RECEIVER_PLACEHOLDER } from './snmp-setup';
-import { isV2cAllowed, SnmpV2cDisabledNote, SnmpV2cNote } from './snmp-version';
+import { isV2cAllowed, SnmpV2cDisabledNote, SnmpV2cNote, V2C_PENDING } from './snmp-version';
 
 type Props = {
   /** The switch's management IP in the app; traps are matched on it. */
@@ -33,7 +33,9 @@ export function SnmpSetupPanel({ managementIp, username, authProtocol, privProto
   const container = useMemo(() => containerReceiverView(receiver), [receiver]);
   const port = container?.port ?? receiver?.trapPort ?? 162;
   const lineReceiver = container ? (container.state === 'address' ? container.address : null) : chosen || null;
-  const lines = iosXeSetupLines({ receiver: lineReceiver, port, username, authProtocol, privProtocol, engineId: receiver?.engineId ?? null, v2cAllowed: isV2cAllowed(receiver) });
+  // Until the receiver settings arrive, v2c is unknown: no v2c lines and no "disabled" notice, just a pending line.
+  const v2c = isV2cAllowed(receiver, isLoading);
+  const lines = iosXeSetupLines({ receiver: lineReceiver, port, username, authProtocol, privProtocol, engineId: receiver?.engineId ?? null, v2cAllowed: v2c === true });
   const receiverId = useId();
 
   return <section className="ipam-card snmp-setup-panel" aria-labelledby={`${receiverId}-title`}>
@@ -52,15 +54,18 @@ export function SnmpSetupPanel({ managementIp, username, authProtocol, privProto
     <p className="snmp-setup-warning"><TriangleAlert size={14} /><span>{`O trap-source tem de ser o IP de gestão${managementIp ? ` (${managementIp})` : ''}. Traps vindas de outro IP chegam como desconhecidas e não geram alertas do equipamento.`}</span></p>
     <SetupBlock title="SNMPv3 authPriv (polling e traps)" text={lines.v3} />
     {lines.informs ? <SetupBlock title="Opcional: informs SNMPv3 (com confirmação de entrega)" text={lines.informs} /> : canReadReceiver && receiver && <p className="form-help">Os informs SNMPv3 precisam do engine ID da app, que ainda não existe.</p>}
-    {lines.v2c ? <SetupBlock title="SNMPv2c (polling e traps)" text={lines.v2c} note={<SnmpV2cNote />} /> : <SnmpV2cDisabledNote />}
+    {lines.v2c ? <SetupBlock title="SNMPv2c (polling e traps)" text={lines.v2c} note={<SnmpV2cNote />} /> : v2c === null ? <p className="snmp-v2c-pending" role="status">{V2C_PENDING}</p> : <SnmpV2cDisabledNote />}
   </section>;
 }
 
 function CopyButton({ text, label }: { text: string; label: string }) {
   const [copied, setCopied] = useState<'idle' | 'done' | 'failed'>('idle');
+  const timer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
   const copy = async () => {
     try { await navigator.clipboard.writeText(text); setCopied('done'); } catch { setCopied('failed'); }
-    window.setTimeout(() => setCopied('idle'), 2500);
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => setCopied('idle'), 2500);
   };
   return <button type="button" className="secondary-button snmp-action-button" disabled={!text} onClick={() => void copy()} aria-label={label}>{copied === 'done' ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}{copied === 'done' ? 'Copiado' : copied === 'failed' ? 'Copia manualmente' : 'Copiar'}</button>;
 }

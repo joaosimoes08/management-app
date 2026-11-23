@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -41,9 +41,10 @@ describe('SNMP pre-registration dialog (SNMP Phase 1 step 3)', () => {
     mockedFetch.mockResolvedValue(receiver(true));
     const setForm = vi.fn();
     const { rerender } = wrap(<EnrollmentModal form={form} setForm={setForm} close={() => undefined} submit={async () => undefined} admin />);
-    const v2c = await screen.findByRole('radio', { name: 'SNMPv2c' });
+    await screen.findByRole('radio', { name: 'SNMPv2c' });
+    await waitFor(() => expect(screen.getByRole('radio', { name: 'SNMPv2c' })).toBeEnabled());
     expect(screen.getByRole('radio', { name: /SNMPv3 \(authPriv\)/ })).toBeChecked();
-    fireEvent.click(v2c);
+    fireEvent.click(screen.getByRole('radio', { name: 'SNMPv2c' }));
     expect(setForm).toHaveBeenCalledWith(expect.objectContaining({ version: 'V2C' }));
     rerender(<QueryClientProvider client={new QueryClient()}><EnrollmentModal form={{ ...form, version: 'V2C' }} setForm={setForm} close={() => undefined} submit={async () => undefined} admin /></QueryClientProvider>);
     expect(await screen.findByText('SNMPv2c envia a community em texto simples e não cifra os dados. Use apenas em redes de gestão isoladas; prefira SNMPv3 (authPriv).', { selector: 'fieldset span' })).toBeInTheDocument();

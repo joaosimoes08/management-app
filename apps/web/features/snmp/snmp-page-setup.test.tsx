@@ -63,6 +63,7 @@ describe('SNMP device view: Phase 1 setup', () => {
     });
     wrap(<SnmpPage />);
     const version = await screen.findByRole('group', { name: 'Versão' });
+    await waitFor(() => expect(within(version).getByRole('radio', { name: 'SNMPv2c' })).toBeEnabled());
     const radios = within(version).getAllByRole('radio');
     expect(radios.map((radio) => radio.getAttribute('value'))).toEqual(['V3', 'V2C']);
     expect(radios[0]).toBeChecked();
