@@ -125,6 +125,8 @@ enum SnmpTrapStatus {
   UNMATCHED
   FAILED
   DISCOVERED
+  /// SNMP Phase 1 step 2: refused by the receiver (unknown user or community, bad auth, v1, v2c disabled). Rate-limited per source.
+  REJECTED
 }
 
 enum SnmpTrapEnrollmentStatus {
@@ -1063,6 +1065,8 @@ model SnmpDeviceConfig {
   nextPollAt        DateTime?
   lastStatus        SnmpJobStatus?
   lastErrorCode     String?
+  /// SNMP Phase 1 step 1: failed polls in a row since the last successful one (reset to 0 on success).
+  consecutiveFailures Int          @default(0)
   device            Device         @relation(fields: [deviceId], references: [id], onDelete: Cascade)
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
@@ -1122,6 +1126,8 @@ model SnmpListenerConfig {
   id                 String   @id @default("default")
   listenAll          Boolean  @default(true)
   selectedInterfaces Json     @default("[]")
+  /// SNMP Phase 1 step 2: SNMPv3 engine ID generated once per install (hex). SNMP_ENGINE_ID overrides it unless it is the old shared compose default.
+  engineId           String?
   updatedBy          String?  @db.Uuid
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt

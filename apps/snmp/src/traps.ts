@@ -5,7 +5,7 @@ import { PrismaClient } from '@simoes/database';
 import { Queue } from 'bullmq';
 import * as snmp from 'net-snmp';
 import { decryptStoredCredential, snmpAuthProtocol, snmpPrivProtocol } from './client';
-import { SNMP_JOB_NAMES, decodeTrap, snmpPayload } from '@simoes/snmp-core';
+import { SNMP_JOB_NAMES, SNMP_V2C_DISABLED, chooseEngineId, decodeTrap, snmpPayload, snmpV2cAllowed } from '@simoes/snmp-core';
 import { log } from './log';
 
 export { classifyTrap } from '@simoes/snmp-core';
@@ -67,6 +67,22 @@ export function selfTestExpectedAddresses(listenAll: boolean, selected: unknown,
   })).map((item) => item.address))];
 }
 
+/** Phase 1 step 2: at most one REJECTED row per source IP per window, so a misconfigured or hostile sender cannot flood the table. */
+export const REJECTED_TRAP_WINDOW_MS = 60_000;
+
+export type TrapRejectionCode = 'SNMP_TRAP_UNKNOWN_USER' | 'SNMP_TRAP_UNKNOWN_COMMUNITY' | 'SNMP_TRAP_AUTH_FAILED' | 'SNMP_TRAP_VERSION_UNSUPPORTED' | 'SNMP_TRAP_RATE_LIMITED' | typeof SNMP_V2C_DISABLED;
+
+/**
+ * Maps a net-snmp receiver error to a stable code and the SNMP version it came in. The message can contain the
+ * offered community or user name; only the code is kept, never the message.
+ */
+export function classifyTrapRejection(error: unknown, v2cAllowed = snmpV2cAllowed()): { errorCode: TrapRejectionCode; version: 'V2C' | 'V3' } {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  if (/community/i.test(message)) return { errorCode: v2cAllowed ? 'SNMP_TRAP_UNKNOWN_COMMUNITY' : SNMP_V2C_DISABLED, version: 'V2C' };
+  if (/user .*not found|not found .*user|Local user not found/i.test(message)) return { errorCode: 'SNMP_TRAP_UNKNOWN_USER', version: 'V3' };
+  return { errorCode: 'SNMP_TRAP_AUTH_FAILED', version: 'V3' };
+}
+
 export class TrapReceiver {
   private receivers: any[] = [];
   private boundAddresses: string[] = [];
@@ -74,6 +90,8 @@ export class TrapReceiver {
   private containerInventoryCleaned = false;
   private readonly instanceId = process.env.SNMP_INSTANCE_ID?.trim() || hostname();
   private readonly limits = new Map<string, { window: number; count: number }>();
+  private readonly rejectedAt = new Map<string, number>();
+  private engineId: string | undefined;
   ready = false;
 
   constructor(private readonly prisma: PrismaClient, private readonly queue: Queue) {}
@@ -115,10 +133,29 @@ export class TrapReceiver {
       log('warn', 'no configured SNMP listener is available', { instanceId: this.instanceId, errorCode: 'SNMP_LISTENER_UNAVAILABLE' });
       return;
     }
+    if (!this.engineId) this.engineId = await this.resolveEngineId();
     if (addresses.join('\0') !== this.boundAddresses.join('\0')) await this.bind(addresses);
     await this.reloadCredentials();
     this.ready = true;
   }
+
+  /**
+   * Phase 1 step 2: one SNMPv3 engine ID per install. SNMP_ENGINE_ID wins unless it is the old shared compose default;
+   * otherwise the ID stored on SnmpListenerConfig; otherwise a new one is generated and stored once (first writer wins).
+   */
+  async resolveEngineId() {
+    const stored = await this.prisma.snmpListenerConfig.findUnique({ where: { id: 'default' }, select: { engineId: true } });
+    const choice = chooseEngineId(process.env.SNMP_ENGINE_ID, stored?.engineId);
+    if (choice.source !== 'GENERATED') return choice.engineId;
+    if (!stored) await this.prisma.snmpListenerConfig.create({ data: { id: 'default', engineId: choice.engineId } }).catch(() => undefined);
+    else await this.prisma.snmpListenerConfig.updateMany({ where: { id: 'default', engineId: stored.engineId }, data: { engineId: choice.engineId } });
+    const saved = await this.prisma.snmpListenerConfig.findUnique({ where: { id: 'default' }, select: { engineId: true } });
+    const winner = chooseEngineId(undefined, saved?.engineId, () => choice.engineId).engineId;
+    log('info', 'SNMP engine ID generated for this install', { engineId: winner });
+    return winner;
+  }
+
+  currentEngineId() { return this.engineId; }
 
   private async bind(addresses: string[]) {
     this.ready = false;
@@ -128,16 +165,27 @@ export class TrapReceiver {
       transport: 'udp4',
       disableAuthorization: false,
       includeAuthentication: true,
-      ...(process.env.SNMP_ENGINE_ID ? { engineID: process.env.SNMP_ENGINE_ID } : {}),
+      ...(this.engineId ? { engineID: this.engineId } : {}),
     } as any;
     try {
       for (const address of addresses) {
+        // net-snmp reports authentication failures without the sender; remember it for the synchronous error callback.
+        let current: { address: string; port: number } | undefined;
         const receiver = snmp.createReceiver({ ...options, address }, (error: Error | null, notification: any) => {
-          if (error) return log('warn', 'trap rejected', { errorCode: 'SNMP_TRAP_REJECTED' });
+          if (error) {
+            const source = (error as any)?.rinfo ?? current;
+            log('warn', 'trap rejected', { errorCode: 'SNMP_TRAP_REJECTED', sourceAddress: source?.address });
+            if (source?.address) void this.recordRejected(String(source.address), Number(source.port ?? 0), classifyTrapRejection(error)).catch(() => log('error', 'rejected trap persistence failed', { errorCode: 'SNMP_TRAP_PERSIST_FAILED' }));
+            return;
+          }
           void this.persist(notification).catch(() => log('error', 'trap persistence failed', { errorCode: 'SNMP_TRAP_PERSIST_FAILED' }));
         });
         this.receivers.push(receiver);
         await this.waitForSocket(receiver);
+        for (const socket of Object.values(receiver?.listener?.sockets ?? {}) as any[]) {
+          socket.prependListener?.('message', (_buffer: Buffer, rinfo: { address: string; port: number }) => { current = rinfo; });
+          socket.on?.('message', () => { current = undefined; });
+        }
       }
       this.boundAddresses = [...addresses];
       log('info', 'trap receiver ready', { port: options.port, addresses });
@@ -177,6 +225,8 @@ export class TrapReceiver {
       const usernames = new Set<string>();
       for (const credential of [...credentials, ...enrollments]) {
         try {
+          // Phase 1 step 1.3: without the lab flag no community is loaded, so every v2c trap is refused and recorded as REJECTED.
+          if (credential.version === 'V2C' && !snmpV2cAllowed()) continue;
           const secret = decryptStoredCredential(credential as any);
           if (credential.version === 'V2C') {
             if (!communities.has(secret.community)) { authorizer.addCommunity(secret.community); communities.add(secret.community); }
@@ -221,16 +271,42 @@ export class TrapReceiver {
     return current.count <= Number(process.env.SNMP_TRAP_RATE_LIMIT ?? 120);
   }
 
+  /**
+   * Phase 1 step 2: stores a refused trap as REJECTED (no varbinds, no identity) so the API can raise one alert per
+   * source IP. At most one row per source per REJECTED_TRAP_WINDOW_MS; the rest are only logged.
+   */
+  async recordRejected(sourceAddress: string, sourcePort: number, rejection: { errorCode: string; version: 'V2C' | 'V3' }, now = Date.now()) {
+    if (!sourceAddress) return false;
+    const last = this.rejectedAt.get(sourceAddress);
+    if (last !== undefined && now - last < REJECTED_TRAP_WINDOW_MS) return false;
+    if (last === undefined && this.rejectedAt.size >= Number(process.env.SNMP_TRAP_SOURCE_LIMIT ?? 10_000)) {
+      for (const [source, at] of this.rejectedAt) if (now - at >= REJECTED_TRAP_WINDOW_MS) this.rejectedAt.delete(source);
+      if (this.rejectedAt.size >= Number(process.env.SNMP_TRAP_SOURCE_LIMIT ?? 10_000)) return false;
+    }
+    this.rejectedAt.set(sourceAddress, now);
+    await this.prisma.snmpTrapEvent.create({ data: { sourceAddress, sourcePort, version: rejection.version, authIdentity: fingerprint(''), pduType: 'REJECTED', varbinds: [], status: 'REJECTED', errorCode: rejection.errorCode, expiresAt: new Date(now + 90 * 24 * 60 * 60 * 1000) } });
+    return true;
+  }
+
   private async persist(notification: any) {
     const pdu = notification.pdu ?? {}; const rinfo = notification.rinfo ?? {};
+    const sourceAddress = String(rinfo.address ?? '');
     if (!isSupportedNotificationPdu(pdu.type)) {
       log('warn', 'unsupported notification rejected', { errorCode: 'SNMP_VERSION_UNSUPPORTED' });
+      await this.recordRejected(sourceAddress, Number(rinfo.port ?? 0), { errorCode: 'SNMP_TRAP_VERSION_UNSUPPORTED', version: 'V2C' });
       return;
     }
-    const sourceAddress = String(rinfo.address ?? '');
-    if (!this.allowed(sourceAddress) || !Array.isArray(pdu.varbinds) || pdu.varbinds.length > 128) return;
+    if (!this.allowed(sourceAddress)) {
+      await this.recordRejected(sourceAddress, Number(rinfo.port ?? 0), { errorCode: 'SNMP_TRAP_RATE_LIMITED', version: pdu.version === snmp.Version3 || pdu.user ? 'V3' : 'V2C' });
+      return;
+    }
+    if (!Array.isArray(pdu.varbinds) || pdu.varbinds.length > 128) return;
     const rawIdentity = String(pdu.community ?? pdu.user?.name ?? pdu.user ?? pdu.securityName ?? '');
     const version = pdu.version === snmp.Version3 || pdu.user || pdu.securityName ? 'V3' : 'V2C';
+    if (version === 'V2C' && !snmpV2cAllowed()) {
+      await this.recordRejected(sourceAddress, Number(rinfo.port ?? 0), { errorCode: SNMP_V2C_DISABLED, version });
+      return;
+    }
     const [devices, enrollments] = await Promise.all([
       this.prisma.device.findMany({ where: { managementIp: sourceAddress }, include: { snmpCredentials: { where: { purpose: 'TRAP', enabled: true } } } }),
       this.prisma.snmpTrapEnrollment.findMany({ where: { sourceAddress, status: { in: ['WAITING', 'DISCOVERED'] }, expiresAt: { gt: new Date() } } }),

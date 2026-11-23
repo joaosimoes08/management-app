@@ -208,9 +208,20 @@ test('uptime comes from the stored uptimeTicks column first, parsed as a number,
   assert.equal(trapAlertCandidates([down], [lateUp]).length, 1);
 });
 
-function fakeDb(traps: TrapAlertSource[], open: Array<{ id: string; dedupKey: string; entityId: string }>, recoveries: TrapAlertSource[], boots: unknown[] = []) {
+/** Uplink fixture: dev-1 Gi1/0/1 (ifIndex 9) is documented as connected to another switch. */
+const UPLINK = { interfaceId: 'if-uplink', deviceId: 'dev-1', ifIndex: 9, name: 'GigabitEthernet1/0/1' };
+function uplinkDb(uplinks: Array<typeof UPLINK> = [UPLINK], peerType = 'SWITCH') {
+  return {
+    deviceConnection: { findMany: async () => uplinks.map((item) => ({ sourceDeviceId: item.deviceId, sourceInterfaceId: item.interfaceId, targetDeviceId: 'peer', targetInterfaceId: null, sourceDevice: { type: 'SWITCH' }, targetDevice: { type: peerType } })) },
+    deviceInterface: { findMany: async (args: any) => uplinks.filter((item) => args.where.id.in.includes(item.interfaceId)).map((item) => ({ id: item.interfaceId, deviceId: item.deviceId, name: item.name, portKey: null })) },
+    snmpInterfaceObservation: { findMany: async (args: any) => uplinks.filter((item) => args.where.deviceInterfaceId.in.includes(item.interfaceId)).map((item) => ({ deviceInterfaceId: item.interfaceId, ifIndex: item.ifIndex })) },
+  };
+}
+
+function fakeDb(traps: TrapAlertSource[], open: Array<{ id: string; dedupKey: string; entityId: string; occurrenceCount?: number }>, recoveries: TrapAlertSource[], boots: unknown[] = [], uplinks = uplinkDb()) {
   const calls: any[] = [];
   return {
+    ...uplinks,
     calls,
     snmpTrapEvent: { findMany: async (args: any) => {
       calls.push(args);
@@ -264,7 +275,8 @@ test('without resolveKeys a capped reconcile resolves nothing (previous behaviou
 test('clearedTrapAlertKeys lists only problems with a later recovery', () => {
   const down = trap('linkDown Gi1/0/1', 10, { dedupKey: 'k1' });
   const fan = trap('envmon fan critical', 10);
-  assert.deepEqual(clearedTrapAlertKeys([down, fan], [trap('linkUp Gi1/0/1', 1)]), ['snmp:trap:k1']);
+  // a port problem clears both its legacy per-trap key and its per-port group key
+  assert.deepEqual(clearedTrapAlertKeys([down, fan], [trap('linkUp Gi1/0/1', 1)]), ['snmp:trap:k1', 'snmp:trap:device:dev-1:interface:9']);
 });
 
 test('reconcileSource resolves cleared keys in batches of 1,000', async () => {
@@ -291,8 +303,9 @@ test('collectTrapAlerts loads boot traps in any status by device or source IP an
   assert.deepEqual(clean.resolveKeys, [`snmp:trap:${down.id}`]);
   const db = fakeDb([down], open, [up], [bootTrap(20)]);
   const blocked = await collectTrapAlerts(db as never, new Date(Date.now() - 24 * 3600_000));
-  assert.deepEqual(blocked.resolveKeys, []);
-  assert.equal(blocked.candidates.length, 1);
+  // the boot blocks the clear: the port stays alerted under its per-port key; only the legacy per-trap key is retired
+  assert.deepEqual(blocked.resolveKeys, [`snmp:trap:${down.id}`]);
+  assert.deepEqual(blocked.candidates.map((candidate) => candidate.dedupKey), ['snmp:trap:device:dev-1:interface:9']);
   const bootArgs = db.calls.find((args) => args.where?.trapOid?.in?.includes('1.3.6.1.6.3.1.1.5.1'));
   assert.equal(bootArgs.where.status, undefined, 'no status filter: PENDING/UNMATCHED/DISCOVERED boots count');
   assert.deepEqual(bootArgs.where.trapOid.in, ['1.3.6.1.6.3.1.1.5.1', '1.3.6.1.6.3.1.1.5.2']);
@@ -344,4 +357,95 @@ test('pageAll does not warn at exactly 40 × 500 rows, only when a further row e
     assert.equal(takes[39], 501, 'last page fetches one extra row');
     assert.equal(warnings.length, 0);
   } finally { Logger.prototype.warn = original; }
+});
+
+// ---- SNMP Phase 1 step 1.1: no age-based resolve ----
+
+test('regression: an open alert whose trap is older than 24 h stays open (no 24 h auto-resolve)', async () => {
+  const removed = trap('fru removed', 26 * 60); // 26 h old, no recovery since
+  const oldDown = trap('linkDown Gi1/0/1', 30 * 60); // 30 h old uplink down, no linkUp since
+  const open = [
+    { id: 'a-fru', dedupKey: `snmp:trap:${removed.id}`, entityId: removed.id, occurrenceCount: 1 },
+    { id: 'a-port', dedupKey: 'snmp:trap:device:dev-1:interface:9', entityId: oldDown.id, occurrenceCount: 4 },
+  ];
+  // nothing WARNING+ in the last 24 h: the window query returns no rows, older traps load by id
+  const db = fakeDb([removed, oldDown], open, []);
+  (db.snmpTrapEvent as any).findMany = async (args: any) => args.where?.id?.in ? [removed, oldDown].filter((item) => args.where.id.in.includes(item.id)) : [];
+  const result = await collectTrapAlerts(db as never, new Date(Date.now() - 24 * 3600_000));
+  assert.equal(result.resolveMissing, false, 'never resolve by absence');
+  assert.deepEqual(result.resolveKeys, []);
+  assert.deepEqual(result.candidates.map((candidate) => candidate.dedupKey).sort(), [`snmp:trap:${removed.id}`, 'snmp:trap:device:dev-1:interface:9'].sort());
+  assert.equal(result.candidates.find((candidate) => candidate.dedupKey.endsWith(':interface:9'))?.occurrenceCount, 4, 'count never goes down');
+
+  // through reconcileSource the alerts stay OPEN
+  const statuses = new Map(open.map((alert) => [alert.dedupKey, 'OPEN']));
+  const prisma = { operationalAlert: {
+    findUnique: async ({ where }: any) => ({ id: where.dedupKey, status: statuses.get(where.dedupKey), severity: 'HIGH' }),
+    update: async ({ where }: any) => ({ id: where.id, severity: 'HIGH', lastOccurredAt: new Date() }),
+    findMany: async () => { throw new Error('resolveMissing must stay off'); },
+    updateMany: async () => { throw new Error('must not resolve'); },
+  } };
+  const service = new OperationsService(prisma as never, {} as never, {} as never, {} as never);
+  (service as any).publish = async () => undefined;
+  assert.deepEqual(await service.reconcileSource('SNMP_TRAP', result.candidates, undefined, result.resolveMissing, result.resolveKeys), { active: 2, resolved: 0 });
+});
+
+test('an old problem still resolves on its real clear', async () => {
+  const oldDown = trap('linkDown Gi1/0/1', 30 * 60);
+  const up = trap('linkUp Gi1/0/1', 5);
+  const db = fakeDb([oldDown], [{ id: 'a-port', dedupKey: 'snmp:trap:device:dev-1:interface:9', entityId: oldDown.id }], [up]);
+  (db.snmpTrapEvent as any).findMany = async (args: any) => args.where?.id?.in ? [oldDown] : args.where?.status === 'PROCESSED' && !args.cursor ? [up] : [];
+  const result = await collectTrapAlerts(db as never, new Date(Date.now() - 24 * 3600_000));
+  assert.deepEqual(result.candidates, []);
+  assert.deepEqual(result.resolveKeys, ['snmp:trap:device:dev-1:interface:9']);
+});
+
+// ---- SNMP Phase 1 step 2.1: one alert per port, uplinks only ----
+
+const otherPort = (minutesAgo: number) => trap('linkDown Gi1/0/1', minutesAgo, { trapOid: '1.3.6.1.6.3.1.1.5.3', varbinds: [{ oid: '1.3.6.1.2.1.2.2.1.1.11', type: 2, value: 11 }] });
+
+test('a flapping uplink raises one HIGH alert with an occurrence count', async () => {
+  const downs = [trap('linkDown Gi1/0/1', 50), trap('linkDown Gi1/0/1', 30), trap('linkDown Gi1/0/1', 10)];
+  const ups = [trap('linkUp Gi1/0/1', 40), trap('linkUp Gi1/0/1', 20)];
+  const result = await collectTrapAlerts(fakeDb(downs, [], ups) as never, new Date(Date.now() - 24 * 3600_000));
+  assert.equal(result.candidates.length, 1);
+  const [alert] = result.candidates;
+  assert.equal(alert.dedupKey, 'snmp:trap:device:dev-1:interface:9');
+  assert.equal(alert.severity, 'HIGH');
+  assert.equal(alert.occurrenceCount, 3);
+  assert.equal(alert.entityId, downs[2].id, 'points at the latest linkDown');
+  assert.match(alert.detail, /3 ocorrências/);
+  // the latest linkDown is followed by a linkUp: the whole port group clears
+  const cleared = await collectTrapAlerts(fakeDb(downs, [{ id: 'a', dedupKey: alert.dedupKey, entityId: downs[2].id }], [...ups, trap('linkUp Gi1/0/1', 5)]) as never, new Date(Date.now() - 24 * 3600_000));
+  assert.deepEqual(cleared.candidates, []);
+  assert.deepEqual(cleared.resolveKeys, [alert.dedupKey]);
+});
+
+test('only uplinks alert: other ports, non-network peers and unmapped ports are stored without an alert', async () => {
+  const cutoff = new Date(Date.now() - 24 * 3600_000);
+  const access = otherPort(10);
+  const legacy = [{ id: 'a-legacy', dedupKey: `snmp:trap:${access.id}`, entityId: access.id }];
+  const notUplink = await collectTrapAlerts(fakeDb([access], legacy, []) as never, cutoff);
+  assert.deepEqual(notUplink.candidates, []);
+  assert.deepEqual(notUplink.resolveKeys, [`snmp:trap:${access.id}`], 'a pre-Phase-1 alert on an access port is retired');
+  const toServer = await collectTrapAlerts(fakeDb([trap('linkDown Gi1/0/1', 10)], [], [], [], uplinkDb([UPLINK], 'SERVER')) as never, cutoff);
+  assert.deepEqual(toServer.candidates, [], 'a link to a server is not an uplink');
+  const noTopology = await collectTrapAlerts(fakeDb([trap('linkDown Gi1/0/1', 10)], [], [], [], uplinkDb([])) as never, cutoff);
+  assert.deepEqual(noTopology.candidates, []);
+  // ifName match when the poll has not mapped the ifIndex yet
+  const byName = { ...UPLINK, ifIndex: 999 };
+  const named = trap('linkDown Gi1/0/1', 10);
+  const decoded = decodeTrap(named.trapOid, named.varbinds);
+  const nameDb = uplinkDb([{ ...byName, name: String(decoded.fields.ifName) }]);
+  assert.equal(decoded.fields.ifName, 'GigabitEthernet1/0/1');
+  assert.equal((await collectTrapAlerts(fakeDb([named], [], [], [], nameDb) as never, cutoff)).candidates.length, 1);
+  // non-port traps are unaffected by the uplink rule
+  assert.equal((await collectTrapAlerts(fakeDb([trap('fru removed', 10)], [], [], [], uplinkDb([])) as never, cutoff)).candidates.length, 1);
+});
+
+test('a pre-Phase-1 per-trap uplink alert moves to the per-port key', async () => {
+  const down = trap('linkDown Gi1/0/1', 10);
+  const result = await collectTrapAlerts(fakeDb([down], [{ id: 'a-legacy', dedupKey: `snmp:trap:${down.id}`, entityId: down.id }], []) as never, new Date(Date.now() - 24 * 3600_000));
+  assert.deepEqual(result.candidates.map((candidate) => candidate.dedupKey), ['snmp:trap:device:dev-1:interface:9']);
+  assert.deepEqual(result.resolveKeys, [`snmp:trap:${down.id}`]);
 });

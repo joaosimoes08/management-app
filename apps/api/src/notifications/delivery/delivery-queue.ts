@@ -4,7 +4,11 @@ import type { NotificationTopic } from '../notification-preferences';
 
 export const OPERATIONAL_ALERT_TOPIC = 'OPERATIONAL_ALERT';
 export const TEST_TOPIC = 'TEST';
-export const DEFAULT_GROUP_MIN_SEVERITY: OperationalAlertSeverity = 'HIGH';
+/**
+ * SNMP Phase 1 step 1.2: there is no default destination or severity in code. A group channel sends only when the
+ * setup page has saved both its destination and its minimum severity; until then nothing is sent and
+ * groupDeliveryReadiness tells the setup page what is missing.
+ */
 export const GROUP_SEVERITIES = ['CRITICAL', 'HIGH'] as const;
 
 type Db = Prisma.TransactionClient | PrismaClient;
@@ -38,6 +42,17 @@ export function isConfigured(row: ConfigRow | null | undefined, server: ConfigRo
 
 async function configRows(db: Db) {
   return db.deliveryChannelConfig.findMany({ select: { kind: true, target: true, enabled: true, keyId: true, minSeverity: true, settings: true } });
+}
+
+export type GroupDeliveryMissing = 'enabled' | 'destination' | 'minSeverity';
+
+/** What a group channel still needs before it sends anything (empty = ready). Order is stable for the UI. */
+export function groupDeliveryReadiness(row: ConfigRow | null | undefined, server: ConfigRow | null | undefined) {
+  const missing: GroupDeliveryMissing[] = [];
+  if (!row?.enabled) missing.push('enabled');
+  if (!isConfigured(row, server)) missing.push('destination');
+  if (!row?.minSeverity) missing.push('minSeverity');
+  return { ready: missing.length === 0, missing };
 }
 
 /** Usable = enabled and holding everything it needs to send. */
@@ -94,8 +109,8 @@ export async function queueAlertDelivery(db: Db, alert: AlertForDelivery, occurr
   const rows = await configRows(db);
   const kinds = DELIVERY_KINDS.filter((kind) => {
     const config = usable(rows, kind, 'GROUP_ALERTS');
-    const threshold = config?.minSeverity ?? DEFAULT_GROUP_MIN_SEVERITY;
-    return config && (ALERT_SEVERITY_RANK[alert.severity] ?? 99) <= (ALERT_SEVERITY_RANK[threshold] ?? 0);
+    if (!config?.minSeverity) return false;
+    return (ALERT_SEVERITY_RANK[alert.severity] ?? 99) <= (ALERT_SEVERITY_RANK[config.minSeverity] ?? -1);
   });
   if (!kinds.length) return false;
   if (alert.severity !== 'CRITICAL') {
