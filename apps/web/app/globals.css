@@ -3237,3 +3237,80 @@ a.dashboard-kpi:focus-visible { box-shadow:0 9px 24px rgba(35,55,87,.09); outlin
   .context-toolbar .interface-toolbar-controls > label > select,
   .context-toolbar .saved-views > label > select { max-width:100px; }
 }
+
+/* First-login setup: onboarding modal card (step navigator left, step content right). */
+.onboarding-page { padding:40px 24px; background:radial-gradient(ellipse at 20% 0%,#eef2fd 0%,#e2e8fa 45%,#d9e0f6 100%); }
+/* Fixed size on every step (sized to the tallest step, Site); the step content scrolls inside when a short window can't fit it. */
+.onboarding-card { display:grid; grid-template-columns:minmax(260px,380px) minmax(0,1fr); width:min(940px,100%); height:min(var(--onboarding-card-h), calc(100vh - 80px)); min-height:min(480px, calc(100vh - 80px)); overflow:hidden; --onboarding-card-h:700px; background:var(--panel); border:1px solid rgba(255,255,255,.8); border-radius:14px; box-shadow:0 24px 64px rgba(31,49,77,.16); }
+.onboarding-nav { display:flex; flex-direction:column; min-height:0; padding:34px 28px; background:#f9fafc; border-right:1px solid #edf0f5; }
+.onboarding-head { display:flex; flex:none; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:28px; }
+.onboarding-head h1 { margin:0; color:var(--ink); font-size:26px; font-weight:700; line-height:1.15; letter-spacing:-.6px; }
+.onboarding-head p { margin:8px 0 0; color:var(--muted); font-size:12px; line-height:1.5; }
+.onboarding-ring { position:relative; display:grid; place-items:center; flex:0 0 56px; width:56px; height:56px; }
+.onboarding-ring svg { position:absolute; inset:0; width:100%; height:100%; transform:rotate(-90deg); }
+.onboarding-ring circle { fill:none; stroke-width:5; }
+.onboarding-ring-track { stroke:#e6ebf2; }
+.onboarding-ring-value { stroke:#4cb57f; stroke-linecap:round; }
+.onboarding-ring span { position:relative; color:var(--ink); font-size:13px; font-weight:600; font-variant-numeric:tabular-nums; }
+/* Desktop: the step list fills the nav below the header; equal rows grow (capped) and shrink before anything clips. */
+.onboarding-steps { display:flex; flex:1; flex-direction:column; gap:8px; min-height:0; margin:0; padding:0; list-style:none; }
+.onboarding-step { position:relative; isolation:isolate; display:flex; flex:1 1 0; align-items:center; gap:16px; min-height:64px; max-height:132px; padding:10px 14px; margin:0 -14px; color:#9aa5b5; border-radius:10px; font-size:15px; }
+/* Connector: from 3px below this circle (40px) to 3px above the next one; rows are equal height and 8px apart. */
+.onboarding-step:not(:last-child)::after { content:''; position:absolute; top:calc(50% + 23px); left:33.25px; height:calc(100% + 8px - 46px); border-left:1.5px dashed #c9d1dd; }
+.onboarding-step-icon { display:grid; place-items:center; flex:0 0 40px; width:40px; height:40px; color:#9aa5b5; background:#eef1f5; border-radius:50%; }
+.onboarding-step-text { display:flex; flex:1; flex-direction:column; gap:3px; min-width:0; }
+.onboarding-step-label { line-height:1.25; }
+.onboarding-step-desc { color:#8a95a6; font-size:12px; font-weight:400; line-height:1.4; }
+.onboarding-step.done .onboarding-step-desc,.onboarding-step.current .onboarding-step-desc { color:var(--muted); }
+.onboarding-step.done { color:#3b4a60; }
+.onboarding-step.done .onboarding-step-icon { color:#3a9a6a; background:#e3f5eb; }
+.onboarding-step.current { color:var(--ink); font-weight:600; }
+.onboarding-step-highlight { position:absolute; z-index:-1; inset:0; background:#eceff4; border-radius:10px; }
+.onboarding-step.current .onboarding-step-icon { color:#fff; background:var(--ink); }
+.onboarding-step-arrow { flex:none; color:#8995a7; }
+.onboarding-content { position:relative; display:flex; flex-direction:column; min-width:0; min-height:0; overflow:hidden; padding:40px 40px 32px; }
+.onboarding-preview-badge { position:absolute; top:16px; right:16px; padding:4px 10px; color:#8a5a12; background:#fff4df; border:1px solid #f1dcb4; border-radius:999px; font-size:11px; font-weight:600; }
+.onboarding-stage,.onboarding-panel { display:flex; flex:1; flex-direction:column; min-height:0; }
+.onboarding-stage.stagger .onboarding-body > * { animation:onboarding-rise .24s cubic-bezier(.22,1,.36,1) both; }
+.onboarding-stage.stagger .onboarding-body > :nth-child(2) { animation-delay:30ms; }
+.onboarding-stage.stagger .onboarding-body > :nth-child(3) { animation-delay:60ms; }
+.onboarding-stage.stagger .onboarding-body > :nth-child(n+4) { animation-delay:90ms; }
+@keyframes onboarding-rise { from { opacity:0; transform:translateY(6px); } }
+/* Step headings take focus programmatically after each transition (tabIndex=-1): no visible ring. Controls keep theirs. */
+.onboarding-stage h2[tabindex="-1"]:focus,.onboarding-stage h2[tabindex="-1"]:focus-visible { outline:none; }
+/* Only the step body scrolls; the footer stays pinned. The pseudo spacers centre short steps without clipping the top of tall ones. Padding/negative margin keeps input focus rings inside the scroll box. */
+.onboarding-body { display:flex; flex:1; flex-direction:column; min-height:0; margin:-4px; padding:4px; overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; }
+.onboarding-body::before,.onboarding-body::after { content:''; flex:1 0 0; }
+.onboarding-body h2 { margin:0 0 10px; color:var(--ink); font-size:20px; font-weight:700; letter-spacing:-.3px; }
+.onboarding-body > p { max-width:520px; margin:0 0 24px; color:var(--muted); font-size:13px; line-height:1.6; }
+.onboarding-body .setup-field { color:#56647a; font-size:11px; font-weight:500; }
+.onboarding-body .setup-field input,.onboarding-body .setup-field select { color:var(--ink); border-color:var(--line); border-radius:9px; font:12px "DM Sans",Arial,sans-serif; }
+.onboarding-body .setup-field input:focus,.onboarding-body .setup-field select:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(49,95,197,.14); }
+.onboarding-body .setup-location { background:#f9fafc; border-color:#edf0f5; }
+.onboarding-body .setup-success { align-self:flex-start; margin-bottom:20px; border-radius:50%; }
+.onboarding-actions { display:flex; flex:none; align-items:center; justify-content:space-between; gap:12px; min-height:40px; margin-top:24px; }
+.onboarding-back { display:grid; place-items:center; flex:0 0 40px; width:40px; height:40px; padding:0; color:#4b586c; background:#fff; border:1.5px solid #7f8a9b; border-radius:50%; cursor:pointer; }
+.onboarding-back:hover { color:var(--ink); background:#f4f6f9; }
+.onboarding-primary { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:40px; margin-left:auto; padding:0 26px; color:#fff; background:var(--blue); border:0; border-radius:999px; box-shadow:0 6px 16px rgba(49,95,197,.25); font-size:13px; font-weight:600; cursor:pointer; }
+.onboarding-primary:hover:not(:disabled) { background:#2a52ad; }
+.onboarding-primary:disabled { cursor:not-allowed; opacity:.5; box-shadow:none; }
+.onboarding-back:focus-visible,.onboarding-primary:focus-visible { outline:3px solid #8fa8ec; outline-offset:2px; }
+@media (max-width:720px) {
+  .onboarding-page { padding:0; place-items:stretch; }
+  .onboarding-card { display:flex; flex-direction:column; width:100%; height:100vh; height:100dvh; min-height:0; border:0; border-radius:0; box-shadow:none; }
+  .onboarding-nav { flex:none; padding:22px 20px 16px; border-right:0; border-bottom:1px solid #edf0f5; }
+  .onboarding-head { margin-bottom:18px; }
+  .onboarding-head h1 { font-size:22px; }
+  .onboarding-steps { display:grid; flex:none; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; }
+  .onboarding-step { flex-direction:column; gap:6px; min-height:0; max-height:none; margin:0; padding:8px 4px; text-align:center; font-size:10px; }
+  .onboarding-step-label { line-height:normal; }
+  .onboarding-step-desc { display:none; }
+  .onboarding-step:not(:last-child)::after { display:none; }
+  .onboarding-step-icon { flex-basis:32px; width:32px; height:32px; }
+  .onboarding-step-arrow { display:none; }
+  .onboarding-content { flex:1; padding:24px 20px 20px; }
+  .onboarding-preview-badge { position:static; align-self:flex-start; margin-bottom:12px; }
+  .onboarding-body::before,.onboarding-body::after { display:none; }
+  .onboarding-body .form-row { grid-template-columns:1fr; }
+}
+@media (prefers-reduced-motion:reduce) { .onboarding-stage.stagger .onboarding-body > * { animation:none; } }
