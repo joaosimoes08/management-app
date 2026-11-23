@@ -3536,3 +3536,106 @@ small.alert-next-step::before { content:'→ '; }
 .schedule-limits small { grid-column:1 / -1; color:var(--muted); font-size:9px; line-height:1.4; }
 @media (max-width:780px) { .discovery-flow-steps { grid-template-columns:1fr; } .discovery-flow-steps li + li::before { content:none; } .schedule-form fieldset.schedule-limits { grid-template-columns:1fr; } }
 @media (prefers-reduced-motion:reduce) { .discovery-progress-fill { transition:none; } }
+/* SNMP plan step 1.3 rev. 4: version picker (v3 recommended, v2c with its trade-off note). Text colours are >= 4.5:1 on their backgrounds. */
+.snmp-version-field { display:grid; gap:8px; min-width:0; margin:0; padding:0; border:0; grid-column:1 / -1; }
+.snmp-version-field legend { margin-bottom:6px; padding:0; color:var(--muted); font-size:inherit; }
+.snmp-version-field .snmp-version-options { display:flex; flex-wrap:wrap; gap:8px; }
+.snmp-version-field .snmp-version-options label { display:inline-flex; flex-direction:row; align-items:center; gap:8px; min-height:38px; margin:0; padding:8px 12px; color:#252126; border:1px solid var(--line); border-radius:8px; background:#fff; font-size:12px; cursor:pointer; }
+.snmp-version-field .snmp-version-options label.selected { border-color:#252126; box-shadow:0 0 0 1px #252126 inset; }
+.snmp-version-field .snmp-version-options label:focus-within { box-shadow:0 0 0 3px rgba(40,34,38,.14); }
+.snmp-version-field .snmp-version-options input[type="radio"] { width:15px; height:15px; min-height:0; margin:0; padding:0; accent-color:#252126; }
+.snmp-version-badge { padding:2px 7px; border-radius:999px; background:#e3f3e7; color:#1a5c2c; font-size:10px; font-weight:600; letter-spacing:.01em; }
+.snmp-v2c-note,.snmp-v2c-disabled { display:flex; align-items:flex-start; gap:8px; margin:0; padding:9px 12px; border-radius:9px; font-size:12px; line-height:1.45; }
+.snmp-v2c-note { border:1px solid #e9c46a; border-left:4px solid #b7791f; background:#fff8e6; color:#5c3d00; }
+.snmp-v2c-disabled { border:1px solid var(--line); background:#f6f5f6; color:#3b363c; }
+.snmp-v2c-note svg,.snmp-v2c-disabled svg { flex:0 0 auto; margin-top:2px; }
+.snmp-setup-block .snmp-v2c-note { margin:6px 0; }
+.snmp-field-error { color:#b42318!important; font-weight:600; }
+.settings-snmp-versions { display:grid; gap:8px; }
+.settings-snmp-versions ul { display:flex; flex-wrap:wrap; gap:8px; margin:0; padding:0; list-style:none; }
+.settings-snmp-versions li { display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border:1px solid var(--line); border-radius:8px; font-size:12px; }
+
+/* UX re-check 2026-11-23: setup panel visible in the pre-register dialog, unknown-traps pointers, 360 px layout. */
+.severity-legend.open { padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:#fff; color:#4f4b52; }
+.severity-legend.open h3 { margin:0; font-size:11px; font-weight:600; color:#242124; }
+.snmp-enrollment-modal { width:min(640px,100%); }
+.snmp-enrollment-modal .snmp-setup-panel { padding:12px; border:1px solid var(--line); box-shadow:none; }
+.snmp-enrollment-modal .modal-actions { position:sticky; bottom:-20px; margin:8px -20px -20px; padding:12px 20px; background:#fff; border-top:1px solid var(--line); }
+.modal-form label > small { display:block; margin-top:4px; color:#5f5b62; font-size:10px; line-height:1.4; }
+.snmp-setup-receiver { display:inline-flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.snmp-setup-panel, .snmp-setup-block { min-width:0; }
+.snmp-setup-block pre { max-width:100%; }
+.snmp-unknown-pointer { display:flex; align-items:flex-start; gap:10px; }
+.snmp-unknown-pointer p { margin:0; color:#4f4b52; font-size:11px; line-height:1.5; }
+.snmp-unknown-link, .discovery-flow-note a { color:#1d4ed8; font-weight:600; text-decoration:underline; text-underline-offset:2px; }
+.snmp-unknown-link:focus-visible, .discovery-flow-note a:focus-visible { outline:2px solid #1d4ed8; outline-offset:2px; border-radius:3px; }
+.snmp-unknown-restricted { color:#4f4b52; }
+.no-data .snmp-unknown-link, .no-data .snmp-unknown-restricted { display:block; margin-top:6px; }
+.snmp-unknown-table .table-actions { white-space:normal; }
+.snmp-unknown-table .button-row { display:flex; flex-wrap:wrap; gap:6px; }
+@media (max-width:480px) {
+  .snmp-enrollment-modal { padding:16px; }
+  .snmp-enrollment-modal .modal-actions { bottom:-16px; margin:8px -16px -16px; padding:12px 16px; flex-wrap:wrap; }
+  .snmp-enrollment-modal .form-row { grid-template-columns:1fr; }
+  .snmp-setup-facts { grid-template-columns:1fr; }
+  .snmp-unknown-table .button-row > * { flex:1 1 auto; }
+}
+
+/* SNMP accessibility: muted text at >= 4.5:1 and a visible focus ring on every field (WCAG 1.4.3, 2.4.7, 1.4.11). */
+.snmp-workspace,.snmp-wizard,.snmp-setup-panel,.snmp-enrollment-modal,.snmp-topbar-controls { --muted:#6b6970; }
+.snmp-device-bar select:disabled,.snmp-form-grid select:disabled { color:#6b6970; }
+:is(.snmp-workspace,.snmp-wizard,.snmp-setup-panel,.snmp-enrollment-modal,.snmp-topbar-controls) :is(input,select,textarea):focus-visible {
+  outline:3px solid #4f66c5 !important;
+  outline-offset:2px !important;
+}
+
+/* Narrow screens (UX recheck N-A to N-D). The SNMP views and the Descoberta Rede/SNMP switch get an in-page select at <= 780px,
+   because the top-bar tabs can be pushed off-screen; /alertas filters stack; unknown-trap sources and alerts become cards at <= 480px. */
+.narrow-view-switch { display:none; }
+@media (max-width:780px) {
+  .narrow-view-switch { display:grid; gap:5px; margin:0 0 14px; }
+  .narrow-view-switch label { color:#6b6970; font-size:11px; font-weight:650; }
+  .narrow-view-switch select { box-sizing:border-box; width:100%; min-height:40px; padding:0 12px; color:#20334f; border:1px solid #dce4ef; border-radius:8px; background:#fff; font-size:13px; }
+  .narrow-view-switch select:focus-visible { outline:3px solid #4f66c5 !important; outline-offset:2px !important; }
+  .context-toolbar-contribution .alerts-filters { flex-direction:column; align-items:stretch; width:100%; }
+  .context-toolbar-contribution .alerts-filters label { display:grid; grid-template-columns:1fr; gap:4px; white-space:normal; }
+  .context-toolbar-contribution .alerts-filters select { width:100%; min-width:0; max-width:none; }
+  .context-toolbar-contribution .alerts-filters > button { justify-content:center; }
+}
+@media (max-width:480px) {
+  .ip-table-wrap:has(> .snmp-unknown-table),.ip-table-wrap:has(> .alerts-table) { overflow:visible; margin-right:0; margin-left:0; }
+  .ip-table.snmp-unknown-table,.ip-table.alerts-table { display:block; min-width:0; }
+  :is(.snmp-unknown-table,.alerts-table) thead { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+  :is(.snmp-unknown-table,.alerts-table) tbody { display:grid; gap:10px; }
+  :is(.snmp-unknown-table,.alerts-table) tbody tr { display:flex; flex-direction:column; padding:10px 12px; border:1px solid #e7e2e1; border-radius:10px; background:#fff; }
+  :is(.snmp-unknown-table,.alerts-table) tbody td { display:grid; grid-template-columns:minmax(84px,34%) minmax(0,1fr); gap:8px; align-items:start; padding:5px 0; border:0; white-space:normal; overflow-wrap:anywhere; }
+  :is(.snmp-unknown-table,.alerts-table) tbody td[data-label]::before { content:attr(data-label); color:#6b6970; font-size:10px; font-weight:650; }
+  :is(.snmp-unknown-table,.alerts-table) tbody td:not([data-label]) { grid-template-columns:minmax(0,1fr); }
+  .snmp-unknown-table tbody td { order:2; }
+  .snmp-unknown-table tbody td:first-child { order:0; }
+  .snmp-unknown-table tbody td.table-actions { order:1; padding-bottom:8px; border-bottom:1px solid #f0eeee; }
+  .snmp-unknown-table .button-row { justify-content:flex-start; }
+}
+.snmp-trap-name { display:grid; gap:2px; min-width:0; }
+.snmp-trap-name small { overflow-wrap:anywhere; }
+
+/* Narrow shell header (<= 780px), last on purpose. The desktop "shared-shell balance" rules above are not
+   media-scoped (site picker >= 260px, global tools >= 320px, tabs flex:1 1 0) and won over the earlier mobile
+   rules: at 360px the tools wrapped under the picker and the module tabs were pushed off-screen to the right,
+   where the bell covered the "Mais secções" menu and the slot's overflow:hidden clipped it. Row 1 is menu,
+   site picker, search and bell; row 2 is the module tabs at full width, with the overflow menu inside it. */
+@media (max-width:780px) {
+  .app-shell > .global-topbar { flex-wrap:wrap; row-gap:7px; column-gap:8px; }
+  .app-shell .global-site-switcher { flex:1 1 0; min-width:0; max-width:none; }
+  .app-shell .global-topbar .topbar-globals { flex:0 0 auto; min-width:0; gap:6px; margin-left:0; }
+  .app-shell .global-topbar .topbar-search-trigger { flex:0 0 40px; width:40px; min-width:40px; justify-content:center; padding:0; }
+  .app-shell .global-topbar .topbar-search-trigger span,
+  .app-shell .global-topbar .topbar-search-trigger kbd { display:none; }
+  .app-shell .global-topbar .module-tabs-slot { position:relative; order:5; flex:1 1 100%; width:auto; min-width:0; margin:0 -10px -7px; padding:5px 10px; overflow:visible; }
+  .app-shell .global-topbar .module-tabs-slot .responsive-tab-navigation { width:100%; min-width:0; }
+  .app-shell .global-topbar .module-tabs-slot .responsive-overflow-popover { z-index:95; right:0; max-width:calc(100vw - 20px); }
+  .app-shell .global-topbar .module-tabs-slot .responsive-overflow-popover > * { gap:8px; }
+  .app-shell .global-topbar .alerts-popover { position:fixed; top:58px; right:10px; left:10px; width:auto; }
+}
+.snmp-v2c-pending { margin:0; padding:9px 12px; color:var(--muted); border:1px dashed var(--line); border-radius:9px; font-size:12px; line-height:1.45; }
+.snmp-version-options label.pending { opacity:.75; cursor:progress; }

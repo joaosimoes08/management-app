@@ -222,8 +222,8 @@ export class SnmpService implements OnModuleDestroy, OnModuleInit {
 
   private credentialSecret(dto: SnmpCredentialSecretDto, config?: { compatibilitySha1: boolean } | null): Record<string, string> {
     if (dto.version === 'V2C') {
-      // SNMP Phase 1 step 1.3: production is SNMPv3 only (save, enrollment and onboarding all pass here).
-      if (!snmpV2cAllowed()) throw new BadRequestException({ code: SNMP_V2C_DISABLED, message: 'SNMPv2c está desativado. Usa SNMPv3 (authPriv).' });
+      // Plan step 1.3 (rev. 4): v2c is accepted unless SNMP_ALLOW_V2C=false (save, enrollment and onboarding all pass here).
+      if (!snmpV2cAllowed()) throw new BadRequestException({ code: SNMP_V2C_DISABLED, message: 'SNMPv2c está desativado nesta instalação (SNMP_ALLOW_V2C=false). Usa SNMPv3 (authPriv).' });
       if (!dto.community || dto.community.length < 8) throw new BadRequestException({ code: 'SNMP_COMMUNITY_INVALID', message: 'A comunidade deve ter pelo menos 8 caracteres.' });
       return { community: dto.community };
     }

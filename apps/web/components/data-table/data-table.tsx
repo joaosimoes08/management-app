@@ -116,7 +116,7 @@ export function DataTable<Row>({ rows, columns, rowKey, label, className, sort, 
           const canSelect = selectable(row);
           return <tr key={key}>
             {selection && <td><input type="checkbox" aria-label={selection.rowLabel(row, canSelect)} disabled={!canSelect} checked={selection.selected.has(key)} onChange={() => toggle(key)} /></td>}
-            {columns.map((column) => <td key={column.id} className={column.className}>{column.cell(row)}</td>)}
+            {columns.map((column) => <td key={column.id} className={column.className} data-label={typeof column.header === 'string' ? column.header : undefined}>{column.cell(row)}</td>)}
           </tr>;
         })}</tbody>
       </table>

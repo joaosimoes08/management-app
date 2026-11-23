@@ -30,17 +30,21 @@ describe('SNMP Phase 1 receiver and poll policy', () => {
     // Exact RequestFailedError texts from net-snmp 3.26.3 (index.js:3162, 3173, 3191, 3213).
     assert.deepEqual(classifyTrapRejection(new Error('Local community not found for message with community secret-c'), false), { errorCode: 'SNMP_V2C_DISABLED', version: 'V2C' });
     assert.deepEqual(classifyTrapRejection(new Error('Local community not found for message with community secret-c'), true), { errorCode: 'SNMP_TRAP_UNKNOWN_COMMUNITY', version: 'V2C' });
+    assert.deepEqual(classifyTrapRejection(new Error('Local community not found for message with community secret-c')), { errorCode: 'SNMP_TRAP_UNKNOWN_COMMUNITY', version: 'V2C' }, 'v2c is allowed by default');
     assert.deepEqual(classifyTrapRejection(new Error('Local user not found for message with user bob'), false), { errorCode: 'SNMP_TRAP_UNKNOWN_USER', version: 'V3' });
     assert.deepEqual(classifyTrapRejection(new Error('Local user not found and message requires authentication with user bob'), false), { errorCode: 'SNMP_TRAP_UNKNOWN_USER', version: 'V3' });
     assert.deepEqual(classifyTrapRejection(new Error('Local user bob requires authentication but message does not provide it'), false), { errorCode: 'SNMP_TRAP_AUTH_FAILED', version: 'V3' });
   });
 
-  it('refuses a v2c trap without the lab flag and records it as REJECTED, never the community', async () => {
+  it('refuses a v2c trap when SNMP_ALLOW_V2C=false and records it as REJECTED, never the community', async () => {
     const { receiver, created } = rejectedReceiver();
-    await (receiver as any).persist({
-      rinfo: { address: '10.9.9.9', port: 50000 },
-      pdu: { type: (snmp.PduType as any).TrapV2, community: 'leaked-community', id: 1, varbinds: [{ oid: '1.3.6.1.6.3.1.1.4.1.0', type: snmp.ObjectType.OID, value: '1.3.6.1.6.3.1.1.5.3' }] },
-    });
+    process.env.SNMP_ALLOW_V2C = 'false';
+    try {
+      await (receiver as any).persist({
+        rinfo: { address: '10.9.9.9', port: 50000 },
+        pdu: { type: (snmp.PduType as any).TrapV2, community: 'leaked-community', id: 1, varbinds: [{ oid: '1.3.6.1.6.3.1.1.4.1.0', type: snmp.ObjectType.OID, value: '1.3.6.1.6.3.1.1.5.3' }] },
+      });
+    } finally { delete process.env.SNMP_ALLOW_V2C; }
     assert.equal(created.length, 1);
     assert.equal(created[0].status, 'REJECTED');
     assert.equal(created[0].errorCode, 'SNMP_V2C_DISABLED');
@@ -86,7 +90,8 @@ describe('SNMP Phase 1 receiver and poll policy', () => {
   it('shares the budget with new UNMATCHED rows', async () => {
     const original = process.env.SNMP_TRAP_UNTRUSTED_ROWS_PER_MINUTE;
     process.env.SNMP_TRAP_UNTRUSTED_ROWS_PER_MINUTE = '2';
-    process.env.SNMP_ALLOW_V2C = 'true';
+    // v2c is accepted by default (plan step 1.3 rev. 4): an unknown v2c sender is UNMATCHED, not REJECTED.
+    delete process.env.SNMP_ALLOW_V2C;
     try {
       const created: any[] = [];
       const prisma = {
@@ -102,12 +107,11 @@ describe('SNMP Phase 1 receiver and poll policy', () => {
       assert.equal(receiver.untrustedRowsDropped(), 4);
       assert.equal(untrustedTrapRowsPerMinute('0'), 120, 'invalid values fall back to the default');
     } finally {
-      delete process.env.SNMP_ALLOW_V2C;
       if (original === undefined) delete process.env.SNMP_TRAP_UNTRUSTED_ROWS_PER_MINUTE; else process.env.SNMP_TRAP_UNTRUSTED_ROWS_PER_MINUTE = original;
     }
   });
 
-  it('records the real SNMP version of an unsupported (v1) notification', async () => {
+  it('refuses a v1 notification even with v2c accepted, and records its real SNMP version', async () => {
     const { receiver, created } = rejectedReceiver();
     await (receiver as any).persist({ rinfo: { address: '10.6.6.6', port: 162 }, pdu: { type: (snmp.PduType as any).Trap, version: snmp.Version1, community: 'v1-c', varbinds: [] } });
     assert.equal(created.length, 1);
@@ -142,7 +146,7 @@ describe('SNMP Phase 1 receiver and poll policy', () => {
     assert.deepEqual([row.activeEngineId, row.activeEngineIdSource], [first, 'STORED']);
   });
 
-  it('counts a failed poll toward the unreachable threshold', async () => {
+  it('counts a failed poll (v2c refused by SNMP_ALLOW_V2C=false) toward the unreachable threshold', async () => {
     const writes: any[] = [];
     const prisma = {
       snmpJob: { findUnique: async () => ({ id: 'job', deviceId: 'device', requestedBy: null, device: { managementIp: '10.0.0.1' }, credential: { id: 'cred', version: 'V2C' } }), update: (value: any) => ({ job: value }) },
@@ -151,7 +155,9 @@ describe('SNMP Phase 1 receiver and poll policy', () => {
       $transaction: async (items: any[]) => { writes.push(...items); return items; },
     } as any;
     const locks = { withLock: (_id: string, _ttl: number, work: () => Promise<unknown>) => work() } as any;
-    await assert.rejects(new PollProcessor(prisma, locks).run('job'));
+    process.env.SNMP_ALLOW_V2C = 'false';
+    try { await assert.rejects(new PollProcessor(prisma, locks).run('job')); }
+    finally { delete process.env.SNMP_ALLOW_V2C; }
     const config = writes.find((item) => item.config)?.config;
     assert.deepEqual(config.data.consecutiveFailures, { increment: 1 });
     assert.equal(config.data.lastErrorCode, 'SNMP_V2C_DISABLED');

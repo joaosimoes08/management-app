@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Check, Plug } from 'lucide-react';
 import { Modal } from '@/components/ui/modal';
 import { useAuth } from '@/lib/auth';
@@ -13,6 +14,8 @@ import {
 } from '../../device-requirements';
 import { usePowerDefaults } from '../../use-power-defaults';
 import { AssetPicker, FormError } from './editor-shared';
+import { getSnmpReceiverSettings, snmpReceiverKey } from '@/features/snmp/api';
+import { isV2cAllowed, SnmpCommunityField, SnmpVersionField, type SnmpVersionChoice } from '@/features/snmp/snmp-version';
 import { DevicePowerFields } from './device-power-fields';
 import { AssetImage } from '../asset-image';
 
@@ -103,6 +106,9 @@ export function DeviceEditor({ close, editingId, animateEntry = false, form, set
     setForm((current) => ({ ...current, ...patch }));
     if (fieldIds.length) setApiErrors((current) => current.filter((item) => !fieldIds.includes(item.fieldId)));
   };
+  const setSnmpVersion = useCallback((snmpVersion: SnmpVersionChoice) => setForm((current) => ({ ...current, snmpVersion })), [setForm]);
+  const { data: snmpReceiver } = useQuery({ queryKey: snmpReceiverKey, queryFn: getSnmpReceiverSettings, enabled: admin && isNew, staleTime: 30_000, retry: false });
+  const v2cAllowed = isV2cAllowed(snmpReceiver);
   const goTo = (key: DeviceEditorTab, focusField?: string) => {
     setTab(key);
     if (focusField) setPendingFocus(focusField);
@@ -249,12 +255,13 @@ export function DeviceEditor({ close, editingId, animateEntry = false, form, set
           {admin && isNew && <fieldset className="snmp-onboarding-section"><legend>SNMP (opcional)</legend>
             <label className="checkbox-label"><input type="checkbox" checked={!!form.snmpEnabled} onChange={(event) => update({ snmpEnabled: event.target.checked })} /> Configurar polling e credenciais SNMP</label>
             {form.snmpEnabled && <><p className="form-help">READ é obrigatória; TRAP é opcional e tem de usar um segredo diferente.</p>
-              <div className="form-row"><label>Versão<select value={form.snmpVersion ?? 'V3'} onChange={(event) => update({ snmpVersion: event.target.value as 'V2C' | 'V3' })}><option value="V3">SNMPv3 authPriv</option><option value="V2C">SNMPv2c</option></select></label><label>Porta<input type="number" min="1" max="65535" value={form.snmpPort ?? '161'} onChange={(event) => update({ snmpPort: event.target.value })} /></label></div>
+              <SnmpVersionField value={form.snmpVersion ?? 'V3'} v2cAllowed={v2cAllowed} onChange={setSnmpVersion} />
+              <div className="form-row"><label>Porta<input type="number" min="1" max="65535" value={form.snmpPort ?? '161'} onChange={(event) => update({ snmpPort: event.target.value })} /></label></div>
               <div className="form-row"><label>Intervalo (min)<input type="number" min="5" value={form.snmpIntervalMinutes ?? '15'} onChange={(event) => update({ snmpIntervalMinutes: event.target.value })} /></label><label>Timeout (ms)<input type="number" min="500" value={form.snmpTimeoutMs ?? '5000'} onChange={(event) => update({ snmpTimeoutMs: event.target.value })} /></label></div>
               <label>Retries<input type="number" min="0" max="5" value={form.snmpRetries ?? '2'} onChange={(event) => update({ snmpRetries: event.target.value })} /></label>
-              {form.snmpVersion === 'V2C' ? <label>Comunidade READ<input required minLength={8} type="password" value={form.snmpReadCommunity ?? ''} onChange={(event) => update({ snmpReadCommunity: event.target.value })} autoComplete="new-password" /></label> : <><div className="form-row"><label>Auth<select value={form.snmpAuthProtocol ?? 'SHA256'} onChange={(event) => update({ snmpAuthProtocol: event.target.value as DeviceForm['snmpAuthProtocol'] })}><option>SHA256</option><option>SHA384</option><option>SHA512</option>{form.snmpCompatibilitySha1 && <option>SHA1</option>}</select></label><label>Privacidade<select value={form.snmpPrivProtocol ?? 'AES128'} onChange={(event) => update({ snmpPrivProtocol: event.target.value as DeviceForm['snmpPrivProtocol'] })}><option>AES128</option><option>AES256</option></select></label></div><label className="checkbox-label"><input type="checkbox" checked={!!form.snmpCompatibilitySha1} onChange={(event) => update({ snmpCompatibilitySha1: event.target.checked, snmpAuthProtocol: event.target.checked ? form.snmpAuthProtocol : form.snmpAuthProtocol === 'SHA1' ? 'SHA256' : form.snmpAuthProtocol })} /> Permitir compatibilidade SHA-1</label><label>Username READ<input required value={form.snmpReadUsername ?? ''} onChange={(event) => update({ snmpReadUsername: event.target.value })} /></label><label>Auth key READ<input required minLength={8} type="password" value={form.snmpReadAuthKey ?? ''} onChange={(event) => update({ snmpReadAuthKey: event.target.value })} autoComplete="new-password" /></label><label>Privacy key READ<input required minLength={8} type="password" value={form.snmpReadPrivKey ?? ''} onChange={(event) => update({ snmpReadPrivKey: event.target.value })} autoComplete="new-password" /></label></>}
+              {form.snmpVersion === 'V2C' ? <SnmpCommunityField label="Community READ" value={form.snmpReadCommunity ?? ''} onChange={(snmpReadCommunity) => update({ snmpReadCommunity })} /> : <><div className="form-row"><label>Auth<select value={form.snmpAuthProtocol ?? 'SHA256'} onChange={(event) => update({ snmpAuthProtocol: event.target.value as DeviceForm['snmpAuthProtocol'] })}><option>SHA256</option><option>SHA384</option><option>SHA512</option>{form.snmpCompatibilitySha1 && <option>SHA1</option>}</select></label><label>Privacidade<select value={form.snmpPrivProtocol ?? 'AES128'} onChange={(event) => update({ snmpPrivProtocol: event.target.value as DeviceForm['snmpPrivProtocol'] })}><option>AES128</option><option>AES256</option></select></label></div><label className="checkbox-label"><input type="checkbox" checked={!!form.snmpCompatibilitySha1} onChange={(event) => update({ snmpCompatibilitySha1: event.target.checked, snmpAuthProtocol: event.target.checked ? form.snmpAuthProtocol : form.snmpAuthProtocol === 'SHA1' ? 'SHA256' : form.snmpAuthProtocol })} /> Permitir compatibilidade SHA-1</label><label>Username READ<input required value={form.snmpReadUsername ?? ''} onChange={(event) => update({ snmpReadUsername: event.target.value })} /></label><label>Auth key READ<input required minLength={8} type="password" value={form.snmpReadAuthKey ?? ''} onChange={(event) => update({ snmpReadAuthKey: event.target.value })} autoComplete="new-password" /></label><label>Privacy key READ<input required minLength={8} type="password" value={form.snmpReadPrivKey ?? ''} onChange={(event) => update({ snmpReadPrivKey: event.target.value })} autoComplete="new-password" /></label></>}
               <label className="checkbox-label"><input type="checkbox" checked={!!form.snmpTrapEnabled} onChange={(event) => update({ snmpTrapEnabled: event.target.checked })} /> Configurar também credencial TRAP distinta</label>
-              {form.snmpTrapEnabled && (form.snmpVersion === 'V2C' ? <label>Comunidade TRAP<input required minLength={8} type="password" value={form.snmpTrapCommunity ?? ''} onChange={(event) => update({ snmpTrapCommunity: event.target.value })} autoComplete="new-password" /></label> : <><label>Username TRAP<input required value={form.snmpTrapUsername ?? ''} onChange={(event) => update({ snmpTrapUsername: event.target.value })} /></label><label>Auth key TRAP<input required minLength={8} type="password" value={form.snmpTrapAuthKey ?? ''} onChange={(event) => update({ snmpTrapAuthKey: event.target.value })} autoComplete="new-password" /></label><label>Privacy key TRAP<input required minLength={8} type="password" value={form.snmpTrapPrivKey ?? ''} onChange={(event) => update({ snmpTrapPrivKey: event.target.value })} autoComplete="new-password" /></label></>)}
+              {form.snmpTrapEnabled && (form.snmpVersion === 'V2C' ? <SnmpCommunityField label="Community TRAP" value={form.snmpTrapCommunity ?? ''} onChange={(snmpTrapCommunity) => update({ snmpTrapCommunity })} /> : <><label>Username TRAP<input required value={form.snmpTrapUsername ?? ''} onChange={(event) => update({ snmpTrapUsername: event.target.value })} /></label><label>Auth key TRAP<input required minLength={8} type="password" value={form.snmpTrapAuthKey ?? ''} onChange={(event) => update({ snmpTrapAuthKey: event.target.value })} autoComplete="new-password" /></label><label>Privacy key TRAP<input required minLength={8} type="password" value={form.snmpTrapPrivKey ?? ''} onChange={(event) => update({ snmpTrapPrivKey: event.target.value })} autoComplete="new-password" /></label></>)}
             </>}
           </fieldset>}
         </>)}

@@ -6,6 +6,7 @@ import { AuthenticatedUser } from '../auth/auth.service';
 import { KeycloakAdminService } from './keycloak-admin.service';
 import { UpdateAuditPolicyDto, UpdateDiscoveryDefaultsDto, UpdateOrganizationSettingsDto, UpdateSnmpListenerDto } from './dto';
 import Redis from 'ioredis';
+import { isIP } from 'node:net';
 import { DiscoveryPolicyError, normalizeAllowedCidrs } from '../discovery/discovery-policy';
 import { discoveryProfiles } from '../discovery/discovery-profiles';
 import { DISCOVERY_MAX_PROBES_PER_SECOND, DISCOVERY_MAX_SOCKETS, DISCOVERY_MIN_PROBES_PER_SECOND, DISCOVERY_MIN_SOCKETS, resolveDiscoveryLimits } from '../discovery/discovery-limiter';
@@ -21,10 +22,53 @@ export function snmpEngineIdView(active: string | null | undefined, source: stri
   if (!engineId) return { engineId: null, engineIdSource: null };
   return { engineId, engineIdSource: source === 'ENV' ? 'ENV' : 'STORED' };
 }
-/** SNMP Phase 1 step 3: the UDP port switches send traps to (the host port published for the receiver) and the v2c lab flag. */
+/** SNMP Phase 1 step 3: the UDP port switches send traps to (the host port published for the receiver) and whether v2c is accepted (true unless SNMP_ALLOW_V2C=false). */
 export function snmpReceiverView(hostPort: string | undefined, v2cAllowed: boolean): { trapPort: number; v2cAllowed: boolean } {
   const port = Number(hostPort);
   return { trapPort: Number.isInteger(port) && port >= 1 && port <= 65535 ? port : 162, v2cAllowed };
+}
+
+export type SnmpReceiverMode = 'HOST_AGENT' | 'CONTAINER_INGRESS';
+export type SnmpContainerReceiver = {
+  /** Address switches send traps to, or null when it cannot be known (see reason). */
+  address: string | null;
+  addressSource: 'SNMP_TRAP_PUBLIC_ADDRESS' | 'SNMP_TRAP_HOST_IP' | null;
+  /** Set only when address is null: SNMP_TRAP_PUBLIC_ADDRESS_REQUIRED (nothing usable configured) or SNMP_TRAP_PUBLIC_ADDRESS_INVALID. */
+  reason: 'SNMP_TRAP_PUBLIC_ADDRESS_REQUIRED' | 'SNMP_TRAP_PUBLIC_ADDRESS_INVALID' | null;
+  /** Host UDP port published for the receiver (SNMP_TRAP_HOST_PORT, default 162). */
+  port: number;
+};
+/** Bind-all, loopback (also IPv4-mapped) and anything that is not an IP literal cannot be a switch's trap target. */
+const unusableTrapIp = (value: string) => {
+  const v = value.toLowerCase();
+  const v4 = v.startsWith('::ffff:') ? v.slice(7) : v;
+  return v === '::' || v === '::1' || v4 === '0.0.0.0' || v4.startsWith('127.');
+};
+/** A usable trap target: an IPv4 or IPv6 literal that is not bind-all or loopback. Hostnames are refused because the
+ * IOS-XE ACL in "Configurar o switch" (`permit host <addr>`) needs an IP. */
+export const usableTrapIp = (value: string) => isIP(value) !== 0 && !unusableTrapIp(value);
+
+/**
+ * Container-only receiver (SNMP_LISTENER_MODE container-ingress, no host agent): there are no host: interface rows,
+ * so the address switches should send to comes from the deployment env. Order: SNMP_TRAP_PUBLIC_ADDRESS (an IP
+ * literal; a hostname, bind-all or loopback value is reported as SNMP_TRAP_PUBLIC_ADDRESS_INVALID, never silently
+ * replaced), then SNMP_TRAP_HOST_IP unless it is a bind-all/loopback address, else null with a reason code.
+ */
+export function snmpContainerReceiverView(env: { publicAddress?: string; hostIp?: string; hostPort?: string }): SnmpContainerReceiver {
+  const { trapPort: port } = snmpReceiverView(env.hostPort, false);
+  const publicAddress = env.publicAddress?.trim();
+  if (publicAddress) {
+    return usableTrapIp(publicAddress)
+      ? { address: publicAddress, addressSource: 'SNMP_TRAP_PUBLIC_ADDRESS', reason: null, port }
+      : { address: null, addressSource: null, reason: 'SNMP_TRAP_PUBLIC_ADDRESS_INVALID', port };
+  }
+  const hostIp = env.hostIp?.trim();
+  if (hostIp && usableTrapIp(hostIp)) return { address: hostIp, addressSource: 'SNMP_TRAP_HOST_IP', reason: null, port };
+  return { address: null, addressSource: null, reason: 'SNMP_TRAP_PUBLIC_ADDRESS_REQUIRED', port };
+}
+/** HOST_AGENT when the host agent has reported interfaces in the last 2 minutes; then the UI keeps using that list. */
+export function snmpReceiverModeView(freshHostInterfaces: number, env: { publicAddress?: string; hostIp?: string; hostPort?: string }): { receiverMode: SnmpReceiverMode; containerReceiver: SnmpContainerReceiver | null } {
+  return freshHostInterfaces > 0 ? { receiverMode: 'HOST_AGENT', containerReceiver: null } : { receiverMode: 'CONTAINER_INGRESS', containerReceiver: snmpContainerReceiverView(env) };
 }
 
 @Injectable()
@@ -72,6 +116,7 @@ export class SettingsService {
       interfaces: interfaces.map(({ id, instanceId, name, address, internal, lastSeenAt }) => ({ id, instanceId, name, address, internal, lastSeenAt })),
       ...snmpEngineIdView(config?.activeEngineId, config?.activeEngineIdSource),
       ...snmpReceiverView(process.env.SNMP_TRAP_HOST_PORT, snmpV2cAllowed()),
+      ...snmpReceiverModeView(interfaces.length, { publicAddress: process.env.SNMP_TRAP_PUBLIC_ADDRESS, hostIp: process.env.SNMP_TRAP_HOST_IP, hostPort: process.env.SNMP_TRAP_HOST_PORT }),
       updatedAt: config?.updatedAt ?? null,
       refreshSeconds: 30,
     };

@@ -37,7 +37,7 @@ export function createSnmpSession(target: string, port: number, timeout: number,
   if (isIP(target) === 0 || !Number.isInteger(port) || port < 1 || port > 65535) {
     throw Object.assign(new Error('SNMP_MANAGEMENT_TARGET_INVALID'), { code: 'SNMP_MANAGEMENT_TARGET_INVALID' });
   }
-  // Phase 1 step 1.3: SNMPv3 only unless the lab flag SNMP_ALLOW_V2C=true is set.
+  // Plan step 1.3 (rev. 4): v2c is accepted unless an operator opts out with SNMP_ALLOW_V2C=false.
   if (credential.version === 'V2C' && !snmpV2cAllowed()) throw Object.assign(new Error(SNMP_V2C_DISABLED), { code: SNMP_V2C_DISABLED });
   const secret = decryptStoredCredential(credential, keyring);
   const options = { port, timeout, retries, transport: target.includes(':') ? 'udp6' : 'udp4' } as any;

@@ -1,6 +1,6 @@
 'use client';
 
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, useCallback, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Activity, Check, ChevronLeft, ChevronRight, KeyRound, Loader2, X } from 'lucide-react';
 import { useEscapeClose } from '@/components/ui/use-escape-close';
@@ -9,11 +9,12 @@ import { getSnmpOverview, getSnmpReceiverSettings, runSnmpPoll, saveSnmpConfig, 
 import { snmpConfigBounds, snmpConfigError, snmpCredentialBounds, snmpCredentialError } from './snmp-bounds';
 import { describeCredentialTest, latestJob, type SnmpJobView } from './snmp-setup';
 import { useRenderTick } from './use-render-tick';
+import { isV2cAllowed, SnmpCommunityField, SnmpVersionField, type SnmpVersionChoice } from './snmp-version';
 
 export const wizardSteps = ['Credencial', 'Testar', 'Polling', 'Primeira sincronização'] as const;
 type Step = 0 | 1 | 2 | 3;
 
-const emptyCredential = { version: 'V3' as 'V3' | 'V2C', username: '', authProtocol: 'SHA256', privProtocol: 'AES128', authKey: '', privKey: '', community: '' };
+const emptyCredential = { version: 'V3' as SnmpVersionChoice, username: '', authProtocol: 'SHA256', privProtocol: 'AES128', authKey: '', privKey: '', community: '' };
 const running = (job: SnmpJobView | null) => job?.status === 'PENDING' || job?.status === 'RUNNING';
 
 type Props = { deviceId: string; deviceName: string; close: () => void; onDone?: () => void };
@@ -29,12 +30,13 @@ export function SnmpSetupWizard({ deviceId, deviceName, close, onDone }: Props) 
   const queryClient = useQueryClient();
   const [step, setStep] = useState<Step>(0);
   const [credential, setCredential] = useState(emptyCredential);
+  const setVersion = useCallback((version: SnmpVersionChoice) => setCredential((current) => ({ ...current, version })), []);
   const [polling, setPolling] = useState({ enabled: true, intervalMinutes: 15 });
   const [testJobId, setTestJobId] = useState('');
   const [pollJobId, setPollJobId] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const { data: receiver } = useQuery({ queryKey: snmpReceiverKey, queryFn: getSnmpReceiverSettings, staleTime: 30_000, retry: false });
+  const { data: receiver, isLoading: receiverLoading } = useQuery({ queryKey: snmpReceiverKey, queryFn: getSnmpReceiverSettings, staleTime: 30_000, retry: false });
   const waitingJob = (step === 1 && testJobId) || (step === 3 && pollJobId);
   const { data: overview } = useQuery({ queryKey: ['snmp', 'overview', deviceId], queryFn: () => getSnmpOverview(deviceId), refetchInterval: waitingJob ? 2_000 : false });
   const existingRead = overview?.credentials.find((item) => item.purpose === 'READ');
@@ -74,9 +76,9 @@ export function SnmpSetupWizard({ deviceId, deviceName, close, onDone }: Props) 
     {error && <div className="ipam-alert error" role="alert"><X size={15} />{error}</div>}
 
     {step === 0 && <form className="modal-form" onSubmit={saveCredential}>
-      <p className="form-help">{existingRead ? `Já existe uma credencial de leitura (${existingRead.version}${existingRead.username ? ` · ${existingRead.username}` : ''}). Podes substituí-la ou continuar com ela.` : 'Credencial de leitura SNMPv3 (authPriv) igual à configurada no switch. As chaves não voltam a ser mostradas.'}</p>
-      {receiver?.v2cAllowed && <label>Versão<select className="context-toolbar-selector" value={credential.version} onChange={(event) => setCredential({ ...credential, version: event.target.value as 'V3' | 'V2C' })}><option value="V3">SNMPv3 authPriv</option><option value="V2C">SNMPv2c (só laboratório)</option></select></label>}
-      {credential.version === 'V2C' ? <label>Comunidade<input type="password" autoComplete="new-password" minLength={snmpCredentialBounds.secret.min} maxLength={snmpCredentialBounds.secret.max} value={credential.community} onChange={(event) => setCredential({ ...credential, community: event.target.value })} /></label> : <>
+      <p className="form-help">{existingRead ? `Já existe uma credencial de leitura (${existingRead.version}${existingRead.username ? ` · ${existingRead.username}` : ''}). Podes substituí-la ou continuar com ela.` : 'Credencial de leitura igual à configurada no switch. As chaves e a community não voltam a ser mostradas.'}</p>
+      <SnmpVersionField value={credential.version} v2cAllowed={isV2cAllowed(receiver, receiverLoading)} onChange={setVersion} />
+      {credential.version === 'V2C' ? <SnmpCommunityField label="Community" value={credential.community} onChange={(community) => setCredential((current) => ({ ...current, community }))} /> : <>
         <label>Username<input autoComplete="off" maxLength={snmpCredentialBounds.username.max} value={credential.username} onChange={(event) => setCredential({ ...credential, username: event.target.value })} /></label>
         <div className="form-row"><label>Protocolo auth<select className="context-toolbar-selector" value={credential.authProtocol} onChange={(event) => setCredential({ ...credential, authProtocol: event.target.value })}><option>SHA256</option><option>SHA384</option><option>SHA512</option><option>SHA1</option></select></label><label>Privacidade<select className="context-toolbar-selector" value={credential.privProtocol} onChange={(event) => setCredential({ ...credential, privProtocol: event.target.value })}><option>AES128</option><option>AES256</option></select></label></div>
         <label>Auth key<input type="password" autoComplete="new-password" minLength={snmpCredentialBounds.secret.min} maxLength={snmpCredentialBounds.secret.max} value={credential.authKey} onChange={(event) => setCredential({ ...credential, authKey: event.target.value })} /></label>

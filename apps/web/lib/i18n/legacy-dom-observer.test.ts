@@ -18,6 +18,14 @@ afterEach(() => {
 });
 
 describe('legacy DOM observer', () => {
+  it('translates the data-label that phone card layouts show before each table cell', () => {
+    const root = document.createElement('div');
+    root.innerHTML = '<table><tbody><tr><td data-label="Última trap">x</td><td data-label="IP de origem">y</td></tr></tbody></table>';
+    translateLegacyDom('en-US', root);
+    expect([...root.querySelectorAll('td')].map((cell) => cell.getAttribute('data-label'))).toEqual(['Last trap', 'Source IP']);
+    translateLegacyDom('pt-PT', root);
+  });
+
   it('translates added nodes, edited text and edited attributes in en-US', async () => {
     const root = document.createElement('div');
     document.body.append(root);

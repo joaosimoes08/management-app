@@ -2,6 +2,7 @@
 
 import { AlertTriangle, ChevronRight } from 'lucide-react';
 import { formatDateTime } from '@/lib/format/date';
+import { UNKNOWN_TRAPS_HREF } from '@/features/snmp/snmp-unknown-traps';
 import { discoveryJobProgress, type DiscoveryJob } from './api';
 import { formatDurationMs } from './discovery-results';
 import { discoveryFailureReason, discoveryProgressPercent, discoveryStatusLabel, formatResultCount, isActiveDiscoveryJob } from './discovery-status';
@@ -16,7 +17,7 @@ export function DiscoveryFlowHeader() {
       <li><strong><span aria-hidden="true">2</span> Rever</strong><small>Cada endereço que respondeu fica pendente. Compara com execuções anteriores e ignora o que não interessa.</small></li>
       <li><strong><span aria-hidden="true">3</span> Aceitar</strong><small>Aprovar cria o host, o IP e os serviços no IPAM. Só aí o endereço passa a fazer parte do inventário.</small></li>
     </ol>
-    <p className="discovery-flow-note">Para equipamentos SNMP, usa o separador SNMP: o pré-registo por trap guarda o IP esperado e as credenciais durante 24 horas e associa as traps que chegarem desse IP. Traps de IPs que não foram pré-registados não se perdem: aparecem no ecrã de traps não reconhecidas.</p>
+    <p className="discovery-flow-note">Para equipamentos SNMP, usa o separador SNMP. Pré-registar um equipamento é dizer à app, antes de ele estar no inventário, de que IP vão chegar as traps e com que credenciais. O pré-registo dura 24 horas e associa as traps que chegarem desse IP. Traps de IPs não pré-registados não se perdem: <a href={UNKNOWN_TRAPS_HREF}>Ver em SNMP → Traps desconhecidas</a></p>
   </section>;
 }
 

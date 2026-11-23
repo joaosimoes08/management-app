@@ -65,6 +65,8 @@ const operationalFiles = [
   'apps/web/features/snmp/snmp-setup-panel.tsx',
   'apps/web/features/snmp/snmp-setup-wizard.tsx',
   'apps/web/features/snmp/snmp-unknown-traps.tsx',
+  // SNMP step 1.3 rev. 4: v2c allowed alongside v3
+  'apps/web/features/snmp/snmp-version.tsx',
   // Step 34 impact analysis and path view
   'apps/web/features/topology/impact-panel.tsx',
   'apps/web/features/topology/impact-api.ts',

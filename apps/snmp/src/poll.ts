@@ -1,11 +1,11 @@
 import { Prisma, PrismaClient } from '@simoes/database';
 import { SNMP_JOB_NAMES } from '@simoes/snmp-core';
 import { createSnmpSession, get, pollLldp, pollStandard, withDeadline } from './client';
+import { DeviceLocks } from './locks';
+import { log, publicErrorCode } from './log';
 
 /** Extra time past the device timeout before the worker gives up on a credential test request. */
 export const CREDENTIAL_TEST_DEADLINE_MARGIN_MS = 2_000;
-import { DeviceLocks } from './locks';
-import { log, publicErrorCode } from './log';
 
 export class PollProcessor {
   constructor(private readonly prisma: PrismaClient, private readonly locks: DeviceLocks) {}
