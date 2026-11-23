@@ -43,3 +43,6 @@ secrets/
 deploy/*.generated.json
 nginx/runtime.conf
 certificates/
+
+# SNMP trap lab (generated keyring, logs)
+e2e/snmp-trap-lab/.lab/

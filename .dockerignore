@@ -16,3 +16,4 @@ coverage
 transfer
 .DS_Store
 **/.DS_Store
+e2e/snmp-trap-lab/.lab

@@ -1,0 +1,43 @@
+name: SNMP trap lab
+
+# PLAN.md Phase 1 step 6: SNMP packets from a simulated switch to the alerts API, in an isolated compose lab.
+on:
+  pull_request:
+    paths:
+      - apps/snmp/**
+      - apps/api/**
+      - packages/**
+      - e2e/snmp-trap-lab/**
+      - package.json
+      - package-lock.json
+      - .github/workflows/snmp-trap-lab.yml
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: snmp-trap-lab-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  snmp-trap-lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run the SNMP trap lab (build, cases, teardown)
+        run: npm run test:snmp-lab
+      - name: Upload lab logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snmp-trap-lab-logs
+          path: e2e/snmp-trap-lab/.lab/logs/
+          if-no-files-found: ignore
+          retention-days: 7
