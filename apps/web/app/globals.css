@@ -3515,3 +3515,24 @@ small.alert-next-step::before { content:'→ '; }
 .snmp-wizard-check { display:flex!important; flex-direction:row!important; align-items:center; gap:8px; }
 .snmp-wizard-check input { width:15px!important; height:15px; margin:0!important; accent-color:#222; }
 @media (max-width: 640px) { .snmp-setup-facts,.settings-snmp-receiver { grid-template-columns:1fr; } .snmp-setup-facts dd,.settings-snmp-receiver dd { margin-bottom:6px; } }
+/* Discovery P0: flow header (Descobrir → Rever → Aceitar), live progress, failure reason, per-subnet load limits. */
+.discovery-flow { margin:0 0 14px; padding:12px 14px; border:1px solid var(--line); border-radius:12px; background:#faf9f9; }
+.discovery-flow-steps { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:0; padding:0; list-style:none; counter-reset:none; }
+.discovery-flow-steps li { position:relative; display:grid; gap:4px; min-width:0; }
+.discovery-flow-steps li + li::before { content:'→'; position:absolute; left:-9px; top:0; color:var(--muted); font-size:11px; }
+.discovery-flow-steps strong { display:flex; align-items:center; gap:6px; font-size:11px; }
+.discovery-flow-steps strong span { display:grid; place-items:center; width:18px; height:18px; flex:none; color:#fff; background:#202020; border-radius:50%; font:10px 'DM Mono'; }
+.discovery-flow-steps small,.discovery-flow-note { color:var(--muted); font-size:10px; line-height:1.5; }
+.discovery-flow-note { margin:10px 0 0; padding-top:10px; border-top:1px solid var(--line); }
+.discovery-progress { display:flex; align-items:center; gap:8px; margin-top:6px; max-width:320px; }
+.discovery-progress-track { position:relative; flex:1; height:6px; overflow:hidden; background:#eeeaea; border-radius:999px; }
+.discovery-progress-fill { position:absolute; inset:0 auto 0 0; background:#d9a55e; border-radius:999px; transition:width .4s ease; }
+.discovery-progress-label { color:var(--muted); font:9px 'DM Mono'; white-space:nowrap; }
+.job-row small.discovery-failure-reason,.discovery-failure-reason { display:flex; align-items:flex-start; gap:5px; margin-top:5px; color:#a14c41; white-space:normal; overflow:visible; font-size:10px; line-height:1.4; }
+.job-row.selected { background:#faf9f9; }
+.job-status.cancelled { background:#aaa7ab; }
+.schedule-form fieldset.schedule-limits { display:grid; grid-column:1 / -1; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; padding:8px 10px; }
+.schedule-form fieldset.schedule-limits label { display:grid!important; gap:6px!important; color:var(--muted)!important; font-size:10px!important; }
+.schedule-limits small { grid-column:1 / -1; color:var(--muted); font-size:9px; line-height:1.4; }
+@media (max-width:780px) { .discovery-flow-steps { grid-template-columns:1fr; } .discovery-flow-steps li + li::before { content:none; } .schedule-form fieldset.schedule-limits { grid-template-columns:1fr; } }
+@media (prefers-reduced-motion:reduce) { .discovery-progress-fill { transition:none; } }
