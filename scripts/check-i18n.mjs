@@ -51,6 +51,10 @@ const operationalFiles = [
   'apps/web/components/ui/bulk-review-dialog.tsx',
   'apps/web/features/discovery/discovery-results.tsx',
   'apps/web/features/discovery/discovery-missing.tsx',
+  // Discovery P0 quick fixes
+  'apps/web/features/discovery/discovery-status.ts',
+  'apps/web/features/discovery/discovery-run-parts.tsx',
+  'apps/web/features/discovery/discovery-schedule-panel.tsx',
   'apps/web/features/snmp/snmp-fleet.tsx',
   'apps/web/features/snmp/snmp-page.tsx',
   'apps/web/features/snmp/snmp-drifts.tsx',

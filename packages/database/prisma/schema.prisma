@@ -1473,6 +1473,12 @@ model Subnet {
   scanMethods        Json?
   scanTcpPorts       Json?
   reverseDnsEnabled  Boolean                  @default(true)
+  /// Discovery P0: per-subnet scan load limits (null = worker default). Probes started per second and probes in flight.
+  // Database CHECK constraints (migration 20261123160000_discovery_scan_limits), not expressible in Prisma:
+  //   "Subnet_discoveryProbesPerSecond_range": NULL or 1–2000; "Subnet_discoveryMaxSockets_range": NULL or 1–1024.
+  // `prisma migrate diff` does not see them; keep them when regenerating migrations.
+  discoveryProbesPerSecond Int?
+  discoveryMaxSockets      Int?
   lastScanAt         DateTime?
   nextScanAt         DateTime?
   lastScanStatus     String?

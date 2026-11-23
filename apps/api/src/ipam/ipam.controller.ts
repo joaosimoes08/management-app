@@ -77,7 +77,7 @@ export class IpamController {
   @Get('discovery/summary') discoverySummary(@Req() req: { user: AuthenticatedUser }) { return this.service.discoverySummary(req.user); }
   @Get('discovery/missing') missingIps(@Query() query: MissingIpsQueryDto, @Req() req: { user: AuthenticatedUser }) { return this.drift.listMissing(req.user, query); }
   @Post('discovery/missing/mark-free') @Roles('ADMIN', 'NETWORK_OPERATOR') markMissingFree(@Body() dto: MarkMissingIpsFreeDto, @Req() req: { user: AuthenticatedUser }) { return this.drift.markFree(req.user, dto.ipIds); }
-  @Get('discovery/jobs') jobs(@Req() req: { user: AuthenticatedUser }, @Query('status') status?: string, @Query('subnetId') subnetId?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) { return this.service.listDiscoveryJobs(req.user, status, subnetId, page, pageSize); }
+  @Get('discovery/jobs') jobs(@Req() req: { user: AuthenticatedUser }, @Query('status') status?: string, @Query('subnetId') subnetId?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string, @Query('siteId') siteId?: string) { return this.service.listDiscoveryJobs(req.user, status, subnetId, page, pageSize, siteId); }
   @Get('discovery/jobs/:id') job(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.service.getDiscoveryJob(req.user, id); }
   @Get('discovery/jobs/:id/results') results(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.service.listDiscoveryResults(req.user, id); }
   @Get('discovery/jobs/:id/compare') compareJobs(@Param('id') id: string, @Query('with') previousId: string, @Req() req: { user: AuthenticatedUser }) { return this.service.compareDiscoveryJobs(req.user, id, previousId); }

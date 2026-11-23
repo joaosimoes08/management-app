@@ -1,6 +1,7 @@
 import { ArrayMaxSize, ArrayMinSize, ArrayUnique, IsArray, IsBoolean, IsIn, IsInt, IsIP, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, MinLength, ValidateIf, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { PartialType } from '@nestjs/swagger';
+import { DISCOVERY_MAX_PROBES_PER_SECOND, DISCOVERY_MAX_SOCKETS, DISCOVERY_MIN_PROBES_PER_SECOND, DISCOVERY_MIN_SOCKETS } from '../discovery/discovery-limiter';
 
 export class CreateSiteDto {
   @IsString() @MinLength(2) @MaxLength(100) name!: string;
@@ -145,6 +146,10 @@ export class UpdateDiscoveryScheduleDto {
   @IsOptional() @IsArray() @ArrayMaxSize(64) @IsInt({ each: true }) @Min(1, { each: true }) @Max(65535, { each: true }) tcpPorts?: number[];
   @IsOptional() @IsBoolean() reverseDns?: boolean;
   @IsOptional() @IsInt() @Min(1) @Max(168) intervalHours?: number;
+  /** Discovery P0: probes started per second for this subnet's scans. null resets to the default; omitted keeps it. */
+  @IsOptional() @IsInt() @Min(DISCOVERY_MIN_PROBES_PER_SECOND) @Max(DISCOVERY_MAX_PROBES_PER_SECOND) probesPerSecond?: number | null;
+  /** Discovery P0: probes (TCP sockets plus pings) in flight at once. null resets to the default; omitted keeps it. */
+  @IsOptional() @IsInt() @Min(DISCOVERY_MIN_SOCKETS) @Max(DISCOVERY_MAX_SOCKETS) maxSockets?: number | null;
 }
 export class ReviewDiscoveryResultDto {
   @IsIn(['APPROVED', 'IGNORED']) status!: string;

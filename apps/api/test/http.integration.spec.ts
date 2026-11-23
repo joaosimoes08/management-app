@@ -1601,6 +1601,50 @@ test('Phase D discovery: bulk review with per-item results, IPAM state per resul
   assert.equal((await request('POST', '/api/v1/discovery/results/bulk-review', 'qa-network-scoped', { ids: [known.id], status: 'PENDING' })).statusCode, 400);
 });
 
+test('Discovery P0: the runs list filters by the active site and subnets keep their own scan load limits', async () => {
+  const jobA = await prisma.discoveryJob.create({ data: { name: 'P0 site A run', subnetId: ids.subnetA, methods: ['ICMP'], tcpPorts: [], status: 'COMPLETED' } });
+  const jobB = await prisma.discoveryJob.create({ data: { name: 'P0 site B run', subnetId: ids.subnetB, methods: ['ICMP'], tcpPorts: [], status: 'FAILED', errorMessage: 'DISCOVERY_TARGET_NOT_ALLOWED' } });
+  try {
+    const listed = (path: string) => request('GET', path, 'qa-admin').then((response) => { assert.equal(response.statusCode, 200, response.body); return json(response).items.map((item: { id: string }) => item.id) as string[]; });
+    const all = await listed('/api/v1/discovery/jobs?pageSize=100');
+    assert.ok(all.includes(jobA.id) && all.includes(jobB.id));
+    const siteA = await listed(`/api/v1/discovery/jobs?pageSize=100&siteId=${ids.siteA}`);
+    assert.ok(siteA.includes(jobA.id)); assert.equal(siteA.includes(jobB.id), false);
+    const siteB = await listed(`/api/v1/discovery/jobs?pageSize=100&siteId=${ids.siteB}&status=FAILED`);
+    assert.deepEqual(siteB.filter((id) => id === jobA.id || id === jobB.id), [jobB.id]);
+    const invalid = await request('GET', '/api/v1/discovery/jobs?siteId=not-a-uuid', 'qa-admin');
+    assert.equal(invalid.statusCode, 400, invalid.body); assert.equal(json(invalid).code, 'SITE_ID_INVALID');
+    // The site filter narrows the caller's access; it never widens it.
+    const scopedB = json(await request('GET', `/api/v1/discovery/jobs?pageSize=100&siteId=${ids.siteB}`, 'qa-network-scoped')).items.map((item: { id: string }) => item.id);
+    assert.equal(scopedB.includes(jobB.id), false);
+
+    // Defaults before anything is set.
+    const defaults = json(await request('GET', '/api/v1/settings/discovery', 'qa-admin'));
+    assert.deepEqual({ probesPerSecond: defaults.limits.probesPerSecond, maxSockets: defaults.limits.maxSockets }, { probesPerSecond: 100, maxSockets: 64 });
+    const before = json(await request('GET', `/api/v1/subnets/${ids.subnetA}/discovery-schedule`, 'qa-admin'));
+    assert.deepEqual(before.limits, { probesPerSecond: null, maxSockets: null, effective: { probesPerSecond: 100, maxSockets: 64 } });
+    const base = { enabled: false, methods: ['ICMP', 'TCP'], tcpPorts: [22, 443], intervalHours: 12, reverseDns: false };
+    for (const bad of [{ probesPerSecond: 0 }, { probesPerSecond: 2001 }, { maxSockets: 0 }, { maxSockets: 1025 }, { maxSockets: 2.5 }]) {
+      const response = await request('PATCH', `/api/v1/subnets/${ids.subnetA}/discovery-schedule`, 'qa-admin', { ...base, ...bad });
+      assert.equal(response.statusCode, 400, `${JSON.stringify(bad)} ${response.body}`);
+    }
+    assert.equal((await request('PATCH', `/api/v1/subnets/${ids.subnetA}/discovery-schedule`, 'qa-auditor', { ...base, probesPerSecond: 20 })).statusCode, 403);
+    const saved = await request('PATCH', `/api/v1/subnets/${ids.subnetA}/discovery-schedule`, 'qa-admin', { ...base, probesPerSecond: 20, maxSockets: 8 });
+    assert.equal(saved.statusCode, 200, saved.body);
+    assert.deepEqual(json(saved).limits, { probesPerSecond: 20, maxSockets: 8, effective: { probesPerSecond: 20, maxSockets: 8 } });
+    // Omitted keeps the stored values; null resets one to the default.
+    const kept = json(await request('PATCH', `/api/v1/subnets/${ids.subnetA}/discovery-schedule`, 'qa-admin', base));
+    assert.deepEqual(kept.limits, { probesPerSecond: 20, maxSockets: 8, effective: { probesPerSecond: 20, maxSockets: 8 } });
+    const reset = json(await request('PATCH', `/api/v1/subnets/${ids.subnetA}/discovery-schedule`, 'qa-admin', { ...base, maxSockets: null }));
+    assert.deepEqual(reset.limits, { probesPerSecond: 20, maxSockets: null, effective: { probesPerSecond: 20, maxSockets: 64 } });
+    assert.deepEqual(json(await request('GET', `/api/v1/subnets/${ids.subnetA}/discovery-schedule`, 'qa-admin')).limits, reset.limits);
+  } finally {
+    await prisma.discoveryJob.deleteMany({ where: { id: { in: [jobA.id, jobB.id] } } });
+    await prisma.subnet.update({ where: { id: ids.subnetA }, data: { discoveryProbesPerSecond: null, discoveryMaxSockets: null } });
+    await prisma.discoverySchedule.deleteMany({ where: { subnetId: ids.subnetA } });
+  }
+});
+
 test('Round 2 #6/#14 Desaparecidos: scoped list, Marcar livre per item with roles and validation, Qualidade rule', async () => {
   const dayAgo = new Date(Date.now() - 86_400_000);
   const ipA = await prisma.ipAddress.create({ data: { subnetId: ids.subnetA, address: '10.250.1.233', state: 'OCCUPIED' } });

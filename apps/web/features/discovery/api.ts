@@ -118,6 +118,14 @@ export interface DiscoverySchedule {
   nextRunAt: string | null;
   lastStatus: string | null;
   lastError: string | null;
+  /** Discovery P0: this subnet's scan load limits. null = the default, shown in `effective`. */
+  limits?: DiscoveryLimits;
+}
+
+export interface DiscoveryLimits {
+  probesPerSecond: number | null;
+  maxSockets: number | null;
+  effective: { probesPerSecond: number; maxSockets: number };
 }
 
 export interface DiscoveryScheduleInput {
@@ -126,6 +134,9 @@ export interface DiscoveryScheduleInput {
   methods: string[];
   tcpPorts: number[];
   reverseDns: boolean;
+  /** null resets to the default; omitted keeps the stored value. */
+  probesPerSecond?: number | null;
+  maxSockets?: number | null;
 }
 
 export function getDiscoverySchedule(subnetId: string): Promise<DiscoverySchedule> {
@@ -152,9 +163,12 @@ export interface DiscoveryJobPayload {
   profileId: string;
 }
 
-/** `status` is a comma list (e.g. `PENDING,RUNNING`); the API answers 400 with a message for unknown values. */
-export function listDiscoveryJobs(status = ''): Promise<{ items: DiscoveryJob[]; total: number }> {
-  const suffix = status ? `&status=${encodeURIComponent(status)}` : '';
+/**
+ * `status` is a comma list (e.g. `PENDING,RUNNING`); the API answers 400 with a message for unknown values.
+ * `siteId` (discovery P0) limits the list to runs on that Site's subnets; empty means every Site the user can read.
+ */
+export function listDiscoveryJobs(status = '', siteId = ''): Promise<{ items: DiscoveryJob[]; total: number }> {
+  const suffix = `${status ? `&status=${encodeURIComponent(status)}` : ''}${siteId ? `&siteId=${encodeURIComponent(siteId)}` : ''}`;
   return apiFetch<{ items: DiscoveryJob[]; total: number }>(`/api/v1/discovery/jobs?pageSize=100${suffix}`);
 }
 

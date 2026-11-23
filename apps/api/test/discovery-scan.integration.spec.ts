@@ -3,6 +3,7 @@ import { strict as assert } from 'node:assert';
 import { after, before, beforeEach, test } from 'node:test';
 import { PrismaClient } from '@simoes/database';
 import { probesPerAddress, recordDiscoveryFailure, runDiscoveryScan, ScanDependencies } from '../src/discovery/discovery-scan';
+import { discoveryProcessSockets } from '../src/discovery/discovery-limiter';
 
 // Round 2 #10/#11: discovery saves progress per batch, cancels, resumes idempotently and stops at limits.
 const databaseUrl = process.env.DATABASE_URL ?? '';
@@ -21,6 +22,9 @@ const probe: ScanDependencies['probe'] = async (address, methods) => {
 
 let settingsCreated = false;
 before(async () => {
+  // A previous run that stopped early leaves the subnet behind (deleting the site does not delete it).
+  await prisma.discoveryJob.deleteMany({ where: { subnetId } });
+  await prisma.subnet.deleteMany({ where: { id: subnetId } });
   await prisma.site.deleteMany({ where: { id: siteId } });
   await prisma.site.create({ data: { id: siteId, name: 'R2-10 Discovery Site', code: 'R2-10-DISC' } });
   await prisma.subnet.create({ data: { id: subnetId, cidr: '10.251.0.0/26', version: 4, siteId } });
@@ -30,6 +34,8 @@ before(async () => {
 });
 beforeEach(async () => { probed = []; await prisma.discoveryJob.deleteMany({ where: { subnetId } }); });
 after(async () => {
+  await prisma.discoveryJob.deleteMany({ where: { subnetId } });
+  await prisma.subnet.deleteMany({ where: { id: subnetId } });
   await prisma.site.deleteMany({ where: { id: siteId } });
   if (settingsCreated) await prisma.systemSettings.deleteMany({ where: { organizationCode: 'R2-10' } });
   await prisma.$disconnect();
@@ -51,7 +57,7 @@ test('a full scan saves every batch and ends COMPLETED with consistent counters'
 test('a crash mid-scan keeps the saved batches; the retry resumes after them without duplicates', async () => {
   const job = await createJob();
   let calls = 0;
-  const crashing: ScanDependencies['probe'] = async (address, methods, ports) => { calls += 1; if (calls > 32) throw Object.assign(new Error('worker lost'), { code: 'ECONNRESET' }); return probe(address, methods, ports); };
+  const crashing: ScanDependencies['probe'] = async (address, methods, ports, limiter) => { calls += 1; if (calls > 32) throw Object.assign(new Error('worker lost'), { code: 'ECONNRESET' }); return probe(address, methods, ports, limiter); };
   await assert.rejects(runDiscoveryScan(prisma, job.id, { probe: crashing, batchSize: 16 }), /worker lost/);
   assert.deepEqual(await recordDiscoveryFailure(prisma, job.id, Object.assign(new Error('x'), { code: 'ECONNRESET' }), false), { code: 'ECONNRESET', final: false });
   const halfway = await prisma.discoveryJob.findUniqueOrThrow({ where: { id: job.id } });
@@ -89,9 +95,9 @@ test('two workers on the same job never count a batch twice', async () => {
 
 test('cancel: a running scan stops before its next batch and keeps what it saved; a cancelled scan frees the subnet', async () => {
   const job = await createJob();
-  const cancelling: ScanDependencies['probe'] = async (address, methods, ports) => {
+  const cancelling: ScanDependencies['probe'] = async (address, methods, ports, limiter) => {
     if (address === '10.251.0.20') await prisma.discoveryJob.update({ where: { id: job.id }, data: { cancelRequestedAt: new Date() } });
-    return probe(address, methods, ports);
+    return probe(address, methods, ports, limiter);
   };
   const outcome = await runDiscoveryScan(prisma, job.id, { probe: cancelling, batchSize: 16 });
   assert.deepEqual(outcome, { status: 'CANCELLED', stopReason: 'CANCELLED' });
@@ -125,4 +131,111 @@ test('a configuration problem fails at once without retry', async () => {
   assert.equal(error.code, 'DISCOVERY_CONFIGURATION_INVALID');
   assert.deepEqual(await recordDiscoveryFailure(prisma, job.id, error, false), { code: 'DISCOVERY_CONFIGURATION_INVALID', final: true });
   assert.equal((await prisma.discoveryJob.findUniqueOrThrow({ where: { id: job.id } })).status, 'FAILED');
+});
+
+test('Discovery P0: the subnet socket cap bounds probes in flight across a whole batch', async () => {
+  await prisma.subnet.update({ where: { id: subnetId }, data: { discoveryMaxSockets: 4, discoveryProbesPerSecond: 2000 } });
+  try {
+    const job = await createJob({ methods: ['ICMP', 'TCP'], tcpPorts: [22, 80, 443, 3389, 8080, 8443] });
+    let inFlight = 0; let peak = 0; let calls = 0;
+    const limited: ScanDependencies['probe'] = async (address, methods, tcpPorts, limiter) => {
+      const one = () => limiter.run(async () => { calls += 1; inFlight += 1; peak = Math.max(peak, inFlight); await new Promise((resolve) => setTimeout(resolve, 1)); inFlight -= 1; return false; });
+      await one();
+      await Promise.all(tcpPorts.map(one));
+      return { address, icmp: { reachable: false }, openPorts: [] };
+    };
+    const outcome = await runDiscoveryScan(prisma, job.id, { probe: limited, batchSize: 32 });
+    assert.deepEqual(outcome, { status: 'COMPLETED', stopReason: null });
+    assert.equal(calls, 62 * 7);
+    assert.equal(peak, 4);
+  } finally {
+    await prisma.subnet.update({ where: { id: subnetId }, data: { discoveryMaxSockets: null, discoveryProbesPerSecond: null } });
+  }
+});
+
+test('Discovery P0: the subnet rate limit spaces probes (5/s → one every 200 ms)', async () => {
+  await prisma.subnet.update({ where: { id: subnetId }, data: { discoveryProbesPerSecond: 5, discoveryMaxSockets: 1 } });
+  try {
+    const job = await createJob({ methods: ['ICMP'], maxProbes: 4 });
+    let clock = 0; const started: number[] = [];
+    const limiterClock = { now: () => clock, sleep: async (ms: number) => { clock += ms; } };
+    const timed: ScanDependencies['probe'] = async (address, _methods, _ports, limiter) => { await limiter.run(async () => { started.push(clock); }); return { address, icmp: { reachable: false }, openPorts: [] }; };
+    assert.deepEqual(await runDiscoveryScan(prisma, job.id, { probe: timed, batchSize: 4, limiterClock }), { status: 'COMPLETED', stopReason: 'LIMIT_PROBES' });
+    assert.deepEqual(started.sort((a, b) => a - b), [0, 200, 400, 600]);
+  } finally {
+    await prisma.subnet.update({ where: { id: subnetId }, data: { discoveryMaxSockets: null, discoveryProbesPerSecond: null } });
+  }
+});
+
+const quietOutcome = (address: string) => ({ address, icmp: { reachable: false }, openPorts: [] as number[] });
+
+test('review #148: two concurrent scans share the process-wide socket ceiling, and scans of one subnet share its cap', async () => {
+  const otherSubnetId = '00000000-0000-4000-8000-0000000251b1';
+  await prisma.subnet.deleteMany({ where: { id: otherSubnetId } });
+  await prisma.subnet.create({ data: { id: otherSubnetId, cidr: '10.251.1.0/26', version: 4, siteId } });
+  const previousCeiling = discoveryProcessSockets.limit;
+  try {
+    // Different subnets, each allowed 64 sockets: together they stay under the process ceiling of 5.
+    discoveryProcessSockets.setCapacity(5);
+    await prisma.subnet.update({ where: { id: subnetId }, data: { discoveryProbesPerSecond: 2000 } });
+    await prisma.subnet.update({ where: { id: otherSubnetId }, data: { discoveryProbesPerSecond: 2000 } });
+    const first = await createJob({ methods: ['ICMP', 'TCP'], tcpPorts: [22, 80, 443] });
+    const second = await prisma.discoveryJob.create({ data: { name: 'R2-10 other subnet', subnetId: otherSubnetId, methods: ['ICMP', 'TCP'], tcpPorts: [22, 80, 443], reverseDns: false } });
+    let inFlight = 0; let peak = 0; const perSubnet = new Map<string, number>();
+    const counted: ScanDependencies['probe'] = async (address, _methods, tcpPorts, limiter) => {
+      const one = () => limiter.run(async () => { inFlight += 1; peak = Math.max(peak, inFlight); await new Promise((resolve) => setTimeout(resolve, 20)); inFlight -= 1; });
+      await Promise.all([one(), ...tcpPorts.map(one)]);
+      const subnet = address.split('.')[2];
+      perSubnet.set(subnet, (perSubnet.get(subnet) ?? 0) + 1);
+      return quietOutcome(address);
+    };
+    const outcomes = await Promise.all([runDiscoveryScan(prisma, first.id, { probe: counted }), runDiscoveryScan(prisma, second.id, { probe: counted })]);
+    assert.deepEqual(outcomes, [{ status: 'COMPLETED', stopReason: null }, { status: 'COMPLETED', stopReason: null }]);
+    assert.deepEqual([perSubnet.get('0'), perSubnet.get('1')], [62, 62]);
+    assert.equal(peak, 5, 'never more than the process-wide ceiling across both scans');
+    assert.equal(discoveryProcessSockets.inUse, 0);
+
+    // Same subnet: two workers on one job use the same limiter, so the subnet cap of 3 holds across both.
+    discoveryProcessSockets.setCapacity(previousCeiling);
+    await prisma.subnet.update({ where: { id: subnetId }, data: { discoveryMaxSockets: 3, discoveryProbesPerSecond: 2000 } });
+    const shared = await createJob({ methods: ['ICMP'] });
+    inFlight = 0; peak = 0;
+    await Promise.all([runDiscoveryScan(prisma, shared.id, { probe: counted, batchSize: 16 }), runDiscoveryScan(prisma, shared.id, { probe: counted, batchSize: 16 })]);
+    assert.equal(peak, 3, 'the subnet cap is shared, not doubled');
+    assert.equal((await prisma.discoveryJob.findUniqueOrThrow({ where: { id: shared.id } })).status, 'COMPLETED');
+  } finally {
+    discoveryProcessSockets.setCapacity(previousCeiling);
+    await prisma.subnet.update({ where: { id: subnetId }, data: { discoveryMaxSockets: null, discoveryProbesPerSecond: null } });
+    await prisma.discoveryJob.deleteMany({ where: { subnetId: otherSubnetId } });
+    await prisma.subnet.deleteMany({ where: { id: otherSubnetId } });
+  }
+});
+
+test('review #148: at 1 probe/s, a cancel stops the batch within seconds and a passed deadline does too', async () => {
+  await prisma.subnet.update({ where: { id: subnetId }, data: { discoveryProbesPerSecond: 1, discoveryMaxSockets: 64 } });
+  try {
+    let ran = 0;
+    const slow: ScanDependencies['probe'] = async (address, _methods, _ports, limiter) => { await limiter.run(async () => { ran += 1; }); return quietOutcome(address); };
+
+    // Without the abort, this 32-address batch would take 32 s.
+    const cancelled = await createJob({ methods: ['ICMP'] });
+    const started = Date.now();
+    // Prisma queries only run when awaited or then-ed.
+    setTimeout(() => { prisma.discoveryJob.update({ where: { id: cancelled.id }, data: { cancelRequestedAt: new Date() } }).then(() => undefined, () => undefined); }, 1_200);
+    assert.deepEqual(await runDiscoveryScan(prisma, cancelled.id, { probe: slow, batchSize: 32 }), { status: 'CANCELLED', stopReason: 'CANCELLED' });
+    const cancelMs = Date.now() - started;
+    assert.ok(cancelMs < 4_000, `cancel took ${cancelMs} ms`);
+    assert.ok(ran <= 4, `only the probes whose slot came before the cancel ran (${ran})`);
+    const storedCancel = await prisma.discoveryJob.findUniqueOrThrow({ where: { id: cancelled.id } });
+    assert.equal(storedCancel.processedCount, 0, 'the unfinished batch is not saved; a retry probes it again');
+    await prisma.discoveryJob.delete({ where: { id: cancelled.id } });
+
+    const timed = await createJob({ methods: ['ICMP'], maxDurationSeconds: 2 });
+    const timedStart = Date.now();
+    assert.deepEqual(await runDiscoveryScan(prisma, timed.id, { probe: slow, batchSize: 32, controlPollMs: 250 }), { status: 'COMPLETED', stopReason: 'LIMIT_DURATION' });
+    const deadlineMs = Date.now() - timedStart;
+    assert.ok(deadlineMs < 4_000, `deadline took ${deadlineMs} ms`);
+  } finally {
+    await prisma.subnet.update({ where: { id: subnetId }, data: { discoveryMaxSockets: null, discoveryProbesPerSecond: null } });
+  }
 });
