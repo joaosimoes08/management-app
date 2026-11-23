@@ -64,11 +64,22 @@ All names, serials, MACs and addresses are synthetic.
 
 ## Changing the data
 
-Both `data/*.snmprec` files are generated from `gen-snmprec.mjs`, so the two variants keep the same structure. Edit the model there, then run:
+Both `data/*.snmprec` files are generated from `gen-snmprec.mjs`, so the two variants keep the same structure. Never edit the `.snmprec` files by hand. Edit the model in `gen-snmprec.mjs`, then:
+
+1. Rewrite both files (sorted by OID, as snmpsim needs): `node e2e/snmp-sim-c9300/gen-snmprec.mjs`
+2. Confirm they are current (exits non-zero if a committed file is stale): `node e2e/snmp-sim-c9300/gen-snmprec.mjs --check`
+3. Re-run the checks below (`walk-check.mjs` and `poll-check.sh`) with the simulator rebuilt: `docker compose -f e2e/snmp-sim-c9300/docker-compose.yml up -d --build`
+
+## Health polling check (Phase 2 step 8)
+
+`poll-check.sh` starts the simulator, runs `apps/snmp/src/device-health.sim.spec.ts` against it, and always stops it again:
 
 ```sh
-node e2e/snmp-sim-c9300/gen-snmprec.mjs          # rewrite both files (sorted by OID, as snmpsim needs)
-node e2e/snmp-sim-c9300/gen-snmprec.mjs --check  # fails if the committed files are stale
+./e2e/snmp-sim-c9300/poll-check.sh
 ```
+
+The spec polls the healthy (udp 16161) and degraded (udp 16162) stack over SNMPv2c and SNMPv3 authPriv with the app's own session and parsers, and checks that the healthy -> degraded sequence is recorded as a reboot (sysUpTime drop). It is skipped in the normal unit run unless `SNMP_SIM_C9300=1`.
+
+`walk-check.mjs` now fails (instead of passing the refusal checks) when the simulator is not answering valid credentials.
 
 The image pins snmpsim 1.1.7 and pysnmp 6.2.6, the same as `e2e/snmp-trap-lab/snmpsim`. Newer versions fail SNMPv3 privacy against net-snmp clients.

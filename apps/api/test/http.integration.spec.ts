@@ -422,6 +422,20 @@ test('enforces SNMP roles, Site isolation and disabled SET over HTTP', async () 
   assert.equal((await request('GET', `/api/v1/snmp/devices/${ids.deviceA}`, 'qa-auditor')).statusCode, 200);
   assert.equal((await request('GET', `/api/v1/snmp/devices/${ids.deviceA}`, 'qa-readonly')).statusCode, 200);
   assert.equal((await request('GET', `/api/v1/snmp/devices/${ids.deviceA}`, 'qa-systems-scoped')).statusCode, 403);
+  // SNMP Phase 2 step 8: read-only device health, same access rules as the SNMP overview.
+  const noHealth = await request('GET', `/api/v1/snmp/devices/${ids.deviceA}/health`, 'qa-readonly');
+  assert.equal(noHealth.statusCode, 200);
+  assert.deepEqual(noHealth.json(), { deviceId: ids.deviceA, health: null });
+  await prisma.snmpDeviceHealth.create({ data: { deviceId: ids.deviceA, vendor: 'cisco', status: 'DEGRADED', observedAt: new Date(), uptimeTicks: 24000n, rebootCount: 1, cpu5sPercent: 97, memoryUsedBytes: 1513000000n, memoryTotalBytes: 1609000000n, issueCount: 1, data: { issues: [{ code: 'FAN_FAULT', component: 'Switch 1 - Fan 2', state: 'critical' }] } } });
+  const withHealth = await request('GET', `/api/v1/snmp/devices/${ids.deviceA}/health`, 'qa-network-scoped');
+  assert.equal(withHealth.statusCode, 200);
+  assert.equal(withHealth.json().health.status, 'DEGRADED');
+  assert.equal(withHealth.json().health.uptimeTicks, '24000');
+  assert.equal(withHealth.json().health.memory.totalBytes, '1609000000');
+  assert.equal(withHealth.json().health.details.issues[0].code, 'FAN_FAULT');
+  assert.equal((await request('GET', `/api/v1/snmp/devices/${ids.deviceA}/health`, 'qa-auditor')).statusCode, 200);
+  assert.equal((await request('GET', `/api/v1/snmp/devices/${ids.deviceB}/health`, 'qa-network-scoped')).statusCode, 404);
+  assert.equal((await request('GET', `/api/v1/snmp/devices/${ids.deviceA}/health`, 'qa-systems-scoped')).statusCode, 403);
 
   const config = { enabled: true, port: 161, intervalMinutes: 15, timeoutMs: 1000, retries: 1, compatibilitySha1: false };
   assert.equal((await request('PATCH', `/api/v1/snmp/devices/${ids.deviceA}/config`, 'qa-network-scoped', config)).statusCode, 403);
