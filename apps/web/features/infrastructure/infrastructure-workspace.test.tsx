@@ -26,7 +26,7 @@ vi.mock('@/components/layout/app-shell', () => ({
 }));
 vi.mock('./components/rack/rack-workspace', () => ({ RackWorkspace: () => <div /> }));
 vi.mock('./components/devices/deep-link-device-loader', () => ({ DeepLinkDeviceLoader: ({ deviceId }: { deviceId: string | null }) => (deviceId ? <span data-testid="deep-link">{deviceId}</span> : null) }));
-vi.mock('./components/devices/device-list', () => ({ DeviceList: () => <div data-testid="site-device-list" /> }));
+vi.mock('./components/devices/device-list', () => ({ DeviceList: ({ headingFilters }: { headingFilters?: React.ReactNode }) => <div data-testid="site-device-list">{headingFilters}</div> }));
 vi.mock('./components/devices/cross-site-missing-config-list', () => ({ CrossSiteMissingConfigList: ({ config }: { config: string }) => <div data-testid="cross-site-list">{config}</div> }));
 vi.mock('./components/devices/retirement-review-modal', () => ({ RetirementReviewModal: () => null }));
 vi.mock('./components/models/model-list', () => ({ ModelList: () => null }));
@@ -52,18 +52,33 @@ afterEach(() => {
 });
 
 describe('InfrastructureWorkspace', () => {
-  it('opens Servidores inside Infraestrutura and restores a shared link for read-only users', () => {
+  it('redirects the old Servidores tab to Equipamentos filtered to servers, keeping its host filters', () => {
     auth.hasRole.mockImplementation((role) => role === 'READ_ONLY');
     window.history.replaceState({}, '', '/infraestrutura?siteId=site-1&tab=hosts&hosts-state=STALE');
     render(<InfrastructureWorkspace />);
+    expect(window.location.search).toBe('?siteId=site-1&tab=devices&hosts-state=STALE&type=SERVER');
+    expect(screen.getByTestId('site-device-list')).toBeInTheDocument();
     expect(screen.getByTestId('server-inventory')).toHaveTextContent('read-only');
-    expect(screen.getByRole('button', { name: 'linuxHosts.title' })).toHaveAttribute('aria-current', 'page');
-    fireEvent.click(screen.getByRole('button', { name: 'Equipamentos' }));
-    expect(screen.queryByTestId('server-inventory')).toBeNull();
-    expect(window.location.search).toBe('?siteId=site-1&tab=devices');
-    fireEvent.click(screen.getByRole('button', { name: 'linuxHosts.title' }));
+    expect(screen.getByRole('button', { name: 'Equipamentos' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.queryByRole('button', { name: 'linuxHosts.title' })).toBeNull();
+    expect(screen.getByRole('combobox', { name: 'Filtrar equipamentos por tipo' })).toHaveValue('SERVER');
+    expect(screen.getByRole('status')).toHaveTextContent('Tipo: Servidores');
+  });
+
+  it('shows the Linux hosts panel only while the Tipo filter is Servidores', () => {
+    auth.hasRole.mockImplementation((role) => role === 'READ_ONLY');
+    window.history.replaceState({}, '', '/infraestrutura?siteId=site-1&tab=devices&type=SERVER&hosts-site=site-1');
+    render(<InfrastructureWorkspace />);
+    const type = screen.getByRole('combobox', { name: 'Filtrar equipamentos por tipo' });
     expect(screen.getByTestId('server-inventory')).toBeInTheDocument();
-    expect(window.location.search).toBe('?siteId=site-1&tab=hosts');
+    fireEvent.change(type, { target: { value: 'SWITCH' } });
+    expect(screen.queryByTestId('server-inventory')).toBeNull();
+    const params = new URLSearchParams(window.location.search);
+    expect(params.get('type')).toBe('SWITCH');
+    expect(params.get('hosts-site')).toBeNull();
+    fireEvent.change(type, { target: { value: 'SERVER' } });
+    expect(screen.getByTestId('server-inventory')).toBeInTheDocument();
+    expect(new URLSearchParams(window.location.search).get('type')).toBe('SERVER');
   });
 
   it('uses the filter key when the registry response omits configs', () => {
@@ -136,7 +151,7 @@ describe('InfrastructureWorkspace', () => {
     expect(screen.getByRole('button', { name: 'Ciclo de vida' })).toHaveAttribute('aria-current', 'page');
   });
 
-  it('points Help at Servidores Linux on the Servidores tab', () => {
+  it('points Help at Servidores Linux when Equipamentos is filtered to servers (and for old Servidores links)', () => {
     auth.hasRole.mockImplementation((role) => role === 'READ_ONLY');
     window.history.replaceState({}, '', '/infraestrutura?siteId=site-1&tab=hosts');
     render(<InfrastructureWorkspace />);

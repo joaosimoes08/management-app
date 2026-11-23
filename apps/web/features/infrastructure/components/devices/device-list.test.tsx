@@ -33,7 +33,7 @@ describe('Infrastructure device toolbar', () => {
     const children = Array.from((toolbar as HTMLElement).children);
     expect(children.findIndex((child) => child.classList.contains('device-selection-dropdown'))).toBeLessThan(children.findIndex((child) => child.classList.contains('primary-button')));
     expect(container.querySelector('.device-list-toolbar > .device-bulk-toolbar')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Selecionar equipamentos visíveis' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Mais opções de seleção' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Editar 1 selecionado' }));
     expect(screen.getByRole('dialog', { name: 'Alterar 1 equipamentos selecionados' })).toBeInTheDocument();
     expect(container.querySelector('.device-list-toolbar > .device-bulk-toolbar')).not.toBeInTheDocument();
@@ -91,18 +91,19 @@ describe('Infrastructure device toolbar', () => {
 
   it('selects visible devices then opens the animated bulk editor and supports keyboard/outside dismissal', async () => {
     const { container } = renderDeviceList();
-    const trigger = screen.getByRole('button', { name: 'Selecionar equipamentos visíveis' });
+    const trigger = screen.getByRole('button', { name: 'Mais opções de seleção' });
     fireEvent.click(trigger);
     const menu = screen.getByRole('menu', { name: 'Opções de seleção de equipamentos' });
     expect(trigger).toHaveAttribute('aria-expanded', 'true');
     expect(menu.parentElement).toBe(container.querySelector('.device-selection-dropdown'));
     expect(container.querySelector('.device-bulk-toolbar')).not.toBeInTheDocument();
     const selectAllOption = within(menu).getByRole('menuitem', { name: 'Selecionar todos os visíveis' });
-    const deselectOption = within(menu).getByRole('menuitem', { name: 'Desselecionar visíveis' });
+    // Nothing selected yet: no deselect option, so ArrowDown wraps onto the only item.
+    expect(within(menu).queryByRole('menuitem', { name: /Desselecionar/ })).not.toBeInTheDocument();
     expect(selectAllOption).toHaveFocus();
     fireEvent.keyDown(selectAllOption, { key: 'ArrowDown' });
-    expect(deselectOption).toHaveFocus();
-    fireEvent.keyDown(deselectOption, { key: 'Escape' });
+    expect(selectAllOption).toHaveFocus();
+    fireEvent.keyDown(selectAllOption, { key: 'Escape' });
     expect(trigger).toHaveFocus();
     fireEvent.click(trigger);
     fireEvent.click(screen.getByRole('menuitem', { name: 'Selecionar todos os visíveis' }));
@@ -125,7 +126,7 @@ describe('Infrastructure device toolbar', () => {
   it('applies bulk changes through the existing callback and clears selection from the popover', async () => {
     const onBulkUpdate = vi.fn(async (ids: string[]) => ({ updated: ids.length, updatedIds: ids, failed: [], auditFailed: [], batchAuditFailed: false }));
     render(<DeviceList devices={devices} search="" onSelect={vi.fn()} onEdit={vi.fn()} onNew={vi.fn()} onRetire={vi.fn()} canRetire={false} canEdit onBulkUpdate={onBulkUpdate} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Selecionar equipamentos visíveis' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Mais opções de seleção' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Selecionar todos os visíveis' }));
     fireEvent.change(screen.getByLabelText('Estado'), { target: { value: 'INACTIVE' } });
     fireEvent.click(screen.getByRole('button', { name: 'Aplicar alterações' }));
@@ -139,7 +140,7 @@ describe('Infrastructure device toolbar', () => {
     expect(screen.getByText('2 guardado(s).')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Selecionar Router one' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Selecionar equipamentos visíveis' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Mais opções de seleção' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Editar 1 selecionado' }));
     fireEvent.click(screen.getByRole('button', { name: 'Limpar seleção' }));
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Alterar 1 equipamentos selecionados' })).not.toBeInTheDocument());
@@ -147,17 +148,57 @@ describe('Infrastructure device toolbar', () => {
     expect(screen.getByRole('checkbox', { name: 'Selecionar Switch two' })).not.toBeChecked();
   });
 
+  it('toggles select/deselect of every visible device in one click without opening the menu', () => {
+    renderDeviceList();
+    const toggle = screen.getByRole('button', { name: 'Selecionar todos os visíveis' });
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    expect(toggle).toHaveTextContent('Selecionar visíveis');
+    fireEvent.click(toggle);
+    expect(screen.queryByRole('menu', { name: 'Opções de seleção de equipamentos' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Selecionar Router one' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Selecionar Switch two' })).toBeChecked();
+    const deselect = screen.getByRole('button', { name: 'Desselecionar todos os visíveis' });
+    expect(deselect).toBe(toggle);
+    expect(deselect).toHaveAttribute('aria-pressed', 'true');
+    expect(deselect).toHaveClass('is-active');
+    expect(deselect).toHaveTextContent('Desselecionar todos');
+    fireEvent.click(deselect);
+    expect(screen.getByRole('checkbox', { name: 'Selecionar Router one' })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Selecionar Switch two' })).not.toBeChecked();
+    expect(screen.getByRole('button', { name: 'Selecionar todos os visíveis' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('selects the rest of the visible devices directly when only some are selected', () => {
+    renderDeviceList();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Selecionar Router one' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Selecionar todos os visíveis' }));
+    expect(screen.getByRole('checkbox', { name: 'Selecionar Switch two' })).toBeChecked();
+    expect(screen.getByRole('button', { name: 'Desselecionar todos os visíveis' })).toBeInTheDocument();
+  });
+
+  it('offers Selecionar todos plus Desselecionar visíveis when only some visible devices are selected', () => {
+    renderDeviceList();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Selecionar Router one' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Mais opções de seleção' }));
+    expect(screen.getByRole('menuitem', { name: 'Selecionar todos os visíveis' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Desselecionar visíveis' }));
+    expect(screen.getByRole('checkbox', { name: 'Selecionar Router one' })).not.toBeChecked();
+  });
+
   it('deselects visible devices without clearing selections outside the current view', async () => {
     const view = renderDeviceList();
     fireEvent.click(screen.getByRole('checkbox', { name: 'Selecionar Router one' }));
     view.rerender(<DeviceList devices={[devices[1]]} search="Switch" onSelect={vi.fn()} onEdit={vi.fn()} onNew={vi.fn()} onRetire={vi.fn()} canRetire={false} canEdit />);
-    const trigger = screen.getByRole('button', { name: 'Selecionar equipamentos visíveis' });
+    const trigger = screen.getByRole('button', { name: 'Mais opções de seleção' });
     fireEvent.click(trigger);
     fireEvent.click(screen.getByRole('menuitem', { name: 'Selecionar todos os visíveis' }));
     fireEvent.keyDown(screen.getByRole('dialog', { name: 'Alterar 2 equipamentos selecionados' }).querySelector('select') as HTMLSelectElement, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Alterar 2 equipamentos selecionados' })).not.toBeInTheDocument());
     fireEvent.click(trigger);
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Desselecionar visíveis' }));
+    // Everything visible is selected: "Selecionar todos" turns into "Desselecionar todos" and acts as deselect.
+    expect(screen.queryByRole('menuitem', { name: 'Selecionar todos os visíveis' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Desselecionar todos os visíveis' }));
     expect(screen.getByRole('checkbox', { name: 'Selecionar Switch two' })).not.toBeChecked();
     await waitFor(() => expect(screen.queryByRole('menu', { name: 'Opções de seleção de equipamentos' })).not.toBeInTheDocument());
     fireEvent.click(trigger);

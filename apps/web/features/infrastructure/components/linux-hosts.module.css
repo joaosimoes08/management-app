@@ -4,7 +4,12 @@
   gap: 12px;
 }
 
-.workspace h1 svg {
+.embedded {
+  margin-top: 12px;
+}
+
+.workspace h1 svg,
+.workspace h2 svg {
   vertical-align: text-bottom;
 }
 
@@ -33,15 +38,9 @@
 }
 
 .filters select {
-  min-height: 36px;
+  /* Look comes from the shared .context-toolbar-selector; only size it here. */
+  min-width: 190px;
   max-width: 100%;
-  padding: 6px 9px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface, #fff);
-  color: var(--text);
-  font: inherit;
-  font-size: 13px;
 }
 
 .workspace .hostName {

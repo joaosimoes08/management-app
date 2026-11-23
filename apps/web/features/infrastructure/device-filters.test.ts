@@ -5,7 +5,7 @@ import { clearSubnetUrlFilters, hasSubnetUrlFilters, readSubnetUrlFilters, subne
 describe('device URL filters', () => {
   it('reads the drill-through filters and forwards them to GET /devices', () => {
     const filters = readDeviceUrlFilters('?siteId=s1&tab=devices&status=ACTIVE,MAINTENANCE&critical=true&lifecycle=due:90');
-    expect(filters).toEqual({ status: 'ACTIVE,MAINTENANCE', critical: 'true', lifecycle: 'due:90', lifecycleKind: '', tier: '', tag: '' });
+    expect(filters).toEqual({ status: 'ACTIVE,MAINTENANCE', critical: 'true', lifecycle: 'due:90', lifecycleKind: '', tier: '', tag: '', type: '' });
     expect(hasDeviceUrlFilters(filters)).toBe(true);
     expect(deviceFilterQuery(filters)).toBe('&status=ACTIVE%2CMAINTENANCE&critical=true&lifecycle=due%3A90');
     expect(deviceFilterLabels(filters)).toEqual(['Estado: Ativo, Em manutenção', 'Críticos', 'Ciclo de vida nos próximos 90 dias']);
@@ -19,6 +19,15 @@ describe('device URL filters', () => {
     expect(deviceFilterLabels(filters, 'core + dmz')).toEqual(['Etiqueta: core + dmz']);
     expect(deviceFilterLabels(filters)).toEqual(['Etiqueta: t1,t2']);
     expect(clearDeviceUrlFilters('?siteId=s1&tag=t1&tier=T1')).toBe('?siteId=s1');
+  });
+
+  it('reads, forwards and labels the equipment type filter (former Servidores tab)', () => {
+    const filters = readDeviceUrlFilters('?siteId=s1&tab=devices&type=SERVER&hosts-site=s1');
+    expect(filters.type).toBe('SERVER');
+    expect(hasDeviceUrlFilters(filters)).toBe(true);
+    expect(deviceFilterQuery(filters)).toBe('&type=SERVER');
+    expect(deviceFilterLabels(filters)).toEqual(['Tipo: Servidores']);
+    expect(clearDeviceUrlFilters('?siteId=s1&tab=devices&type=SERVER')).toBe('?siteId=s1&tab=devices');
   });
 
   it('clears only the filters and keeps the other parameters', () => {

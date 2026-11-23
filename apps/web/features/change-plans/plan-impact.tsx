@@ -18,7 +18,7 @@ export function PlanImpactSection({ items, label, siteId, defaultOpen = false }:
   return <section className="plan-impact" aria-labelledby={headingId} data-testid="plan-impact">
     <div className="change-section-heading panel-heading"><div><h3 id={headingId}>Impacto se o equipamento for abaixo</h3></div><button type="button" className="secondary-button" aria-expanded={open} onClick={() => setOpen((value) => !value)}>{open ? 'Ocultar impacto' : 'Ver impacto'}</button></div>
     {open && <>
-      {devices.length > 1 && <label className="impact-target-picker"><span>Equipamento</span><select value={current.entityId} onChange={(event) => setPicked(event.target.value)}>{devices.map((item) => <option key={item.entityId} value={item.entityId}>{label(item)}</option>)}</select></label>}
+      {devices.length > 1 && <label className="impact-target-picker"><span>Equipamento</span><select className="context-toolbar-selector" value={current.entityId} onChange={(event) => setPicked(event.target.value)}>{devices.map((item) => <option key={item.entityId} value={item.entityId}>{label(item)}</option>)}</select></label>}
       <ImpactPanel target={{ kind: 'DEVICE', id: current.entityId }} siteId={siteId} headingId={headingId} />
     </>}
   </section>;

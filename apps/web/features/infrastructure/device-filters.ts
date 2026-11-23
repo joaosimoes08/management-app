@@ -3,11 +3,12 @@
  * `?tab=devices&status=ACTIVE,MAINTENANCE&critical=true&lifecycle=overdue|due:N&lifecycleKind=SUPPORT`.
  * They are passed as-is to GET /devices, which validates them (400 with a message).
  * Step 36: `tag=<id>[,<id>]` keeps devices that carry every listed tag; saved views store it too.
+ * `type=SERVER` (or another EquipmentType) narrows the list by equipment type; `type=SERVER` replaces the old Servidores tab.
  */
 import { hasTableFilters, parseTableState, serializeTableState, type TableStateConfig } from '@/components/data-table';
 
-export type DeviceUrlFilters = { status: string; critical: string; lifecycle: string; lifecycleKind: string; tier: string; tag: string };
-export const emptyDeviceUrlFilters: DeviceUrlFilters = { status: '', critical: '', lifecycle: '', lifecycleKind: '', tier: '', tag: '' };
+export type DeviceUrlFilters = { status: string; critical: string; lifecycle: string; lifecycleKind: string; tier: string; tag: string; type: string };
+export const emptyDeviceUrlFilters: DeviceUrlFilters = { status: '', critical: '', lifecycle: '', lifecycleKind: '', tier: '', tag: '', type: '' };
 /** Search stays in the page's own box (`search` key unused in the URL), so only the filters are read here. */
 export const deviceUrlConfig: TableStateConfig<DeviceUrlFilters> = { filters: emptyDeviceUrlFilters, sortable: [], searchKey: 'deviceSearch' };
 
@@ -23,6 +24,9 @@ export function deviceFilterQuery(filters: Partial<DeviceUrlFilters> = {}): stri
     .map((key) => `&${key}=${encodeURIComponent(filters[key]!)}`)
     .join('');
 }
+
+/** Equipment types offered by the Equipamentos "Tipo" filter (values match EquipmentType). */
+export const deviceTypeOptions: ReadonlyArray<readonly [string, string]> = [['SWITCH', 'Switches'], ['ROUTER', 'Routers'], ['FIREWALL', 'Firewalls'], ['SERVER', 'Servidores'], ['STORAGE', 'Storage'], ['OTHER', 'Outros']];
 
 const statusLabels: Record<string, string> = { ACTIVE: 'Ativo', INACTIVE: 'Inativo', MAINTENANCE: 'Em manutenção', RETIRED: 'Retirado', UNKNOWN: 'Desconhecido' };
 
@@ -40,5 +44,6 @@ export function deviceFilterLabels(filters: DeviceUrlFilters, tagName?: string):
   if (filters.lifecycleKind) labels.push(`Tipo de data: ${filters.lifecycleKind}`);
   if (filters.tier) labels.push(`Criticidade: ${filters.tier}`);
   if (filters.tag) labels.push(`Etiqueta: ${tagName || filters.tag}`);
+  if (filters.type) labels.push(`Tipo: ${deviceTypeOptions.find(([value]) => value === filters.type)?.[1] ?? filters.type}`);
   return labels;
 }

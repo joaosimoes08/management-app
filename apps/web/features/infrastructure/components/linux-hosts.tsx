@@ -223,7 +223,8 @@ function EnrollDialog({ hosts, initialId, close, refresh }: { hosts: Host[]; ini
   </Dialog>;
 }
 
-export function LinuxHosts({ sites, canManage, canAudit }: { sites: ActiveSite[]; canManage: boolean; canAudit: boolean }) {
+/** `embedded`: shown inside Equipamentos (Tipo = Servidores) rather than as its own page, so no page wrapper and an h2. */
+export function LinuxHosts({ sites, canManage, canAudit, embedded = false }: { sites: ActiveSite[]; canManage: boolean; canAudit: boolean; embedded?: boolean }) {
   const { t, formatDate } = useI18n();
   const { filters: url, setFilter } = useTableUrlState(filters);
   const siteId = sites.some((site) => site.id === url.site) ? url.site : '';
@@ -285,20 +286,21 @@ export function LinuxHosts({ sites, canManage, canAudit }: { sites: ActiveSite[]
       : host.device && <button type="button" className={`secondary-button ${styles.action}`} onClick={() => setEnrollHost(host.id)} aria-label={t('linuxHosts.enrollHost', undefined, { name: host.name })}>{t('linuxHosts.enroll')}</button>,
   });
 
-  return <div className={`module-page infrastructure-workspace ${styles.workspace}`}>
+  const Heading = embedded ? 'h2' : 'h1';
+  return <div className={embedded ? `${styles.workspace} ${styles.embedded}` : `module-page infrastructure-workspace ${styles.workspace}`}>
     <section className="ipam-card page-heading-card">
       <header className="panel-heading">
-        <div><h1><Server size={16} aria-hidden="true" /> {t('linuxHosts.title')}</h1><p className="panel-description">{t('linuxHosts.description')}</p></div>
+        <div><Heading><Server size={16} aria-hidden="true" /> {t('linuxHosts.title')}</Heading><p className="panel-description">{t('linuxHosts.description')}</p></div>
         {canManage && <button type="button" className="primary-button" disabled={!items.some((host) => host.device)} onClick={() => setEnrollHost('')}>{t('linuxHosts.enroll')}</button>}
       </header>
     </section>
     <section className={`ipam-card ${styles.inventory}`}>
       <div className={styles.filters}>
-        <label>{t('linuxHosts.site')}<select value={siteId} onChange={(event) => setFilter('site', event.target.value)}>
+        <label>{t('linuxHosts.site')}<select className="context-toolbar-selector" value={siteId} onChange={(event) => setFilter('site', event.target.value)}>
           <option value="">{t('linuxHosts.allSites')}</option>
           {sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
         </select></label>
-        <label>{t('linuxHosts.state')}<select value={state} onChange={(event) => setFilter('state', event.target.value)}>
+        <label>{t('linuxHosts.state')}<select className="context-toolbar-selector" value={state} onChange={(event) => setFilter('state', event.target.value)}>
           <option value="">{t('linuxHosts.allStates')}</option>
           {states.map((option) => <option key={option} value={option}>{t(`linuxHosts.state.${option}`)}</option>)}
         </select></label>

@@ -125,7 +125,7 @@ export function ImpactDialog({ title = 'Impacto', targets, siteId, close }: Impa
   const [index, setIndex] = useState(0);
   const target = targets[index] ?? null;
   return <Modal title={title} close={close} className="impact-dialog">
-    {targets.length > 1 && <label className="impact-target-picker"><span>O que vai abaixo</span><select value={index} onChange={(event) => setIndex(Number(event.target.value))}>{targets.map((item, position) => <option key={`${item.kind}:${item.id}`} value={position}>{item.label}</option>)}</select></label>}
+    {targets.length > 1 && <label className="impact-target-picker"><span>O que vai abaixo</span><select className="context-toolbar-selector" value={index} onChange={(event) => setIndex(Number(event.target.value))}>{targets.map((item, position) => <option key={`${item.kind}:${item.id}`} value={position}>{item.label}</option>)}</select></label>}
     <ImpactPanel target={target ? { kind: target.kind, id: target.id } : null} siteId={siteId} />
   </Modal>;
 }

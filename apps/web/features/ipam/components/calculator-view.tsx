@@ -5,6 +5,7 @@ import { Calculator } from 'lucide-react';
 import type { CalculatorInput, CalculatorResult, CalculatorOperation } from '../types';
 import { ipv4Mask, isValidCidr, isValidIpAddress, isValidIpv4 } from '../utils';
 import { useUiText } from '@/components/ui/use-ui-text';
+import { PageToolbarPortal } from '@/components/layout/app-shell';
 
 export interface CalculatorViewProps {
   calc: CalculatorInput;
@@ -62,7 +63,8 @@ export function CalculatorView({ calc, setCalc, result, clearResult, pending, on
 
   return <section className="ipam-card calculator-panel">
     <div className="panel-heading"><div><span className="section-kicker">SUBNETTING</span><h2>Calculadora CIDR IPv4 e IPv6</h2><p className="panel-description">Consulta subnets IPv4 e IPv6 sem enumerar endereços. A divisão em subnets continua disponível para IPv4.</p></div><Calculator size={18} /></div>
-    <form className="calculator-form" onSubmit={submit}>
+    <PageToolbarPortal><button type="submit" form="ipam-calculator-form" className="primary-button" disabled={pending} aria-busy={pending}><Calculator size={14} /> {pending ? 'A calcular…' : 'Calcular'}</button></PageToolbarPortal>
+    <form id="ipam-calculator-form" className="calculator-form" onSubmit={submit}>
       <label>Operação<select value={operation} onChange={(event) => { setFieldErrors({}); updateCalc({ operation: event.target.value as CalculatorOperation }); }}><option value="split">Dividir subnet IPv4</option><option value="summary">Resumo IPv4/IPv6</option><option value="contains">Verificar endereço</option><option value="overlap">Verificar sobreposição</option></select></label>
       {operation === 'split' ? <>
         <label>Subnet em questão<input required maxLength={15} inputMode="numeric" pattern="[0-9.]+" placeholder="10.80.80.0" value={calc.address} onChange={(event) => {
@@ -84,7 +86,6 @@ export function CalculatorView({ calc, setCalc, result, clearResult, pending, on
         {operation === 'overlap' && <label>Outras subnets CIDR<input required maxLength={1000} placeholder="2001:db8:1234:1::/64, 2001:db8:ffff::/48" value={calc.cidrsText ?? ''} onChange={(event) => { setFieldErrors((current) => ({ ...current, candidates: undefined })); updateCalc({ cidrsText: event.target.value }); }} aria-invalid={Boolean(fieldErrors.candidates)} aria-describedby={fieldErrors.candidates ? 'calculator-candidates-error' : undefined} />
           <small>Separa as subnets por vírgulas ou linhas.</small>{fieldErrors.candidates && <small id="calculator-candidates-error" className="calculator-field-error" role="alert">{fieldErrors.candidates}</small>}</label>}
       </>}
-      <button className="primary-button" disabled={pending} aria-busy={pending}><Calculator size={14} /> {pending ? 'A calcular…' : 'Calcular'}</button>
     </form>
     <div className="calculator-live-status" role="status" aria-live="polite" aria-atomic="true">{pending ? 'A calcular…' : result ? 'Resultados atualizados.' : ''}</div>
     <div className="calculator-results">

@@ -89,7 +89,7 @@ describe('Device360Page', () => {
     expect(within(section('Ligações')).getByRole('link', { name: /Topologia/ })).toHaveAttribute('href', '/topology?siteId=s1&deviceId=d1');
     expect(within(section('SNMP')).getByRole('link', { name: /SNMP/ })).toHaveAttribute('href', '/snmp?deviceId=d1');
     expect(within(section('Histórico')).getByRole('link', { name: /Auditoria/ })).toHaveAttribute('href', '/auditoria?entityType=Device&entityId=d1&q=d1');
-    expect(within(section('Host e serviços')).getByRole('link', { name: /Servidores/ })).toHaveAttribute('href', '/infraestrutura?tab=hosts&hosts-site=s1');
+    expect(within(section('Host e serviços')).getByRole('link', { name: /servidores/i })).toHaveAttribute('href', '/infraestrutura?tab=devices&type=SERVER&hosts-site=s1');
   });
 
   it('"Impacto" shows what goes down for this device and links the path view (Step 34)', async () => {
