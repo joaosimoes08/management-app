@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { Queue } from 'bullmq';
 import * as net from 'node:net';
 import { PrismaClient, SnmpCredentialPurpose, SnmpVersion } from '@simoes/database';
-import { decodeTrap, decryptCredential, encryptCredential, loadKeyring, rewrapCredential, SNMP_JOB_NAMES, SNMP_QUEUE, snmpPayload, trapAlertTitle, validateSetTemplate } from '@simoes/snmp-core';
+import { decodeTrap, decryptCredential, encryptCredential, loadKeyring, rewrapCredential, SNMP_JOB_NAMES, SNMP_QUEUE, SNMP_V2C_DISABLED, snmpPayload, snmpV2cAllowed, trapAlertTitle, validateSetTemplate } from '@simoes/snmp-core';
 import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { InfrastructureAccessService } from '../infrastructure/infrastructure-access.service';
@@ -126,7 +126,7 @@ export class SnmpService implements OnModuleDestroy, OnModuleInit {
       this.prisma.snmpDrift.findMany({ where: { deviceId, status: 'PENDING' }, orderBy: { createdAt: 'desc' }, take: 100 }),
       this.prisma.snmpTrapEvent.findMany({ where: { deviceId }, orderBy: { receivedAt: 'desc' }, take: 100 }),
     ]);
-    return { config, credentials: credentials.map((item) => this.publicCredential(item)), latestSnapshot, jobs, drifts, traps: traps.map((trap) => this.withTrapLabel(trap)), setEnabled: process.env.SNMP_SET_ENABLED === 'true' };
+    return { config, credentials: credentials.map((item) => this.publicCredential(item)), latestSnapshot, jobs, drifts, traps: traps.map((trap) => this.withTrapLabel(trap)), lastTrapReceivedAt: traps[0]?.receivedAt ?? null, setEnabled: process.env.SNMP_SET_ENABLED === 'true' };
   }
 
   async metrics(deviceId: string, user: AuthenticatedUser, interfaceIndex?: number, days = 7) {
@@ -179,6 +179,8 @@ export class SnmpService implements OnModuleDestroy, OnModuleInit {
 
   private credentialSecret(dto: SnmpCredentialSecretDto, config?: { compatibilitySha1: boolean } | null): Record<string, string> {
     if (dto.version === 'V2C') {
+      // SNMP Phase 1 step 1.3: production is SNMPv3 only (save, enrollment and onboarding all pass here).
+      if (!snmpV2cAllowed()) throw new BadRequestException({ code: SNMP_V2C_DISABLED, message: 'SNMPv2c está desativado. Usa SNMPv3 (authPriv).' });
       if (!dto.community || dto.community.length < 8) throw new BadRequestException({ code: 'SNMP_COMMUNITY_INVALID', message: 'A comunidade deve ter pelo menos 8 caracteres.' });
       return { community: dto.community };
     }
@@ -217,8 +219,11 @@ export class SnmpService implements OnModuleDestroy, OnModuleInit {
   }
 
   async createCredential(deviceId: string, dto: CreateSnmpCredentialDto, user: AuthenticatedUser) {
-    await this.device(deviceId, user, 'UPDATE');
+    const device = await this.device(deviceId, user, 'UPDATE');
     const purpose = this.purpose(dto.purpose);
+    // SNMP Phase 1 step 2.2: traps are matched by source IP and alerts are scoped by site, so a TRAP credential needs both.
+    if (purpose === 'TRAP' && !device.siteId) throw new BadRequestException({ code: 'SNMP_TRAP_SITE_REQUIRED', message: 'Associa o equipamento a um site antes de guardar a credencial de traps.' });
+    if (purpose === 'TRAP' && (!device.managementIp || net.isIP(device.managementIp) === 0)) throw new BadRequestException({ code: 'SNMP_MANAGEMENT_IP_REQUIRED', message: 'O equipamento precisa de um IP de gestão válido para receber traps.' });
     const config = await this.prisma.snmpDeviceConfig.findUnique({ where: { deviceId } });
     const secret = this.credentialSecret(dto, config);
     const metadata = this.credentialMetadata(dto);

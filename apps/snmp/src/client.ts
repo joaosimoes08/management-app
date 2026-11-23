@@ -1,6 +1,6 @@
 import * as snmp from 'net-snmp';
 import { isIP } from 'node:net';
-import { decryptCredential, loadKeyring, SNMP_OIDS, SnmpKeyring, SnmpSetTemplate } from '@simoes/snmp-core';
+import { decryptCredential, loadKeyring, SNMP_OIDS, SNMP_V2C_DISABLED, SnmpKeyring, SnmpSetTemplate, snmpV2cAllowed } from '@simoes/snmp-core';
 
 type StoredCredential = {
   version: 'V2C' | 'V3'; username: string | null; authProtocol: string | null; privProtocol: string | null;
@@ -37,6 +37,8 @@ export function createSnmpSession(target: string, port: number, timeout: number,
   if (isIP(target) === 0 || !Number.isInteger(port) || port < 1 || port > 65535) {
     throw Object.assign(new Error('SNMP_MANAGEMENT_TARGET_INVALID'), { code: 'SNMP_MANAGEMENT_TARGET_INVALID' });
   }
+  // Phase 1 step 1.3: SNMPv3 only unless the lab flag SNMP_ALLOW_V2C=true is set.
+  if (credential.version === 'V2C' && !snmpV2cAllowed()) throw Object.assign(new Error(SNMP_V2C_DISABLED), { code: SNMP_V2C_DISABLED });
   const secret = decryptStoredCredential(credential, keyring);
   const options = { port, timeout, retries, transport: target.includes(':') ? 'udp6' : 'udp4' } as any;
   if (credential.version === 'V2C') return snmp.createSession(target, secret.community, { ...options, version: snmp.Version2c });

@@ -9,6 +9,7 @@ import { createSnmpSession, get, pollStandard, setValues, setVarbinds } from './
 const keyring: SnmpKeyring = { activeKeyId: 'test', keys: { test: Uint8Array.from(randomBytes(32)) } };
 let agent: any;
 let port: number;
+let originalAllowV2c: string | undefined;
 
 function freeUdpPort() {
   return new Promise<number>((resolve, reject) => {
@@ -33,6 +34,9 @@ function stored(version: 'V2C' | 'V3', secret: Record<string, string>) {
 
 describe('SNMP client against a controlled agent', () => {
   before(async () => {
+    originalAllowV2c = process.env.SNMP_ALLOW_V2C;
+    // v2c cases run under the lab flag; production refuses v2c (Phase 1 step 1.3).
+    process.env.SNMP_ALLOW_V2C = 'true';
     port = await freeUdpPort();
     agent = snmp.createAgent({
       address: '127.0.0.1',
@@ -83,7 +87,21 @@ describe('SNMP client against a controlled agent', () => {
     await new Promise((resolve) => setTimeout(resolve, 25));
   });
 
-  after(() => new Promise<void>((resolve) => agent.close(() => resolve())));
+  after(() => new Promise<void>((resolve) => {
+    if (originalAllowV2c === undefined) delete process.env.SNMP_ALLOW_V2C;
+    else process.env.SNMP_ALLOW_V2C = originalAllowV2c;
+    agent.close(() => resolve());
+  }));
+
+  it('refuses a v2c credential when the lab flag is off', () => {
+    process.env.SNMP_ALLOW_V2C = 'false';
+    try {
+      assert.throws(
+        () => createSnmpSession('127.0.0.1', port, 1000, 0, stored('V2C', { community: 'private-community' }), keyring),
+        (error: any) => error.code === 'SNMP_V2C_DISABLED' && !String(error.message).includes('private-community'),
+      );
+    } finally { process.env.SNMP_ALLOW_V2C = 'true'; }
+  });
 
   it('performs GET and predefined SET over SNMPv2c', async () => {
     const session = createSnmpSession('127.0.0.1', port, 1000, 0, stored('V2C', { community: 'private-community' }), keyring);

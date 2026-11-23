@@ -13,6 +13,7 @@ let originalKeyringFile: string | undefined;
 let originalSelfTestEnabled: string | undefined;
 let originalSelfTestProxySources: string | undefined;
 let originalSelfTestAllowTranslatedSource: string | undefined;
+let originalAllowV2c: string | undefined;
 
 describe('trap durability when Redis is unavailable', () => {
   before(async () => {
@@ -20,6 +21,9 @@ describe('trap durability when Redis is unavailable', () => {
     originalSelfTestEnabled = process.env.SNMP_SELF_TEST_ENABLED;
     originalSelfTestProxySources = process.env.SNMP_SELF_TEST_PROXY_SOURCES;
     originalSelfTestAllowTranslatedSource = process.env.SNMP_SELF_TEST_ALLOW_TRANSLATED_SOURCE;
+    originalAllowV2c = process.env.SNMP_ALLOW_V2C;
+    // These cases exercise v2c association, which production refuses (Phase 1 step 1.3): run them under the lab flag.
+    process.env.SNMP_ALLOW_V2C = 'true';
     directory = await mkdtemp(join(tmpdir(), 'snmp-trap-test-'));
     const encoded = randomBytes(32).toString('base64');
     await writeFile(join(directory, 'keyring.json'), JSON.stringify({ activeKeyId: 'test', keys: { test: encoded } }), { mode: 0o600 });
@@ -35,6 +39,8 @@ describe('trap durability when Redis is unavailable', () => {
     else process.env.SNMP_SELF_TEST_PROXY_SOURCES = originalSelfTestProxySources;
     if (originalSelfTestAllowTranslatedSource === undefined) delete process.env.SNMP_SELF_TEST_ALLOW_TRANSLATED_SOURCE;
     else process.env.SNMP_SELF_TEST_ALLOW_TRANSLATED_SOURCE = originalSelfTestAllowTranslatedSource;
+    if (originalAllowV2c === undefined) delete process.env.SNMP_ALLOW_V2C;
+    else process.env.SNMP_ALLOW_V2C = originalAllowV2c;
     await rm(directory, { recursive: true, force: true });
   });
 

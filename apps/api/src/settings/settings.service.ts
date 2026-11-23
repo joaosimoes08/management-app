@@ -1,3 +1,4 @@
+import { normalizeEngineId } from '@simoes/snmp-core';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaClient } from '@simoes/database';
 import { AuditService } from '../audit/audit.service';
@@ -8,6 +9,17 @@ import Redis from 'ioredis';
 import { DiscoveryPolicyError, normalizeAllowedCidrs } from '../discovery/discovery-policy';
 import { discoveryProfiles } from '../discovery/discovery-profiles';
 
+
+/**
+ * SNMP Phase 1 step 2: the engine ID the trap receiver uses, for configuring SNMPv3 informs on devices. The receiver
+ * records the ID it actually uses and its source on every start (SnmpListenerConfig.activeEngineId/activeEngineIdSource),
+ * so this reports the receiver's truth and never reads the API's own env. Null until the receiver has started once.
+ */
+export function snmpEngineIdView(active: string | null | undefined, source: string | null | undefined): { engineId: string | null; engineIdSource: 'ENV' | 'STORED' | null } {
+  const engineId = normalizeEngineId(active);
+  if (!engineId) return { engineId: null, engineIdSource: null };
+  return { engineId, engineIdSource: source === 'ENV' ? 'ENV' : 'STORED' };
+}
 @Injectable()
 export class SettingsService {
   constructor(private readonly prisma: PrismaClient, private readonly audit: AuditService, private readonly keycloak: KeycloakAdminService) {}
@@ -51,6 +63,7 @@ export class SettingsService {
       listenAll: config?.listenAll ?? true,
       selectedInterfaceIds: interfaces.filter((item) => selected.some((entry) => entry.instanceId === item.instanceId && entry.name === item.name && entry.address === item.address)).map((item) => item.id),
       interfaces: interfaces.map(({ id, instanceId, name, address, internal, lastSeenAt }) => ({ id, instanceId, name, address, internal, lastSeenAt })),
+      ...snmpEngineIdView(config?.activeEngineId, config?.activeEngineIdSource),
       updatedAt: config?.updatedAt ?? null,
       refreshSeconds: 30,
     };

@@ -4,7 +4,7 @@ import { decryptCredential, encryptCredential, loadKeyring } from '@simoes/snmp-
 import { AuditService } from '../../audit/audit.service';
 import type { AuthenticatedUser } from '../../auth/auth.service';
 import { DeliveryChannelSender, DeliveryDestination, DeliveryError, SmtpSettings } from './channel';
-import { AlertForDelivery, DEFAULT_GROUP_MIN_SEVERITY, GROUP_SEVERITIES, groupRecipients, isConfigured, queueAlertDelivery, smtpConfigured, TEST_TOPIC } from './delivery-queue';
+import { AlertForDelivery, GROUP_SEVERITIES, groupDeliveryReadiness, groupRecipients, isConfigured, queueAlertDelivery, smtpConfigured, TEST_TOPIC } from './delivery-queue';
 import { EmailSender, isEmailAddress, normaliseRecipients, validateSmtpSettings } from './email-sender';
 import { TeamsSender, validateTeamsWebhookUrl } from './teams-sender';
 import { csvFilename } from '../../reports/report-content';
@@ -255,7 +255,9 @@ export class NotificationDeliveryService implements OnModuleInit, OnModuleDestro
   private present(kind: DeliveryChannelKind, target: DeliveryTarget, config: ConfigRecord | null, server: ConfigRecord | null) {
     const base = {
       kind, target, enabled: Boolean(config?.enabled), configured: isConfigured(config, server),
-      minSeverity: target === 'GROUP_ALERTS' ? config?.minSeverity ?? DEFAULT_GROUP_MIN_SEVERITY : null,
+      // SNMP Phase 1 step 1.2: the saved value only; null means not chosen yet, and then this channel sends nothing.
+      minSeverity: target === 'GROUP_ALERTS' ? config?.minSeverity ?? null : null,
+      ...(target === 'GROUP_ALERTS' ? { delivery: groupDeliveryReadiness(config as never, server as never) } : {}),
       updatedAt: config?.updatedAt ?? null,
     };
     if (kind === 'TEAMS') return base;
@@ -281,8 +283,12 @@ export class NotificationDeliveryService implements OnModuleInit, OnModuleDestro
     let keyringAvailable = true;
     try { loadKeyring(); } catch { keyringAvailable = false; }
     const pairs: [DeliveryChannelKind, DeliveryTarget][] = [['TEAMS', 'USER_NOTIFICATIONS'], ['TEAMS', 'GROUP_ALERTS'], ['EMAIL', 'USER_NOTIFICATIONS'], ['EMAIL', 'GROUP_ALERTS']];
+    const channels = pairs.map(([kind, target]) => this.presentFrom(rows, kind, target));
     return {
-      channels: pairs.map(([kind, target]) => this.presentFrom(rows, kind, target)),
+      channels,
+      // SNMP Phase 1 step 1.2: true when no group channel can send operational alerts (no destination and/or no
+      // minimum severity saved), so the setup page can warn that alerts go nowhere.
+      groupAlertsUnconfigured: !channels.some((channel) => 'delivery' in channel && channel.delivery?.ready),
       keyringAvailable, publicLinks: Boolean(publicLink('/', process.env.APP_PUBLIC_URL)), maxAttempts: MAX_ATTEMPTS, maxTotalAttempts: MAX_TOTAL_ATTEMPTS,
     };
   }

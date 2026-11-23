@@ -2,13 +2,13 @@ import { createServer, Server } from 'node:http';
 import { PrismaClient } from '@simoes/database';
 import Redis from 'ioredis';
 
-export type SnmpMetrics = { jobsCompleted: number; jobsFailed: number; trapsProcessed: number };
+export type SnmpMetrics = { jobsCompleted: number; jobsFailed: number; trapsProcessed: number; untrustedTrapRowsDropped?: () => number };
 
 export function startHealthServer(prisma: PrismaClient, redis: Redis, receiverReady: () => boolean, metrics: SnmpMetrics) {
   const server = createServer(async (request, response) => {
     if (request.url === '/metrics') {
       response.writeHead(200, { 'Content-Type': 'text/plain; version=0.0.4' });
-      return response.end(`snmp_jobs_completed_total ${metrics.jobsCompleted}\nsnmp_jobs_failed_total ${metrics.jobsFailed}\nsnmp_traps_processed_total ${metrics.trapsProcessed}\n`);
+      return response.end(`snmp_jobs_completed_total ${metrics.jobsCompleted}\nsnmp_jobs_failed_total ${metrics.jobsFailed}\nsnmp_traps_processed_total ${metrics.trapsProcessed}\nsnmp_trap_untrusted_rows_dropped_total ${metrics.untrustedTrapRowsDropped?.() ?? 0}\n`);
     }
     if (request.url !== '/health' && request.url !== '/ready') { response.writeHead(404); return response.end(); }
     try {

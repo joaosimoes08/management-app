@@ -32,4 +32,6 @@ export type UpsertOperationalAlert = {
   title: string;
   detail: string;
   actionHref?: string | null;
+  /** Absolute occurrence count for grouped alerts (e.g. a flapping port); omitted means +1 per upsert. */
+  occurrenceCount?: number;
 };

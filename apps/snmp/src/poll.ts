@@ -72,7 +72,7 @@ export class PollProcessor {
         const nextPollAt = new Date(Date.now() + config.intervalMinutes * 60 * 1000);
         await this.prisma.$transaction([
           this.prisma.snmpJob.update({ where: { id: job.id }, data: { status: 'COMPLETED', completedAt: new Date(), result: { snapshotId: snapshot.id, interfaceCount: result.interfaces.length } } }),
-          this.prisma.snmpDeviceConfig.update({ where: { id: config.id }, data: { lastPollAt: new Date(), nextPollAt, lastStatus: 'COMPLETED', lastErrorCode: null } }),
+          this.prisma.snmpDeviceConfig.update({ where: { id: config.id }, data: { lastPollAt: new Date(), nextPollAt, lastStatus: 'COMPLETED', lastErrorCode: null, consecutiveFailures: 0 } }),
           this.prisma.snmpCredential.update({ where: { id: job.credential!.id }, data: { lastUsedAt: new Date() } }),
           this.prisma.auditLog.create({ data: { userId: job.requestedBy, action: 'SNMP_POLL_COMPLETED', entityType: 'Device', entityId: job.deviceId, metadata: { jobId: job.id, credentialId: job.credential!.id, snapshotId: snapshot.id, interfaceCount: result.interfaces.length } } }),
         ]);
@@ -81,7 +81,7 @@ export class PollProcessor {
         const code = publicErrorCode(error);
         await this.prisma.$transaction([
           this.prisma.snmpJob.update({ where: { id: job.id }, data: { status: 'FAILED', completedAt: new Date(), errorCode: code } }),
-          this.prisma.snmpDeviceConfig.update({ where: { id: config.id }, data: { lastPollAt: new Date(), lastStatus: 'FAILED', lastErrorCode: code } }),
+          this.prisma.snmpDeviceConfig.update({ where: { id: config.id }, data: { lastPollAt: new Date(), lastStatus: 'FAILED', lastErrorCode: code, consecutiveFailures: { increment: 1 } } }),
           this.prisma.auditLog.create({ data: { userId: job.requestedBy, action: 'SNMP_POLL_FAILED', entityType: 'Device', entityId: job.deviceId, metadata: { jobId: job.id, credentialId: job.credential!.id, errorCode: code } } }),
         ]);
         log('warn', 'poll failed', { jobId: job.id, deviceId: job.deviceId, errorCode: code });
