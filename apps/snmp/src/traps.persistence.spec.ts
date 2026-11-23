@@ -22,8 +22,8 @@ describe('trap durability when Redis is unavailable', () => {
     originalSelfTestProxySources = process.env.SNMP_SELF_TEST_PROXY_SOURCES;
     originalSelfTestAllowTranslatedSource = process.env.SNMP_SELF_TEST_ALLOW_TRANSLATED_SOURCE;
     originalAllowV2c = process.env.SNMP_ALLOW_V2C;
-    // These cases exercise v2c association, which production refuses (Phase 1 step 1.3): run them under the lab flag.
-    process.env.SNMP_ALLOW_V2C = 'true';
+    // v2c association is accepted by default (plan step 1.3 rev. 4): run with the flag unset.
+    delete process.env.SNMP_ALLOW_V2C;
     directory = await mkdtemp(join(tmpdir(), 'snmp-trap-test-'));
     const encoded = randomBytes(32).toString('base64');
     await writeFile(join(directory, 'keyring.json'), JSON.stringify({ activeKeyId: 'test', keys: { test: encoded } }), { mode: 0o600 });

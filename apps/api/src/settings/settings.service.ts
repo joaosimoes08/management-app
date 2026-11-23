@@ -21,7 +21,7 @@ export function snmpEngineIdView(active: string | null | undefined, source: stri
   if (!engineId) return { engineId: null, engineIdSource: null };
   return { engineId, engineIdSource: source === 'ENV' ? 'ENV' : 'STORED' };
 }
-/** SNMP Phase 1 step 3: the UDP port switches send traps to (the host port published for the receiver) and the v2c lab flag. */
+/** SNMP Phase 1 step 3: the UDP port switches send traps to (the host port published for the receiver) and whether v2c is accepted (true unless SNMP_ALLOW_V2C=false). */
 export function snmpReceiverView(hostPort: string | undefined, v2cAllowed: boolean): { trapPort: number; v2cAllowed: boolean } {
   const port = Number(hostPort);
   return { trapPort: Number.isInteger(port) && port >= 1 && port <= 65535 ? port : 162, v2cAllowed };

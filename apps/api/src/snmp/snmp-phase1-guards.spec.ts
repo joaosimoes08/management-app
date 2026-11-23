@@ -28,14 +28,17 @@ describe('SNMP Phase 1 API guards', () => {
   before(() => { originalAllowV2c = process.env.SNMP_ALLOW_V2C; delete process.env.SNMP_ALLOW_V2C; });
   after(() => { if (originalAllowV2c === undefined) delete process.env.SNMP_ALLOW_V2C; else process.env.SNMP_ALLOW_V2C = originalAllowV2c; });
 
-  it('1.3: refuses to save a v2c credential unless SNMP_ALLOW_V2C=true', async () => {
+  it('1.3 (rev. 4): accepts a v2c credential by default and refuses it only when SNMP_ALLOW_V2C=false', async () => {
     const { instance, transactions } = service({});
-    await assert.rejects(instance.createCredential('device-1', { purpose: 'READ', version: 'V2C', community: 'community-123' }, 'user'), code('SNMP_V2C_DISABLED'));
-    assert.equal(transactions(), 0, 'nothing stored');
-    assert.throws(() => instance.credentialSecret({ version: 'V2C', community: 'community-123' }), code('SNMP_V2C_DISABLED'), 'enrollment and onboarding share this check');
-    process.env.SNMP_ALLOW_V2C = 'true';
-    try { assert.deepEqual(instance.credentialSecret({ version: 'V2C', community: 'community-123' }), { community: 'community-123' }); }
-    finally { delete process.env.SNMP_ALLOW_V2C; }
+    assert.deepEqual(instance.credentialSecret({ version: 'V2C', community: 'community-123' }), { community: 'community-123' }, 'v2c accepted with the flag unset');
+    assert.throws(() => instance.credentialSecret({ version: 'V2C', community: 'short' }), code('SNMP_COMMUNITY_INVALID'), 'a v2c community still needs 8 characters');
+    assert.throws(() => instance.credentialSecret({ version: 'V1' as any, community: 'community-123' }), code('SNMP_V3_SECRET_INCOMPLETE'), 'anything that is not V2C is held to the v3 rules');
+    process.env.SNMP_ALLOW_V2C = 'false';
+    try {
+      await assert.rejects(instance.createCredential('device-1', { purpose: 'READ', version: 'V2C', community: 'community-123' }, 'user'), code('SNMP_V2C_DISABLED'));
+      assert.equal(transactions(), 0, 'nothing stored');
+      assert.throws(() => instance.credentialSecret({ version: 'V2C', community: 'community-123' }), code('SNMP_V2C_DISABLED'), 'enrollment and onboarding share this check');
+    } finally { delete process.env.SNMP_ALLOW_V2C; }
     assert.deepEqual(instance.credentialSecret({ version: 'V3', username: 'u', authKey: 'auth-key-123', privKey: 'priv-key-123' }), { username: 'u', authKey: 'auth-key-123', privKey: 'priv-key-123' });
   });
 
