@@ -6,6 +6,7 @@ import { AuthenticatedUser } from '../auth/auth.service';
 import { KeycloakAdminService } from './keycloak-admin.service';
 import { UpdateAuditPolicyDto, UpdateDiscoveryDefaultsDto, UpdateOrganizationSettingsDto, UpdateSnmpListenerDto } from './dto';
 import Redis from 'ioredis';
+import { isIP } from 'node:net';
 import { DiscoveryPolicyError, normalizeAllowedCidrs } from '../discovery/discovery-policy';
 import { discoveryProfiles } from '../discovery/discovery-profiles';
 import { DISCOVERY_MAX_PROBES_PER_SECOND, DISCOVERY_MAX_SOCKETS, DISCOVERY_MIN_PROBES_PER_SECOND, DISCOVERY_MIN_SOCKETS, resolveDiscoveryLimits } from '../discovery/discovery-limiter';
@@ -25,6 +26,42 @@ export function snmpEngineIdView(active: string | null | undefined, source: stri
 export function snmpReceiverView(hostPort: string | undefined, v2cAllowed: boolean): { trapPort: number; v2cAllowed: boolean } {
   const port = Number(hostPort);
   return { trapPort: Number.isInteger(port) && port >= 1 && port <= 65535 ? port : 162, v2cAllowed };
+}
+
+export type SnmpReceiverMode = 'HOST_AGENT' | 'CONTAINER_INGRESS';
+export type SnmpContainerReceiver = {
+  /** Address switches send traps to, or null when it cannot be known (see reason). */
+  address: string | null;
+  addressSource: 'SNMP_TRAP_PUBLIC_ADDRESS' | 'SNMP_TRAP_HOST_IP' | null;
+  /** Set only when address is null: SNMP_TRAP_PUBLIC_ADDRESS_REQUIRED (nothing usable configured) or SNMP_TRAP_PUBLIC_ADDRESS_INVALID. */
+  reason: 'SNMP_TRAP_PUBLIC_ADDRESS_REQUIRED' | 'SNMP_TRAP_PUBLIC_ADDRESS_INVALID' | null;
+  /** Host UDP port published for the receiver (SNMP_TRAP_HOST_PORT, default 162). */
+  port: number;
+};
+const HOSTNAME = /^(?=.{1,253}$)(?!-)[a-z0-9-]{1,63}(?<!-)(?:\.(?!-)[a-z0-9-]{1,63}(?<!-))*$/i;
+/** Bind-all and loopback addresses are not something a switch can send to. */
+const unusableHostIp = (value: string) => value === '0.0.0.0' || value === '::' || value.startsWith('127.') || value === '::1';
+
+/**
+ * Container-only receiver (SNMP_LISTENER_MODE container-ingress, no host agent): there are no host: interface rows,
+ * so the address switches should send to comes from the deployment env. Order: SNMP_TRAP_PUBLIC_ADDRESS (IP or
+ * hostname), then SNMP_TRAP_HOST_IP unless it is a bind-all/loopback address, else null with a reason code.
+ */
+export function snmpContainerReceiverView(env: { publicAddress?: string; hostIp?: string; hostPort?: string }): SnmpContainerReceiver {
+  const { trapPort: port } = snmpReceiverView(env.hostPort, false);
+  const publicAddress = env.publicAddress?.trim();
+  if (publicAddress) {
+    return isIP(publicAddress) || HOSTNAME.test(publicAddress)
+      ? { address: publicAddress, addressSource: 'SNMP_TRAP_PUBLIC_ADDRESS', reason: null, port }
+      : { address: null, addressSource: null, reason: 'SNMP_TRAP_PUBLIC_ADDRESS_INVALID', port };
+  }
+  const hostIp = env.hostIp?.trim();
+  if (hostIp && isIP(hostIp) && !unusableHostIp(hostIp)) return { address: hostIp, addressSource: 'SNMP_TRAP_HOST_IP', reason: null, port };
+  return { address: null, addressSource: null, reason: 'SNMP_TRAP_PUBLIC_ADDRESS_REQUIRED', port };
+}
+/** HOST_AGENT when the host agent has reported interfaces in the last 2 minutes; then the UI keeps using that list. */
+export function snmpReceiverModeView(freshHostInterfaces: number, env: { publicAddress?: string; hostIp?: string; hostPort?: string }): { receiverMode: SnmpReceiverMode; containerReceiver: SnmpContainerReceiver | null } {
+  return freshHostInterfaces > 0 ? { receiverMode: 'HOST_AGENT', containerReceiver: null } : { receiverMode: 'CONTAINER_INGRESS', containerReceiver: snmpContainerReceiverView(env) };
 }
 
 @Injectable()
@@ -72,6 +109,7 @@ export class SettingsService {
       interfaces: interfaces.map(({ id, instanceId, name, address, internal, lastSeenAt }) => ({ id, instanceId, name, address, internal, lastSeenAt })),
       ...snmpEngineIdView(config?.activeEngineId, config?.activeEngineIdSource),
       ...snmpReceiverView(process.env.SNMP_TRAP_HOST_PORT, snmpV2cAllowed()),
+      ...snmpReceiverModeView(interfaces.length, { publicAddress: process.env.SNMP_TRAP_PUBLIC_ADDRESS, hostIp: process.env.SNMP_TRAP_HOST_IP, hostPort: process.env.SNMP_TRAP_HOST_PORT }),
       updatedAt: config?.updatedAt ?? null,
       refreshSeconds: 30,
     };
