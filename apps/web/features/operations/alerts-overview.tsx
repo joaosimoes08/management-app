@@ -13,7 +13,7 @@ import { PageToolbarPortal } from '@/components/layout/app-shell';
 import { useAuth } from '@/lib/auth';
 import { formatDateTime } from '@/lib/format/date';
 import { getMaintenanceSummary, listAlerts, type AlertListItem, type MaintenanceWindowSummaryItem } from './api';
-import { alertNextStep, alertSourceLabel, alertStatusLabels, alertTargetHref, deviceHref, SEVERITY_ORDER, severityNames } from './alert-meta';
+import { alertKindLabel, alertNextStep, alertSourceLabel, alertStatusLabels, alertTargetHref, deviceHref, SEVERITY_ORDER, severityNames } from './alert-meta';
 import { AlertActionStatus, AlertBulkBar, AlertRowActions, isAlertActionable, OPERATOR_ROLES, ReadOnlyAlertNote, useAlertActions } from './alert-actions';
 import { AlertDetailDialog } from './alert-detail';
 import { SeverityLegend, SeverityTag } from './alert-severity';
@@ -35,12 +35,12 @@ const baseColumns = (openDetail: (row: AlertListItem) => void): DataTableColumn<
   { id: 'severity', header: 'Severidade', cell: (row) => <SeverityTag severity={row.severity} />, sortValue: (row) => severityRank[row.severity] ?? 9 },
   { id: 'title', header: 'Alerta', cell: (row) => {
     const href = alertTargetHref(row);
-    return <span className="alert-title-cell"><strong>{href ? <a href={href}>{row.title}</a> : row.title}</strong>{row.detail && <small>{row.detail}</small>}<small className="alert-next-step">{alertNextStep(row.source)}</small><button type="button" className="text-button" onClick={() => openDetail(row)} aria-label={`Ver detalhe de ${row.title}`}>Detalhe</button></span>;
+    return <span className="alert-title-cell"><strong>{href ? <a href={href}>{row.title}</a> : row.title}</strong>{row.detail && <small>{row.detail}</small>}<small className="alert-next-step">{alertNextStep(row)}</small><button type="button" className="text-button" onClick={() => openDetail(row)} aria-label={`Ver detalhe de ${row.title}`}>Detalhe</button></span>;
   } },
   { id: 'device', header: 'Equipamento', cell: (row) => (row.device
     ? <span className="alert-device-cell"><a href={deviceHref(row.device.id, row.siteId)}>{row.device.name || 'Equipamento removido'}</a>{row.device.managementIp && <small>{row.device.managementIp}</small>}</span>
     : '—') },
-  { id: 'source', header: 'Origem', cell: (row) => <span className="alert-source-cell">{alertSourceLabel(row.source)}{alertSourceLabel(row.source) !== row.source && <code>{row.source}</code>}</span> },
+  { id: 'source', header: 'Origem', cell: (row) => <span className="alert-source-cell">{alertKindLabel(row)}{alertKindLabel(row) !== row.source && <code>{row.source}</code>}</span> },
   { id: 'site', header: 'Site', cell: (row) => row.site?.name ?? 'Todos os Sites' },
   { id: 'status', header: 'Estado', cell: (row) => <>{alertStatusLabels[row.status] ?? row.status}{row.status === 'SNOOZED' && row.snoozedUntil && <small>{`até ${formatDateTime(row.snoozedUntil, { dateStyle: 'short', timeStyle: 'short' })}`}</small>}</> },
   { id: 'occurred', header: 'Última ocorrência', cell: (row) => <>{row.lastOccurredAt ? formatDateTime(row.lastOccurredAt) : '—'}{(row.occurrenceCount ?? 1) > 1 && <small>{row.occurrenceCount}×</small>}</>, sortValue: (row) => (row.lastOccurredAt ? new Date(row.lastOccurredAt) : null) },

@@ -1,6 +1,6 @@
 import { apiFetch } from '@/lib/api/client';
 
-export type OperationalAlert = { id: string; title: string; detail?: string; severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'WARNING' | 'INFO'; status?: 'OPEN' | 'ACKNOWLEDGED' | 'SNOOZED' | 'RESOLVED'; entityType?: string | null; entityId?: string | null; relatedDeviceId?: string | null; occurredAt?: string; href?: string; source?: string; siteId?: string | null; actionHref?: string | null; device?: AlertDevice | null };
+export type OperationalAlert = { id: string; title: string; detail?: string; severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'WARNING' | 'INFO'; status?: 'OPEN' | 'ACKNOWLEDGED' | 'SNOOZED' | 'RESOLVED'; entityType?: string | null; entityId?: string | null; relatedDeviceId?: string | null; occurredAt?: string; href?: string; source?: string; dedupKey?: string | null; siteId?: string | null; actionHref?: string | null; device?: AlertDevice | null };
 export type AlertDevice = { id: string; name: string; managementIp?: string | null };
 export type InventoryQuality = { score?: number; total?: number; valid?: number; invalid?: number; stale?: number; deviceCount?: number; affectedDeviceCount?: number; validDeviceCount?: number; affectedEntityCount?: number; findingCount?: number; staleFindingCount?: number };
 export type FindingStatus = 'OPEN' | 'ACKNOWLEDGED' | 'SNOOZED' | 'RESOLVED';
@@ -62,7 +62,7 @@ export const getInventoryQualityFacets = (query: FindingQuery) => apiFetch<Findi
 export const bulkInventoryFindings = (body: BulkFindingRequest) => apiFetch<BulkFindingResponse>('/api/v1/inventory-quality/findings/bulk', { method: 'POST', body: JSON.stringify(body) });
 
 // Phase D: Alertas list, maintenance summary and inline rule / window edits (PR #85 contract).
-export type AlertListItem = { id: string; source: string; siteId?: string | null; site?: { id: string; name: string } | null; status: 'OPEN' | 'ACKNOWLEDGED' | 'SNOOZED' | 'RESOLVED'; severity: string; title: string; detail?: string | null; actionHref?: string | null; lastOccurredAt?: string | null; firstOccurredAt?: string | null; occurrenceCount?: number; relatedDeviceId?: string | null; device?: AlertDevice | null; readAt?: string | null; snoozedUntil?: string | null };
+export type AlertListItem = { id: string; source: string; dedupKey?: string | null; siteId?: string | null; site?: { id: string; name: string } | null; status: 'OPEN' | 'ACKNOWLEDGED' | 'SNOOZED' | 'RESOLVED'; severity: string; title: string; detail?: string | null; actionHref?: string | null; lastOccurredAt?: string | null; firstOccurredAt?: string | null; occurrenceCount?: number; relatedDeviceId?: string | null; device?: AlertDevice | null; readAt?: string | null; snoozedUntil?: string | null };
 export type AlertListFilters = { siteId?: string; severity?: string; status?: string; source?: string; search?: string };
 /** GET /operations/alerts; unresolved by default. Invalid filters answer 400 with a message. */
 export const listAlerts = (filters: AlertListFilters, pageSize = 100) => {

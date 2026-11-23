@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { failureLabel, NotificationChannelsSettings, type ChannelStatus, type DeliveryItem } from './notification-channels-settings';
+import { failureLabel, groupAlertsUnconfigured, groupDeliveryNote, NotificationChannelsSettings, type ChannelStatus, type DeliveryItem } from './notification-channels-settings';
 
 const mocks = vi.hoisted(() => ({ apiFetch: vi.fn(), success: vi.fn(), error: vi.fn() }));
 vi.mock('@/lib/api/client', () => ({ apiFetch: mocks.apiFetch }));
@@ -14,9 +14,9 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); });
 const channel = (target: ChannelStatus['target'], overrides: Partial<ChannelStatus> = {}): ChannelStatus => ({ kind: 'TEAMS', target, enabled: false, configured: false, minSeverity: target === 'GROUP_ALERTS' ? 'HIGH' : null, updatedAt: null, ...overrides });
 const failed: DeliveryItem = { id: 'd-1', target: 'GROUP_ALERTS', status: 'FAILED', topic: 'OPERATIONAL_ALERT', title: '[CRITICAL] Core down', attempts: 5, failureReason: 'HTTP_500', createdAt: '2026-11-21T10:00:00.000Z', sentAt: null, nextAttemptAt: null, recipient: null };
 
-function api(channels: ChannelStatus[], items: DeliveryItem[] = [], publicLinks = true) {
+function api(channels: ChannelStatus[], items: DeliveryItem[] = [], publicLinks = true, extra: Record<string, unknown> = {}) {
   mocks.apiFetch.mockImplementation(async (path: string) => {
-    if (path === '/api/v1/settings/notification-channels') return { channels, keyringAvailable: true, publicLinks, maxAttempts: 5 };
+    if (path === '/api/v1/settings/notification-channels') return { channels, keyringAvailable: true, publicLinks, maxAttempts: 5, ...extra };
     if (path.startsWith('/api/v1/settings/notification-deliveries?') || path === '/api/v1/settings/notification-deliveries') return { items, nextCursor: null, counts: { FAILED: items.length } };
     if (path.endsWith('/test')) return { deliveryId: 't-1', status: 'FAILED', failureReason: 'HTTP_404' };
     return {};
@@ -148,5 +148,68 @@ describe('NotificationChannelsSettings', () => {
     expect((within(server).getByLabelText('Palavra-passe') as HTMLInputElement).placeholder).toBe('Introduz de novo a palavra-passe');
     expect(failureLabel('SMTP_CONNECTION_FAILED')).toMatch(/Não foi possível ligar/);
     expect(failureLabel('SMTP_HOST_NOT_ALLOWED')).toMatch(/não permitido/);
+  });
+
+  it('has no default minimum severity and refuses to enable a group channel without one', async () => {
+    api([channel('USER_NOTIFICATIONS'), channel('GROUP_ALERTS', { minSeverity: null })]);
+    render(<NotificationChannelsSettings />);
+    const group = await screen.findByRole('group', { name: 'Alertas operacionais' });
+    const severity = within(group).getByRole('combobox', { name: 'Severidade mínima' }) as HTMLSelectElement;
+    await waitFor(() => expect(severity.value).toBe(''));
+    expect(within(group).getByRole('option', { name: 'Escolher severidade…' })).toBeInTheDocument();
+    expect(severity).toHaveAccessibleDescription('Sem severidade escolhida, este canal não envia alertas.');
+    fireEvent.change(within(group).getByLabelText(/URL do webhook/), { target: { value: 'https://contoso.webhook.office.com/webhookb2/x' } });
+    fireEvent.click(within(group).getByRole('checkbox', { name: 'Ativar este canal' }));
+    expect(severity).toHaveAttribute('aria-invalid', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+    expect(await screen.findByText('Escolhe a severidade mínima dos alertas operacionais antes de ativar o canal.')).toBeInTheDocument();
+    expect(mocks.apiFetch.mock.calls.filter(([, options]) => options?.method === 'PUT')).toEqual([]);
+
+    fireEvent.change(severity, { target: { value: 'HIGH' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+    await waitFor(() => expect(mocks.success).toHaveBeenCalledWith('Notificações', 'Canais de notificação guardados'));
+    const puts = mocks.apiFetch.mock.calls.filter(([, options]) => options?.method === 'PUT');
+    expect(JSON.parse(puts[0][1].body)).toEqual({ enabled: true, webhookUrl: 'https://contoso.webhook.office.com/webhookb2/x', minSeverity: 'HIGH' });
+  });
+
+  it('does not send a severity for a disabled channel that never had one', async () => {
+    api([channel('USER_NOTIFICATIONS'), channel('GROUP_ALERTS', { minSeverity: null })]);
+    render(<NotificationChannelsSettings />);
+    const group = await screen.findByRole('group', { name: 'Alertas operacionais' });
+    await waitFor(() => expect(within(group).getByText('Sem webhook · desativado')).toBeInTheDocument());
+    fireEvent.change(within(group).getByLabelText(/URL do webhook/), { target: { value: 'https://contoso.webhook.office.com/webhookb2/x' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+    await waitFor(() => expect(mocks.success).toHaveBeenCalled());
+    const puts = mocks.apiFetch.mock.calls.filter(([, options]) => options?.method === 'PUT');
+    expect(JSON.parse(puts[0][1].body)).toEqual({ enabled: false, webhookUrl: 'https://contoso.webhook.office.com/webhookb2/x' });
+  });
+
+  it('warns clearly when no group channel sends operational alerts, and says what each one misses', async () => {
+    const teams = channel('GROUP_ALERTS', { enabled: true, configured: true, minSeverity: null, delivery: { ready: false, missing: ['minSeverity'] } });
+    const email: ChannelStatus = { kind: 'EMAIL', target: 'GROUP_ALERTS', enabled: false, configured: false, minSeverity: null, updatedAt: null, recipients: [], serverConfigured: false, delivery: { ready: false, missing: ['enabled', 'destination', 'minSeverity'] } };
+    api([channel('USER_NOTIFICATIONS'), teams, email], [], true, { groupAlertsUnconfigured: true });
+    render(<NotificationChannelsSettings />);
+    const warning = await screen.findByText('Os alertas operacionais não estão a ser enviados.');
+    expect(warning.closest('[role="alert"]')).toHaveClass('ipam-alert', 'warning');
+    const group = screen.getByRole('group', { name: 'Alertas operacionais' });
+    expect(within(group).getByText('Não envia alertas: falta escolher a severidade mínima.')).toBeInTheDocument();
+    const emailGroup = screen.getByRole('group', { name: 'Alertas operacionais por email' });
+    expect(within(emailGroup).getByText('Não envia alertas: falta ativar o canal, configurar o servidor SMTP e os destinatários e escolher a severidade mínima.')).toBeInTheDocument();
+  });
+
+  it('shows no warning once a group channel is ready', async () => {
+    const teams = channel('GROUP_ALERTS', { enabled: true, configured: true, minSeverity: 'CRITICAL', delivery: { ready: true, missing: [] } });
+    api([channel('USER_NOTIFICATIONS'), teams], [], true, { groupAlertsUnconfigured: false });
+    render(<NotificationChannelsSettings />);
+    const group = await screen.findByRole('group', { name: 'Alertas operacionais' });
+    await waitFor(() => expect((within(group).getByRole('combobox', { name: 'Severidade mínima' }) as HTMLSelectElement).value).toBe('CRITICAL'));
+    expect(screen.queryByText('Os alertas operacionais não estão a ser enviados.')).not.toBeInTheDocument();
+    expect(within(group).queryByText(/Não envia alertas/)).not.toBeInTheDocument();
+  });
+
+  it('derives the warning when the API does not send groupAlertsUnconfigured', () => {
+    expect(groupAlertsUnconfigured({ channels: [channel('GROUP_ALERTS', { enabled: true, configured: true, minSeverity: null })] })).toBe(true);
+    expect(groupAlertsUnconfigured({ channels: [channel('GROUP_ALERTS', { enabled: true, configured: true, minSeverity: 'HIGH' })] })).toBe(false);
+    expect(groupDeliveryNote(channel('GROUP_ALERTS', { delivery: { ready: true, missing: [] } }))).toBeNull();
   });
 });

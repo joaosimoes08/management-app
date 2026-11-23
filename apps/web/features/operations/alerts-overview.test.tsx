@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TableUrlState } from '@/components/data-table';
 import { AlertList, type AlertListUrlFilters } from './alerts-overview';
-import { alertNextStep, alertSourceLabel, alertTargetHref, DEFAULT_NEXT_STEP } from './alert-meta';
+import { alertKindLabel, alertNextStep, alertSourceLabel, alertTargetHref, DEFAULT_NEXT_STEP } from './alert-meta';
 import { alertOutcome, isAlertActionable, outcomeText } from './alert-actions';
 
 const mocks = vi.hoisted(() => ({
@@ -67,6 +67,16 @@ describe('alert meta', () => {
     expect(alertNextStep(null)).toBe(DEFAULT_NEXT_STEP);
   });
 
+  it('labels the #145 sources: traps nobody accepts and the unreachable device', () => {
+    expect(alertSourceLabel('SNMP_TRAP_SOURCE')).toBe('Traps SNMP não aceites');
+    expect(alertNextStep('SNMP_TRAP_SOURCE')).toMatch(/Engine ID/);
+    const unreachable = { source: 'SNMP_POLL', dedupKey: 'snmp:unreachable:d1' };
+    expect(alertKindLabel(unreachable)).toBe('Equipamento inacessível');
+    expect(alertNextStep(unreachable)).toMatch(/próximo poll com sucesso/);
+    expect(alertKindLabel({ source: 'SNMP_POLL', dedupKey: 'snmp:polling-stopped:d1' })).toBe(alertSourceLabel('SNMP_POLL'));
+    expect(alertNextStep({ source: 'SNMP_POLL', dedupKey: 'snmp:polling-stopped:d1' })).toBe(alertNextStep('SNMP_POLL'));
+  });
+
   it('only lets ADMIN act on global alerts and nobody on resolved ones', () => {
     expect(isAlertActionable(globalAlert, false)).toBe(false);
     expect(isAlertActionable(globalAlert, true)).toBe(true);
@@ -90,6 +100,15 @@ describe('AlertList', () => {
     expect(within(row).getByText(alertNextStep('SNMP_TRAP'))).toBeTruthy();
     expect(within(row).getByRole('link', { name: 'Link down Gi0/1' }).getAttribute('href')).toContain('d1');
     expect(screen.getByText('O que significa cada severidade?')).toBeTruthy();
+  });
+
+  it('shows the unreachable alert as its own kind with the SNMP_POLL code', async () => {
+    mocks.listAlerts.mockResolvedValue({ items: [{ ...drift, id: 'u1', title: 'Equipamento inacessível por SNMP: core-sw-01', source: 'SNMP_POLL', dedupKey: 'snmp:unreachable:d1', relatedDeviceId: 'd1', device: trap.device }], total: 1 });
+    renderList();
+    const row = (await screen.findByText('Equipamento inacessível por SNMP: core-sw-01')).closest('tr')!;
+    expect(within(row).getByText('Equipamento inacessível')).toBeTruthy();
+    expect(within(row).getByText('SNMP_POLL')).toBeTruthy();
+    expect(within(row).getByText(/Resolve-se sozinho/)).toBeTruthy();
   });
 
   it('acknowledges and snoozes one alert from the row', async () => {

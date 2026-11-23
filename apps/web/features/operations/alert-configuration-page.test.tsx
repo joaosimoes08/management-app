@@ -27,7 +27,7 @@ const alertItem = { id: 'a1', source: 'SNMP_DRIFT', siteId: 'site-1', site: { id
 function route(path: string, init?: RequestInit) {
   if (path.startsWith('/api/v1/operations/alerts?')) return Promise.resolve({ items: [alertItem], total: 1, page: 1, pageSize: 100 });
   if (path.startsWith('/api/v1/operations/maintenance/summary')) return Promise.resolve(maintenance);
-  if (path === '/api/v1/operations/alerts/sources') return Promise.resolve({ items: ['SNMP_DRIFT', 'SNMP_TRAP', 'CUSTOM_HOOK'] });
+  if (path === '/api/v1/operations/alerts/sources') return Promise.resolve({ items: ['SNMP_DRIFT', 'SNMP_TRAP', 'SNMP_TRAP_SOURCE', 'SNMP_POLL', 'CUSTOM_HOOK'] });
   if (path === '/api/v1/operations/configuration') return Promise.resolve({ rules: [rule], windows: [windowItem] });
   if (init?.method === 'PATCH') return Promise.resolve({});
   return Promise.reject(new Error(`unexpected ${path}`));
@@ -102,6 +102,8 @@ describe('Alert rules and maintenance windows (ADMIN)', () => {
     const source = await screen.findByRole('combobox', { name: 'Tipo de evento' });
     await waitFor(() => expect(within(source).getByRole('option', { name: 'Trap SNMP recebido (SNMP_TRAP)' })).toBeTruthy());
     expect(within(source).getByRole('option', { name: 'CUSTOM_HOOK' })).toBeTruthy();
+    expect(within(source).getByRole('option', { name: 'Traps SNMP não aceites (SNMP_TRAP_SOURCE)' })).toBeTruthy();
+    expect(within(source).getByRole('option', { name: 'Recolha SNMP e equipamento inacessível (SNMP_POLL)' })).toBeTruthy();
     const severity = screen.getByRole('combobox', { name: 'Severidade mínima' });
     expect(within(severity).getAllByRole('option').map((option) => option.textContent)).toEqual(['Crítico', 'Alto', 'Aviso', 'Info']);
     expect(severity.getAttribute('aria-describedby')).toBeTruthy();

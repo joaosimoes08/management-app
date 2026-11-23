@@ -1700,6 +1700,17 @@ const enUS: LegacyDictionary = {
   "Tarefas de configuração": "Setup tasks",
   "Escolher tipo de evento…": "Choose event type…",
   "Em Infraestrutura → Equipamentos, escolhe Servidores no filtro Tipo para ver só os servidores, com o estado do agente: Online, Atrasado, Sem agente ou Revogado.": "In Infrastructure → Devices, choose Servers in the Type filter to see only servers, with the agent state: Online, Late, No agent or Revoked.",
+  "Traps SNMP não aceites": "SNMP traps not accepted",
+  "Recolha SNMP e equipamento inacessível": "SNMP polling and unreachable device",
+  "Confirma que o IP de origem é o IP de gestão de um equipamento e que a credencial TRAP (SNMPv3) e o Engine ID batem certo.": "Confirm the source IP is a device management IP and that the TRAP credential (SNMPv3) and the Engine ID match.",
+  "Equipamento inacessível": "Unreachable device",
+  "Confirma que o equipamento está ligado e alcançável a partir do servidor, e que a credencial SNMP está certa. Resolve-se sozinho no próximo poll com sucesso.": "Confirm the device is on and reachable from the server, and that the SNMP credential is right. It resolves itself on the next successful poll.",
+  "Escolher severidade…": "Choose severity…",
+  "Alto e Crítico": "High and Critical",
+  "Só Crítico": "Critical only",
+  "Sem severidade escolhida, este canal não envia alertas.": "With no severity chosen, this channel sends no alerts.",
+  "Escolhe a severidade mínima dos alertas operacionais antes de ativar o canal.": "Choose the minimum severity for operational alerts before enabling the channel.",
+  "Os alertas operacionais não estão a ser enviados.": "Operational alerts are not being sent.",
 };
 
 const substitutions: Array<[RegExp, string]> = [

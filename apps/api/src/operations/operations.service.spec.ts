@@ -186,6 +186,7 @@ test('alert sources list the known producers plus any stored source, without dup
   assert.equal(items.filter((item) => item === 'SNMP_TRAP').length, 1);
   assert.ok(items.includes('SNMP_INTERFACE'));
   assert.ok(items.includes('CAPACITY'));
+  assert.ok(items.includes('SNMP_TRAP_SOURCE'), 'traps nobody accepts (#145)');
   assert.equal(items.at(-1), 'SNMP_UNREACHABLE');
 });
 

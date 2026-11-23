@@ -7,7 +7,7 @@ import { HistoryBlock, type HistoryEvent } from '@/components/data-table/history
 import { IpamModal } from '@/features/ipam/components/ipam-modal';
 import { formatDateTime } from '@/lib/format/date';
 import { getOperationalAlert, type AlertDetail, type AlertHistoryEntry, type AlertPerson, type BulkAlertAction } from './api';
-import { alertNextStep, alertSourceLabel, alertStatusLabels, alertTargetHref, deviceHref, severityMeanings } from './alert-meta';
+import { alertKindLabel, alertNextStep, alertStatusLabels, alertTargetHref, deviceHref, severityMeanings } from './alert-meta';
 import { AlertRowActions, ReadOnlyAlertNote } from './alert-actions';
 import { SeverityTag } from './alert-severity';
 
@@ -46,10 +46,10 @@ export function AlertDetailDialog({ alertId, title, close, run, running }: { ale
       {detail && <>
         <p className="alert-detail-severity"><SeverityTag severity={detail.severity} /> <span>{severityMeanings[detail.severity] ?? ''}</span></p>
         {detail.detail && <p className="panel-description">{detail.detail}</p>}
-        <p className="alert-next-step"><strong>Próximo passo:</strong> {alertNextStep(detail.source)}{href && <> <a href={href}>Abrir</a></>}</p>
+        <p className="alert-next-step"><strong>Próximo passo:</strong> {alertNextStep(detail)}{href && <> <a href={href}>Abrir</a></>}</p>
         <dl className="alert-detail-facts">
           <div><dt>Estado</dt><dd>{alertStatusLabels[detail.status] ?? detail.status}{detail.status === 'SNOOZED' && detail.snoozedUntil ? ` até ${formatDateTime(detail.snoozedUntil)}` : ''}</dd></div>
-          <div><dt>Origem</dt><dd>{alertSourceLabel(detail.source)} <code>{detail.source}</code></dd></div>
+          <div><dt>Origem</dt><dd>{alertKindLabel(detail)} <code>{detail.source}</code></dd></div>
           <div><dt>Equipamento</dt><dd>{detail.device ? <a href={deviceHref(detail.device.id, detail.siteId)}>{detail.device.name || 'Equipamento removido'}</a> : '—'}{detail.device?.managementIp && <small> {detail.device.managementIp}</small>}</dd></div>
           <div><dt>Site</dt><dd>{detail.site?.name ?? 'Todos os Sites'}</dd></div>
           <div><dt>Primeira ocorrência</dt><dd>{when(detail.firstOccurredAt)}</dd></div>
