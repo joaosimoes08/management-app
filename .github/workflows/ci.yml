@@ -3,6 +3,9 @@ name: CI
 on:
   push:
     branches: [main]
+  # Manual runs (e.g. on a branch before merge). No pull_request trigger: the repo is public and
+  # this uses a self-hosted runner on Joao's Mac, so fork PRs must not be able to run code here.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -10,7 +13,12 @@ permissions:
 jobs:
   verify:
     runs-on: [self-hosted, Linux, ARM64]
-    timeout-minutes: 20
+    # 40, not 20: the 1 GiB ARM runner is slow; run 45210028713 hit the 20-minute cap mid unit tests.
+    timeout-minutes: 40
+    # The runner (mac-runner-1) is itself a container on Joao's Docker Desktop, so service
+    # ports are published on the Mac host, next to the simoes-mgmtapp-* stack (5432, 6379).
+    # Use unusual host ports to avoid clashing, and reach them via host.docker.internal:
+    # 127.0.0.1 inside the runner container is the runner itself, not the host.
     services:
       postgres:
         image: postgres:18-alpine
@@ -19,7 +27,7 @@ jobs:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: simoes_http_test
         ports:
-          - 5432:5432
+          - 55432:5432
         options: >-
           --health-cmd "pg_isready -U postgres -d simoes_http_test"
           --health-interval 5s
@@ -28,17 +36,21 @@ jobs:
       redis:
         image: redis:8-alpine
         ports:
-          - 6379:6379
+          - 56379:6379
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
     env:
-      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/simoes_http_test
-      REDIS_URL: redis://127.0.0.1:6379
+      DATABASE_URL: postgresql://postgres:postgres@host.docker.internal:55432/simoes_http_test
+      REDIS_URL: redis://host.docker.internal:56379
       AUTH_DISABLED: "false"
       NODE_ENV: test
+      # mac-runner-1 is capped at 1 GiB RAM + 1 GiB swap, so node's default heap (~500 MB) is too small
+      # for `tsc --noEmit` in apps/web (~700 MB). 1536 fits under the 2 GiB memory+swap ceiling;
+      # a larger value would let the container be OOM-killed (taking the runner with it).
+      NODE_OPTIONS: --max-old-space-size=1536
       NEXT_PUBLIC_API_URL: http://127.0.0.1:3001
       NEXT_PUBLIC_KEYCLOAK_URL: http://127.0.0.1:8080
       NEXT_PUBLIC_KEYCLOAK_REALM: COCiber
@@ -64,12 +76,22 @@ jobs:
         run: npm run typecheck --workspace=@simoes/web
       - name: Frontend lint
         run: npm run lint --workspace=@simoes/web
+      - name: Backend typecheck
+        run: |
+          npx tsc -p packages/snmp-core/tsconfig.json --noEmit
+          npx tsc -p apps/api/tsconfig.json --noEmit
+          npx tsc -p apps/snmp/tsconfig.json --noEmit
+      # Types are checked once above, so ts-node only transpiles each spec file (about 5x faster).
       - name: Unit tests
+        env:
+          TS_NODE_TRANSPILE_ONLY: "true"
         run: |
           npm test --workspace=@simoes/snmp-core
           npm test --workspace=@simoes/api
           npm test --workspace=@simoes/snmp
       - name: HTTP integration tests
+        env:
+          TS_NODE_TRANSPILE_ONLY: "true"
         run: npm run test:http
       - name: Build API and web
         run: npm run build
