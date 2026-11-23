@@ -46,6 +46,10 @@ jobs:
       REDIS_URL: redis://host.docker.internal:56379
       AUTH_DISABLED: "false"
       NODE_ENV: test
+      # mac-runner-1 is capped at 1 GiB RAM + 1 GiB swap, so node's default heap (~500 MB) is too small
+      # for `tsc --noEmit` in apps/web (~700 MB). 1536 fits under the 2 GiB memory+swap ceiling;
+      # a larger value would let the container be OOM-killed (taking the runner with it).
+      NODE_OPTIONS: --max-old-space-size=1536
       NEXT_PUBLIC_API_URL: http://127.0.0.1:3001
       NEXT_PUBLIC_KEYCLOAK_URL: http://127.0.0.1:8080
       NEXT_PUBLIC_KEYCLOAK_REALM: COCiber
