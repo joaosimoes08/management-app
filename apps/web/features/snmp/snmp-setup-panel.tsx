@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Check, Clock, Copy, RadioTower, TriangleAlert } from 'lucide-react';
 import { formatDateTime } from '@/lib/format/date';
 import { getSnmpReceiverSettings, snmpReceiverKey } from './api';
-import { iosXeSetupLines, receiverAddresses, RECEIVER_PLACEHOLDER } from './snmp-setup';
+import { containerReceiverView, iosXeSetupLines, receiverAddresses, RECEIVER_PLACEHOLDER } from './snmp-setup';
 import { isV2cAllowed, SnmpV2cDisabledNote, SnmpV2cNote } from './snmp-version';
 
 type Props = {
@@ -29,8 +29,11 @@ export function SnmpSetupPanel({ managementIp, username, authProtocol, privProto
   const addresses = useMemo(() => receiverAddresses(receiver), [receiver]);
   const [chosen, setChosen] = useState('');
   useEffect(() => { if (!addresses.includes(chosen)) setChosen(addresses[0] ?? ''); }, [addresses, chosen]);
-  const port = receiver?.trapPort ?? 162;
-  const lines = iosXeSetupLines({ receiver: chosen || null, port, username, authProtocol, privProtocol, engineId: receiver?.engineId ?? null, v2cAllowed: isV2cAllowed(receiver) });
+  // Container-only receiver: one deployment address (or a reason it is missing) instead of host-agent interfaces.
+  const container = useMemo(() => containerReceiverView(receiver), [receiver]);
+  const port = container?.port ?? receiver?.trapPort ?? 162;
+  const lineReceiver = container ? (container.state === 'address' ? container.address : null) : chosen || null;
+  const lines = iosXeSetupLines({ receiver: lineReceiver, port, username, authProtocol, privProtocol, engineId: receiver?.engineId ?? null, v2cAllowed: isV2cAllowed(receiver) });
   const receiverId = useId();
 
   return <section className="ipam-card snmp-setup-panel" aria-labelledby={`${receiverId}-title`}>
@@ -38,7 +41,7 @@ export function SnmpSetupPanel({ managementIp, username, authProtocol, privProto
     {lastTrapReceivedAt !== undefined && <p className={`snmp-setup-status ${lastTrapReceivedAt ? 'received' : 'waiting'}`} role="status">{lastTrapReceivedAt ? <><Check size={14} />{`Última trap recebida: ${formatDateTime(lastTrapReceivedAt)}`}</> : <><Clock size={14} />A aguardar a primeira trap deste equipamento.</>}</p>}
     <dl className="snmp-setup-facts">
       <dt>Recetor de traps</dt>
-      <dd>{!canReadReceiver ? 'Só administradores veem o endereço do recetor.' : isLoading ? 'A carregar…' : isError ? 'Não foi possível ler as definições do recetor SNMP.' : addresses.length ? <span className="snmp-setup-receiver">{addresses.length > 1 ? <select aria-label="Endereço do recetor" className="context-toolbar-selector" value={chosen} onChange={(event) => setChosen(event.target.value)}>{addresses.map((address) => <option key={address} value={address}>{address}</option>)}</select> : <span className="mono">{addresses[0]}</span>}<CopyButton text={chosen ? `${chosen}${port === 162 ? '' : `:${port}`}` : ''} label="Copiar endereço do recetor" /></span> : <span className="snmp-setup-missing">{`Sem endereço: o recetor SNMP não reportou interfaces. Usa ${RECEIVER_PLACEHOLDER} e confirma em Definições > SNMP.`}</span>}</dd>
+      <dd>{!canReadReceiver ? 'Só administradores veem o endereço do recetor.' : isLoading ? 'A carregar…' : isError ? 'Não foi possível ler as definições do recetor SNMP.' : container ? (container.state === 'address' ? <span className="snmp-setup-receiver"><span className="mono">{container.display}</span><CopyButton text={container.display} label="Copiar endereço do recetor" /></span> : <span className="snmp-setup-missing" role="note" data-reason={container.reason}>{container.message}</span>) : addresses.length ? <span className="snmp-setup-receiver">{addresses.length > 1 ? <select aria-label="Endereço do recetor" className="context-toolbar-selector" value={chosen} onChange={(event) => setChosen(event.target.value)}>{addresses.map((address) => <option key={address} value={address}>{address}</option>)}</select> : <span className="mono">{addresses[0]}</span>}<CopyButton text={chosen ? `${chosen}${port === 162 ? '' : `:${port}`}` : ''} label="Copiar endereço do recetor" /></span> : <span className="snmp-setup-missing">{`Sem endereço: o recetor SNMP não reportou interfaces. Usa ${RECEIVER_PLACEHOLDER} e confirma em Definições > SNMP.`}</span>}</dd>
       <dt>Porta UDP</dt>
       <dd className="mono">{port}</dd>
       <dt>IP de gestão (trap-source)</dt>

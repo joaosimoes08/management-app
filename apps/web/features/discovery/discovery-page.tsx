@@ -26,10 +26,13 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import { formatDateTime } from '@/lib/format/date';
 import { getSnmpReceiverSettings, snmpReceiverKey } from '@/features/snmp/api';
 import { SnmpSetupPanel } from '@/features/snmp/snmp-setup-panel';
+import { NarrowViewSwitch } from '@/components/layout/narrow-view-switch';
 import { UNKNOWN_TRAPS_HREF } from '@/features/snmp/snmp-unknown-traps';
 import { isV2cAllowed, SnmpCommunityField, SnmpVersionField } from '@/features/snmp/snmp-version';
 
 const emptyEnrollment: SnmpPreRegistrationInput = { sourceAddress: '', siteId: '', version: 'V3', username: '', community: '', authKey: '', privKey: '', authProtocol: 'SHA256', privProtocol: 'AES128', compatibilitySha1: false };
+
+const discoveryTabs = [['network', 'Rede'], ['snmp', 'SNMP']] as const;
 
 export default function DiscoveryPage() {
   const { confirm: askConfirm, confirmDialog } = useConfirm();
@@ -80,6 +83,7 @@ export default function DiscoveryPage() {
   const pageActions = <div className="workspace-head-actions"><button className="secondary-button" onClick={() => void refresh()} disabled={busy}><RefreshCw size={14} className={busy ? 'spin' : ''} /> Atualizar</button>{tab === 'network' && canEdit && <button className="primary-button" onClick={() => setNetworkModal(true)}><Play size={14} /> Nova descoberta</button>}{tab === 'snmp' && admin && <button className="primary-button" onClick={() => { setEnrollmentForm({ ...emptyEnrollment, siteId }); setEnrollmentModal(true); }}><KeyRound size={14} /> Pré-registar IP</button>}</div>;
   return <>{confirmDialog}<AppShell section="Descoberta" toolbarKey={tab} search={{ value: search, onChange: setSearch, placeholder: tab === 'snmp' ? 'Pesquisar IP, identidade ou trap…' : 'Pesquisar execuções…', scopeLabel: tab === 'snmp' ? 'SNMP' : 'Rede' }} actions={pageActions} moduleTabs={<nav className="infra-menu" aria-label="Tipo de descoberta"><button className={tab === 'network' ? 'active' : ''} aria-pressed={tab === 'network'} onClick={() => switchTab('network')}><Search size={15} /> Rede</button><button className={tab === 'snmp' ? 'active' : ''} aria-pressed={tab === 'snmp'} onClick={() => switchTab('snmp')}><KeyRound size={15} /> SNMP</button></nav>}><div className="module-page discovery-workspace aligned-workspace">
     <section className="ipam-card page-primary-card"><div className="panel-heading"><div><h1>Descoberta</h1><p className="panel-description">Descoberta ativa de rede e onboarding passivo por traps SNMP.</p></div></div><div className="page-primary-content">
+    <NarrowViewSwitch label="Tipo de descoberta" value={tab} options={discoveryTabs} onChange={switchTab} />
     <DiscoveryFlowHeader />
     {error && <div className="ipam-alert error"><X size={15} />{error}</div>}
     {tab === 'network' && jobsError && <div className="ipam-alert error" role="alert"><X size={15} />{jobsError instanceof Error ? jobsError.message : 'Não foi possível carregar as execuções.'}</div>}
@@ -121,9 +125,10 @@ function SnmpDiscovery({ devices, siteId, waiting, discovered, admin, canEdit, r
   const totalTraps = discovered.reduce((sum, item) => sum + item.trapCount, 0); return <><div className="summary-stats"><div><strong>{devices.length}</strong><span>Equipamentos registados</span></div><div><strong>{waiting.length}</strong><span>A aguardar trap</span></div><div><strong>{discovered.length}</strong><span>Hosts descobertos · {totalTraps} traps</span></div></div><section className="ipam-card"><div className="panel-heading"><div><span className="section-kicker">INFRAESTRUTURA DO SITE</span><h2>Equipamentos disponíveis para SNMP</h2><p className="panel-description">Switches, routers e firewalls já registados podem receber configuração SNMP sem novo onboarding.</p></div></div>{devices.map((device) => <div className="result-row" key={device.id}><span><strong>{device.name}</strong><small>{device.type} · {device.managementIp || 'sem IP de gestão'}{device.hostname ? ` · ${device.hostname}` : ''}</small></span>{admin && <button className="secondary-button" disabled={!device.managementIp} onClick={() => location.assign(`/snmp?siteId=${encodeURIComponent(siteId)}&deviceId=${encodeURIComponent(device.id)}`)}><KeyRound size={13} /> Configurar SNMP</button>}</div>)}{!devices.length && <div className="no-data">{searching ? 'Sem equipamentos correspondentes.' : 'Ainda não existem switches, routers ou firewalls neste Site.'}</div>}</section><section className="ipam-card snmp-unknown-pointer" aria-label="Traps de equipamentos desconhecidos"><RadioTower size={18} aria-hidden="true" /><p>Traps de IPs que não foram pré-registados aparecem no SNMP, em Traps de equipamentos desconhecidos. <UnknownTrapsLink admin={admin} /></p></section><EnrollmentSection title="A aguardar traps" kicker="PRÉ-REGISTOS ATIVOS" items={waiting} empty={searching ? 'Sem pré-registos correspondentes.' : 'Ainda não existem IPs a aguardar traps.'} admin={admin} canEdit={false} renew={renew} cancel={cancel} accept={accept} /><EnrollmentSection title="Hosts descobertos" kicker="REVISÃO MANUAL" items={discovered} empty={searching ? 'Sem candidatos correspondentes.' : 'Nenhum equipamento pré-registado enviou traps.'} emptyExtra={searching ? undefined : <> <UnknownTrapsLink admin={admin} /></>} admin={admin} canEdit={canEdit} renew={renew} cancel={cancel} accept={accept} /></>;
 }
 
-/** P0-4/L5: the way from Descoberta to the unknown-traps list (ADMIN only); other roles get a plain explanation. */
+/** P0-4/L5/N-E: the way from Descoberta to SNMP → Traps desconhecidas (non-admins get an explanation on that view). */
 export function UnknownTrapsLink({ admin }: { admin: boolean }) {
-  return admin ? <a className="snmp-unknown-link" href={UNKNOWN_TRAPS_HREF}>Traps de equipamentos desconhecidos → ver em SNMP</a> : <span className="snmp-unknown-restricted">Só administradores veem as traps de equipamentos desconhecidos.</span>;
+  // Everyone gets the link: non-admins see a plain explanation on that view instead of the list.
+  return <a className="snmp-unknown-link" href={UNKNOWN_TRAPS_HREF} data-admin={admin ? 'true' : 'false'}>Ver em SNMP → Traps desconhecidas</a>;
 }
 
 function EnrollmentSection({ title, kicker, items, empty, emptyExtra, admin, canEdit, renew, cancel, accept }: { title: string; kicker: string; items: SnmpPreRegistration[]; empty: string; emptyExtra?: ReactNode; admin: boolean; canEdit: boolean; renew: (id: string) => Promise<void>; cancel: (id: string) => Promise<void>; accept: (item: SnmpPreRegistration) => void }) {

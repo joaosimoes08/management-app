@@ -11,9 +11,40 @@ export type SnmpReceiverSettings = {
   engineIdSource?: 'ENV' | 'STORED' | null;
   trapPort?: number;
   v2cAllowed?: boolean;
+  /** HOST_AGENT: addresses come from the host agent's interfaces. CONTAINER_INGRESS: from containerReceiver. */
+  receiverMode?: 'HOST_AGENT' | 'CONTAINER_INGRESS';
+  containerReceiver?: SnmpContainerReceiver | null;
   updatedAt?: string | null;
   refreshSeconds?: number;
 };
+
+export type SnmpContainerReceiver = {
+  address: string | null;
+  addressSource: 'SNMP_TRAP_PUBLIC_ADDRESS' | 'SNMP_TRAP_HOST_IP' | null;
+  reason: 'SNMP_TRAP_PUBLIC_ADDRESS_REQUIRED' | 'SNMP_TRAP_PUBLIC_ADDRESS_INVALID' | null;
+  port: number;
+};
+
+export type ContainerReceiverView =
+  | { state: 'address'; address: string; port: number; display: string; source: string | null }
+  | { state: 'missing'; reason: 'REQUIRED' | 'INVALID'; port: number; message: string };
+
+export const CONTAINER_RECEIVER_REQUIRED = 'Sem endereço do recetor: o servidor não tem SNMP_TRAP_PUBLIC_ADDRESS definido. Define SNMP_TRAP_PUBLIC_ADDRESS no servidor com o IP ou o nome DNS para onde os switches enviam as traps e reinicia a app.';
+export const CONTAINER_RECEIVER_INVALID = 'O valor de SNMP_TRAP_PUBLIC_ADDRESS no servidor não é um IP nem um nome DNS válido. Corrige SNMP_TRAP_PUBLIC_ADDRESS no servidor e reinicia a app.';
+
+/**
+ * Container-only receiver (no host agent): the address switches send to comes from the deployment, not from interfaces.
+ * Returns null in host-agent mode (or with an older API), so the interface-based behaviour stays as it was.
+ */
+export function containerReceiverView(settings?: SnmpReceiverSettings | null): ContainerReceiverView | null {
+  if (!settings || settings.receiverMode !== 'CONTAINER_INGRESS' || !settings.containerReceiver) return null;
+  const { address, addressSource, reason, port } = settings.containerReceiver;
+  const safePort = Number.isInteger(port) && port >= 1 && port <= 65535 ? port : 162;
+  if (address) return { state: 'address', address, port: safePort, display: `${address.includes(':') ? `[${address}]` : address}:${safePort}`, source: addressSource };
+  return reason === 'SNMP_TRAP_PUBLIC_ADDRESS_INVALID'
+    ? { state: 'missing', reason: 'INVALID', port: safePort, message: CONTAINER_RECEIVER_INVALID }
+    : { state: 'missing', reason: 'REQUIRED', port: safePort, message: CONTAINER_RECEIVER_REQUIRED };
+}
 
 const ipv4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
 

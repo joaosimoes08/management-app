@@ -6,6 +6,7 @@ import { Check, EyeOff, KeyRound, RadioTower, ShieldAlert, X } from 'lucide-reac
 import { formatDateTime, formatNumber } from '@/lib/format/date';
 import { DataTable, type DataTableColumn } from '@/components/data-table/data-table';
 import { useConfirm } from '@/components/ui/confirm-dialog';
+import { snmpTrapCategoryLabel } from './snmp-trap-labels';
 import { ignoreUnmatchedTraps, listUnmatchedTrapSources, unmatchedTrapSourcesKey, type UnmatchedTrapSource } from './api';
 
 /** Where "Pré-registar" goes: the SNMP pre-registration dialog in Descoberta, prefilled with the source IP. */
@@ -19,6 +20,16 @@ export const preRegisterHref = (sourceAddress: string) => `/descoberta?tab=snmp&
  * with Pré-registar (authorise the IP for 24 h) or Ocultar traps existentes (hide the traps already received
  * from that IP and close its alert; the IP is not blocked, so new traps from it show again). ADMIN only.
  */
+/** The app's own "Enviar trap de teste" uses the Net-SNMP example heartbeat OID. */
+export const APP_TEST_TRAP_OID = '1.3.6.1.4.1.8072.2.3.0.1';
+
+/** Readable name for the latest trap of an unknown source: catalogue label, the app test trap, else a vendor trap. The raw OID shows below it. */
+export function unknownTrapName(item: Pick<UnmatchedTrapSource, 'lastTrapLabel' | 'lastTrapOid'>): string | null {
+  if (item.lastTrapLabel) return item.lastTrapLabel;
+  if (!item.lastTrapOid) return null;
+  return item.lastTrapOid === APP_TEST_TRAP_OID ? snmpTrapCategoryLabel('SELF_TEST') : snmpTrapCategoryLabel('VENDOR');
+}
+
 export function SnmpUnknownTrapsRestricted() {
   return <section className="ipam-card" aria-labelledby="snmp-unknown-restricted-title">
     <div className="empty-context"><ShieldAlert size={24} aria-hidden="true" /><strong id="snmp-unknown-restricted-title">Só administradores veem as traps de equipamentos desconhecidos.</strong><span>Estas traps vêm de IPs que ainda não estão no inventário. Pede a um administrador para as rever e pré-registar o equipamento em Descoberta.</span></div>
@@ -45,7 +56,7 @@ export function SnmpUnknownTrapsView() {
     { id: 'first', header: 'Primeira', cell: (item) => item.firstSeenAt ? formatDateTime(item.firstSeenAt) : '—' },
     { id: 'last', header: 'Última', cell: (item) => item.lastSeenAt ? formatDateTime(item.lastSeenAt) : '—' },
     { id: 'count', header: 'Traps', cell: (item) => formatNumber(item.count) },
-    { id: 'trap', header: 'Última trap', cell: (item) => item.lastTrapLabel || (item.lastTrapOid ? <span className="mono">{item.lastTrapOid}</span> : <span className="muted-cell">—</span>) },
+    { id: 'trap', header: 'Última trap', cell: (item) => { const name = unknownTrapName(item); return name ? <span className="snmp-trap-name"><span>{name}</span>{item.lastTrapOid ? <small className="mono">{item.lastTrapOid}</small> : null}</span> : <span className="muted-cell">—</span>; } },
     { id: 'actions', header: null, className: 'table-actions', cell: (item) => <span className="button-row">{!item.preRegistered && <a className="secondary-button snmp-action-button" href={preRegisterHref(item.sourceAddress)} aria-label={`Pré-registar ${item.sourceAddress}`}><KeyRound size={13} /> Pré-registar</a>}<button type="button" className="secondary-button snmp-action-button" disabled={ignore.isPending} onClick={() => void askIgnore(item)} aria-label={`Ocultar as traps existentes de ${item.sourceAddress}`}><EyeOff size={13} /> Ocultar traps existentes</button></span> },
   ];
   return <>

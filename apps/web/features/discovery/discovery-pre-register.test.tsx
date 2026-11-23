@@ -63,13 +63,25 @@ describe('SNMP pre-registration dialog (SNMP Phase 1 step 3)', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('points admins from the SNMP tab and the empty Hosts descobertos list to the unknown-traps view', async () => {
+  it('links the SNMP tab, the flow note and the empty Hosts descobertos list to SNMP → Traps desconhecidas (N-E)', async () => {
     mockedFetch.mockImplementation(async (url: string) => url === '/api/v1/settings/snmp-listeners' ? receiver(false) : url.startsWith('/api/v1/snmp/discovery/enrollments') || url.includes('/results') ? [] : url === '/api/v1/settings/discovery' ? { methods: ['ICMP'], tcpPorts: [], reverseDns: false, intervalHours: 24, allowedCidrs: [] } : { items: [], total: 0, page: 1, totalPages: 1 });
     window.history.replaceState(null, '', '/descoberta?tab=snmp');
     wrap(<DiscoveryPage />);
     await screen.findByText('Nenhum equipamento pré-registado enviou traps.', { exact: false });
-    const links = screen.getAllByRole('link', { name: /Traps de equipamentos desconhecidos/ });
+    const links = screen.getAllByRole('link', { name: 'Ver em SNMP → Traps desconhecidas' });
     expect(links.length).toBeGreaterThanOrEqual(2);
     for (const link of links) expect(link).toHaveAttribute('href', '/snmp?view=unknown');
+  });
+
+  it('puts the Rede/SNMP switch in the page body as a select for narrow screens (N-D)', async () => {
+    mockedFetch.mockImplementation(async (url: string) => url === '/api/v1/settings/snmp-listeners' ? receiver(false) : url.startsWith('/api/v1/snmp/discovery/enrollments') || url.includes('/results') ? [] : url === '/api/v1/settings/discovery' ? { methods: ['ICMP'], tcpPorts: [], reverseDns: false, intervalHours: 24, allowedCidrs: [] } : { items: [], total: 0, page: 1, totalPages: 1 });
+    window.history.replaceState(null, '', '/descoberta');
+    wrap(<DiscoveryPage />);
+    const select = screen.getByRole('combobox', { name: 'Tipo de descoberta' });
+    expect(select.closest('.narrow-view-switch')).not.toBeNull();
+    expect(select).toHaveValue('network');
+    fireEvent.change(select, { target: { value: 'snmp' } });
+    expect(await screen.findByText('Nenhum equipamento pré-registado enviou traps.', { exact: false })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Tipo de descoberta' })).toHaveValue('snmp');
   });
 });

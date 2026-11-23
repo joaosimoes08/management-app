@@ -78,7 +78,7 @@ describe('SNMP device view: Phase 1 setup', () => {
     expect(screen.queryByText('A community deve ter pelo menos 8 caracteres.')).not.toBeInTheDocument();
   });
 
-  it('offers the unknown-traps view to admins only', async () => {
+  it('shows unknown-trap sources to admins; other roles get the tab with an explanation and no data request', async () => {
     mockedFetch.mockImplementation(async (url: string) => {
       if (url.startsWith('/api/v1/devices')) return { items: [device], total: 1, page: 1, totalPages: 1 };
       if (url === '/api/v1/snmp/traps/unmatched/sources') return { items: [{ sourceAddress: '10.9.9.9', count: 3, firstSeenAt: null, lastSeenAt: null }] };
@@ -96,8 +96,28 @@ describe('SNMP device view: Phase 1 setup', () => {
     window.history.replaceState(null, '', '/snmp');
     wrap(<SnmpPage />);
     await waitFor(() => expect(screen.getByRole('button', { name: /Frota/ })).toBeInTheDocument());
-    expect(screen.queryByRole('button', { name: /Traps desconhecidas/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Traps desconhecidas/ }));
+    expect(await screen.findByText('Só administradores veem as traps de equipamentos desconhecidos.')).toBeInTheDocument();
     expect(mockedFetch).not.toHaveBeenCalledWith('/api/v1/settings/snmp-listeners');
+    expect(mockedFetch).not.toHaveBeenCalledWith('/api/v1/snmp/traps/unmatched/sources');
+  });
+
+  it('offers the SNMP views as an in-page select for narrow screens, keeping the active view selected (N-A)', async () => {
+    mockedFetch.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/v1/devices')) return { items: [device], total: 1, page: 1, totalPages: 1 };
+      if (url === '/api/v1/snmp/traps/unmatched/sources') return { items: [] };
+      if (url.startsWith('/api/v1/snmp/fleet')) return { devices: { total: 0, configured: 0, enabled: 0, disabled: 0, notConfigured: 0 }, polling: { byStatus: {}, stale: 0 }, drift: { pending: 0, devicesWithPending: 0 }, attention: [] };
+      return {};
+    });
+    window.history.replaceState(null, '', '/snmp');
+    wrap(<SnmpPage />);
+    const select = screen.getByRole('combobox', { name: 'Vista SNMP' });
+    expect(select.closest('.narrow-view-switch')).not.toBeNull();
+    expect([...(select as HTMLSelectElement).options].map((option) => option.textContent)).toEqual(expect.arrayContaining(['Frota', 'Traps desconhecidas']));
+    fireEvent.change(select, { target: { value: 'unknown' } });
+    expect(await screen.findByText('Nenhuma trap de origem desconhecida.')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Vista SNMP' })).toHaveValue('unknown');
+    expect(screen.getByRole('button', { name: /Traps desconhecidas/ })).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('explains the unknown-traps view to non-admins instead of showing an empty page', async () => {
@@ -107,5 +127,26 @@ describe('SNMP device view: Phase 1 setup', () => {
     wrap(<SnmpPage />);
     expect(await screen.findByText('Só administradores veem as traps de equipamentos desconhecidos.')).toBeInTheDocument();
     expect(screen.getByText(/Pede a um administrador/)).toBeInTheDocument();
+  });
+
+  it('shows trap kind and status in words in Traps recentes, never the raw VENDOR or PROCESSED codes', async () => {
+    const traps = [
+      { id: 't1', receivedAt: '2026-11-23T10:00:00.000Z', category: 'VENDOR', severity: 'INFO', trapOid: '1.3.6.1.4.1.9.9.999', label: null, summary: null, sourceAddress: '10.1.1.1', status: 'PROCESSED' },
+      { id: 't2', receivedAt: '2026-11-23T10:01:00.000Z', category: 'LINK_DOWN', severity: 'WARNING', trapOid: '1.3.6.1.6.3.1.1.5.3', label: null, summary: null, sourceAddress: '10.1.1.1', status: 'PENDING' },
+    ];
+    mockedFetch.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/v1/devices')) return { items: [device], total: 1, page: 1, totalPages: 1 };
+      if (url === '/api/v1/settings/snmp-listeners') return receiver;
+      if (url === '/api/v1/snmp/devices/d1') return overview({ traps });
+      if (url.startsWith('/api/v1/snmp/devices/d1/metrics')) return { days: 7, expectedIntervalMinutes: null, selectedInterfaceIndex: null, interfaces: [], availability: [], interfacesHistory: [] };
+      return {};
+    });
+    wrap(<SnmpPage />);
+    expect(await screen.findByText('Trap de fabricante')).toBeInTheDocument();
+    expect(screen.getByText('Processada')).toHaveAttribute('data-status', 'PROCESSED');
+    expect(screen.getByText('Interface em baixo')).toBeInTheDocument();
+    expect(screen.getByText('Pendente')).toBeInTheDocument();
+    expect(screen.queryByText('VENDOR')).not.toBeInTheDocument();
+    expect(screen.queryByText('PROCESSED')).not.toBeInTheDocument();
   });
 });
