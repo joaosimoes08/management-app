@@ -1,6 +1,7 @@
 import { apiFetch } from '@/lib/api/client';
 
-export type OperationalAlert = { id: string; title: string; detail?: string; severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'WARNING' | 'INFO'; status?: 'OPEN' | 'ACKNOWLEDGED' | 'SNOOZED' | 'RESOLVED'; entityType?: string | null; entityId?: string | null; relatedDeviceId?: string | null; occurredAt?: string; href?: string };
+export type OperationalAlert = { id: string; title: string; detail?: string; severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'WARNING' | 'INFO'; status?: 'OPEN' | 'ACKNOWLEDGED' | 'SNOOZED' | 'RESOLVED'; entityType?: string | null; entityId?: string | null; relatedDeviceId?: string | null; occurredAt?: string; href?: string; source?: string; dedupKey?: string | null; siteId?: string | null; actionHref?: string | null; device?: AlertDevice | null };
+export type AlertDevice = { id: string; name: string; managementIp?: string | null };
 export type InventoryQuality = { score?: number; total?: number; valid?: number; invalid?: number; stale?: number; deviceCount?: number; affectedDeviceCount?: number; validDeviceCount?: number; affectedEntityCount?: number; findingCount?: number; staleFindingCount?: number };
 export type FindingStatus = 'OPEN' | 'ACKNOWLEDGED' | 'SNOOZED' | 'RESOLVED';
 export type FindingSeverity = 'CRITICAL' | 'HIGH' | 'WARNING' | 'INFO';
@@ -10,8 +11,22 @@ export type InventoryFinding = { id: string; siteId: string; rule: string; entit
 export type OperationalAlertPage = { items: OperationalAlert[]; total: number; page: number; pageSize: number };
 export const listOperationalAlerts = (siteId?: string, pageSize = 25, page = 1, status?: 'OPEN' | 'ACKNOWLEDGED' | 'SNOOZED' | 'RESOLVED') => apiFetch<OperationalAlertPage>(`/api/v1/operations/alerts?${siteId ? `siteId=${encodeURIComponent(siteId)}&` : ''}${status ? `status=${status}&` : ''}page=${page}&pageSize=${pageSize}`);
 export const acknowledgeOperationalAlert = (id: string) => apiFetch(`/api/v1/operations/alerts/${encodeURIComponent(id)}/acknowledge`, { method: 'PATCH' });
-export const snoozeOperationalAlert = (id: string, until = new Date(Date.now() + 60 * 60 * 1000).toISOString()) => apiFetch(`/api/v1/operations/alerts/${encodeURIComponent(id)}/snooze`, { method: 'PATCH', body: JSON.stringify({ until }) });
-export const resolveOperationalAlert = (id: string) => apiFetch(`/api/v1/operations/alerts/${encodeURIComponent(id)}/resolve`, { method: 'PATCH', body: JSON.stringify({}) });
+/** Snoozes for a number of hours (1 to 720); the server works out the end time. */
+export const snoozeOperationalAlert = (id: string, durationHours = 1) => apiFetch(`/api/v1/operations/alerts/${encodeURIComponent(id)}/snooze`, { method: 'PATCH', body: JSON.stringify({ durationHours }) });
+export const resolveOperationalAlert = (id: string, reason?: string) => apiFetch(`/api/v1/operations/alerts/${encodeURIComponent(id)}/resolve`, { method: 'PATCH', body: JSON.stringify(reason ? { reason } : {}) });
+export type BulkAlertAction = 'ACKNOWLEDGE' | 'SNOOZE' | 'RESOLVE';
+export type BulkAlertRequest = { action: BulkAlertAction; ids: string[]; durationHours?: number; reason?: string };
+export type BulkAlertResult = { id: string; ok: true; status?: string } | { id: string; ok: false; code: 'NOT_FOUND' | 'FORBIDDEN' | 'INVALID' | 'ERROR' | (string & {}); message?: string };
+export type BulkAlertResponse = { action: BulkAlertAction; succeeded: number; failed: number; snoozedUntil?: string; results: BulkAlertResult[] };
+export const BULK_ALERT_LIMIT = 200;
+/** At most 200 ids per call; each alert is checked and reported on its own. */
+export const bulkOperationalAlerts = (body: BulkAlertRequest) => apiFetch<BulkAlertResponse>('/api/v1/operations/alerts/bulk', { method: 'POST', body: JSON.stringify(body) });
+export type AlertPerson = { id: string; username: string; displayName?: string | null };
+export type AlertHistoryEntry = { id: string; action: string; metadata?: Record<string, unknown> | null; createdAt: string; user?: AlertPerson | null };
+export type AlertDetail = AlertListItem & { entityType?: string | null; entityId?: string | null; acknowledgedAt?: string | null; acknowledgedBy?: AlertPerson | null; snoozedUntil?: string | null; snoozeReason?: string | null; resolvedAt?: string | null; resolvedBy?: AlertPerson | null; resolutionReason?: string | null; canAct: boolean; history: AlertHistoryEntry[] };
+export const getOperationalAlert = (id: string) => apiFetch<AlertDetail>(`/api/v1/operations/alerts/${encodeURIComponent(id)}`);
+/** Known event types for alert rules (known producers plus any stored source). */
+export const listAlertSources = () => apiFetch<{ items: string[] }>('/api/v1/operations/alerts/sources');
 export const readAllOperationalAlerts = () => apiFetch('/api/v1/operations/alerts/read-all', { method: 'PATCH' });
 export const getInventoryQuality = (siteId?: string) => apiFetch<InventoryQuality>(`/api/v1/inventory-quality/summary${siteId ? `?siteId=${encodeURIComponent(siteId)}` : ''}`);
 export const getInventoryQualityItems = (siteId?: string) => apiFetch<{ items: InventoryFinding[] }>(`/api/v1/inventory-quality/findings${siteId ? `?siteId=${encodeURIComponent(siteId)}` : ''}`);
@@ -47,7 +62,7 @@ export const getInventoryQualityFacets = (query: FindingQuery) => apiFetch<Findi
 export const bulkInventoryFindings = (body: BulkFindingRequest) => apiFetch<BulkFindingResponse>('/api/v1/inventory-quality/findings/bulk', { method: 'POST', body: JSON.stringify(body) });
 
 // Phase D: Alertas list, maintenance summary and inline rule / window edits (PR #85 contract).
-export type AlertListItem = { id: string; source: string; siteId?: string | null; site?: { id: string; name: string } | null; status: 'OPEN' | 'ACKNOWLEDGED' | 'SNOOZED' | 'RESOLVED'; severity: string; title: string; detail?: string | null; actionHref?: string | null; lastOccurredAt?: string | null; firstOccurredAt?: string | null; occurrenceCount?: number; relatedDeviceId?: string | null; readAt?: string | null };
+export type AlertListItem = { id: string; source: string; dedupKey?: string | null; siteId?: string | null; site?: { id: string; name: string } | null; status: 'OPEN' | 'ACKNOWLEDGED' | 'SNOOZED' | 'RESOLVED'; severity: string; title: string; detail?: string | null; actionHref?: string | null; lastOccurredAt?: string | null; firstOccurredAt?: string | null; occurrenceCount?: number; relatedDeviceId?: string | null; device?: AlertDevice | null; readAt?: string | null; snoozedUntil?: string | null };
 export type AlertListFilters = { siteId?: string; severity?: string; status?: string; source?: string; search?: string };
 /** GET /operations/alerts; unresolved by default. Invalid filters answer 400 with a message. */
 export const listAlerts = (filters: AlertListFilters, pageSize = 100) => {

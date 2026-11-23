@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppHeader } from './app-header';
 
@@ -32,21 +32,28 @@ describe('AppHeader persistent Next Steps alert', () => {
     expect(onOpenGlobalSearch).toHaveBeenCalledOnce();
   });
 
-  it('keeps the IPAM action at the top of Alerts after Clear All', async () => {
+  it('lists the IPAM next step under setup to-dos without counting it as an alert', async () => {
     mocks.hasRole.mockImplementation((role: string) => role === 'ADMIN');
-    mocks.apiFetch.mockResolvedValue(state);
+    mocks.apiFetch.mockResolvedValue({ ...state, alerts: [{ id: 'a1', severity: 'CRITICAL', title: 'Link em baixo', detail: 'x', href: '/alertas', occurredAt: '2026-11-20T00:00:00.000Z' }] });
     mocks.readAll.mockResolvedValue({ updated: 0 });
     mocks.load.mockReturnValue(undefined);
 
-    render(<AppHeader section="Infraestrutura" onOpenSidebar={vi.fn()} onOpenGlobalSearch={vi.fn()} />);
-    await waitFor(() => expect(screen.getByRole('button', { name: '1 alerta ativo' })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: '1 alerta ativo' }));
+    const view = render(<AppHeader section="Infraestrutura" onOpenSidebar={vi.fn()} onOpenGlobalSearch={vi.fn()} />);
+    const bell = await screen.findByRole('button', { name: '1 alerta ativo · 1 tarefa de configuração' });
+    expect(bell.querySelector('.alert-count')).toHaveTextContent('1');
+    fireEvent.click(bell);
 
-    const nextSteps = await screen.findByRole('link', { name: /Próximos passos/ });
+    const todos = screen.getByRole('group', { name: 'Tarefas de configuração' });
+    const nextSteps = within(todos).getByRole('link', { name: /Próximos passos/ });
     expect(nextSteps).toHaveAttribute('href', '/ipam');
     expect(nextSteps.querySelector('time')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Limpar todos' }));
+    expect(screen.queryByRole('link', { name: /Link em baixo/ })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Próximos passos/ })).toBeInTheDocument();
+    // With only to-dos left the badge shows no number, just a dot.
+    const after = screen.getByRole('button', { name: '0 alertas ativos · 1 tarefa de configuração' });
+    expect(after.querySelector('.alert-count')).toBeNull();
+    expect(view.container.querySelector('.alert-todo-dot')).not.toBeNull();
   });
 
   it('keeps the reminder behind the same IPAM roles as the former sidebar action', async () => {
@@ -78,16 +85,16 @@ describe('AppHeader missing device config alert', () => {
     mocks.load.mockReturnValue(undefined);
 
     render(<AppHeader section="Infraestrutura" onOpenSidebar={vi.fn()} onOpenGlobalSearch={vi.fn()} />);
-    await waitFor(() => expect(screen.getByRole('button', { name: '2 alertas ativos' })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: '2 alertas ativos' }));
-    const link = screen.getByRole('link', { name: /3 dispositivos sem tomadas de energia/ });
+    await waitFor(() => expect(screen.getByRole('button', { name: '1 alerta ativo · 1 tarefa de configuração' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: '1 alerta ativo · 1 tarefa de configuração' }));
+    const link = within(screen.getByRole('group', { name: 'Tarefas de configuração' })).getByRole('link', { name: /3 dispositivos sem tomadas de energia/ });
     expect(link).toHaveAttribute('href', '/infraestrutura?tab=devices&missingConfig=power');
     expect(link).toHaveClass('missing-config');
 
     fireEvent.click(screen.getByRole('button', { name: 'Limpar todos' }));
     expect(screen.queryByRole('link', { name: /Link em baixo/ })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /3 dispositivos sem tomadas de energia/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '1 alerta ativo' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '0 alertas ativos · 1 tarefa de configuração' })).toBeInTheDocument();
   });
 
   it('stays persistent even if the API omits the flag; a single device links to its settings tab', async () => {
@@ -98,11 +105,12 @@ describe('AppHeader missing device config alert', () => {
     mocks.load.mockReturnValue(undefined);
 
     render(<AppHeader section="Infraestrutura" onOpenSidebar={vi.fn()} onOpenGlobalSearch={vi.fn()} />);
-    await waitFor(() => expect(screen.getByRole('button', { name: '1 alerta ativo' })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: '1 alerta ativo' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '0 alertas ativos · 1 tarefa de configuração' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: '0 alertas ativos · 1 tarefa de configuração' }));
     expect(screen.getByRole('link', { name: /1 dispositivo sem imagem traseira/ })).toHaveAttribute('href', '/infraestrutura?siteId=s1&tab=devices&deviceId=d9&settingsTab=imagens');
-    fireEvent.click(screen.getByRole('button', { name: 'Limpar todos' }));
-    expect(screen.getByRole('link', { name: /1 dispositivo sem imagem traseira/ })).toBeInTheDocument();
+    // No real alerts: nothing to clear, and the empty state says so above the to-dos.
+    expect(screen.queryByRole('button', { name: 'Limpar todos' })).not.toBeInTheDocument();
+    expect(screen.getByText('Sem alertas ativos')).toBeInTheDocument();
   });
 });
 

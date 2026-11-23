@@ -23,6 +23,7 @@ import { AppShell, ToolbarMore } from '@/components/layout/app-shell';
 import { getDashboardSummary } from './api';
 import { getDashboardEnvironment, getDashboardLayout, getDashboardWorkspaces, getOperationalSummary, saveDashboardLayout, saveDashboardPreference, type DashboardLayout, type DashboardWorkspace } from './api';
 import { OperationsPanel } from '@/features/operations/operations-panel';
+import { useLiveAlertRefresh } from '@/features/operations/use-live-alert-refresh';
 import { useSiteContext } from '@/lib/site-context';
 import { useI18n } from '@/lib/i18n';
 import { countProblemsBySeverity, type DashboardSeverity } from './severity';
@@ -84,6 +85,8 @@ export default function DashboardPage() {
   useEffect(() => { if (!workspace) { setLayout(null); return; } void Promise.all([getDashboardLayout(workspace.siteId, workspace.role), saveDashboardPreference(workspace.siteId, workspace.role)]).then(([next]) => setLayout(next)).catch(() => undefined); }, [workspace]);
   const { data: summary = null, refetch: refetchSummary, isPending: summaryPending, isError: summaryError } = useQuery({ queryKey: ['dashboard', 'summary'], queryFn: getDashboardSummary });
   const { data: operational, refetch: refetchOperational, isPending: operationalPending, isError: operationalError } = useQuery({ queryKey: ['dashboard', 'operational', workspace?.siteId, workspace?.role], queryFn: () => getOperationalSummary(workspace!.siteId, workspace!.role), enabled: Boolean(workspace) });
+  // Severity tiles follow alert changes live (SSE; 30 s poll while the stream is down).
+  useLiveAlertRefresh([['dashboard', 'operational']]);
   const { data: environmentData, isPending: environmentPending, isError: environmentError } = useQuery({ queryKey: ['dashboard', 'environment'], queryFn: getDashboardEnvironment, staleTime: 30_000 });
   const displayName = profile?.firstName || user?.username || t('dashboard.userFallback');
   const canNetworkChange = hasRole('ADMIN') || hasRole('NETWORK_OPERATOR');

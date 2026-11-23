@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useId, useState } from 'react';
 import { Bell, Check, Mail, RefreshCw, RotateCcw, Send, Trash2 } from 'lucide-react';
 import { DataTable, type DataTableColumn } from '@/components/data-table';
 import { PageToolbarPortal } from '@/components/layout/app-shell';
@@ -19,8 +19,15 @@ export type ChannelStatus = {
   smtp?: SmtpView | null;
   /** EMAIL/GROUP_ALERTS only. */
   recipients?: string[]; serverConfigured?: boolean;
+  /** GROUP_ALERTS only: what the channel still needs before it sends alerts (empty when ready). */
+  delivery?: { ready: boolean; missing: GroupDeliveryMissing[] };
 };
-type ChannelsResponse = { channels: ChannelStatus[]; keyringAvailable: boolean; publicLinks: boolean; maxAttempts: number; maxTotalAttempts?: number };
+export type GroupDeliveryMissing = 'enabled' | 'destination' | 'minSeverity';
+type ChannelsResponse = {
+  channels: ChannelStatus[]; keyringAvailable: boolean; publicLinks: boolean; maxAttempts: number; maxTotalAttempts?: number;
+  /** True when no group channel can send operational alerts. */
+  groupAlertsUnconfigured?: boolean;
+};
 type DeliveryStatus = 'PENDING' | 'SENDING' | 'SENT' | 'FAILED';
 export type DeliveryItem = {
   id: string; channel?: ChannelKind; target: DeliveryTarget; status: DeliveryStatus; topic: string; title: string; attempts: number;
@@ -28,9 +35,11 @@ export type DeliveryItem = {
   recipient: { username: string; displayName: string | null } | null;
 };
 type DeliveryPage = { items: DeliveryItem[]; nextCursor: string | null; counts: Partial<Record<DeliveryStatus, number>> };
-type Draft = { enabled: boolean; webhookUrl: string; minSeverity: 'CRITICAL' | 'HIGH' };
+/** '' = not chosen yet. There is no default: a group channel without a minimum severity sends nothing. */
+type GroupSeverity = 'CRITICAL' | 'HIGH' | '';
+type Draft = { enabled: boolean; webhookUrl: string; minSeverity: GroupSeverity };
 type SmtpDraft = { enabled: boolean; host: string; port: string; security: SmtpSecurity; username: string; password: string; from: string };
-type GroupEmailDraft = { enabled: boolean; minSeverity: 'CRITICAL' | 'HIGH'; recipients: string };
+type GroupEmailDraft = { enabled: boolean; minSeverity: GroupSeverity; recipients: string };
 
 const ROOT = '/api/v1/settings/notification-channels';
 const BASE = `${ROOT}/TEAMS`;
@@ -71,12 +80,35 @@ export function failureLabel(code: string | null): string {
   } as Record<string, string>)[code] ?? code;
 }
 const messageOf = (error: unknown, fallback: string) => (error instanceof Error && error.message ? error.message : fallback);
-const draftOf = (channel?: ChannelStatus): Draft => ({ enabled: channel?.enabled ?? false, webhookUrl: '', minSeverity: channel?.minSeverity ?? 'HIGH' });
+const draftOf = (channel?: ChannelStatus): Draft => ({ enabled: channel?.enabled ?? false, webhookUrl: '', minSeverity: channel?.minSeverity ?? '' });
 const smtpDraftOf = (channel?: ChannelStatus): SmtpDraft => ({
   enabled: channel?.enabled ?? false, host: channel?.smtp?.host ?? '', port: String(channel?.smtp?.port ?? DEFAULT_PORT.STARTTLS),
   security: channel?.smtp?.security ?? 'STARTTLS', username: channel?.smtp?.username ?? '', password: '', from: channel?.smtp?.from ?? '',
 });
-const groupEmailDraftOf = (channel?: ChannelStatus): GroupEmailDraft => ({ enabled: channel?.enabled ?? false, minSeverity: channel?.minSeverity ?? 'HIGH', recipients: (channel?.recipients ?? []).join('\n') });
+const groupEmailDraftOf = (channel?: ChannelStatus): GroupEmailDraft => ({ enabled: channel?.enabled ?? false, minSeverity: channel?.minSeverity ?? '', recipients: (channel?.recipients ?? []).join('\n') });
+const MISSING_TEXT: Record<ChannelKind, Record<GroupDeliveryMissing, string>> = {
+  TEAMS: { enabled: 'ativar o canal', destination: 'guardar o webhook', minSeverity: 'escolher a severidade mínima' },
+  EMAIL: { enabled: 'ativar o canal', destination: 'configurar o servidor SMTP e os destinatários', minSeverity: 'escolher a severidade mínima' },
+};
+/** "Não envia alertas: falta escolher a severidade mínima." or null when the channel is ready. */
+export function groupDeliveryNote(channel?: ChannelStatus | null): string | null {
+  const missing = channel?.delivery?.missing;
+  if (!channel || !missing?.length) return null;
+  const items = missing.map((item) => MISSING_TEXT[channel.kind ?? 'TEAMS'][item]);
+  return `Não envia alertas: falta ${items.length > 1 ? `${items.slice(0, -1).join(', ')} e ${items.at(-1)}` : items[0]}.`;
+}
+/** Older APIs do not send groupAlertsUnconfigured; derive it the same way. */
+export function groupAlertsUnconfigured(state: Pick<ChannelsResponse, 'channels' | 'groupAlertsUnconfigured'>): boolean {
+  if (typeof state.groupAlertsUnconfigured === 'boolean') return state.groupAlertsUnconfigured;
+  return !state.channels.some((item) => item.target === 'GROUP_ALERTS' && (item.delivery ? item.delivery.ready : item.enabled && item.configured && Boolean(item.minSeverity)));
+}
+/** No preselected value: the minimum severity is an explicit choice (Joao's rule, #145). */
+function GroupSeveritySelect({ value, required, onChange }: { value: GroupSeverity; required: boolean; onChange: (value: GroupSeverity) => void }) {
+  const hintId = useId();
+  return <div className="field-with-hint"><label>Severidade mínima<select value={value} aria-describedby={hintId} aria-invalid={required && !value ? true : undefined} onChange={(event) => onChange(event.target.value as GroupSeverity)}>
+    <option value="">Escolher severidade…</option><option value="HIGH">Alto e Crítico</option><option value="CRITICAL">Só Crítico</option>
+  </select></label><small id={hintId}>Sem severidade escolhida, este canal não envia alertas.</small></div>;
+}
 const splitRecipients = (value: string) => value.split(/[\s,;]+/).map((item) => item.trim()).filter(Boolean);
 const smtpChanged = (draft: SmtpDraft, current?: SmtpView | null) => Boolean(draft.password) || (current
   ? draft.host.trim() !== current.host || Number(draft.port) !== current.port || draft.security !== current.security || draft.username.trim() !== (current.username ?? '') || draft.from.trim() !== current.from
@@ -135,14 +167,20 @@ export function NotificationChannelsSettings() {
   const setDraft = (target: DeliveryTarget, change: Partial<Draft>) => setDrafts((current) => ({ ...current, [target]: { ...current[target], ...change } }));
 
   const save = async (event: FormEvent) => {
-    event.preventDefault(); setBusy('save'); setFeedback('');
+    event.preventDefault(); setFeedback('');
+    // No default severity: enabling a group channel needs an explicit choice.
+    if ((drafts.GROUP_ALERTS.enabled && !drafts.GROUP_ALERTS.minSeverity) || (groupEmail.enabled && !groupEmail.minSeverity)) {
+      const message = 'Escolhe a severidade mínima dos alertas operacionais antes de ativar o canal.';
+      setFeedback(message); toastError('Notificações', message); return;
+    }
+    setBusy('save');
     try {
       for (const { target } of TARGETS) {
         const draft = drafts[target]; const current = channel(target);
         const url = draft.webhookUrl.trim();
-        const changed = url || draft.enabled !== current?.enabled || (target === 'GROUP_ALERTS' && draft.minSeverity !== (current?.minSeverity ?? 'HIGH'));
+        const changed = url || draft.enabled !== current?.enabled || (target === 'GROUP_ALERTS' && draft.minSeverity !== (current?.minSeverity ?? ''));
         if (!changed) continue;
-        await apiFetch(`${BASE}/${target}`, { method: 'PUT', body: JSON.stringify({ enabled: draft.enabled, ...(url ? { webhookUrl: url } : {}), ...(target === 'GROUP_ALERTS' ? { minSeverity: draft.minSeverity } : {}) }) });
+        await apiFetch(`${BASE}/${target}`, { method: 'PUT', body: JSON.stringify({ enabled: draft.enabled, ...(url ? { webhookUrl: url } : {}), ...(target === 'GROUP_ALERTS' && draft.minSeverity ? { minSeverity: draft.minSeverity } : {}) }) });
       }
       // The SMTP server is saved before the group e-mail settings, which depend on it.
       const serverChanged = smtpChanged(smtpDraft, emailServer?.smtp);
@@ -155,8 +193,8 @@ export function NotificationChannelsSettings() {
       }
       const recipients = splitRecipients(groupEmail.recipients);
       const recipientsChanged = recipients.join(',') !== (emailGroup?.recipients ?? []).join(',');
-      if (recipientsChanged || groupEmail.enabled !== Boolean(emailGroup?.enabled) || groupEmail.minSeverity !== (emailGroup?.minSeverity ?? 'HIGH')) {
-        await apiFetch(`${EMAIL_BASE}/GROUP_ALERTS`, { method: 'PUT', body: JSON.stringify({ enabled: groupEmail.enabled, minSeverity: groupEmail.minSeverity, ...(recipientsChanged && recipients.length ? { recipients } : {}) }) });
+      if (recipientsChanged || groupEmail.enabled !== Boolean(emailGroup?.enabled) || groupEmail.minSeverity !== (emailGroup?.minSeverity ?? '')) {
+        await apiFetch(`${EMAIL_BASE}/GROUP_ALERTS`, { method: 'PUT', body: JSON.stringify({ enabled: groupEmail.enabled, ...(groupEmail.minSeverity ? { minSeverity: groupEmail.minSeverity } : {}), ...(recipientsChanged && recipients.length ? { recipients } : {}) }) });
       }
       setFeedback('Configuração guardada. O endereço do webhook e a palavra-passe SMTP ficam cifrados e não são devolvidos pela aplicação.');
       success('Notificações', 'Canais de notificação guardados');
@@ -205,6 +243,7 @@ export function NotificationChannelsSettings() {
     <div className="panel-heading"><div><h2>Notificações externas</h2><p className="panel-description">Envia notificações e alertas para o Microsoft Teams e por email. Todos os canais começam desativados. O envio é feito em segundo plano, com novas tentativas automáticas, e nunca atrasa a aplicação.</p></div><Bell size={19} /></div>
     {state && !state.keyringAvailable && <div className="ipam-alert error">A chave de cifra (SNMP_KEYRING_FILE) não está disponível; não é possível guardar nem usar webhooks ou palavras-passe SMTP.</div>}
     {state && !state.publicLinks && <div className="ipam-alert warning" role="status">APP_PUBLIC_URL não está definido: as mensagens são enviadas sem botão “Abrir na aplicação”.</div>}
+    {state && groupAlertsUnconfigured(state) && <div className="ipam-alert warning" role="alert"><strong>Os alertas operacionais não estão a ser enviados.</strong> Nenhum canal de grupo está pronto: ativa o Teams ou o email em “Alertas operacionais”, guarda o destino e escolhe a severidade mínima. Os alertas continuam visíveis na aplicação.</div>}
     {feedback && <div className="ipam-alert">{feedback}</div>}
     <form className="settings-form" id="settings-notifications-form" onSubmit={(event) => void save(event)} aria-busy={loading}>
       <h3 className="notification-channel-heading">Microsoft Teams</h3>
@@ -215,7 +254,8 @@ export function NotificationChannelsSettings() {
           <p className="panel-description">{description}</p>
           <div className="integration-row"><span><strong>Estado</strong><small>{loading ? 'A carregar…' : !current?.configured ? 'Sem webhook · desativado' : current.enabled ? `Ativo${current.updatedAt ? ` · atualizado ${formatDateTime(current.updatedAt)}` : ''}` : 'Webhook guardado · desativado'}</small></span></div>
           <label>URL do webhook<input type="password" autoComplete="off" spellCheck={false} maxLength={2048} placeholder={current?.configured ? 'Guardado — introduz um novo endereço para substituir' : 'https://…webhook.office.com/… ou https://…logic.azure.com/…'} value={draft.webhookUrl} onChange={(event) => setDraft(target, { webhookUrl: event.target.value })} /><small>Só são aceites endereços HTTPS do Microsoft Teams / Power Automate. O endereço é cifrado e nunca é mostrado depois de guardado.</small></label>
-          {target === 'GROUP_ALERTS' && <label>Severidade mínima<select value={draft.minSeverity} onChange={(event) => setDraft(target, { minSeverity: event.target.value as Draft['minSeverity'] })}><option value="HIGH">HIGH e CRITICAL</option><option value="CRITICAL">Só CRITICAL</option></select></label>}
+          {target === 'GROUP_ALERTS' && <GroupSeveritySelect value={draft.minSeverity} required={draft.enabled} onChange={(minSeverity) => setDraft(target, { minSeverity })} />}
+          {target === 'GROUP_ALERTS' && !loading && groupDeliveryNote(current) && <small className="ipam-alert warning group-delivery-note">{groupDeliveryNote(current)}</small>}
           <label className="settings-check"><input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft(target, { enabled: event.target.checked })} /> Ativar este canal</label>
           <div className="modal-actions">
             <button type="button" className="secondary-button" disabled={!current?.configured || Boolean(busy)} onClick={() => void test(target)}><Send size={14} />{busy === `test:TEAMS:${target}` ? 'A enviar…' : 'Enviar mensagem de teste'}</button>
@@ -249,7 +289,8 @@ export function NotificationChannelsSettings() {
         <p className="panel-description">Alertas críticos e altos enviados para uma lista de endereços, através do servidor SMTP acima. CRITICAL é sempre enviado; os restantes respeitam janelas de manutenção e regras de alerta.</p>
         <div className="integration-row"><span><strong>Estado</strong><small>{loading ? 'A carregar…' : !emailGroup?.serverConfigured ? 'Configura primeiro o servidor SMTP' : !emailGroup.configured ? 'Sem destinatários · desativado' : emailGroup.enabled ? `Ativo · ${emailGroup.recipients?.length ?? 0} destinatário(s)` : 'Destinatários guardados · desativado'}</small></span></div>
         <label>Destinatários<textarea className="form-textarea" rows={3} spellCheck={false} placeholder={'noc@empresa.pt\nprevenção@empresa.pt'} value={groupEmail.recipients} onChange={(event) => setGroupEmail({ ...groupEmail, recipients: event.target.value })} /><small>Um endereço por linha (ou separados por vírgulas), até 20.</small></label>
-        <label>Severidade mínima<select value={groupEmail.minSeverity} onChange={(event) => setGroupEmail({ ...groupEmail, minSeverity: event.target.value as GroupEmailDraft['minSeverity'] })}><option value="HIGH">HIGH e CRITICAL</option><option value="CRITICAL">Só CRITICAL</option></select></label>
+        <GroupSeveritySelect value={groupEmail.minSeverity} required={groupEmail.enabled} onChange={(minSeverity) => setGroupEmail({ ...groupEmail, minSeverity })} />
+        {!loading && groupDeliveryNote(emailGroup) && <small className="ipam-alert warning group-delivery-note">{groupDeliveryNote(emailGroup)}</small>}
         <label className="settings-check"><input type="checkbox" checked={groupEmail.enabled} onChange={(event) => setGroupEmail({ ...groupEmail, enabled: event.target.checked })} /> Ativar alertas por email</label>
         <div className="modal-actions">
           <button type="button" className="secondary-button" disabled={!emailGroup?.configured || Boolean(busy)} onClick={() => void test('GROUP_ALERTS', 'EMAIL')}><Send size={14} />{busy === 'test:EMAIL:GROUP_ALERTS' ? 'A enviar…' : 'Enviar email de teste'}</button>

@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OperationsPanel } from './operations-panel';
 
@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   listOperationalAlerts: vi.fn(),
   getInventoryQuality: vi.fn(),
   getInventoryQualityItems: vi.fn(),
+  resolveOperationalAlert: vi.fn(),
+  roles: [] as string[],
 }));
 
 vi.mock('./api', () => ({
@@ -15,17 +17,19 @@ vi.mock('./api', () => ({
   getInventoryQualityItems: mocks.getInventoryQualityItems,
   acknowledgeOperationalAlert: vi.fn(),
   readAllOperationalAlerts: vi.fn(),
-  resolveOperationalAlert: vi.fn(),
+  resolveOperationalAlert: mocks.resolveOperationalAlert,
   snoozeOperationalAlert: vi.fn(),
 }));
 type EventOptions = { fallback?: () => Promise<unknown>; onEvent?: (event: { event: string; data: unknown }) => void };
 const events = vi.hoisted(() => ({ options: {} as { fallback?: () => Promise<unknown>; onEvent?: (event: { event: string; data: unknown }) => void } }));
 vi.mock('./use-operational-events', () => ({ useOperationalEvents: (options: EventOptions) => { events.options = options; return { data: undefined, connected: false, error: null }; } }));
-vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: () => false }) }));
+vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: (role: string) => mocks.roles.includes(role) }) }));
 vi.mock('@/lib/site-context', () => ({ useSiteContext: () => ({ siteId: mocks.contextSiteId }) }));
 
 beforeEach(() => {
   mocks.contextSiteId = 'context-site';
+  mocks.roles = [];
+  mocks.resolveOperationalAlert.mockResolvedValue({});
   mocks.listOperationalAlerts.mockResolvedValue({ items: [], total: 0 });
   mocks.getInventoryQuality.mockResolvedValue({ score: 100 });
   mocks.getInventoryQualityItems.mockResolvedValue({ items: [] });
@@ -170,5 +174,33 @@ describe('OperationsPanel request sharing', () => {
     rerender(<OperationsPanel siteId="site-b" />);
     await waitFor(() => expect(mocks.getInventoryQuality).toHaveBeenCalledWith('site-b'));
     expect(mocks.getInventoryQuality).toHaveBeenCalledWith('site-a');
+  });
+});
+
+describe('OperationsPanel alert actions and notes', () => {
+  it('tells the dashboard card that snoozed alerts are elsewhere and links to them', async () => {
+    mocks.listOperationalAlerts.mockResolvedValue(page([]));
+    render(<OperationsPanel compact showQuality={false} siteId="site-1" />);
+    const link = await screen.findByRole('link', { name: 'Ver adiados' });
+    expect(link).toHaveAttribute('href', '/alertas?siteId=site-1&status=SNOOZED');
+    expect(screen.getByText(/Adiados não aparecem aqui/)).toBeInTheDocument();
+  });
+
+  it('asks before resolving and shows the read-only note to viewers', async () => {
+    mocks.roles = ['NETWORK_OPERATOR'];
+    mocks.listOperationalAlerts.mockResolvedValue(page([{ ...alert('a1', 'Uplink down'), siteId: 'site-1' }]));
+    const view = render(<OperationsPanel showQuality={false} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Resolver Uplink down' }));
+    const dialog = await screen.findByRole('alertdialog');
+    expect(mocks.resolveOperationalAlert).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Resolver' }));
+    await waitFor(() => expect(mocks.resolveOperationalAlert).toHaveBeenCalledWith('a1'));
+    view.unmount();
+
+    mocks.roles = [];
+    render(<OperationsPanel showQuality={false} />);
+    expect(await screen.findByText('Uplink down')).toBeInTheDocument();
+    expect(screen.getByRole('note')).toHaveTextContent('Tens acesso só de leitura');
+    expect(screen.queryByRole('button', { name: 'Resolver Uplink down' })).not.toBeInTheDocument();
   });
 });
