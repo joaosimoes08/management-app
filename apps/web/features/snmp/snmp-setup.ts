@@ -44,7 +44,7 @@ export type IosXeSetupInput = {
   v2cAllowed?: boolean;
 };
 
-/** Copy-ready Cisco IOS-XE lines for SNMPv3 authPriv polling and traps to this app; v2c only when the lab flag is on. */
+/** Copy-ready Cisco IOS-XE lines for SNMPv3 authPriv polling and traps to this app, then v2c unless SNMP_ALLOW_V2C=false. */
 export function iosXeSetupLines(input: IosXeSetupInput): { v3: string; informs: string | null; v2c: string | null } {
   const receiver = input.receiver || RECEIVER_PLACEHOLDER;
   const port = input.port ?? 162;
@@ -77,9 +77,14 @@ export function iosXeSetupLines(input: IosXeSetupInput): { v3: string; informs: 
     `snmp-server host ${receiver} informs version 3 priv ${user}${portSuffix}`,
   ].join('\n') : null;
   const v2c = input.v2cAllowed ? [
-    '! Só laboratório: SNMPv2c envia a comunidade em claro.',
-    'snmp-server community <COMUNIDADE> RO MGMT-APP-SNMP',
-    `snmp-server host ${receiver} version 2c <COMUNIDADE>${portSuffix}`,
+    '! SNMPv2c: a community segue em texto simples. Use apenas em redes de gestão isoladas.',
+    'ip access-list standard MGMT-APP-SNMP',
+    ` permit host ${receiver}`,
+    'snmp-server community <COMMUNITY> RO MGMT-APP-SNMP',
+    '! trap-source: a interface cujo IP é o IP de gestão deste equipamento na app',
+    'snmp-server trap-source <INTERFACE-DE-GESTAO>',
+    'snmp-server enable traps',
+    `snmp-server host ${receiver} version 2c <COMMUNITY>${portSuffix}`,
   ].join('\n') : null;
   return { v3, informs, v2c };
 }
