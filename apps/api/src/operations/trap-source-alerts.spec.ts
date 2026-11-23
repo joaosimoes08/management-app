@@ -138,3 +138,64 @@ test('a non-admin who sees only one of the two sites does not see the ambiguous 
   const admin = await service.list({ id: 'admin', roles: ['ADMIN'] } as never);
   assert.equal(admin.items.length, 3, 'admins still see the ambiguous alert');
 });
+
+// Guita #145 blocker: an already-OPEN trap-source alert must follow the IP's ambiguity (site visibility), both ways.
+test('regression: an open trap-source alert moves to ADMIN-only when its IP becomes ambiguous, and back when it is not', async () => {
+  const key = trapSourceDedupKey('10.0.0.1');
+  const lastAt = new Date('2026-11-23T10:00:00Z');
+  const bad = [{ sourceAddress: '10.0.0.1', status: 'UNMATCHED', errorCode: null, count: 1, lastAt }];
+  const store = new Map<string, any>();
+  const prisma = {
+    site: { findMany: async () => [{ id: 'site-a' }, { id: 'site-b' }] },
+    alertRule: { findMany: async () => [] },
+    maintenanceWindow: { findMany: async () => [] },
+    operationalAlert: {
+      findUnique: async ({ where }: any) => store.get(where.dedupKey) ?? null,
+      upsert: async ({ create }: any) => { const alert = { id: 'alert-1', userStates: [], ...create }; store.set(create.dedupKey, alert); return alert; },
+      update: async ({ where, data }: any) => { const alert = [...store.values()].find((item) => item.id === where.id); for (const [field, value] of Object.entries(data)) if (value !== undefined) alert[field] = value; return alert; },
+      updateMany: async () => ({ count: 0 }),
+      findMany: async () => [...store.values()],
+    },
+    operationalAlertUserState: { updateMany: async () => ({ count: 0 }) },
+    snmpJob: { findMany: async () => [] },
+    snmpDrift: { findMany: async () => [] },
+    snmpTrapEvent: { findMany: async () => [] },
+  };
+  const access = { assertSite: async (_user: unknown, _action: string, siteId: string) => { if (siteId !== 'site-a') throw new Error('forbidden'); } };
+  const service = new OperationsService(prisma as never, access as never, {} as never, {} as never);
+  (service as any).publish = async () => undefined;
+  const viewer = { id: 'viewer', roles: ['VIEWER'] } as never;
+  const admin = { id: 'admin', roles: ['ADMIN'] } as never;
+  const reconcile = (devices: Array<{ managementIp: string; siteId: string; name: string }>) => {
+    const plan = planTrapSourceAlerts(bad, new Map(), trapSourceDeviceMap(devices, () => undefined, new Map()));
+    return service.reconcileSource(TRAP_SOURCE_ALERT_SOURCE, plan.candidates, undefined, plan.resolveMissing, plan.resolveKeys);
+  };
+  const swA = { managementIp: '10.0.0.1', siteId: 'site-a', name: 'sw-a' };
+  const swB = { managementIp: '10.0.0.1', siteId: 'site-b', name: 'sw-b' };
+
+  await reconcile([swA]);
+  assert.equal(store.get(key).siteId, 'site-a');
+  assert.equal(store.get(key).status, 'OPEN');
+  assert.equal((await service.list(viewer)).items.length, 1, 'site-a viewer sees the single-site alert');
+
+  // still OPEN, so this goes through the update branch, not upsert
+  await reconcile([swA, swB]);
+  const ambiguous = store.get(key);
+  assert.equal(ambiguous.status, 'OPEN');
+  assert.equal(ambiguous.siteId, null, 'leaves site-a');
+  assert.equal(ambiguous.entityType, TRAP_SOURCE_AMBIGUOUS_ENTITY);
+  assert.equal(ambiguous.entityId, '10.0.0.1');
+  assert.equal((await service.list(viewer)).items.length, 0, 'site-a viewer no longer sees it');
+  assert.equal((await service.list(admin)).items.length, 1, 'ADMIN still does');
+
+  // ambiguity gone: back to the single device's site
+  await reconcile([swB]);
+  const restored = store.get(key);
+  assert.equal(restored.siteId, 'site-b');
+  assert.equal(restored.entityType, null);
+  assert.equal(restored.entityId, null);
+  assert.equal((await service.list(viewer)).items.length, 0, 'site-b is not visible to the site-a viewer');
+  await reconcile([swA]);
+  assert.equal(store.get(key).siteId, 'site-a');
+  assert.equal((await service.list(viewer)).items.length, 1);
+});

@@ -245,7 +245,9 @@ export class OperationsService implements OnModuleInit, OnModuleDestroy {
       const existing = await this.prisma.operationalAlert.findUnique({ where: { dedupKey: candidate.dedupKey } });
       if (!existing || existing.status === 'RESOLVED') await this.upsert(candidate);
       else {
-        const updated = await this.prisma.operationalAlert.update({ where: { id: existing.id }, data: { severity: candidate.severity, title: candidate.title, detail: candidate.detail, actionHref: candidate.actionHref, entityId: candidate.entityId, ...(candidate.occurrenceCount === undefined ? {} : { occurrenceCount: candidate.occurrenceCount }), lastOccurredAt: new Date() } });
+        // siteId/entityType follow the candidate too: a trap source that becomes ambiguous moves to ADMIN-only (siteId null,
+        // entityType SnmpTrapSource), and back to its device's site when the ambiguity goes away.
+        const updated = await this.prisma.operationalAlert.update({ where: { id: existing.id }, data: { severity: candidate.severity, siteId: candidate.siteId, entityType: candidate.entityType, title: candidate.title, detail: candidate.detail, actionHref: candidate.actionHref, entityId: candidate.entityId, ...(candidate.occurrenceCount === undefined ? {} : { occurrenceCount: candidate.occurrenceCount }), lastOccurredAt: new Date() } });
         // An open alert that escalates (for example HIGH → CRITICAL) is posted again at its new severity.
         if ((ALERT_SEVERITY_RANK[updated.severity] ?? 99) < (ALERT_SEVERITY_RANK[existing.severity] ?? 99)) void this.deliveries?.alertOpened(updated, updated.lastOccurredAt);
       }
