@@ -73,7 +73,7 @@ Para executar API e frontend no host, mantendo PostgreSQL, Redis e Keycloak no D
 ```sh
 cp .env.example .env
 node deploy/configure-install.mjs --template deploy/realm-cociber.json --realm-file ./deploy/realm-cociber.generated.json --organization COCiber --locale pt-PT --client-secret change-me-settings-admin-secret --public-base-url http://localhost:8080
-docker compose up -d postgres redis keycloak-db keycloak
+docker compose up -d postgres redis keycloak-db keycloak snmp
 npm install
 npm run db:generate
 npm run db:migrate

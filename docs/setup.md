@@ -13,7 +13,7 @@ Este guia é para executar a API e o frontend a partir do código-fonte. Para um
 Na raiz do projeto, copiar `.env.example` para `.env` e definir as passwords locais. A `DATABASE_URL` deve usar a mesma password de `POSTGRES_PASSWORD`. Para a API executada no host, definir também `OIDC_BACKCHANNEL_URL=http://localhost:8080/realms/COCiber` em `.env`.
 
 ```powershell
-docker compose up -d postgres redis keycloak-db keycloak
+docker compose up -d postgres redis keycloak-db keycloak snmp
 npm install
 npm run db:generate
 npm run db:migrate:dev
@@ -115,11 +115,15 @@ Invoke-RestMethod http://localhost:3001/api/v1/health
 2. Aplica a migração aditiva com `npm run db:migrate`.
 3. Por omissão, o container reutiliza `POSTGRES_USER`, `POSTGRES_PASSWORD` e `POSTGRES_DB`. Em produção, aplica `scripts/snmp-database-grants.sql`, associa o utilizador de login ao role `simoes_snmp_runtime` e define `SNMP_DATABASE_URL` com o hostname `postgres`. O role não pode criar schema nem executar migrações.
 
-4. Define um `SNMP_ENGINE_ID` único e estável para a instalação e um `SNMP_HOST_INSTANCE_ID` estável para o host.
-5. Constrói a imagem SNMP e inicia o agente no próprio host (não dentro de um container):
+4. O engine ID SNMPv3 é gerido pela aplicação e guardado por instalação. Não defina `SNMP_ENGINE_ID`. SNMPv2c só é permitido em laboratório quando `SNMP_ALLOW_V2C=true`; o valor predefinido é `false` (produção usa SNMPv3).
+5. Para traps de switches ou outros equipamentos na rede, usa um host Linux. O Docker Desktop no macOS pode reescrever o IP de origem, impedindo a associação exata do equipamento. O arranque de desenvolvimento inclui o receiver `snmp` e publica UDP 162 em `0.0.0.0`; configura `SNMP_TRAP_HOST_IP` e `SNMP_TRAP_HOST_PORT` no `.env` se precisares de escolher o endereço e a porta do host. A firewall deve permitir UDP apenas da rede de gestão. O valor predefinido `SNMP_TRAP_HOST_IP=0.0.0.0` publica em todas as interfaces; define-o como o IP da interface LAN para limitar o bind a esse endereço. `SNMP_ALLOW_V2C` é `false` por omissão e só deve ser ativado em laboratório. O receiver limita linhas de traps não confiáveis a 120 por minuto por omissão; ajusta `SNMP_TRAP_UNTRUSTED_ROWS_PER_MINUTE` se necessário.
+
+   O API e o receiver usam o mesmo secret Compose `snmp_keyring`, proveniente de `SNMP_KEYRING_HOST_FILE` (por omissão `./secrets/snmp-keyring.json`). No host, define `SNMP_KEYRING_FILE` para o caminho do keyring (por omissão `./secrets/snmp-keyring.json`); os containers usam o secret montado em `/run/secrets/snmp_keyring`.
+
+   Para o modo alternativo de agente do host, constrói a imagem SNMP e inicia o agente fora do container:
 
    ```bash
-   docker compose --profile snmp build snmp
+   docker compose build snmp
    npm run snmp:host-agent
    ```
 
@@ -127,7 +131,7 @@ Invoke-RestMethod http://localhost:3001/api/v1/health
 
 6. Em **Definições → SNMP**, um administrador escolhe todas as interfaces IPv4 do host ou vários IPs específicos. O agente atualiza o inventário e aplica a configuração em até 30 segundos. Um endereço removido do host deixa de ser elegível e nunca é aceite apenas por ter permanecido guardado na base de dados.
 
-O Docker publica `162/udp` nos IPs do host selecionados e encaminha para `1162/udp` no container não-root. O agente não recebe o keyring nem lê credenciais SNMP. Em produção, cria um login associado ao role `simoes_snmp_host_agent`, configura `SNMP_HOST_AGENT_DATABASE_URL` e protege a conta que pode executar Docker. `SNMP_SET_ENABLED=false` deve permanecer até à validação laboratorial.
+No modo de agente, o Docker publica `162/udp` nos IPs do host selecionados e encaminha para `1162/udp` no container não-root. O agente não recebe o keyring nem lê credenciais SNMP. Em produção, cria um login associado ao role `simoes_snmp_host_agent`, configura `SNMP_HOST_AGENT_DATABASE_URL` e protege a conta que pode executar Docker. `SNMP_SET_ENABLED=false` deve permanecer até à validação laboratorial.
 
 ### Autoteste de traps no próprio host
 
