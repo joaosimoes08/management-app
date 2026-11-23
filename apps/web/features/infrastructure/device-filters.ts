@@ -29,6 +29,10 @@ export function deviceFilterQuery(filters: Partial<DeviceUrlFilters> = {}): stri
 export const deviceTypeOptions: ReadonlyArray<readonly [string, string]> = [['SWITCH', 'Switches'], ['ROUTER', 'Routers'], ['FIREWALL', 'Firewalls'], ['SERVER', 'Servidores'], ['STORAGE', 'Storage'], ['OTHER', 'Outros']];
 
 const statusLabels: Record<string, string> = { ACTIVE: 'Ativo', INACTIVE: 'Inativo', MAINTENANCE: 'Em manutenção', RETIRED: 'Retirado', UNKNOWN: 'Desconhecido' };
+/** Device states offered by the Equipamentos "Estado" chips (values match DeviceStatus). */
+export const deviceStatusOptions: ReadonlyArray<readonly [string, string]> = Object.entries(statusLabels);
+/** Chip label for a status value, including comma lists from dashboard links ("Ativo, Em manutenção"). */
+export const deviceStatusLabel = (value: string) => value.split(',').map((part) => statusLabels[part.trim().toUpperCase()] ?? part.trim()).join(', ');
 
 /** Readable summary of the active filters, e.g. ["Estado: Ativo, Em manutenção", "Críticos"]. */
 export function deviceFilterLabels(filters: DeviceUrlFilters, tagName?: string): string[] {

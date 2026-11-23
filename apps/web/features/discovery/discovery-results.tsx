@@ -4,13 +4,16 @@ import { useMemo, useState } from 'react';
 import { Check, X } from 'lucide-react';
 import { DataTable, sortByColumns, useTableUrlState, type DataTableColumn, type TableStateConfig } from '@/components/data-table';
 import { BULK_REVIEW_MAX, BulkReviewDialog, type BulkReviewResponse } from '@/components/ui/bulk-review-dialog';
+import { FilterChipBar, FilterChips } from '@/components/ui/filter-chips';
+import { applyChipFilters, chipOptions, CHIP_NONE, facetCounts, type ChipAccessors } from '@/lib/filter-chips';
 import { formatDateTime } from '@/lib/format/date';
 import { bulkReviewDiscoveryResults, type DiscoveryResult, type DiscoveryResultIpam } from './api';
 
 type ReviewStatus = 'APPROVED' | 'IGNORED';
 
-const resultsTableConfig: TableStateConfig<Record<string, string>> = {
-  filters: {},
+/** Review and IPAM chips live in `?resultsReview=` / `?resultsIpam=`; the table sort in `?resultssort=`. */
+const resultsTableConfig: TableStateConfig<{ Review: string; Ipam: string }> = {
+  filters: { Review: '', Ipam: '' },
   sortable: ['address', 'hostname', 'ipam', 'status'],
   prefix: 'results',
 };
@@ -27,6 +30,12 @@ export function formatDurationMs(ms: number | null | undefined): string {
   if (minutes) return `${minutes} min ${String(seconds).padStart(2, '0')} s`;
   return `${seconds} s`;
 }
+
+/** IPAM state of a result as the chips see it: an active reservation counts as RESERVED. */
+const resultIpamState = (result: DiscoveryResult) => (result.ipam ? (result.ipam.activeReservation ? 'RESERVED' : result.ipam.state) : null);
+const resultAccessors: ChipAccessors<DiscoveryResult> = { Review: (result) => result.status, Ipam: resultIpamState };
+const reviewChipLabels = [['PENDING', 'Pendentes'], ['APPROVED', 'Aprovados'], ['IGNORED', 'Ignorados']] as const;
+const ipamChipLabels = [['FREE', 'Livres'], ['OCCUPIED', 'Ocupados'], ['RESERVED', 'Reservados'], ['EXCLUDED', 'Excluídos'], [CHIP_NONE, 'Fora do IPAM']] as const;
 
 const ipamTone: Record<string, string> = { FREE: 'free', OCCUPIED: 'occupied', RESERVED: 'reserved', EXCLUDED: 'excluded' };
 
@@ -56,7 +65,11 @@ export function DiscoveryResultsTable({ results, canEdit, review, bulkDone }: Pr
   const table = useTableUrlState(resultsTableConfig);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulk, setBulk] = useState<{ status: ReviewStatus; ids: string[] } | null>(null);
-  const pendingIds = useMemo(() => new Set(results.filter((result) => result.status === 'PENDING').map((result) => result.id)), [results]);
+  const visibleResults = useMemo(() => applyChipFilters(results, table.filters, resultAccessors), [results, table.filters]);
+  const reviewOptions = chipOptions(reviewChipLabels, facetCounts(results, table.filters, resultAccessors, 'Review'), { complete: true, selected: table.filters.Review });
+  const ipamOptions = chipOptions(ipamChipLabels, facetCounts(results, table.filters, resultAccessors, 'Ipam'), { complete: true, selected: table.filters.Ipam, hideEmpty: true });
+  // Only visible pending rows can stay selected, so a bulk action never touches rows hidden by a chip.
+  const pendingIds = useMemo(() => new Set(visibleResults.filter((result) => result.status === 'PENDING').map((result) => result.id)), [visibleResults]);
   // Selection only keeps rows that are still pending (a row reviewed elsewhere drops out).
   const selectedIds = useMemo(() => [...selected].filter((id) => pendingIds.has(id)), [pendingIds, selected]);
 
@@ -64,11 +77,11 @@ export function DiscoveryResultsTable({ results, canEdit, review, bulkDone }: Pr
     { id: 'address', header: 'Endereço', sortValue: (result) => result.address.split(/[.:]/).map((part) => part.padStart(5, '0')).join('.'), cell: (result) => <strong className="mono">{result.address}</strong> },
     { id: 'hostname', header: 'Hostname', sortValue: (result) => result.hostname ?? null, cell: (result) => result.hostname || <span className="muted-cell">reverse DNS não encontrado</span> },
     { id: 'probe', header: 'Sonda', cell: (result) => <small>{probeSummary(result)}</small> },
-    { id: 'ipam', header: 'IPAM', sortValue: (result) => result.ipam ? (result.ipam.activeReservation ? 'RESERVED' : result.ipam.state) : null, cell: (result) => <DiscoveryIpamStatus ipam={result.ipam} /> },
+    { id: 'ipam', header: 'IPAM', sortValue: resultIpamState, cell: (result) => <DiscoveryIpamStatus ipam={result.ipam} /> },
     { id: 'status', header: 'Revisão', sortValue: (result) => result.status, cell: (result) => <span className={`state-badge ${result.status === 'APPROVED' ? 'approved' : result.status === 'IGNORED' ? 'rejected' : 'pending'}`}><i />{result.status}</span> },
     ...(canEdit ? [{ id: 'actions', header: 'Ações', className: 'table-actions', cell: (result: DiscoveryResult) => result.status === 'PENDING' ? <><button className="secondary-button" aria-label={`Aprovar ${result.address}`} onClick={() => void review(result.id, 'APPROVED')}><Check size={13} /> Aprovar</button><button className="danger-button" aria-label={`Ignorar ${result.address}`} onClick={() => void review(result.id, 'IGNORED')}><X size={13} /> Ignorar</button></> : null }] : []),
   ], [canEdit, review]);
-  const rows = useMemo(() => sortByColumns(results, columns, table.sort), [columns, results, table.sort]);
+  const rows = useMemo(() => sortByColumns(visibleResults, columns, table.sort), [columns, visibleResults, table.sort]);
   const byId = useMemo(() => new Map(results.map((result) => [result.id, result])), [results]);
   const tooMany = selectedIds.length > BULK_REVIEW_MAX;
 
@@ -78,10 +91,14 @@ export function DiscoveryResultsTable({ results, canEdit, review, bulkDone }: Pr
       <button className="secondary-button" disabled={!selectedIds.length || tooMany} onClick={() => setBulk({ status: 'APPROVED', ids: selectedIds })}><Check size={13} /> Aprovar selecionados</button>
       <button className="danger-button" disabled={!selectedIds.length || tooMany} onClick={() => setBulk({ status: 'IGNORED', ids: selectedIds })}><X size={13} /> Ignorar selecionados</button>
     </div>}
+    {results.length > 0 && <FilterChipBar>
+      <FilterChips label="Revisão" value={table.filters.Review} options={reviewOptions} total={results.length} onChange={(value) => table.setFilter('Review', value)} />
+      <FilterChips label="IPAM" value={table.filters.Ipam} options={ipamOptions} total={results.length} onChange={(value) => table.setFilter('Ipam', value)} />
+    </FilterChipBar>}
     {tooMany && <div className="ipam-alert warning" role="note">{`Seleciona no máximo ${BULK_REVIEW_MAX} resultados por pedido.`}</div>}
     <DataTable rows={rows} columns={columns} rowKey={(result) => result.id} label="Resultados de sondas" sort={table.sort} onSortChange={table.setSort} defaultSort={table.defaultSort}
       selection={canEdit ? { selected: new Set(selectedIds), onChange: setSelected, isSelectable: (result) => result.status === 'PENDING', rowLabel: (result, selectable) => selectable ? `Selecionar ${result.address}` : `${result.address} já revisto`, allLabel: 'Selecionar todos os resultados pendentes' } : undefined}
-      empty={<div className="no-data">Não existem resultados alcançáveis para esta execução.</div>} />
+      empty={<div className="no-data">{results.length ? 'Nenhum resultado com estes filtros.' : 'Não existem resultados alcançáveis para esta execução.'}</div>} />
     {bulk && <BulkReviewDialog
       title={bulk.status === 'APPROVED' ? 'Aprovar resultados selecionados' : 'Ignorar resultados selecionados'}
       actionLabel={bulk.status === 'APPROVED' ? 'Aprovar' : 'Ignorar'}

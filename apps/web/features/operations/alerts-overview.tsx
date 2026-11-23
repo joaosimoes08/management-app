@@ -10,6 +10,9 @@ import { useQuery } from '@tanstack/react-query';
 import { Info, X } from 'lucide-react';
 import { DataTable, sortByColumns, type DataTableColumn, type TableStateConfig, type TableUrlState } from '@/components/data-table';
 import { PageToolbarPortal } from '@/components/layout/app-shell';
+import { FilterChipBar, FilterChips } from '@/components/ui/filter-chips';
+import { chipOptions, totalOf } from '@/lib/filter-chips';
+import { useServerChipCounts } from '@/lib/use-server-chip-counts';
 import { useAuth } from '@/lib/auth';
 import { formatDateTime } from '@/lib/format/date';
 import { getMaintenanceSummary, listAlerts, type AlertListItem, type MaintenanceWindowSummaryItem } from './api';
@@ -30,6 +33,7 @@ export const alertSeverities = SEVERITY_ORDER;
 export { alertStatusLabels };
 const severityRank: Record<string, number> = { CRITICAL: 0, HIGH: 1, WARNING: 2, INFO: 3 };
 const PAGE_SIZE = 100;
+const severityChipLabels = SEVERITY_ORDER.map((value) => [value, severityNames[value] ?? value] as const);
 
 const baseColumns = (openDetail: (row: AlertListItem) => void): DataTableColumn<AlertListItem>[] => [
   { id: 'severity', header: 'Severidade', cell: (row) => <SeverityTag severity={row.severity} />, sortValue: (row) => severityRank[row.severity] ?? 9 },
@@ -59,6 +63,11 @@ export function AlertList({ siteId, table }: { siteId: string; table: TableUrlSt
     enabled: filters.scope === 'all' || Boolean(siteId),
     retry: false,
   });
+  const listEnabled = filters.scope === 'all' || Boolean(siteId);
+  // Severity chips: one total-only request per severity with every other filter and the search applied.
+  const severityCounts = useServerChipCounts(SEVERITY_ORDER, ['operations', 'alert-list', scopedSiteId ?? 'all', filters.status, filters.source, search],
+    async (severity) => (await listAlerts({ siteId: scopedSiteId, severity, status: filters.status, source: filters.source, search: search.trim() }, 1)).total, listEnabled);
+  const severityOptions = chipOptions(severityChipLabels, severityCounts, { selected: filters.severity });
   useLiveAlertRefresh();
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [detailFor, setDetailFor] = useState<AlertListItem | null>(null);
@@ -78,7 +87,6 @@ export function AlertList({ siteId, table }: { siteId: string; table: TableUrlSt
   return <>
     {actions.confirmDialog}
     <PageToolbarPortal><div className="interface-toolbar-controls alerts-filters">
-      <label>Severidade<select aria-label="Filtrar por severidade" value={filters.severity} onChange={(event) => setFilter('severity', event.target.value)}><option value="">Todas</option>{alertSeverities.map((value) => <option key={value} value={value}>{severityNames[value]}</option>)}</select></label>
       <label>Estado<select aria-label="Filtrar por estado" value={filters.status} onChange={(event) => setFilter('status', event.target.value)}><option value="">Por resolver</option>{Object.entries(alertStatusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       <label>Âmbito<select aria-label="Filtrar por âmbito" value={filters.scope} onChange={(event) => setFilter('scope', event.target.value)}><option value="">Site ativo</option><option value="all">Todos os Sites</option></select></label>
       {filtering && <button className="secondary-button" onClick={clearFilters}><X size={14} /> Limpar filtros</button>}
@@ -86,6 +94,7 @@ export function AlertList({ siteId, table }: { siteId: string; table: TableUrlSt
     <section className="panel settings-panel" aria-labelledby="alert-list-title">
       <div className="panel-heading"><div><span className="section-kicker">ALERTAS</span><h2 id="alert-list-title">Alertas ativos</h2></div></div>
       <SeverityLegend />
+      <FilterChipBar><FilterChips label="Severidade" value={filters.severity} options={severityOptions} total={totalOf(severityCounts, SEVERITY_ORDER)} allLabel="Todas" onChange={(value) => setFilter('severity', value)} /></FilterChipBar>
       {!filters.status && <p className="panel-description"><Info size={13} aria-hidden="true" /> Por omissão a lista mostra abertos, reconhecidos e adiados. Os adiados voltam a abrir no fim do prazo.</p>}
       {!canAct && <ReadOnlyAlertNote />}
       {filters.source && <p className="ipam-scope-note" role="status">Tipo de evento: <strong>{alertSourceLabel(filters.source)}</strong> <button type="button" className="text-button" onClick={() => setFilter('source', '')}><X size={12} /> Remover</button></p>}

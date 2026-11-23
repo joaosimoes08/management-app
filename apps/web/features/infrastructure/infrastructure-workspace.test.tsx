@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { InfrastructureWorkspace } from './infrastructure-workspace';
 
@@ -16,6 +16,8 @@ vi.mock('@tanstack/react-query', () => ({
     error: null,
     isFetching: false,
   }),
+  // Filter chip counts: left unknown here (the chips show "…").
+  useQueries: ({ queries }: { queries: unknown[] }) => queries.map(() => ({ data: undefined })),
   useQueryClient: () => ({ invalidateQueries: vi.fn(), setQueryData: vi.fn() }),
 }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ user: { id: 'user-1' }, hasRole: auth.hasRole }) }));
@@ -26,7 +28,7 @@ vi.mock('@/components/layout/app-shell', () => ({
 }));
 vi.mock('./components/rack/rack-workspace', () => ({ RackWorkspace: () => <div /> }));
 vi.mock('./components/devices/deep-link-device-loader', () => ({ DeepLinkDeviceLoader: ({ deviceId }: { deviceId: string | null }) => (deviceId ? <span data-testid="deep-link">{deviceId}</span> : null) }));
-vi.mock('./components/devices/device-list', () => ({ DeviceList: ({ headingFilters }: { headingFilters?: React.ReactNode }) => <div data-testid="site-device-list">{headingFilters}</div> }));
+vi.mock('./components/devices/device-list', () => ({ DeviceList: ({ filterChips }: { filterChips?: React.ReactNode }) => <div data-testid="site-device-list">{filterChips}</div> }));
 vi.mock('./components/devices/cross-site-missing-config-list', () => ({ CrossSiteMissingConfigList: ({ config }: { config: string }) => <div data-testid="cross-site-list">{config}</div> }));
 vi.mock('./components/devices/retirement-review-modal', () => ({ RetirementReviewModal: () => null }));
 vi.mock('./components/models/model-list', () => ({ ModelList: () => null }));
@@ -61,7 +63,7 @@ describe('InfrastructureWorkspace', () => {
     expect(screen.getByTestId('server-inventory')).toHaveTextContent('read-only');
     expect(screen.getByRole('button', { name: 'Equipamentos' })).toHaveAttribute('aria-current', 'page');
     expect(screen.queryByRole('button', { name: 'linuxHosts.title' })).toBeNull();
-    expect(screen.getByRole('combobox', { name: 'Filtrar equipamentos por tipo' })).toHaveValue('SERVER');
+    expect(within(screen.getByRole('group', { name: 'Tipo' })).getByRole('button', { name: /Servidores/ })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('status')).toHaveTextContent('Tipo: Servidores');
   });
 
@@ -69,14 +71,14 @@ describe('InfrastructureWorkspace', () => {
     auth.hasRole.mockImplementation((role) => role === 'READ_ONLY');
     window.history.replaceState({}, '', '/infraestrutura?siteId=site-1&tab=devices&type=SERVER&hosts-site=site-1');
     render(<InfrastructureWorkspace />);
-    const type = screen.getByRole('combobox', { name: 'Filtrar equipamentos por tipo' });
+    const type = screen.getByRole('group', { name: 'Tipo' });
     expect(screen.getByTestId('server-inventory')).toBeInTheDocument();
-    fireEvent.change(type, { target: { value: 'SWITCH' } });
+    fireEvent.click(within(type).getByRole('button', { name: /Switches/ }));
     expect(screen.queryByTestId('server-inventory')).toBeNull();
     const params = new URLSearchParams(window.location.search);
     expect(params.get('type')).toBe('SWITCH');
     expect(params.get('hosts-site')).toBeNull();
-    fireEvent.change(type, { target: { value: 'SERVER' } });
+    fireEvent.click(within(screen.getByRole('group', { name: 'Tipo' })).getByRole('button', { name: /Servidores/ }));
     expect(screen.getByTestId('server-inventory')).toBeInTheDocument();
     expect(new URLSearchParams(window.location.search).get('type')).toBe('SERVER');
   });

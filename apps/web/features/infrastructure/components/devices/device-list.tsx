@@ -33,6 +33,8 @@ export interface DeviceListProps {
   toolbarFilters?: ReactNode;
   /** Filters shown in the card heading, next to the title (the equipment "Tipo" filter). */
   headingFilters?: ReactNode;
+  /** Filter chip row (Estado, Tipo) shown under the heading. */
+  filterChips?: ReactNode;
   /** Step 36: opens the tag editor of one device; omitted when the user cannot edit tags. */
   onEditTags?: (device: Device) => void;
   /** Per-row check for the tag button (NETWORK_OPERATOR only tags network equipment). */
@@ -46,7 +48,7 @@ export function getPopoverAlignment(anchor: Pick<DOMRect, 'left' | 'right'>, vie
 }
 
 /** Active device inventory of the site. */
-export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire, canRetire, canEdit, selectedId, models = [], racks = [], onImport, canImport = canEdit, onBulkUpdate, tierFilter = '', onTierFilterChange, tierCounts, toolbarFilters, headingFilters, onEditTags, canEditTagsFor }: DeviceListProps) {
+export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire, canRetire, canEdit, selectedId, models = [], racks = [], onImport, canImport = canEdit, onBulkUpdate, tierFilter = '', onTierFilterChange, tierCounts, toolbarFilters, headingFilters, filterChips, onEditTags, canEditTagsFor }: DeviceListProps) {
   const { confirm: askConfirm, confirmDialog } = useConfirm();
   const [selected, setSelected] = useState<string[]>([]);
   const [status, setStatus] = useState('');
@@ -172,6 +174,7 @@ export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire,
   }
   return <>{confirmDialog}<section className="ipam-card">
     <div className="panel-heading"><div><span className="section-kicker">INVENTÁRIO OPERACIONAL</span><h2>Equipamentos ativos</h2></div>{headingFilters}</div>
+    {filterChips}
     {onTierFilterChange && <div className="summary-stats settings-audit-stats tier-filter" role="group" aria-label="Filtrar por criticidade">
       {([['', 'Todos', tierCounts ? tierCounts.T1 + tierCounts.T2 + tierCounts.T3 + tierCounts.none : undefined], ['T1', 'T1 · Vital', tierCounts?.T1], ['T2', 'T2 · Importante', tierCounts?.T2], ['T3', 'T3 · Padrão', tierCounts?.T3]] as const).map(([value, label, count]) => (
         <button key={value || 'all'} type="button" aria-pressed={tierFilter === value} className={tierFilter === value ? 'active' : ''} onClick={() => onTierFilterChange(tierFilter === value ? '' : value)}><strong>{count ?? '—'}</strong><span>{label}</span></button>

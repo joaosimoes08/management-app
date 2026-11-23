@@ -48,10 +48,10 @@ describe('Alertas list (drill-through target)', () => {
     window.history.replaceState(null, '', '/alertas?siteId=site-1&severity=CRITICAL&status=OPEN');
     renderPage();
     expect(await screen.findByRole('link', { name: 'Porta desligada' })).toHaveAttribute('href', '/snmp');
-    const listCall = calls().find((call) => call.path.startsWith('/api/v1/operations/alerts?'))!;
+    const listCall = calls().find((call) => call.path.startsWith('/api/v1/operations/alerts?') && call.path.includes('pageSize=100'))!;
     const params = new URLSearchParams(listCall.path.split('?')[1]);
     expect(Object.fromEntries(params)).toMatchObject({ siteId: 'site-1', severity: 'CRITICAL', status: 'OPEN', pageSize: '100' });
-    expect(screen.getByRole('combobox', { name: 'Filtrar por severidade' })).toHaveValue('CRITICAL');
+    expect(within(screen.getByRole('group', { name: 'Severidade' })).getByRole('button', { name: /Crítico/ })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: /Limpar filtros/ })).toBeInTheDocument();
   });
 
@@ -59,7 +59,7 @@ describe('Alertas list (drill-through target)', () => {
     window.history.replaceState(null, '', '/alertas?source=SNMP_DRIFT&scope=all');
     renderPage();
     await screen.findByText('Porta desligada');
-    const listCall = calls().find((call) => call.path.startsWith('/api/v1/operations/alerts?'))!;
+    const listCall = calls().find((call) => call.path.startsWith('/api/v1/operations/alerts?') && call.path.includes('pageSize=100'))!;
     expect(listCall.path).not.toContain('siteId=');
     expect(listCall.path).toContain('source=SNMP_DRIFT');
     fireEvent.click(screen.getByRole('button', { name: /Remover/ }));
