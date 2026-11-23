@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { containerReceiverView, describeCredentialTest, iosXeSetupLines, lastTestLabel, latestJob, receiverAddresses, RECEIVER_PLACEHOLDER, type SnmpReceiverSettings } from './snmp-setup';
+import { containerReceiverView, CREDENTIAL_TEST_UI_LIMIT_MS, describeCredentialTest, iosXeSetupLines, lastTestLabel, latestJob, receiverAddresses, RECEIVER_PLACEHOLDER, type SnmpReceiverSettings } from './snmp-setup';
 import { translateLegacyText } from '@/lib/i18n/legacy-messages';
 
 const iface = (id: string, address: string, internal = false) => ({ id, instanceId: 'i1', name: id, address, internal, lastSeenAt: '2026-11-23T10:00:00.000Z' });
@@ -56,7 +56,15 @@ describe('describeCredentialTest', () => {
     expect(describeCredentialTest(job({ status: 'FAILED', errorCode: 'SNMP_TIMEOUT', startedAt: '2026-11-23T10:00:00.000Z', completedAt: '2026-11-23T10:00:05.000Z' }))).toMatchObject({ state: 'timeout', label: 'Sem resposta (timeout)', detail: expect.stringContaining('5000 ms') });
     expect(describeCredentialTest(job({ status: 'FAILED', errorCode: 'SNMP_AUTHENTICATION_FAILED' }))).toMatchObject({ state: 'auth', label: 'Falha de autenticação' });
     expect(describeCredentialTest(job({ status: 'FAILED', errorCode: 'SNMP_EXECUTION_FAILED' }))).toMatchObject({ state: 'failed', detail: 'SNMP_EXECUTION_FAILED' });
-    expect(describeCredentialTest(job({ status: 'RUNNING' }))).toEqual({ state: 'running', label: 'A testar…' });
+    expect(describeCredentialTest(job({ status: 'RUNNING' }), undefined, Date.parse('2026-11-23T10:00:10.000Z'))).toEqual({ state: 'running', label: 'A testar…' });
+  });
+  it('explains a test the SNMP service never processed (P0-3 follow-up)', () => {
+    expect(describeCredentialTest(job({ status: 'FAILED', errorCode: 'SNMP_WORKER_UNAVAILABLE', result: { reachable: false, durationMs: 15000 } }))).toMatchObject({ state: 'timeout', label: 'Sem resposta (timeout)', detail: expect.stringContaining('serviço SNMP') });
+  });
+  it('stops showing "A testar…" once the UI limit passes, even if the job is still open', () => {
+    const late = Date.parse('2026-11-23T10:00:00.000Z') + CREDENTIAL_TEST_UI_LIMIT_MS + 1;
+    expect(describeCredentialTest(job({ status: 'PENDING' }), undefined, late)).toMatchObject({ state: 'timeout', label: 'Sem resposta (timeout)' });
+    expect(describeCredentialTest(job({ status: 'RUNNING' }), undefined, late - 2)).toEqual({ state: 'running', label: 'A testar…' });
   });
   it('picks the job a click started, else the newest of a type', () => {
     const jobs = [job({ id: 'a', createdAt: '2026-11-23T09:00:00.000Z' }), job({ id: 'b', createdAt: '2026-11-23T11:00:00.000Z' }), job({ id: 'c', type: 'POLL', createdAt: '2026-11-23T12:00:00.000Z' })];

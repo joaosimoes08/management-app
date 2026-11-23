@@ -8,6 +8,7 @@ import { useDialogFocusRef } from '@/components/ui/use-dialog-focus';
 import { getSnmpOverview, getSnmpReceiverSettings, runSnmpPoll, saveSnmpConfig, saveSnmpCredential, snmpReceiverKey, testSnmpCredential } from './api';
 import { snmpConfigBounds, snmpConfigError, snmpCredentialBounds, snmpCredentialError } from './snmp-bounds';
 import { describeCredentialTest, latestJob, type SnmpJobView } from './snmp-setup';
+import { useRenderTick } from './use-render-tick';
 import { isV2cAllowed, SnmpCommunityField, SnmpVersionField, type SnmpVersionChoice } from './snmp-version';
 
 export const wizardSteps = ['Credencial', 'Testar', 'Polling', 'Primeira sincronização'] as const;
@@ -42,6 +43,7 @@ export function SnmpSetupWizard({ deviceId, deviceName, close, onDone }: Props) 
   const testJob = testJobId ? latestJob(overview?.jobs, 'CREDENTIAL_TEST', testJobId) : null;
   const pollJob = pollJobId ? latestJob(overview?.jobs, 'POLL', pollJobId) : null;
   const test = testJob ? describeCredentialTest(testJob) : null;
+  useRenderTick(test?.state === 'running');
 
   const run = async (work: () => Promise<void>) => {
     setError(''); setBusy(true);

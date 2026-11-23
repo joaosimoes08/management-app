@@ -1,8 +1,11 @@
 import { Prisma, PrismaClient } from '@simoes/database';
 import { SNMP_JOB_NAMES } from '@simoes/snmp-core';
-import { createSnmpSession, get, pollLldp, pollStandard } from './client';
+import { createSnmpSession, get, pollLldp, pollStandard, withDeadline } from './client';
 import { DeviceLocks } from './locks';
 import { log, publicErrorCode } from './log';
+
+/** Extra time past the device timeout before the worker gives up on a credential test request. */
+export const CREDENTIAL_TEST_DEADLINE_MARGIN_MS = 2_000;
 
 export class PollProcessor {
   constructor(private readonly prisma: PrismaClient, private readonly locks: DeviceLocks) {}
@@ -27,15 +30,18 @@ export class PollProcessor {
   async test(jobId: string) {
     const job = await this.prisma.snmpJob.findUnique({ where: { id: jobId }, include: { device: true, credential: true } });
     if (!job?.credential || !job.device.managementIp) throw new Error('SNMP_JOB_INVALID');
-    await this.prisma.snmpJob.update({ where: { id: job.id }, data: { status: 'RUNNING', startedAt: new Date() } });
+    // P0-3 follow-up: only a PENDING job starts; the API closes tests past their deadline, and a late worker must not reopen them.
+    const claimed = await this.prisma.snmpJob.updateMany({ where: { id: job.id, status: 'PENDING' }, data: { status: 'RUNNING', startedAt: new Date() } });
+    if (!claimed.count) return { skipped: true };
     const config = await this.prisma.snmpDeviceConfig.findUnique({ where: { deviceId: job.deviceId } });
+    const timeoutMs = config?.timeoutMs ?? 5000;
     let session: ReturnType<typeof createSnmpSession> | undefined;
     const startedAt = Date.now();
     try {
-      session = createSnmpSession(job.device.managementIp, config?.port ?? 161, config?.timeoutMs ?? 5000, 0, job.credential as any);
-      const values = await get(session, ['1.3.6.1.2.1.1.5.0']);
+      session = createSnmpSession(job.device.managementIp, config?.port ?? 161, timeoutMs, 0, job.credential as any);
+      const values = await withDeadline(get(session, ['1.3.6.1.2.1.1.5.0']), timeoutMs + CREDENTIAL_TEST_DEADLINE_MARGIN_MS);
       await this.prisma.$transaction([
-        this.prisma.snmpJob.update({ where: { id: job.id }, data: { status: 'COMPLETED', completedAt: new Date(), result: credentialTestResult(values, startedAt) } }),
+        this.prisma.snmpJob.updateMany({ where: { id: job.id, status: 'RUNNING' }, data: { status: 'COMPLETED', completedAt: new Date(), result: credentialTestResult(values, startedAt) } }),
         this.prisma.snmpCredential.update({ where: { id: job.credential.id }, data: { lastTestedAt: new Date(), lastTestStatus: 'COMPLETED', lastUsedAt: new Date() } }),
         this.prisma.auditLog.create({ data: { userId: job.requestedBy, action: 'SNMP_CREDENTIAL_TEST_COMPLETED', entityType: 'SnmpCredential', entityId: job.credential.id, metadata: { deviceId: job.deviceId, jobId: job.id } } }),
       ]);
@@ -43,7 +49,7 @@ export class PollProcessor {
     } catch (error) {
       const code = publicErrorCode(error);
       await this.prisma.$transaction([
-        this.prisma.snmpJob.update({ where: { id: job.id }, data: { status: 'FAILED', completedAt: new Date(), errorCode: code, result: { reachable: false, durationMs: Date.now() - startedAt } } }),
+        this.prisma.snmpJob.updateMany({ where: { id: job.id, status: 'RUNNING' }, data: { status: 'FAILED', completedAt: new Date(), errorCode: code, result: { reachable: false, durationMs: Date.now() - startedAt } } }),
         this.prisma.snmpCredential.update({ where: { id: job.credential.id }, data: { lastTestedAt: new Date(), lastTestStatus: 'FAILED' } }),
         this.prisma.auditLog.create({ data: { userId: job.requestedBy, action: 'SNMP_CREDENTIAL_TEST_FAILED', entityType: 'SnmpCredential', entityId: job.credential.id, metadata: { deviceId: job.deviceId, jobId: job.id, errorCode: code } } }),
       ]);

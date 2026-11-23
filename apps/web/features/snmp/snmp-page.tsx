@@ -13,6 +13,7 @@ import { SnmpDriftsView } from './snmp-drifts';
 import { attachableChangePlansKey, executeAndAttach, SnmpChangePlanAttach } from './snmp-change-plan-attach';
 import { snmpConfigBounds, snmpConfigError, snmpCredentialBounds, snmpCredentialError } from './snmp-bounds';
 import { describeCredentialTest, lastTestLabel, latestJob } from './snmp-setup';
+import { useRenderTick } from './use-render-tick';
 import { isV2cAllowed, SnmpCommunityField, SnmpVersionField, type SnmpVersionChoice } from './snmp-version';
 import { SnmpSetupPanel } from './snmp-setup-panel';
 import { NarrowViewSwitch } from '@/components/layout/narrow-view-switch';
@@ -86,9 +87,10 @@ export default function SnmpPage() {
 /** SNMP Phase 1 step 4.2: the real result of the credential test this page started (OK, timeout or auth failure, time, sysName). */
 function CredentialTestResult({ overview, jobId }: { overview?: SnmpOverview; jobId?: string }) {
   const job = jobId ? latestJob(overview?.jobs, 'CREDENTIAL_TEST', jobId) : null;
+  const test = job ? describeCredentialTest(job) : null;
+  useRenderTick(test?.state === 'running');
   if (!jobId) return null;
-  if (!job) return <small className="snmp-test-result running" role="status"><Loader2 size={12} className="spin" /><strong>A testar…</strong></small>;
-  const test = describeCredentialTest(job);
+  if (!test) return <small className="snmp-test-result running" role="status"><Loader2 size={12} className="spin" /><strong>A testar…</strong></small>;
   return <small className={`snmp-test-result ${test.state}`} role="status">{test.state === 'running' ? <Loader2 size={12} className="spin" /> : test.state === 'ok' ? <Check size={12} /> : <X size={12} />}<strong>{test.label}</strong>{'detail' in test && <span>{test.detail}</span>}</small>;
 }
 
