@@ -2562,6 +2562,8 @@ body { color:var(--ink); background:#e9eef5; }
 }
 /* On the phone grid the actions get the whole row too, so the primary button is never squeezed into one 130px column. */
 .context-toolbar-actions:has(> .context-toolbar-contribution .critical-assets-filters) > .responsive-toolbar-actions { grid-column:1 / -1; }
+/* Item 8: filters first, page actions (export, owners, confirm) at the right edge like the other pages' utility bars. */
+.context-toolbar-actions:has(> .context-toolbar-contribution .critical-assets-filters) > .responsive-toolbar-actions { order:2; }
 .critical-assets-card .table-actions .secondary-button,.critical-assets-panel .table-actions .secondary-button { padding:7px 9px; font-size:10px; }
 .critical-assets-views { display:flex; flex-wrap:wrap; gap:8px; margin:8px 0 12px; }
 .critical-assets-views button { padding:6px 12px; border:1px solid var(--line); border-radius:999px; background:var(--surface); color:inherit; font:inherit; font-size:12px; cursor:pointer; }
@@ -3141,7 +3143,8 @@ a.dashboard-kpi:focus-visible { box-shadow:0 9px 24px rgba(35,55,87,.09); outlin
 .impact-tier-row { display:contents; }
 .impact-footnote { margin:0; }
 .impact-target-picker { display:grid; gap:5px; margin-bottom:10px; color:var(--muted); font-size:10px; }
-.impact-target-picker select { padding:8px; border:1px solid var(--line); border-radius:8px; font-size:11px; }
+/* The picker reuses the standard .context-toolbar-selector look; only stretch it to the dialog width. */
+.impact-target-picker select.context-toolbar-selector { width:100%; }
 .impact-dialog { width:min(760px, 100%); }
 .device-360-impact { margin-bottom:16px; }
 .plan-impact { display:grid; gap:10px; margin-top:14px; padding-top:14px; border-top:1px solid var(--line); }
@@ -3180,8 +3183,12 @@ a.dashboard-kpi:focus-visible { box-shadow:0 9px 24px rgba(35,55,87,.09); outlin
 .tag-editor-options { display:flex; flex-wrap:wrap; gap:6px; margin:0; padding:0; border:0; }
 .tag-editor-option { display:inline-flex; align-items:center; gap:6px; padding:6px 8px; border:1px solid var(--line); border-radius:8px; cursor:pointer; }
 .tag-editor-option input { margin:0; }
+/* The chip shows the whole tag name in its colour; the option grows instead of clipping it. */
+.tag-editor-option .tag-chip { flex:none; max-width:none; overflow:visible; font-size:11px; }
 .tag-editor-option:has(input:focus-visible) { outline:2px solid var(--blue); outline-offset:1px; }
-.tag-new-form { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding-top:10px; border-top:1px solid var(--line); }
+.tag-new-form { display:flex; flex-wrap:wrap; align-items:stretch; gap:6px; padding-top:10px; border-top:1px solid var(--line); }
+/* "Criar" matches the colour select next to it. */
+.tag-new-form > button { box-sizing:border-box; height:auto; min-height:0; }
 .tag-new-form input { flex:1 1 160px; min-width:0; margin:0; }
 .tag-new-form select,.tag-manager-row select { width:auto; margin:0; }
 .tag-new-form .form-error,.tag-manager-row .form-error { flex-basis:100%; margin:0; }
@@ -3217,8 +3224,16 @@ a.dashboard-kpi:focus-visible { box-shadow:0 9px 24px rgba(35,55,87,.09); outlin
   .app-shell .global-topbar .module-tabs-slot .responsive-tab-navigation > nav.infra-menu { gap:2px; }
   .app-shell .global-topbar .module-tabs-slot nav button { gap:5px; padding-right:6px; padding-left:6px; }
 }
-@media (min-width:1181px) and (max-width:1366px) {
+@media (min-width:781px) and (max-width:1919px) {
+  .app-shell .global-topbar .module-tabs-slot nav.settings-tabs { gap:1px; }
+  .app-shell .global-topbar .module-tabs-slot nav.settings-tabs button { padding-right:6px; padding-left:6px; }
   .app-shell .global-topbar .module-tabs-slot nav.settings-tabs button > svg { display:none; }
+}
+/* Item 10: Settings has ten tabs. Below 1280px they cannot share the top-bar row with the site picker and search,
+   so the tab strip takes its own full-width row (as on phones) and every tab stays visible instead of hiding under "Mais secções". */
+@media (min-width:781px) and (max-width:1279px) {
+  .app-shell > .global-topbar:has(.module-tabs-slot nav.settings-tabs) { flex-wrap:wrap; row-gap:8px; }
+  .app-shell > .global-topbar:has(.module-tabs-slot nav.settings-tabs) .module-tabs-slot { order:5; flex:1 1 100%; width:100%; }
 }
 /* Page toolbars: a filter whose select names itself (empty option = filter name, aria-label kept) clips its visible label,
    like the rack toolbar labels; up to 1440px secondary actions show icons only (each keeps aria-label and title). */
@@ -3236,6 +3251,51 @@ a.dashboard-kpi:focus-visible { box-shadow:0 9px 24px rgba(35,55,87,.09); outlin
   .context-toolbar .toolbar-action-count { display:none; }
   .context-toolbar .interface-toolbar-controls > label > select,
   .context-toolbar .saved-views > label > select { max-width:100px; }
+}
+
+/* Infraestrutura location controls (Edifício / Sala + edit buttons). Each group (label + select + edit button) never
+   shrinks below its content, so an edit button always sits to the right of its own select and can never be painted
+   under the next dropdown. */
+@media (min-width:781px) {
+  .app-shell .context-toolbar-navigation:has(.infra-context-bar) { flex:1 1000 auto; }
+  .context-toolbar-navigation .infra-context-bar .location-control-group { flex:1 1 auto; min-width:auto; max-width:calc(clamp(130px, 12vw, 178px) + 60px); }
+  .context-toolbar-navigation .infra-context-bar .location-control-group:not(:has(.compact-button)) { max-width:calc(clamp(130px, 12vw, 178px) + 21px); }
+  .context-toolbar-navigation .infra-context-bar .location-control-group > label { flex:1 1 auto; min-width:auto; }
+  .context-toolbar-navigation .infra-context-bar .location-control-group > .compact-button { flex:none; }
+  .app-shell .context-toolbar-navigation .infra-context-bar .location-control-group select { flex:1 1 clamp(130px, 12vw, 178px); width:0; min-width:90px; max-width:clamp(130px, 12vw, 178px); }
+}
+/* Equipamentos utility bar: one row in both sidebar states (1024–1920px). Nothing in it shrinks; instead the bar is a
+   size container and gives way by width tiers: the location selects scale with the bar (90–170px), action labels
+   become icons (aria-label/title kept), then "Adicionar" becomes its icon and the tag/view selects narrow. */
+@media (min-width:781px) {
+  .app-shell .context-toolbar:has(.device-list-toolbar) { container:infra-devices-toolbar / inline-size; }
+  .app-shell .context-toolbar:has(.device-list-toolbar) .context-toolbar-navigation { flex:0 0 auto; min-width:auto; }
+  .app-shell .context-toolbar:has(.device-list-toolbar) .context-toolbar-actions { flex:0 0 auto; min-width:auto; margin-left:auto; }
+  .app-shell .context-toolbar:has(.device-list-toolbar) .context-toolbar-contribution { flex:0 0 auto; width:auto; }
+  .app-shell .context-toolbar:has(.device-list-toolbar) .device-list-toolbar,
+  .app-shell .context-toolbar:has(.device-list-toolbar) .device-list-toolbar .interface-toolbar-controls { flex-wrap:nowrap; width:auto; }
+  .app-shell .context-toolbar:has(.device-list-toolbar) .device-list-toolbar > *,
+  .app-shell .context-toolbar:has(.device-list-toolbar) .device-list-toolbar .interface-toolbar-controls > *,
+  .app-shell .context-toolbar:has(.device-list-toolbar) .infra-context-bar .location-control-group,
+  .app-shell .context-toolbar:has(.device-list-toolbar) .infra-context-bar .location-control-group > label { flex:none; max-width:none; }
+  .app-shell .context-toolbar:has(.device-list-toolbar) .infra-context-bar .location-control-group select { flex:none; width:clamp(90px, 10.5cqi, 170px); min-width:0; max-width:none; text-overflow:ellipsis; }
+  .app-shell .context-toolbar:has(.device-list-toolbar) .device-list-toolbar .interface-toolbar-controls > label > select { width:auto; max-width:150px; text-overflow:ellipsis; }
+}
+@container infra-devices-toolbar (max-width:1559px) {
+  .app-shell .context-toolbar:has(.device-list-toolbar) .device-list-toolbar .toolbar-action-label { display:none; }
+}
+@container infra-devices-toolbar (max-width:1099px) {
+  .app-shell .context-toolbar:has(.device-list-toolbar) .device-list-toolbar .toolbar-add-label { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+  .app-shell .context-toolbar:has(.device-list-toolbar) .device-list-toolbar .interface-toolbar-controls > label > select { max-width:96px; }
+}
+@container infra-devices-toolbar (max-width:899px) {
+  .app-shell .context-toolbar:has(.device-list-toolbar) .infra-context-bar { gap:6px; }
+  .app-shell .context-toolbar:has(.device-list-toolbar) .device-list-toolbar { gap:6px; }
+  .app-shell .context-toolbar:has(.device-list-toolbar) .device-list-toolbar .interface-toolbar-controls { gap:4px; }
+  .app-shell .context-toolbar:has(.device-list-toolbar) .device-list-toolbar .interface-toolbar-controls > label > select { min-width:0; max-width:84px; padding-right:24px; padding-left:8px; }
+  .app-shell .context-toolbar:has(.device-list-toolbar) .infra-context-bar .location-control-group > label > svg { display:none; }
+  .app-shell .context-toolbar:has(.device-list-toolbar) .device-list-toolbar .interface-toolbar-controls > .secondary-button,
+  .app-shell .context-toolbar:has(.device-list-toolbar) .device-list-toolbar > .primary-button { justify-content:center; width:35px; min-width:35px; padding:0; }
 }
 
 /* First-login setup: onboarding modal card (step navigator left, step content right). */
@@ -3314,3 +3374,69 @@ a.dashboard-kpi:focus-visible { box-shadow:0 9px 24px rgba(35,55,87,.09); outlin
   .onboarding-body .form-row { grid-template-columns:1fr; }
 }
 @media (prefers-reduced-motion:reduce) { .onboarding-stage.stagger .onboarding-body > * { animation:none; } }
+
+/* Item 11: shared multi-line field. Same border, radius, font and focus treatment as the Settings inputs, so a textarea
+   reads as one of the form's fields instead of a browser default. Use className="form-textarea" on any form textarea. */
+.form-textarea,.settings-workspace textarea { box-sizing:border-box; display:block; width:100%; min-height:84px; margin-top:5px; padding:10px 12px; color:#252126; border:1px solid #d9d4d2; border-radius:10px; outline:0; background-color:#fff; box-shadow:0 2px 6px rgba(30,24,24,.03); font-family:inherit; font-size:11px; line-height:1.5; resize:vertical; transition:border-color .15s,box-shadow .15s,background-color .15s; }
+.form-textarea:hover,.settings-workspace textarea:hover { border-color:#bcb6b8; }
+.form-textarea:focus,.settings-workspace textarea:focus { border-color:#777176; box-shadow:0 0 0 3px rgba(40,34,38,.08); }
+.form-textarea:disabled,.settings-workspace textarea:disabled { color:#8d888d; background-color:#f4f2f3; cursor:not-allowed; }
+.form-textarea::placeholder,.settings-workspace textarea::placeholder { color:#9a959b; }
+.settings-form > label:has(> textarea) > small,.settings-form fieldset label:has(> textarea) > small { display:block; margin-top:5px; color:var(--muted); font-size:10px; }
+
+/* Item 12: Settings forms (Organization, Discovery, SNMP, Notifications) use the full card width instead of an 820px cap;
+   side-by-side rows keep their labels at the same size as the stacked fields. */
+.settings-workspace .settings-form { max-width:none; }
+.settings-workspace .settings-form .form-row > label { color:#666269; font-size:10px; }
+
+/* Item 9: IPAM calculator. "Calcular" now lives in the page utility bar, so the form is four equal field columns;
+   its selects and inputs use the same field treatment as Settings (DM Sans, soft border, custom chevron, focus ring). */
+.calculator-form { grid-template-columns:minmax(0,1.25fr) repeat(3,minmax(0,1fr)); }
+.calculator-form input,.calculator-form select { height:42px; min-height:42px; padding:0 12px; color:#252126; border:1px solid #d9d4d2; border-radius:10px; background-color:#fff; box-shadow:0 2px 6px rgba(30,24,24,.03); font-family:inherit; font-size:11px; transition:border-color .15s,box-shadow .15s; }
+.calculator-form select { padding-right:38px; appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%236f6970' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 12px center; cursor:pointer; }
+.calculator-form input:hover,.calculator-form select:hover { border-color:#bcb6b8; }
+.calculator-form input:focus,.calculator-form select:focus { border-color:#777176; box-shadow:0 0 0 3px rgba(40,34,38,.08); }
+.calculator-form input[aria-invalid="true"] { border-color:#d4776a; box-shadow:0 0 0 2px rgba(212,119,106,.12); }
+@media (max-width:900px) { .calculator-form { grid-template-columns:1fr 1fr; } }
+@media (max-width:560px) { .calculator-form { grid-template-columns:1fr; } }
+
+/* Item 13 — Help & Support: full-width content and the standard panel heading (kicker + 16px title + description) used across the app. */
+.help-workspace { padding:30px 32px 56px; }
+.help-article-layout { grid-template-columns:220px minmax(0,1fr); }
+.help-workspace .help-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin:0 0 18px; }
+.help-workspace .help-heading h1 { margin:5px 0 0; color:#20334f; font-size:16px; font-weight:700; letter-spacing:-.4px; line-height:normal; }
+.help-workspace .help-heading .panel-description { margin:4px 0 0; }
+.help-workspace .help-heading > svg { flex:none; color:#17243a; }
+.help-workspace > .help-heading { padding:17px; border:1px solid #dfe6f0; border-radius:17px; background:#fff; box-shadow:0 7px 20px rgba(35,55,87,.045); }
+.help-article > .text-button { margin-bottom:14px; }
+.help-article .help-heading { padding-bottom:14px; border-bottom:1px solid var(--line); }
+@media (max-width:780px) { .help-workspace { padding:16px; }.help-article-layout { grid-template-columns:1fr; } }
+
+/* Item 4 v2 — split selection control: the main part toggles select/deselect of the visible rows directly; the caret opens the other options. */
+.device-selection-split { display:flex; align-items:stretch; }
+.device-selection-toggle { display:flex; align-items:center; gap:7px; min-height:35px; padding:0 10px; color:#3a506f; border:1px solid #d5deeb; border-right:0; border-radius:9px 0 0 9px; background:#fff; font-size:11px; font-weight:600; white-space:nowrap; cursor:pointer; transition:background-color .16s ease,border-color .16s ease,color .16s ease; }
+.device-selection-toggle:hover:not(:disabled) { border-color:#b9c9df; background:#f5f8fc; }
+.device-selection-toggle.is-active { color:#fff; border-color:#3561a8; background:#3561a8; }
+.device-selection-toggle.is-active:hover:not(:disabled) { border-color:#2b5190; background:#2b5190; }
+.device-selection-toggle:disabled { cursor:not-allowed; opacity:.55; }
+.device-selection-toggle:focus-visible { position:relative; z-index:1; outline:2px solid #4d79bd; outline-offset:2px; }
+.device-selection-split .device-selection-trigger { padding:0 8px; border-radius:0 9px 9px 0; }
+.device-selection-toggle.is-active + .device-selection-trigger { border-left-color:#3561a8; }
+@media (prefers-reduced-motion:reduce) { .device-selection-toggle { transition:none; } }
+
+/* Item 9 v2 — calculator results: label above value so long ranges never run past the card edge (1024–1920, sidebar open or collapsed). */
+.calculator-panel .subnet-results { grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); }
+.calculator-panel .calculated-subnet { min-width:0; }
+.calculator-panel .calculated-subnet-content { flex:1 1 auto; min-width:0; }
+.calculator-panel .calculated-subnet-content > div { display:grid; grid-template-columns:minmax(0,1fr); justify-items:start; gap:2px; color:var(--muted); font-size:10px; }
+.calculator-panel .calculated-subnet-content > div code { max-width:100%; color:#222; font-family:'DM Mono',monospace; font-size:11px; white-space:normal; overflow-wrap:anywhere; }
+.calculator-panel .calculated-subnet-content strong code { font-family:'DM Mono',monospace; }
+/* The live status is for screen readers only; the summary card already shows the result visually. */
+.calculator-live-status { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+
+/* Critical Assets v2 — each filter is as wide as its selected text (so "Responsável" and "Último resultado" read in full) with one even 8px gap. */
+@media (min-width:781px) {
+  .context-toolbar-contribution .critical-assets-filters { gap:8px; }
+  .context-toolbar-contribution .critical-assets-filters > label { flex:0 1 auto; min-width:0; max-width:none; }
+  .context-toolbar-contribution .critical-assets-filters > label > select { field-sizing:content; width:auto; min-width:78px; max-width:170px; padding-right:26px; padding-left:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+}

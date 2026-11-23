@@ -14,7 +14,6 @@ import { RackEquipmentOverlay } from './rack-equipment-overlay';
 import { RackViewPicker } from './rack-view-picker';
 import { usePowerDefaults } from '../../use-power-defaults';
 import { RackZoomPicker } from './rack-zoom-picker';
-import { RackUnitReservations } from './rack-unit-reservations';
 import { RackPowerSummaryStrip, RackPowerThresholdsModal, readPowerThresholds, summaryDeviceLevels, summaryPduLevels, useRackPowerSummary } from './rack-power-summary';
 import type { RackPowerThresholds } from '../../api';
 
@@ -251,6 +250,5 @@ export function RackDetail({ rack, onOut, onDevice, onEdit, onDelete, deleting, 
       <div className="button-row"><button type="button" className="secondary-button" disabled={saving || adjustingUnit} onClick={cancelPlacement}>Cancelar</button><button type="button" className="primary-button" disabled={saving || adjustingUnit || correctingUnit} onClick={confirm}><Check size={14} />{saving ? 'A guardar…' : 'Confirmar U'}</button></div>
     </aside>}
     {hasUnpositioned && <div className="no-data">Existem equipamentos por posicionar.</div>}
-    <RackUnitReservations rackId={rack.id} rackUnits={rack.units ?? RACK_UNITS} canEdit={canEditPower} />
   </section>;
 }

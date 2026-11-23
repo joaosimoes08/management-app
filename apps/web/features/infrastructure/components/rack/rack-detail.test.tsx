@@ -13,7 +13,6 @@ class TestResizeObserver {
 }
 
 vi.mock('./rack-device-zoom', () => ({ RackDeviceZoom: () => null }));
-vi.mock('./rack-unit-reservations', () => ({ RackUnitReservations: () => null }));
 vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }));
 
 beforeEach(() => { vi.stubGlobal('ResizeObserver', TestResizeObserver); });

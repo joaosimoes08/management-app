@@ -184,7 +184,7 @@ export function Device360Page({ deviceId }: { deviceId: string }) {
         <SectionBody query={snmp} empty={(r) => (r.config ? null : 'Sem SNMP configurado.')}>{(r) => { const open = (r.drifts ?? []).filter((d) => !d.status || d.status === 'OPEN').length; return <dl className="device-360-facts"><dt>Estado</dt><dd>{r.config?.enabled === false ? 'Desativado' : 'Ativo'}</dd><dt>Última recolha</dt><dd>{fmt(r.latestSnapshot?.collectedAt ?? r.latestSnapshot?.createdAt)}</dd><dt>Drifts abertos</dt><dd>{open}</dd><dt>Traps recentes</dt><dd>{(r.traps ?? []).length}</dd></dl>; }}</SectionBody>
       </Section>}
 
-      {can('hosts') && <Section id="host" title="Host e serviços" fullHref={`/infraestrutura${q({ tab: 'hosts', 'hosts-site': siteId })}`} fullLabel="Ver em Servidores">
+      {can('hosts') && <Section id="host" title="Host e serviços" fullHref={`/infraestrutura${q({ tab: 'devices', type: 'SERVER', 'hosts-site': siteId })}`} fullLabel="Ver servidores em Equipamentos">
         {siteId ? <SectionBody query={hosts} empty={(list) => (list.length ? null : 'Sem host associado.')}>{(list) => <ul className="device-360-list">{list.map((h) => <li key={h.id}><strong>{h.name}</strong>{h.operatingSystem ? ` · ${h.operatingSystem}` : ''}{h.agent?.state ? ` · agente ${h.agent.state}` : ''}{h.services.length ? <ul className="device-360-list">{h.services.map((sv) => <li key={sv.id}>{sv.name}{sv.port ? `:${sv.port}` : ''}{sv.protocol ? ` (${sv.protocol})` : ''}{sv.observedStatus ? ` · ${sv.observedStatus}` : ''}</li>)}</ul> : <EmptyLine>Sem serviços registados.</EmptyLine>}</li>)}</ul>}</SectionBody> : <EmptyLine>Sem host associado.</EmptyLine>}
       </Section>}
 

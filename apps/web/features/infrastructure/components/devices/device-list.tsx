@@ -31,6 +31,8 @@ export interface DeviceListProps {
   tierCounts?: TierCounts;
   /** Step 36: filter controls (tag, saved views) shown first in the page toolbar, for every role. */
   toolbarFilters?: ReactNode;
+  /** Filters shown in the card heading, next to the title (the equipment "Tipo" filter). */
+  headingFilters?: ReactNode;
   /** Step 36: opens the tag editor of one device; omitted when the user cannot edit tags. */
   onEditTags?: (device: Device) => void;
   /** Per-row check for the tag button (NETWORK_OPERATOR only tags network equipment). */
@@ -44,7 +46,7 @@ export function getPopoverAlignment(anchor: Pick<DOMRect, 'left' | 'right'>, vie
 }
 
 /** Active device inventory of the site. */
-export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire, canRetire, canEdit, selectedId, models = [], racks = [], onImport, canImport = canEdit, onBulkUpdate, tierFilter = '', onTierFilterChange, tierCounts, toolbarFilters, onEditTags, canEditTagsFor }: DeviceListProps) {
+export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire, canRetire, canEdit, selectedId, models = [], racks = [], onImport, canImport = canEdit, onBulkUpdate, tierFilter = '', onTierFilterChange, tierCounts, toolbarFilters, headingFilters, onEditTags, canEditTagsFor }: DeviceListProps) {
   const { confirm: askConfirm, confirmDialog } = useConfirm();
   const [selected, setSelected] = useState<string[]>([]);
   const [status, setStatus] = useState('');
@@ -63,6 +65,7 @@ export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire,
   const restoreSelectionFocus = useRef(false);
   const visibleIds = devices.map((item) => item.id);
   const allVisible = visibleIds.length > 0 && visibleIds.every((id) => selected.includes(id));
+  const someVisible = visibleIds.some((id) => selected.includes(id));
   const selectionMenuOpen = selectionMenuPhase === 'open';
   const bulkPopoverOpen = bulkPopoverPhase === 'open';
   useLayoutEffect(() => {
@@ -168,7 +171,7 @@ export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire,
     } finally { setUpdating(false); }
   }
   return <>{confirmDialog}<section className="ipam-card">
-    <div className="panel-heading"><div><span className="section-kicker">INVENTÁRIO OPERACIONAL</span><h2>Equipamentos ativos</h2></div></div>
+    <div className="panel-heading"><div><span className="section-kicker">INVENTÁRIO OPERACIONAL</span><h2>Equipamentos ativos</h2></div>{headingFilters}</div>
     {onTierFilterChange && <div className="summary-stats settings-audit-stats tier-filter" role="group" aria-label="Filtrar por criticidade">
       {([['', 'Todos', tierCounts ? tierCounts.T1 + tierCounts.T2 + tierCounts.T3 + tierCounts.none : undefined], ['T1', 'T1 · Vital', tierCounts?.T1], ['T2', 'T2 · Importante', tierCounts?.T2], ['T3', 'T3 · Padrão', tierCounts?.T3]] as const).map(([value, label, count]) => (
         <button key={value || 'all'} type="button" aria-pressed={tierFilter === value} className={tierFilter === value ? 'active' : ''} onClick={() => onTierFilterChange(tierFilter === value ? '' : value)}><strong>{count ?? '—'}</strong><span>{label}</span></button>
@@ -178,12 +181,19 @@ export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire,
       {toolbarFilters}
       {canImport && onImport && <button className="secondary-button" type="button" onClick={onImport}>Importar CSV</button>}
       {canEdit && <div className="device-selection-dropdown" ref={selectionMenuRef} onKeyDown={handleSelectionMenuKeyDown}>
-        <button ref={selectionTriggerRef} type="button" className="device-selection-trigger" aria-label="Selecionar equipamentos visíveis" aria-haspopup={bulkPopoverPhase !== 'closed' ? 'dialog' : 'menu'} aria-controls={selectionMenuOpen || selectionMenuPhase === 'closing' ? 'device-selection-menu' : bulkPopoverOpen || bulkPopoverPhase === 'closing' ? 'device-bulk-popover' : undefined} aria-expanded={selectionMenuOpen || bulkPopoverOpen} onClick={() => { if (selectionMenuOpen) closeSelectionMenu(); else if (bulkPopoverOpen) closeBulkPopover(); else { if (selectionMenuCloseTimer.current !== null) window.clearTimeout(selectionMenuCloseTimer.current); selectionMenuCloseTimer.current = null; restoreSelectionFocus.current = false; if (selectionMenuPhase === 'closing') setSelectionMenuPhase('closed'); if (bulkPopoverPhase === 'closing') setBulkPopoverPhase('closed'); setSelectionMenuPhase('open'); } }}>
-          <Check size={14} aria-hidden="true" /><span>Selecionar visíveis</span><ChevronDown size={13} aria-hidden="true" />
+        <div className="device-selection-split" role="group" aria-label="Seleção de equipamentos">
+        <button type="button" className={`device-selection-toggle${allVisible ? ' is-active' : ''}`} aria-pressed={allVisible} aria-label={allVisible ? 'Desselecionar todos os visíveis' : 'Selecionar todos os visíveis'} title={allVisible ? 'Desselecionar todos os visíveis' : 'Selecionar todos os visíveis'} disabled={!visibleIds.length} onClick={() => { if (allVisible) deselectVisible(); else selectVisible(); }}>
+          {allVisible ? <X size={14} aria-hidden="true" /> : <Check size={14} aria-hidden="true" />}<span className="toolbar-action-label">{allVisible ? 'Desselecionar todos' : 'Selecionar visíveis'}</span>
         </button>
+        <button ref={selectionTriggerRef} type="button" className="device-selection-trigger" aria-label="Mais opções de seleção" title="Mais opções de seleção" aria-haspopup={bulkPopoverPhase !== 'closed' ? 'dialog' : 'menu'} aria-controls={selectionMenuOpen || selectionMenuPhase === 'closing' ? 'device-selection-menu' : bulkPopoverOpen || bulkPopoverPhase === 'closing' ? 'device-bulk-popover' : undefined} aria-expanded={selectionMenuOpen || bulkPopoverOpen} onClick={() => { if (selectionMenuOpen) closeSelectionMenu(); else if (bulkPopoverOpen) closeBulkPopover(); else { if (selectionMenuCloseTimer.current !== null) window.clearTimeout(selectionMenuCloseTimer.current); selectionMenuCloseTimer.current = null; restoreSelectionFocus.current = false; if (selectionMenuPhase === 'closing') setSelectionMenuPhase('closed'); if (bulkPopoverPhase === 'closing') setBulkPopoverPhase('closed'); setSelectionMenuPhase('open'); } }}>
+          <ChevronDown size={13} aria-hidden="true" />
+        </button>
+        </div>
         {selectionMenuPhase !== 'closed' && <div id="device-selection-menu" className={`device-selection-menu${selectionMenuAlignment === 'right' ? ' align-right' : ''}${selectionMenuPhase === 'closing' ? ' closing' : ''}`} role="menu" inert={selectionMenuPhase === 'closing'} aria-hidden={selectionMenuPhase === 'closing'} aria-label="Opções de seleção de equipamentos">
-          <button type="button" role="menuitem" onClick={selectAllVisibleAndEdit}><Check size={14} aria-hidden="true" />Selecionar todos os visíveis{allVisible && <span className="device-selection-current">Atual</span>}</button>
-          <button type="button" role="menuitem" onClick={() => { deselectVisible(); closeSelectionMenu(true); }}><X size={14} aria-hidden="true" />Desselecionar visíveis</button>
+          {allVisible
+            ? <button type="button" role="menuitem" onClick={() => { deselectVisible(); closeSelectionMenu(true); }}><X size={14} aria-hidden="true" />Desselecionar todos os visíveis</button>
+            : <button type="button" role="menuitem" onClick={selectAllVisibleAndEdit}><Check size={14} aria-hidden="true" />Selecionar todos os visíveis</button>}
+          {someVisible && !allVisible && <button type="button" role="menuitem" onClick={() => { deselectVisible(); closeSelectionMenu(true); }}><X size={14} aria-hidden="true" />Desselecionar visíveis</button>}
           {selected.length > 0 && <button type="button" role="menuitem" onClick={openBulkPopover}><Edit3 size={14} aria-hidden="true" />Editar {selected.length} selecionado{selected.length === 1 ? '' : 's'}</button>}
         </div>}
         {bulkPopoverPhase !== 'closed' && <div id="device-bulk-popover" ref={bulkPopoverRef} className={`device-bulk-popover${bulkPopoverAlignment === 'right' ? ' align-right' : ''}${bulkPopoverPhase === 'closing' ? ' closing' : ''}`} role="dialog" aria-label={`Alterar ${selected.length} equipamentos selecionados`} inert={bulkPopoverPhase === 'closing'} aria-hidden={bulkPopoverPhase === 'closing'}>
@@ -196,7 +206,7 @@ export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire,
           </div>
         </div>}
       </div>}
-      {canEdit && <button className="primary-button" type="button" onClick={onNew}><Plus size={14} /> Adicionar equipamento</button>}
+      {canEdit && <button className="primary-button" type="button" aria-label="Adicionar equipamento" title="Adicionar equipamento" onClick={onNew}><Plus size={14} aria-hidden="true" /> <span className="toolbar-add-label">Adicionar<span className="toolbar-action-label"> equipamento</span></span></button>}
     </div></PageToolbarPortal>}
     {error && <div role="status" className="ipam-alert">{error}</div>}
     {devices.map((device) => <div className={`host-row infra-device-row ${selectedId === device.id ? 'selected' : ''}`} key={device.id} onClick={() => onSelect(device)} aria-current={selectedId === device.id ? 'true' : undefined}>
