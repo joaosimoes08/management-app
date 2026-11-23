@@ -3,6 +3,9 @@ name: CI
 on:
   push:
     branches: [main]
+  # Manual runs (e.g. on a branch before merge). No pull_request trigger: the repo is public and
+  # this uses a self-hosted runner on Joao's Mac, so fork PRs must not be able to run code here.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -11,6 +14,10 @@ jobs:
   verify:
     runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 20
+    # The runner (mac-runner-1) is itself a container on Joao's Docker Desktop, so service
+    # ports are published on the Mac host, next to the simoes-mgmtapp-* stack (5432, 6379).
+    # Use unusual host ports to avoid clashing, and reach them via host.docker.internal:
+    # 127.0.0.1 inside the runner container is the runner itself, not the host.
     services:
       postgres:
         image: postgres:18-alpine
@@ -19,7 +26,7 @@ jobs:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: simoes_http_test
         ports:
-          - 5432:5432
+          - 55432:5432
         options: >-
           --health-cmd "pg_isready -U postgres -d simoes_http_test"
           --health-interval 5s
@@ -28,15 +35,15 @@ jobs:
       redis:
         image: redis:8-alpine
         ports:
-          - 6379:6379
+          - 56379:6379
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
     env:
-      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/simoes_http_test
-      REDIS_URL: redis://127.0.0.1:6379
+      DATABASE_URL: postgresql://postgres:postgres@host.docker.internal:55432/simoes_http_test
+      REDIS_URL: redis://host.docker.internal:56379
       AUTH_DISABLED: "false"
       NODE_ENV: test
       NEXT_PUBLIC_API_URL: http://127.0.0.1:3001
