@@ -108,6 +108,9 @@ services:
       SNMP_SET_ENABLED: ${SNMP_SET_ENABLED:-false}
       SNMP_ALLOW_V2C: ${SNMP_ALLOW_V2C:-true}
       SNMP_TRAP_HOST_PORT: ${SNMP_TRAP_HOST_PORT:-162}
+      # Shown to admins as the receiver address switches send traps to (container mode).
+      SNMP_TRAP_HOST_IP: ${SNMP_TRAP_HOST_IP:-0.0.0.0}
+      SNMP_TRAP_PUBLIC_ADDRESS: ${SNMP_TRAP_PUBLIC_ADDRESS:-}
       APP_PUBLIC_URL: ${APP_PUBLIC_URL:-}
       NOTIFICATION_DELIVERY_POLL_MS: ${NOTIFICATION_DELIVERY_POLL_MS:-15000}
     ports:
