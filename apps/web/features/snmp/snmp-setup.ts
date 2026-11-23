@@ -91,6 +91,9 @@ export type CredentialTestView =
   | { state: 'ok'; label: string; detail: string }
   | { state: 'timeout' | 'auth' | 'failed'; label: string; detail: string };
 
+/** Longest the UI shows "A testar…" for one credential test (the API closes it after timeout + 10 s). */
+export const CREDENTIAL_TEST_UI_LIMIT_MS = 60_000;
+
 const timeoutCodes = new Set(['SNMP_TIMEOUT', 'SNMP_UNREACHABLE', 'SNMP_REQUEST_TIMEOUT']);
 const authCodes = new Set(['SNMP_AUTHENTICATION_FAILED', 'SNMP_AUTH_FAILED', 'SNMP_UNKNOWN_USER', 'SNMP_DECRYPTION_FAILED']);
 
@@ -106,8 +109,12 @@ function elapsed(job: SnmpJobView): number | null {
 }
 
 /** What the inline credential test shows for a CREDENTIAL_TEST job: running, OK, timeout, auth failure or other error. */
-export function describeCredentialTest(job: SnmpJobView, format: (ms: number) => string = (ms) => `${ms} ms`): CredentialTestView {
-  if (job.status === 'PENDING' || job.status === 'RUNNING') return { state: 'running', label: 'A testar…' };
+export function describeCredentialTest(job: SnmpJobView, format: (ms: number) => string = (ms) => `${ms} ms`, now = Date.now()): CredentialTestView {
+  if (job.status === 'PENDING' || job.status === 'RUNNING') {
+    // P0-3 follow-up: the API closes a test past its deadline; this stops "A testar…" even if that never happens.
+    if (now - Date.parse(job.createdAt) <= CREDENTIAL_TEST_UI_LIMIT_MS) return { state: 'running', label: 'A testar…' };
+    return { state: 'timeout', label: 'Sem resposta (timeout)', detail: 'O teste não terminou. Tenta de novo; se voltar a acontecer, confirma que o serviço SNMP está a correr.' };
+  }
   const ms = elapsed(job);
   const time = ms === null ? '' : format(ms);
   if (job.status === 'COMPLETED') {
@@ -115,6 +122,7 @@ export function describeCredentialTest(job: SnmpJobView, format: (ms: number) =>
     return { state: 'ok', label: 'OK', detail: [time, sysName ? `sysName ${sysName}` : 'sysName não devolvido'].filter(Boolean).join(' · ') };
   }
   const code = job.errorCode ?? '';
+  if (code === 'SNMP_WORKER_UNAVAILABLE') return { state: 'timeout', label: 'Sem resposta (timeout)', detail: [time, 'O serviço SNMP não processou o pedido a tempo. Confirma que o serviço SNMP está a correr e tenta de novo.'].filter(Boolean).join(' · ') };
   if (timeoutCodes.has(code)) return { state: 'timeout', label: 'Sem resposta (timeout)', detail: [time, 'Confirma o IP de gestão, a ACL e a porta UDP 161.'].filter(Boolean).join(' · ') };
   if (authCodes.has(code)) return { state: 'auth', label: 'Falha de autenticação', detail: [time, 'O utilizador, as chaves ou os protocolos não coincidem com o switch.'].filter(Boolean).join(' · ') };
   return { state: 'failed', label: 'Falhou', detail: [time, code || job.status].filter(Boolean).join(' · ') };

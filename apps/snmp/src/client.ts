@@ -53,6 +53,16 @@ export function get(session: Session, oids: string[]) {
   return new Promise<any[]>((resolve, reject) => session.get(oids, (error, varbinds) => error ? reject(error) : resolve(varbinds ?? [])));
 }
 
+/**
+ * P0-3 follow-up: rejects with SNMP_TIMEOUT if the request has not settled by ms. net-snmp honours its own timeout
+ * (client.integration.spec.ts), so this only guards against a callback that never fires.
+ */
+export function withDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(Object.assign(new Error('SNMP_TIMEOUT'), { code: 'SNMP_TIMEOUT' })), ms); });
+  return Promise.race([work, deadline]).finally(() => clearTimeout(timer));
+}
+
 export function subtree(session: Session, oid: string) {
   return new Promise<any[]>((resolve, reject) => {
     const values: any[] = [];

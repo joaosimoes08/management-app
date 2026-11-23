@@ -7,6 +7,7 @@ import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { InfrastructureAccessService } from '../infrastructure/infrastructure-access.service';
 import { assertPortMappingComplete } from '../infrastructure/port-layout';
+import { credentialTestDeadlineMs, expiredCredentialTests } from './credential-test-deadline';
 import { AcceptSnmpEnrollmentDto, AcknowledgeSnmpWriteImpactDto, CreateSnmpCredentialDto, CreateSnmpTrapEnrollmentDto, CreateSnmpWritePreviewDto, ReviewSnmpDriftDto, SnmpCredentialSecretDto, SnmpOnboardingDeviceDto, UpsertSnmpConfigDto } from './dto';
 import { interfaceTrafficRates } from './metrics';
 
@@ -138,6 +139,25 @@ export class SnmpService implements OnModuleDestroy, OnModuleInit {
     return { sourceAddress, ignored: result.count };
   }
 
+  /** P0-3 follow-up: closes credential tests past their deadline so the UI shows an error instead of "A testar…" forever. */
+  private async closeExpiredCredentialTests<T extends { id: string; type: string; status: string; createdAt: Date; startedAt: Date | null; credentialId: string | null }>(jobs: T[], config: { timeoutMs: number } | null) {
+    const now = new Date();
+    const expired = expiredCredentialTests(jobs, config, now);
+    if (!expired.length) return jobs;
+    const changed = new Map<string, string>();
+    for (const item of expired) {
+      // Conditional on the status read, so a worker that finished in between keeps its real result.
+      const result = await this.prisma.snmpJob.updateMany({ where: { id: item.id, status: item.status }, data: { status: 'FAILED', completedAt: now, errorCode: item.errorCode, result: { reachable: false, durationMs: credentialTestDeadlineMs(config) } } });
+      if (!result.count) continue;
+      changed.set(item.id, item.errorCode);
+      const job = jobs.find((entry) => entry.id === item.id);
+      if (job?.credentialId) await this.prisma.snmpCredential.updateMany({ where: { id: job.credentialId }, data: { lastTestedAt: now, lastTestStatus: 'FAILED' } });
+    }
+    if (!changed.size) return jobs;
+    const fresh = await this.prisma.snmpJob.findMany({ where: { id: { in: [...changed.keys()] } } });
+    return jobs.map((job) => (fresh.find((entry) => entry.id === job.id) as T | undefined) ?? job);
+  }
+
   async overview(deviceId: string, user: AuthenticatedUser) {
     await this.device(deviceId, user);
     const [config, credentials, latestSnapshot, jobs, drifts, traps] = await Promise.all([
@@ -148,7 +168,8 @@ export class SnmpService implements OnModuleDestroy, OnModuleInit {
       this.prisma.snmpDrift.findMany({ where: { deviceId, status: 'PENDING' }, orderBy: { createdAt: 'desc' }, take: 100 }),
       this.prisma.snmpTrapEvent.findMany({ where: { deviceId }, orderBy: { receivedAt: 'desc' }, take: 100 }),
     ]);
-    return { config, credentials: credentials.map((item) => this.publicCredential(item)), latestSnapshot, jobs, drifts, traps: traps.map((trap) => this.withTrapLabel(trap)), lastTrapReceivedAt: traps[0]?.receivedAt ?? null, setEnabled: process.env.SNMP_SET_ENABLED === 'true' };
+    const closed = await this.closeExpiredCredentialTests(jobs, config);
+    return { config, credentials: credentials.map((item) => this.publicCredential(item)), latestSnapshot, jobs: closed, drifts, traps: traps.map((trap) => this.withTrapLabel(trap)), lastTrapReceivedAt: traps[0]?.receivedAt ?? null, setEnabled: process.env.SNMP_SET_ENABLED === 'true' };
   }
 
   async metrics(deviceId: string, user: AuthenticatedUser, interfaceIndex?: number, days = 7) {
