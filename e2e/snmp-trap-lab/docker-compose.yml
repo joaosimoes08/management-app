@@ -1,0 +1,209 @@
+# SNMP trap lab (PLAN.md Phase 1 step 6). Run it with `npm run test:snmp-lab` from the repo root.
+# Fully isolated: own project name (snmplab), own bridge network, no host ports, throwaway volumes.
+name: snmplab
+
+x-snmp-env: &snmp-env
+  DATABASE_URL: postgresql://lab:lab@postgres:5432/snmplab
+  REDIS_URL: redis://redis:6379
+  SNMP_KEYRING_FILE: /run/secrets/snmp_keyring
+  SNMP_LISTENER_MODE: container-ingress
+  SNMP_TRAP_PORT: "1162"
+  SNMP_HEALTH_PORT: "3002"
+  SNMP_TRAP_RATE_LIMIT: "120"
+  SNMP_TRAP_UNTRUSTED_ROWS_PER_MINUTE: "30"
+  SNMP_SET_ENABLED: "false"
+
+x-snmp-build: &snmp-build
+  context: ../..
+  dockerfile: apps/snmp/Dockerfile
+  args:
+    VCS_REF: snmplab
+
+networks:
+  lab:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.250.62.0/24
+
+volumes:
+  lab_postgres:
+
+secrets:
+  snmp_keyring:
+    file: ./.lab/snmp-keyring.json
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: lab
+      POSTGRES_PASSWORD: lab
+      POSTGRES_DB: snmplab
+    volumes:
+      - lab_postgres:/var/lib/postgresql
+    networks:
+      lab:
+        ipv4_address: 10.250.62.5
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lab -d snmplab"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:8-alpine
+    networks:
+      lab:
+        ipv4_address: 10.250.62.6
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # Lab-only OpenID issuer: publishes a JWKS and hands out short-lived ADMIN tokens on the lab network.
+  oidc:
+    image: node:22-alpine
+    command: ["node", "/lab/oidc.mjs"]
+    volumes:
+      - ./oidc.mjs:/lab/oidc.mjs:ro
+    networks:
+      lab:
+        ipv4_address: 10.250.62.7
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    image: snmplab-api:local
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+      args:
+        VCS_REF: snmplab
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      oidc: { condition: service_healthy }
+    environment:
+      NODE_ENV: production
+      API_PORT: "3001"
+      DATABASE_URL: postgresql://lab:lab@postgres:5432/snmplab
+      REDIS_URL: redis://redis:6379
+      AUTH_DISABLED: "false"
+      OIDC_ISSUER_URL: http://oidc:8080/realms/lab
+      OIDC_BACKCHANNEL_URL: http://oidc:8080/realms/lab
+      OIDC_AUDIENCE: simoes-api
+      CORS_ORIGINS: http://localhost
+      TRUST_PROXY_HOPS: "0"
+      SNMP_KEYRING_FILE: /run/secrets/snmp_keyring
+      SNMP_SET_ENABLED: "false"
+      NOTIFICATION_DELIVERY_POLL_MS: "60000"
+    secrets:
+      - snmp_keyring
+    networks:
+      lab:
+        ipv4_address: 10.250.62.8
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  # Production-like receiver: SNMPv3 only (SNMP_ALLOW_V2C unset), poll/trap worker included.
+  snmp:
+    image: snmplab-snmp:local
+    build: *snmp-build
+    depends_on:
+      api: { condition: service_healthy }
+    environment:
+      <<: *snmp-env
+      SNMP_INSTANCE_ID: snmplab-main
+      SNMP_ROLE: all
+    secrets:
+      - snmp_keyring
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks:
+      lab:
+        ipv4_address: 10.250.62.10
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3002/ready"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  # Second receiver with the lab flag SNMP_ALLOW_V2C=true (case 7). Receiver only; the main worker processes its traps.
+  snmp-v2c:
+    image: snmplab-snmp:local
+    build: *snmp-build
+    depends_on:
+      snmp: { condition: service_healthy }
+    environment:
+      <<: *snmp-env
+      SNMP_INSTANCE_ID: snmplab-v2c
+      SNMP_ROLE: receiver
+      SNMP_ALLOW_V2C: "true"
+    secrets:
+      - snmp_keyring
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks:
+      lab:
+        ipv4_address: 10.250.62.11
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3002/ready"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  # Simulated core switch (the uplink peer), answering SNMPv3 GETs.
+  snmpsim:
+    image: snmplab-snmpsim:local
+    build: ./snmpsim
+    networks:
+      lab:
+        ipv4_address: 10.250.62.30
+
+  # The "access switches": net-snmp snmptrap/snmpinform on 10.250.62.20 plus aliases, and the test runner.
+  sender:
+    image: snmplab-sender:local
+    build:
+      context: ../..
+      dockerfile: e2e/snmp-trap-lab/sender.Dockerfile
+    depends_on:
+      snmp-v2c: { condition: service_healthy }
+      snmpsim: { condition: service_started }
+    cap_add: [NET_ADMIN]
+    environment:
+      DATABASE_URL: postgresql://lab:lab@postgres:5432/snmplab
+      LAB_API_URL: http://api:3001/api/v1
+      LAB_OIDC_URL: http://oidc:8080
+      LAB_SNMP_METRICS_URL: http://snmp:3002/metrics
+      LAB_RECEIVER: 10.250.62.10:1162
+      LAB_RECEIVER_V2C: 10.250.62.11:1162
+      LAB_CORE_SWITCH: 10.250.62.30:1161
+      LAB_UNTRUSTED_ROWS_PER_MINUTE: "30"
+      SNMP_KEYRING_FILE: /run/secrets/snmp_keyring
+    secrets:
+      - snmp_keyring
+    volumes:
+      - ./:/app/e2e/snmp-trap-lab:ro
+    networks:
+      lab:
+        ipv4_address: 10.250.62.20
+    healthcheck:
+      test: ["CMD-SHELL", "ip addr show eth0 | grep -q 10.250.62.189"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
