@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, MessageEvent, NotFoundException, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, HttpException, Injectable, Logger, MessageEvent, NotFoundException, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { ALERT_SEVERITY_RANK, alertPolicyDecision } from './alert-policy';
 import { NotificationDeliveryService } from '../notifications/delivery/notification-delivery.service';
 import { PrismaClient } from '@simoes/database';
@@ -8,9 +8,24 @@ import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { InfrastructureAccessService } from '../infrastructure/infrastructure-access.service';
 import { IpamAccessService } from '../ipam/ipam-access.service';
-import { ListAlertsQueryDto, ResolveAlertDto, SnoozeAlertDto, UpsertOperationalAlert } from './dto';
+import { BulkAlertActionDto, ListAlertsQueryDto, ResolveAlertDto, SnoozeAlertDto, UpsertOperationalAlert } from './dto';
+import { resolveAlertSnoozeUntil } from './alert-snooze';
+import { KNOWN_ALERT_SOURCES } from './alert-sources';
 
 type OperationalEvent = { type: string; alertId?: string; siteId?: string | null; occurredAt: string };
+export type AlertDevice = { id: string; name: string; managementIp: string | null };
+export type BulkAlertItemResult = { id: string; ok: boolean; status?: string; code?: 'NOT_FOUND' | 'FORBIDDEN' | 'INVALID' | 'ERROR'; message?: string };
+const OPERATOR_ROLES = ['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR'];
+const bulkLogger = new Logger('OperationalAlertBulk');
+/** One item's failure as a per-item result, so the rest of the batch still runs. */
+export function bulkAlertFailure(id: string, error: unknown): BulkAlertItemResult {
+  if (error instanceof NotFoundException) return { id, ok: false, code: 'NOT_FOUND', message: 'Alerta não encontrado' };
+  if (error instanceof ForbiddenException) return { id, ok: false, code: 'FORBIDDEN', message: error.message };
+  if (error instanceof BadRequestException) return { id, ok: false, code: 'INVALID', message: error.message };
+  if (error instanceof HttpException) return { id, ok: false, code: 'ERROR', message: error.message };
+  bulkLogger.error(`Bulk action failed for alert ${id}`, error instanceof Error ? error.stack : String(error));
+  return { id, ok: false, code: 'ERROR', message: 'Erro inesperado ao processar este alerta.' };
+}
 
 @Injectable()
 export class OperationsService implements OnModuleInit, OnModuleDestroy {
@@ -161,20 +176,66 @@ export class OperationsService implements OnModuleInit, OnModuleDestroy {
     const candidates = await this.prisma.operationalAlert.findMany({ where, orderBy: [{ severity: 'asc' }, { lastOccurredAt: 'desc' }], include: { site: { select: { id: true, name: true } }, userStates: { where: { userId: user.id }, select: { readAt: true } } } });
     const visible = await this.applyAlertPolicies(await this.filterVisibleAlerts(user, candidates));
     const items = visible.slice((page - 1) * pageSize, page * pageSize);
-    const snmpJobIds = items.filter((item) => item.entityType === 'SnmpJob' && item.entityId).map((item) => item.entityId!);
-    const snmpDriftIds = items.filter((item) => item.entityType === 'SnmpDrift' && item.entityId).map((item) => item.entityId!);
-    const snmpTrapIds = items.filter((item) => item.entityType === 'SnmpTrapEvent' && item.entityId).map((item) => item.entityId!);
-    const [jobs, drifts, traps] = await Promise.all([
-      this.prisma.snmpJob.findMany({ where: { id: { in: snmpJobIds } }, select: { id: true, deviceId: true } }),
-      this.prisma.snmpDrift.findMany({ where: { id: { in: snmpDriftIds } }, select: { id: true, deviceId: true } }),
-      this.prisma.snmpTrapEvent.findMany({ where: { id: { in: snmpTrapIds } }, select: { id: true, deviceId: true } }),
+    const devices = await this.relatedDevices(items);
+    return { items: items.map(({ userStates, ...item }) => { const device = devices.get(item.id) ?? null; return { ...item, relatedDeviceId: device?.id ?? null, device, readAt: userStates[0]?.readAt ?? null }; }), total: visible.length, page, pageSize };
+  }
+
+  /**
+   * The device each alert is about: the entity itself, or the device that owns the SNMP job, drift,
+   * trap or interface. Keyed by alert id; alerts with no device are left out.
+   */
+  private async relatedDevices(items: Array<{ id: string; entityType: string | null; entityId: string | null }>) {
+    const ids = (type: string) => items.filter((item) => item.entityType === type && item.entityId).map((item) => item.entityId!);
+    const lookup = <T,>(list: string[], query: () => Promise<T[]>) => (list.length ? query() : Promise.resolve([] as T[]));
+    const [jobs, drifts, traps, interfaces] = await Promise.all([
+      lookup(ids('SnmpJob'), () => this.prisma.snmpJob.findMany({ where: { id: { in: ids('SnmpJob') } }, select: { id: true, deviceId: true } })),
+      lookup(ids('SnmpDrift'), () => this.prisma.snmpDrift.findMany({ where: { id: { in: ids('SnmpDrift') } }, select: { id: true, deviceId: true } })),
+      lookup(ids('SnmpTrapEvent'), () => this.prisma.snmpTrapEvent.findMany({ where: { id: { in: ids('SnmpTrapEvent') } }, select: { id: true, deviceId: true } })),
+      lookup(ids('DeviceInterface'), () => this.prisma.deviceInterface.findMany({ where: { id: { in: ids('DeviceInterface') } }, select: { id: true, deviceId: true } })),
     ]);
-    const relatedDevices = new Map<string, string | null>([
-      ...jobs.map((item) => [item.id, item.deviceId] as const),
-      ...drifts.map((item) => [item.id, item.deviceId] as const),
-      ...traps.map((item) => [item.id, item.deviceId] as const),
+    const owners = new Map<string, string | null>([...jobs, ...drifts, ...traps, ...interfaces].map((item) => [item.id, item.deviceId] as const));
+    const deviceIdByAlert = new Map<string, string>();
+    for (const item of items) {
+      const deviceId = item.entityType === 'Device' ? item.entityId : owners.get(item.entityId ?? '') ?? null;
+      if (deviceId) deviceIdByAlert.set(item.id, deviceId);
+    }
+    const deviceIds = [...new Set(deviceIdByAlert.values())];
+    const devices = deviceIds.length ? await this.prisma.device.findMany({ where: { id: { in: deviceIds } }, select: { id: true, name: true, managementIp: true } }) : [];
+    const byId = new Map(devices.map((device) => [device.id, device] as const));
+    const result = new Map<string, AlertDevice>();
+    // A deleted device still keeps its id, so the alert can say which device it was about.
+    for (const [alertId, deviceId] of deviceIdByAlert) result.set(alertId, byId.get(deviceId) ?? { id: deviceId, name: '', managementIp: null });
+    return result;
+  }
+
+  /** One alert with its device, who acted on it, and its audit history (newest first, at most 50 entries). */
+  async detail(user: AuthenticatedUser, id: string) {
+    const alert = await this.prisma.operationalAlert.findUnique({ where: { id }, include: {
+      site: { select: { id: true, name: true } },
+      acknowledgedBy: { select: { id: true, username: true, displayName: true } },
+      resolvedBy: { select: { id: true, username: true, displayName: true } },
+    } });
+    if (!alert || !await this.canSeeAlert(user, alert)) throw new NotFoundException('Alerta não encontrado');
+    const [devices, history, canAct] = await Promise.all([
+      this.relatedDevices([alert]),
+      this.prisma.auditLog.findMany({ where: { entityType: 'OperationalAlert', entityId: id }, orderBy: { createdAt: 'desc' }, take: 50, select: { id: true, action: true, metadata: true, createdAt: true, user: { select: { id: true, username: true, displayName: true } } } }),
+      this.canAct(user, alert.siteId),
     ]);
-    return { items: items.map(({ userStates, ...item }) => ({ ...item, relatedDeviceId: item.entityType === 'Device' ? item.entityId : relatedDevices.get(item.entityId ?? '') ?? null, readAt: userStates[0]?.readAt ?? null })), total: visible.length, page, pageSize };
+    const device = devices.get(alert.id) ?? null;
+    return { ...alert, relatedDeviceId: device?.id ?? null, device, canAct, history };
+  }
+
+  /** Whether the user may acknowledge, snooze or resolve alerts of this Site (global alerts: ADMIN only). */
+  private async canAct(user: AuthenticatedUser, siteId: string | null) {
+    if (!user.roles.some((role) => OPERATOR_ROLES.includes(role))) return false;
+    if (!siteId) return user.roles.includes('ADMIN');
+    return this.canOperateSite(user, siteId);
+  }
+
+  /** Event types for alert rules: the known producers plus any other source already stored. */
+  async sources() {
+    const stored = await this.prisma.operationalAlert.findMany({ distinct: ['source'], select: { source: true } });
+    return { items: [...new Set([...KNOWN_ALERT_SOURCES, ...stored.map((item) => item.source)])] };
   }
 
   async summary(user: AuthenticatedUser, siteId?: string) {
@@ -291,10 +352,13 @@ export class OperationsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async snooze(user: AuthenticatedUser, id: string, dto: SnoozeAlertDto) {
-    const current = await this.mutable(user, id); const until = new Date(dto.until);
-    if (until <= new Date()) throw new BadRequestException('A data de snooze tem de ser futura');
-    const alert = await this.prisma.operationalAlert.update({ where: { id }, data: { status: 'SNOOZED', snoozedUntil: until, snoozeReason: dto.reason } });
-    await this.audit.record({ userId: user.id, action: 'OPERATIONAL_ALERT_SNOOZED', entityType: 'OperationalAlert', entityId: id, metadata: { until, reason: dto.reason } });
+    return this.applySnooze(user, id, resolveAlertSnoozeUntil(dto), dto.reason);
+  }
+
+  private async applySnooze(user: AuthenticatedUser, id: string, until: Date, reason?: string) {
+    const current = await this.mutable(user, id);
+    const alert = await this.prisma.operationalAlert.update({ where: { id }, data: { status: 'SNOOZED', snoozedUntil: until, snoozeReason: reason } });
+    await this.audit.record({ userId: user.id, action: 'OPERATIONAL_ALERT_SNOOZED', entityType: 'OperationalAlert', entityId: id, metadata: { until, reason } });
     await this.publish({ type: 'alert.updated', alertId: id, siteId: current.siteId, occurredAt: new Date().toISOString() }); return alert;
   }
 
@@ -303,6 +367,27 @@ export class OperationsService implements OnModuleInit, OnModuleDestroy {
     const alert = await this.prisma.operationalAlert.update({ where: { id }, data: { status: 'RESOLVED', resolvedAt: now, resolvedById: user.id, resolutionReason: dto.reason, snoozedUntil: null } });
     await this.audit.record({ userId: user.id, action: 'OPERATIONAL_ALERT_RESOLVED', entityType: 'OperationalAlert', entityId: id, metadata: { reason: dto.reason } });
     await this.publish({ type: 'alert.updated', alertId: id, siteId: current.siteId, occurredAt: now.toISOString() }); return alert;
+  }
+
+  /**
+   * ACKNOWLEDGE, SNOOZE or RESOLVE up to 200 alerts. Each one is checked and reported on its own
+   * (same rules as the single-alert routes); one failure does not stop the rest.
+   */
+  async bulk(user: AuthenticatedUser, dto: BulkAlertActionDto) {
+    if (dto.action !== 'SNOOZE' && (dto.until !== undefined || dto.durationHours !== undefined)) throw new BadRequestException({ code: 'BULK_FIELDS_INVALID', message: 'until/durationHours só se aplicam a SNOOZE.' });
+    if (dto.action === 'ACKNOWLEDGE' && dto.reason !== undefined) throw new BadRequestException({ code: 'BULK_FIELDS_INVALID', message: 'reason só se aplica a SNOOZE e RESOLVE.' });
+    const until = dto.action === 'SNOOZE' ? resolveAlertSnoozeUntil(dto) : undefined;
+    const results: BulkAlertItemResult[] = [];
+    for (const id of dto.ids) {
+      try {
+        const updated = dto.action === 'ACKNOWLEDGE' ? await this.acknowledge(user, id)
+          : dto.action === 'SNOOZE' ? await this.applySnooze(user, id, until!, dto.reason)
+          : await this.resolve(user, id, { reason: dto.reason });
+        results.push({ id, ok: true, status: updated.status });
+      } catch (error) { results.push(bulkAlertFailure(id, error)); }
+    }
+    const succeeded = results.filter((item) => item.ok).length;
+    return { action: dto.action, results, succeeded, failed: results.length - succeeded, ...(until ? { snoozedUntil: until.toISOString() } : {}) };
   }
 
   async readAll(user: AuthenticatedUser) {

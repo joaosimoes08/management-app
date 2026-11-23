@@ -1,10 +1,26 @@
-import { IsDateString, IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, ArrayUnique, IsArray, IsDateString, IsEnum, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 
 export enum AlertSeverityDto { CRITICAL = 'CRITICAL', HIGH = 'HIGH', WARNING = 'WARNING', INFO = 'INFO' }
 export enum AlertStatusDto { OPEN = 'OPEN', ACKNOWLEDGED = 'ACKNOWLEDGED', SNOOZED = 'SNOOZED', RESOLVED = 'RESOLVED' }
 
+export const ALERT_SNOOZE_MIN_HOURS = 1;
+export const ALERT_SNOOZE_MAX_HOURS = 30 * 24;
+/** Give exactly one of `until` (ISO date in the future, at most 30 days ahead) or `durationHours` (1–720). */
 export class SnoozeAlertDto {
-  @IsDateString() until!: string;
+  @IsOptional() @IsDateString() until?: string;
+  @IsOptional() @IsInt() @Min(ALERT_SNOOZE_MIN_HOURS) @Max(ALERT_SNOOZE_MAX_HOURS) durationHours?: number;
+  @IsOptional() @IsString() @MaxLength(500) reason?: string;
+}
+
+export const BULK_ALERT_LIMIT = 200;
+export type BulkAlertAction = 'ACKNOWLEDGE' | 'SNOOZE' | 'RESOLVE';
+export class BulkAlertActionDto {
+  @IsIn(['ACKNOWLEDGE', 'SNOOZE', 'RESOLVE']) action!: BulkAlertAction;
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(BULK_ALERT_LIMIT) @ArrayUnique() @IsUUID('all', { each: true }) ids!: string[];
+  /** SNOOZE only: exactly one of until / durationHours. */
+  @IsOptional() @IsDateString() until?: string;
+  @IsOptional() @IsInt() @Min(ALERT_SNOOZE_MIN_HOURS) @Max(ALERT_SNOOZE_MAX_HOURS) durationHours?: number;
+  /** SNOOZE or RESOLVE. */
   @IsOptional() @IsString() @MaxLength(500) reason?: string;
 }
 
