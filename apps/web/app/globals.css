@@ -3554,3 +3554,29 @@ small.alert-next-step::before { content:'→ '; }
 .settings-snmp-versions { display:grid; gap:8px; }
 .settings-snmp-versions ul { display:flex; flex-wrap:wrap; gap:8px; margin:0; padding:0; list-style:none; }
 .settings-snmp-versions li { display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border:1px solid var(--line); border-radius:8px; font-size:12px; }
+
+/* UX re-check 2026-11-23: setup panel visible in the pre-register dialog, unknown-traps pointers, 360 px layout. */
+.severity-legend.open { padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:#fff; color:#4f4b52; }
+.severity-legend.open h3 { margin:0; font-size:11px; font-weight:600; color:#242124; }
+.snmp-enrollment-modal { width:min(640px,100%); }
+.snmp-enrollment-modal .snmp-setup-panel { padding:12px; border:1px solid var(--line); box-shadow:none; }
+.snmp-enrollment-modal .modal-actions { position:sticky; bottom:-20px; margin:8px -20px -20px; padding:12px 20px; background:#fff; border-top:1px solid var(--line); }
+.modal-form label > small { display:block; margin-top:4px; color:#5f5b62; font-size:10px; line-height:1.4; }
+.snmp-setup-receiver { display:inline-flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.snmp-setup-panel, .snmp-setup-block { min-width:0; }
+.snmp-setup-block pre { max-width:100%; }
+.snmp-unknown-pointer { display:flex; align-items:flex-start; gap:10px; }
+.snmp-unknown-pointer p { margin:0; color:#4f4b52; font-size:11px; line-height:1.5; }
+.snmp-unknown-link, .discovery-flow-note a { color:#1d4ed8; font-weight:600; text-decoration:underline; text-underline-offset:2px; }
+.snmp-unknown-link:focus-visible, .discovery-flow-note a:focus-visible { outline:2px solid #1d4ed8; outline-offset:2px; border-radius:3px; }
+.snmp-unknown-restricted { color:#4f4b52; }
+.no-data .snmp-unknown-link, .no-data .snmp-unknown-restricted { display:block; margin-top:6px; }
+.snmp-unknown-table .table-actions { white-space:normal; }
+.snmp-unknown-table .button-row { display:flex; flex-wrap:wrap; gap:6px; }
+@media (max-width:480px) {
+  .snmp-enrollment-modal { padding:16px; }
+  .snmp-enrollment-modal .modal-actions { bottom:-16px; margin:8px -16px -16px; padding:12px 16px; flex-wrap:wrap; }
+  .snmp-enrollment-modal .form-row { grid-template-columns:1fr; }
+  .snmp-setup-facts { grid-template-columns:1fr; }
+  .snmp-unknown-table .button-row > * { flex:1 1 auto; }
+}

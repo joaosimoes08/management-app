@@ -38,7 +38,7 @@ export function SnmpSetupPanel({ managementIp, username, authProtocol, privProto
     {lastTrapReceivedAt !== undefined && <p className={`snmp-setup-status ${lastTrapReceivedAt ? 'received' : 'waiting'}`} role="status">{lastTrapReceivedAt ? <><Check size={14} />{`Última trap recebida: ${formatDateTime(lastTrapReceivedAt)}`}</> : <><Clock size={14} />A aguardar a primeira trap deste equipamento.</>}</p>}
     <dl className="snmp-setup-facts">
       <dt>Recetor de traps</dt>
-      <dd>{!canReadReceiver ? 'Só administradores veem o endereço do recetor.' : isLoading ? 'A carregar…' : isError ? 'Não foi possível ler as definições do recetor SNMP.' : addresses.length > 1 ? <select aria-label="Endereço do recetor" className="context-toolbar-selector" value={chosen} onChange={(event) => setChosen(event.target.value)}>{addresses.map((address) => <option key={address} value={address}>{address}</option>)}</select> : addresses[0] ?? <span className="snmp-setup-missing">{`Sem endereço: o recetor SNMP não reportou interfaces. Usa ${RECEIVER_PLACEHOLDER} e confirma em Definições > SNMP.`}</span>}</dd>
+      <dd>{!canReadReceiver ? 'Só administradores veem o endereço do recetor.' : isLoading ? 'A carregar…' : isError ? 'Não foi possível ler as definições do recetor SNMP.' : addresses.length ? <span className="snmp-setup-receiver">{addresses.length > 1 ? <select aria-label="Endereço do recetor" className="context-toolbar-selector" value={chosen} onChange={(event) => setChosen(event.target.value)}>{addresses.map((address) => <option key={address} value={address}>{address}</option>)}</select> : <span className="mono">{addresses[0]}</span>}<CopyButton text={chosen ? `${chosen}${port === 162 ? '' : `:${port}`}` : ''} label="Copiar endereço do recetor" /></span> : <span className="snmp-setup-missing">{`Sem endereço: o recetor SNMP não reportou interfaces. Usa ${RECEIVER_PLACEHOLDER} e confirma em Definições > SNMP.`}</span>}</dd>
       <dt>Porta UDP</dt>
       <dd className="mono">{port}</dd>
       <dt>IP de gestão (trap-source)</dt>
@@ -53,14 +53,18 @@ export function SnmpSetupPanel({ managementIp, username, authProtocol, privProto
   </section>;
 }
 
-function SetupBlock({ title, text, note }: { title: string; text: string; note?: ReactNode }) {
+function CopyButton({ text, label }: { text: string; label: string }) {
   const [copied, setCopied] = useState<'idle' | 'done' | 'failed'>('idle');
   const copy = async () => {
     try { await navigator.clipboard.writeText(text); setCopied('done'); } catch { setCopied('failed'); }
     window.setTimeout(() => setCopied('idle'), 2500);
   };
+  return <button type="button" className="secondary-button snmp-action-button" disabled={!text} onClick={() => void copy()} aria-label={label}>{copied === 'done' ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}{copied === 'done' ? 'Copiado' : copied === 'failed' ? 'Copia manualmente' : 'Copiar'}</button>;
+}
+
+function SetupBlock({ title, text, note }: { title: string; text: string; note?: ReactNode }) {
   return <div className="snmp-setup-block">
-    <div className="snmp-setup-block-head"><strong>{title}</strong><button type="button" className="secondary-button snmp-action-button" onClick={() => void copy()} aria-label={`Copiar: ${title}`}>{copied === 'done' ? <Check size={13} /> : <Copy size={13} />}{copied === 'done' ? 'Copiado' : copied === 'failed' ? 'Copia manualmente' : 'Copiar'}</button></div>
+    <div className="snmp-setup-block-head"><strong>{title}</strong><CopyButton text={text} label={`Copiar: ${title}`} /></div>
     {note}
     <pre tabIndex={0}><code>{text}</code></pre>
   </div>;

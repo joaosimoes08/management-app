@@ -7,10 +7,10 @@ export function SeverityTag({ severity }: { severity: string }) {
   return <span className={`severity-tag ${key.toLowerCase()}`} title={severityMeanings[key]}>{severityName(key)}</span>;
 }
 
-/** Short legend: what each severity means. Collapsed by default so it costs one line. */
+/** Short legend, always visible: what each severity means and how fast to act. */
 export function SeverityLegend() {
-  return <details className="severity-legend">
-    <summary>O que significa cada severidade?</summary>
+  return <section className="severity-legend open" aria-labelledby="severity-legend-title">
+    <h3 id="severity-legend-title">O que significa cada severidade?</h3>
     <dl>{SEVERITY_ORDER.map((severity) => <div key={severity}><dt><SeverityTag severity={severity} /></dt><dd>{severityMeanings[severity]}</dd></div>)}</dl>
-  </details>;
+  </section>;
 }

@@ -42,6 +42,8 @@ describe('SNMP device view: Phase 1 setup', () => {
     expect(within(version).queryByRole('radio', { name: /SNMPv2c/ })).not.toBeInTheDocument();
     expect(await within(version).findByText(/SNMP_ALLOW_V2C=false/)).toBeInTheDocument();
 
+    // P0-3: the stored status is in words, never the raw enum.
+    expect(screen.getByText(/netops · ainda não testada/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Testar' }));
     expect(await screen.findByText('Sem resposta (timeout)')).toBeInTheDocument();
     expect(screen.getByText(/5004 ms/)).toBeInTheDocument();
@@ -96,5 +98,14 @@ describe('SNMP device view: Phase 1 setup', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /Frota/ })).toBeInTheDocument());
     expect(screen.queryByRole('button', { name: /Traps desconhecidas/ })).not.toBeInTheDocument();
     expect(mockedFetch).not.toHaveBeenCalledWith('/api/v1/settings/snmp-listeners');
+  });
+
+  it('explains the unknown-traps view to non-admins instead of showing an empty page', async () => {
+    roles.current = ['READ_ONLY'];
+    window.history.replaceState(null, '', '/snmp?view=unknown');
+    mockedFetch.mockImplementation(async (url: string) => url.startsWith('/api/v1/devices') ? { items: [device], total: 1, page: 1, totalPages: 1 } : {});
+    wrap(<SnmpPage />);
+    expect(await screen.findByText('Só administradores veem as traps de equipamentos desconhecidos.')).toBeInTheDocument();
+    expect(screen.getByText(/Pede a um administrador/)).toBeInTheDocument();
   });
 });
