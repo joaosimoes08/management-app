@@ -18,20 +18,29 @@ beforeEach(() => { mockedFetch.mockReset(); window.history.replaceState(null, ''
 afterEach(cleanup);
 
 describe('SNMP pre-registration dialog (SNMP Phase 1 step 3)', () => {
-  it('embeds the switch setup lines for the expected IP and hides v2c while the lab flag is off', async () => {
+  it('embeds the switch setup lines for the expected IP and hides v2c when an admin disabled it', async () => {
     mockedFetch.mockResolvedValue(receiver(false));
     wrap(<EnrollmentModal form={form} setForm={() => undefined} close={() => undefined} submit={async () => undefined} admin />);
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByText('Configuração do switch (linhas IOS-XE)')).toBeInTheDocument();
     expect(await within(dialog).findByText(/snmp-server host 10\.0\.0\.5 version 3 priv netops/)).toBeInTheDocument();
     expect(within(dialog).getByText(/O trap-source tem de ser o IP de gestão \(10\.9\.9\.9\)/)).toBeInTheDocument();
-    expect(within(dialog).queryByRole('option', { name: /SNMPv2c/ })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('radio', { name: /SNMPv2c/ })).not.toBeInTheDocument();
+    expect(within(dialog).getByRole('radio', { name: /SNMPv3 \(authPriv\)/ })).toBeChecked();
   });
 
-  it('offers v2c only when the receiver allows it', async () => {
+  it('offers v2c as a normal option after the recommended v3, with the trade-off note once chosen', async () => {
     mockedFetch.mockResolvedValue(receiver(true));
-    wrap(<EnrollmentModal form={form} setForm={() => undefined} close={() => undefined} submit={async () => undefined} admin />);
-    expect(await screen.findByRole('option', { name: 'SNMPv2c (só laboratório)' })).toBeInTheDocument();
+    const setForm = vi.fn();
+    const { rerender } = wrap(<EnrollmentModal form={form} setForm={setForm} close={() => undefined} submit={async () => undefined} admin />);
+    const v2c = await screen.findByRole('radio', { name: 'SNMPv2c' });
+    expect(screen.getByRole('radio', { name: /SNMPv3 \(authPriv\)/ })).toBeChecked();
+    fireEvent.click(v2c);
+    expect(setForm).toHaveBeenCalledWith(expect.objectContaining({ version: 'V2C' }));
+    rerender(<QueryClientProvider client={new QueryClient()}><EnrollmentModal form={{ ...form, version: 'V2C' }} setForm={setForm} close={() => undefined} submit={async () => undefined} admin /></QueryClientProvider>);
+    expect(await screen.findByText('SNMPv2c envia a community em texto simples e não cifra os dados. Use apenas em redes de gestão isoladas; prefira SNMPv3 (authPriv).', { selector: 'fieldset span' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Community TRAP')).toHaveAttribute('minLength', '8');
+    expect(screen.queryByText(/laborat/i)).not.toBeInTheDocument();
   });
 
   it('opens prefilled from the unknown-traps link (?preRegister=)', async () => {

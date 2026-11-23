@@ -3,13 +3,26 @@ import { describe, it } from 'node:test';
 import { chooseEngineId, generateSnmpEngineId, LEGACY_SHARED_ENGINE_ID, normalizeEngineId, snmpV2cAllowed } from './policy';
 
 describe('SNMP Phase 1 policy', () => {
-  it('allows v2c only when the lab flag is exactly true', () => {
-    assert.equal(snmpV2cAllowed(undefined), false);
-    assert.equal(snmpV2cAllowed(''), false);
-    assert.equal(snmpV2cAllowed('false'), false);
-    assert.equal(snmpV2cAllowed('1'), false);
+  it('allows v2c by default and refuses it only when SNMP_ALLOW_V2C is false', () => {
+    assert.equal(snmpV2cAllowed(undefined), true);
+    assert.equal(snmpV2cAllowed(''), true);
+    assert.equal(snmpV2cAllowed('1'), true);
     assert.equal(snmpV2cAllowed('true'), true);
     assert.equal(snmpV2cAllowed(' TRUE '), true);
+    assert.equal(snmpV2cAllowed('false'), false);
+    assert.equal(snmpV2cAllowed(' FALSE '), false);
+  });
+
+  it('reads SNMP_ALLOW_V2C from the environment, defaulting to allowed', () => {
+    const original = process.env.SNMP_ALLOW_V2C;
+    try {
+      delete process.env.SNMP_ALLOW_V2C;
+      assert.equal(snmpV2cAllowed(), true);
+      process.env.SNMP_ALLOW_V2C = 'false';
+      assert.equal(snmpV2cAllowed(), false);
+    } finally {
+      if (original === undefined) delete process.env.SNMP_ALLOW_V2C; else process.env.SNMP_ALLOW_V2C = original;
+    }
   });
 
   it('generates a unique RFC 3411 engine ID per call', () => {

@@ -81,7 +81,7 @@ export type AttachableChangePlan = { id: string; title: string; status: 'APPROVE
 export const getAttachableChangePlans = (deviceId: string) => apiFetch<AttachableChangePlan[]>(`/api/v1/change-plans/attachable?deviceId=${encodeURIComponent(deviceId)}`);
 export const linkSnmpWriteToChangePlan = (changePlanId: string, snmpWriteRequestId: string) => apiFetch<{ changePlanId: string; snmpWriteRequestId: string }>(`/api/v1/change-plans/${encodeURIComponent(changePlanId)}/snmp-writes`, { method: 'POST', body: JSON.stringify({ snmpWriteRequestId }) });
 
-/** SNMP Phase 1 step 3: the trap receiver's addresses, UDP port, engine ID and v2c lab flag (ADMIN only). */
+/** SNMP Phase 1 step 3: the trap receiver's addresses, UDP port, engine ID and whether v2c is allowed (ADMIN only). */
 export const snmpReceiverKey = ['snmp', 'receiver'] as const;
 export const getSnmpReceiverSettings = () => apiFetch<SnmpReceiverSettings>('/api/v1/settings/snmp-listeners');
 

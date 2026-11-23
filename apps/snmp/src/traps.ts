@@ -249,7 +249,7 @@ export class TrapReceiver {
       const usernames = new Set<string>();
       for (const credential of [...credentials, ...enrollments]) {
         try {
-          // Phase 1 step 1.3: without the lab flag no community is loaded, so every v2c trap is refused and recorded as REJECTED.
+          // Plan step 1.3 (rev. 4): with SNMP_ALLOW_V2C=false no community is loaded, so every v2c trap is refused and recorded as REJECTED.
           if (credential.version === 'V2C' && !snmpV2cAllowed()) continue;
           const secret = decryptStoredCredential(credential as any);
           if (credential.version === 'V2C') {

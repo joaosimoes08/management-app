@@ -1,11 +1,12 @@
 import { randomBytes } from 'node:crypto';
 
 /**
- * SNMP Phase 1 step 1.3: production is SNMPv3 only. SNMPv2c credentials are refused (save, poll and trap
- * authentication) unless the lab flag SNMP_ALLOW_V2C=true is set. Anything else, including unset, means off.
+ * SNMP plan step 1.3 (revision 4): SNMPv2c and SNMPv3 are both accepted; v3 authPriv stays the recommended option
+ * and SNMPv1 is always refused. SNMP_ALLOW_V2C is an opt-out: only the value `false` refuses v2c (save, poll and
+ * trap authentication). Unset, empty or anything else means v2c is allowed.
  */
 export function snmpV2cAllowed(value: string | undefined = process.env.SNMP_ALLOW_V2C) {
-  return value?.trim().toLowerCase() === 'true';
+  return value?.trim().toLowerCase() !== 'false';
 }
 
 export const SNMP_V2C_DISABLED = 'SNMP_V2C_DISABLED';

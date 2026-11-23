@@ -3536,3 +3536,21 @@ small.alert-next-step::before { content:'→ '; }
 .schedule-limits small { grid-column:1 / -1; color:var(--muted); font-size:9px; line-height:1.4; }
 @media (max-width:780px) { .discovery-flow-steps { grid-template-columns:1fr; } .discovery-flow-steps li + li::before { content:none; } .schedule-form fieldset.schedule-limits { grid-template-columns:1fr; } }
 @media (prefers-reduced-motion:reduce) { .discovery-progress-fill { transition:none; } }
+/* SNMP plan step 1.3 rev. 4: version picker (v3 recommended, v2c with its trade-off note). Text colours are >= 4.5:1 on their backgrounds. */
+.snmp-version-field { display:grid; gap:8px; min-width:0; margin:0; padding:0; border:0; grid-column:1 / -1; }
+.snmp-version-field legend { margin-bottom:6px; padding:0; color:var(--muted); font-size:inherit; }
+.snmp-version-field .snmp-version-options { display:flex; flex-wrap:wrap; gap:8px; }
+.snmp-version-field .snmp-version-options label { display:inline-flex; flex-direction:row; align-items:center; gap:8px; min-height:38px; margin:0; padding:8px 12px; color:#252126; border:1px solid var(--line); border-radius:8px; background:#fff; font-size:12px; cursor:pointer; }
+.snmp-version-field .snmp-version-options label.selected { border-color:#252126; box-shadow:0 0 0 1px #252126 inset; }
+.snmp-version-field .snmp-version-options label:focus-within { box-shadow:0 0 0 3px rgba(40,34,38,.14); }
+.snmp-version-field .snmp-version-options input[type="radio"] { width:15px; height:15px; min-height:0; margin:0; padding:0; accent-color:#252126; }
+.snmp-version-badge { padding:2px 7px; border-radius:999px; background:#e3f3e7; color:#1a5c2c; font-size:10px; font-weight:600; letter-spacing:.01em; }
+.snmp-v2c-note,.snmp-v2c-disabled { display:flex; align-items:flex-start; gap:8px; margin:0; padding:9px 12px; border-radius:9px; font-size:12px; line-height:1.45; }
+.snmp-v2c-note { border:1px solid #e9c46a; border-left:4px solid #b7791f; background:#fff8e6; color:#5c3d00; }
+.snmp-v2c-disabled { border:1px solid var(--line); background:#f6f5f6; color:#3b363c; }
+.snmp-v2c-note svg,.snmp-v2c-disabled svg { flex:0 0 auto; margin-top:2px; }
+.snmp-setup-block .snmp-v2c-note { margin:6px 0; }
+.snmp-field-error { color:#b42318!important; font-weight:600; }
+.settings-snmp-versions { display:grid; gap:8px; }
+.settings-snmp-versions ul { display:flex; flex-wrap:wrap; gap:8px; margin:0; padding:0; list-style:none; }
+.settings-snmp-versions li { display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border:1px solid var(--line); border-radius:8px; font-size:12px; }

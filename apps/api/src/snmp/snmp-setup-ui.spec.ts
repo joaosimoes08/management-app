@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { summarizeUnmatchedTrapSources } from './snmp.service';
 import { summarizeSnmpFleet } from './snmp-fleet.service';
+import { snmpV2cAllowed } from '@simoes/snmp-core';
 import { snmpReceiverView } from '../settings/settings.service';
 
 test('unknown trap sources are listed newest first with count, first/last seen, latest trap and pre-registration', () => {
@@ -29,7 +30,9 @@ test('network devices without SNMP are listed last in the attention list as NOT_
   assert.equal(summary.devices.notConfigured, 1);
 });
 
-test('the setup panel gets the published trap port (default 162) and the v2c lab flag', () => {
+test('the setup panel gets the published trap port (default 162) and whether v2c is accepted', () => {
+  assert.equal(snmpReceiverView(undefined, snmpV2cAllowed(undefined)).v2cAllowed, true, 'v2c accepted by default');
+  assert.equal(snmpReceiverView(undefined, snmpV2cAllowed('false')).v2cAllowed, false, 'opt-out');
   assert.deepEqual(snmpReceiverView(undefined, false), { trapPort: 162, v2cAllowed: false });
   assert.deepEqual(snmpReceiverView('10162', true), { trapPort: 10162, v2cAllowed: true });
   assert.deepEqual(snmpReceiverView('99999', false), { trapPort: 162, v2cAllowed: false });
