@@ -1726,6 +1726,8 @@ const enUS: LegacyDictionary = {
   'sysName não devolvido': 'sysName not returned',
   'Sem resposta (timeout)': 'No response (timeout)',
   'Confirma o IP de gestão, a ACL e a porta UDP 161.': 'Check the management IP, the ACL and UDP port 161.',
+  'O teste não terminou. Tenta de novo; se voltar a acontecer, confirma que o serviço SNMP está a correr.': 'The test did not finish. Try again; if it happens again, check that the SNMP service is running.',
+  'O serviço SNMP não processou o pedido a tempo. Confirma que o serviço SNMP está a correr e tenta de novo.': 'The SNMP service did not process the request in time. Check that the SNMP service is running and try again.',
   'Falha de autenticação': 'Authentication failed',
   'O utilizador, as chaves ou os protocolos não coincidem com o switch.': 'The user, keys or protocols do not match the switch.',
   'A testar…': 'Testing…',
