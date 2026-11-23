@@ -3270,8 +3270,8 @@ a.dashboard-kpi:focus-visible { box-shadow:0 9px 24px rgba(35,55,87,.09); outlin
 .onboarding-stage.stagger .onboarding-body > :nth-child(3) { animation-delay:60ms; }
 .onboarding-stage.stagger .onboarding-body > :nth-child(n+4) { animation-delay:90ms; }
 @keyframes onboarding-rise { from { opacity:0; transform:translateY(6px); } }
-.onboarding-body h2:focus { outline:none; }
-.onboarding-body h2:focus-visible { outline:3px solid #8fa8ec; outline-offset:4px; border-radius:4px; }
+/* Step headings take focus programmatically after each transition (tabIndex=-1): no visible ring. Controls keep theirs. */
+.onboarding-stage h2[tabindex="-1"]:focus,.onboarding-stage h2[tabindex="-1"]:focus-visible { outline:none; }
 .onboarding-body { display:flex; flex:1; flex-direction:column; justify-content:center; }
 .onboarding-body h2 { margin:0 0 10px; color:var(--ink); font-size:20px; font-weight:700; letter-spacing:-.3px; }
 .onboarding-body > p { max-width:520px; margin:0 0 24px; color:var(--muted); font-size:13px; line-height:1.6; }

@@ -33,3 +33,35 @@ export function stepIndicatorTransition(reduceMotion: boolean): Transition {
 export function ringTransition(reduceMotion: boolean): Transition {
   return reduceMotion ? { duration: 0 } : { duration: 0.45, ease: EASE_OUT };
 }
+
+export const CARD_HEIGHT_MS = 240;
+const EASE_OUT_CSS = 'cubic-bezier(0.22, 1, 0.36, 1)';
+
+/**
+ * Smoothly animates an element's height when its content makes it grow or shrink
+ * (e.g. a taller setup step mounting). Only `height` is animated, so the content
+ * never scales; the element should clip overflow. Instant when `disabled`
+ * (reduced motion, small screens) or when the width changed (window resize).
+ */
+export function animateHeightChanges(element: HTMLElement, isDisabled: () => boolean): () => void {
+  if (typeof ResizeObserver === 'undefined' || typeof element.animate !== 'function') return () => undefined;
+  let last: { width: number; height: number } | null = null;
+  let running: Animation | null = null;
+  const observer = new ResizeObserver((entries) => {
+    const box = entries[entries.length - 1]?.borderBoxSize?.[0];
+    const width = box ? box.inlineSize : element.offsetWidth;
+    const height = box ? box.blockSize : element.offsetHeight;
+    if (running) return; // intermediate frames of our own animation
+    const previous = last;
+    last = { width, height };
+    if (!previous || Math.abs(previous.height - height) < 1 || Math.abs(previous.width - width) >= 1 || isDisabled()) return;
+    // Pin the old height before this frame paints so the taller/shorter content never flashes at full size.
+    element.style.height = `${previous.height}px`;
+    running = element.animate([{ height: `${previous.height}px` }, { height: `${height}px` }], { duration: CARD_HEIGHT_MS, easing: EASE_OUT_CSS });
+    const done = () => { running = null; element.style.height = ''; };
+    running.addEventListener('finish', done);
+    running.addEventListener('cancel', done);
+  });
+  observer.observe(element);
+  return () => { observer.disconnect(); running?.cancel(); element.style.height = ''; };
+}

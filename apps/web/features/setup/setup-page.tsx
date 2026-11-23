@@ -9,7 +9,7 @@ import { useAuth } from '@/lib/auth';
 import { currentSearch, designPreviewStep, isDesignPreview } from '@/lib/design-preview';
 import { AppLocale, useI18n } from '@/lib/i18n';
 import { getConfiguredLocale, resolveOrganizationLocale } from '@/lib/runtime-config';
-import { ringTransition, stepIndicatorTransition, stepPanelVariants, type StepDirection } from './setup-motion';
+import { animateHeightChanges, ringTransition, stepIndicatorTransition, stepPanelVariants, type StepDirection } from './setup-motion';
 import { completeSetup, createSetupOrganization, createSetupSite, getSetupStatus, type SetupStatus } from './api';
 
 type SetupForm = { organizationName: string; organizationCode: string; timezone: string; locale: AppLocale; siteName: string; siteCode: string; address: string; city: string; region: string; country: string; buildingName: string; roomName: string; rackName: string };
@@ -41,11 +41,22 @@ export default function SetupPage() {
   const setStep = (next: number) => { setDirection(next < step ? -1 : 1); setNavigated(true); setStepValue(next); };
   const reduceMotion = useReducedMotion() ?? false;
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const cardRef = useRef<HTMLElement>(null);
+  const reduceMotionRef = useRef(reduceMotion);
+  useEffect(() => { reduceMotionRef.current = reduceMotion; }, [reduceMotion]);
   const [form, setForm] = useState(initialForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const { data: status, isPending: busy } = useQuery({ queryKey: ['setup', 'status'], queryFn: getSetupStatus });
+
+  // Card height glides between steps of different height (desktop only; instant under reduced motion).
+  useEffect(() => {
+    const card = cardRef.current;
+    if (!card) return undefined;
+    const compact = typeof window.matchMedia === 'function' ? window.matchMedia('(max-width: 720px)') : null;
+    return animateHeightChanges(card, () => reduceMotionRef.current || Boolean(compact?.matches));
+  }, [busy]);
 
   useEffect(() => {
     if (!status) return;
@@ -95,7 +106,7 @@ export default function SetupPage() {
   const heading = (text: string) => <h2 ref={headingRef} tabIndex={-1}>{text}</h2>;
 
   return <MotionConfig reducedMotion="user"><LazyMotion features={domMax} strict><main className="setup-page onboarding-page">
-    <section className="onboarding-card" aria-labelledby="onboarding-title">
+    <section className="onboarding-card" ref={cardRef} aria-labelledby="onboarding-title">
       <aside className="onboarding-nav">
         <header className="onboarding-head">
           <div><h1 id="onboarding-title">{t('setup.onboardingTitle')}</h1><p>{t('setup.onboardingSubtitle')}</p></div>
