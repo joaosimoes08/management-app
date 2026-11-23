@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, Building2, Check, Flag, MapPin, ShieldCheck, Sparkles, type LucideIcon } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
+import { currentSearch, designPreviewStep, isDesignPreview } from '@/lib/design-preview';
 import { AppLocale, useI18n } from '@/lib/i18n';
 import { getConfiguredLocale, resolveOrganizationLocale } from '@/lib/runtime-config';
 import { completeSetup, createSetupOrganization, createSetupSite, getSetupStatus, type SetupStatus } from './api';
@@ -27,7 +28,10 @@ export default function SetupPage() {
   const { hasRole } = useAuth();
   const { t, setLocale } = useI18n();
   const queryClient = useQueryClient();
-  const [step, setStep] = useState(0);
+  // Dev-only, admin-only design preview (/setup?preview=1&step=N): no redirect, no API writes.
+  const [search] = useState(currentSearch);
+  const preview = isDesignPreview(search, { isAdmin: hasRole('ADMIN') });
+  const [step, setStep] = useState(() => (preview ? designPreviewStep(search, 3) : 0));
   const [form, setForm] = useState(initialForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,21 +40,23 @@ export default function SetupPage() {
 
   useEffect(() => {
     if (!status) return;
-    if (status.setupCompleted) window.location.replace('/');
+    if (status.setupCompleted && !preview) window.location.replace('/');
     const locale = resolveOrganizationLocale(status, getConfiguredLocale());
     setLocale(locale);
     setForm((value) => ({ ...value, organizationName: status.organizationName ?? '', organizationCode: status.organizationCode ?? '', locale }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status]);
+  }, [status, preview]);
 
   const update = (field: keyof SetupForm, value: string) => setForm((current) => ({ ...current, [field]: value }));
   const saveOrganization = async () => {
+    if (preview) { setStep(2); return; }
     setSaving(true); setError(null);
     try { await createSetupOrganization({ name: form.organizationName, code: form.organizationCode || undefined, timezone: form.timezone, locale: form.locale }); setStep(2); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Não foi possível guardar a organização.'); }
     finally { setSaving(false); }
   };
   const saveSite = async () => {
+    if (preview) { setStep(3); return; }
     setSaving(true); setError(null);
     try {
       await createSetupSite({ name: form.siteName, code: form.siteCode, address: form.address || undefined, city: form.city || undefined, region: form.region || undefined, country: form.country || undefined, buildingName: form.buildingName || undefined, roomName: form.roomName || undefined, rackName: form.rackName || undefined });
@@ -61,6 +67,7 @@ export default function SetupPage() {
     finally { setSaving(false); }
   };
   const complete = async () => {
+    if (preview) { window.location.replace('/'); return; }
     setSaving(true); setError(null);
     try { await completeSetup(); window.location.replace('/'); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Não foi possível concluir o setup.'); setSaving(false); }
@@ -92,6 +99,7 @@ export default function SetupPage() {
         })}</ol>
       </aside>
       <div className="onboarding-content">
+        {preview && <span className="onboarding-preview-badge" role="status">{t('setup.previewBadge')}</span>}
         {error && <div className="setup-error" role="alert">{error}</div>}
         {step === 0 && <div className="onboarding-panel"><div className="onboarding-body"><h2>{t('setup.welcomeTitle')}</h2><p>{t('setup.welcomeDescription')}</p></div><div className="onboarding-actions"><button className="onboarding-primary" onClick={() => setStep(1)}>{t('setup.start')} <ArrowRight size={16} /></button></div></div>}
         {step === 1 && <div className="onboarding-panel"><div className="onboarding-body"><h2>{t('setup.orgQuestion')}</h2><p>{t('setup.orgDescription')}</p><label className="setup-field">{t('setup.language')}<select value={form.locale} onChange={(event) => { const next = event.target.value as AppLocale; update('locale', next); setLocale(next); }}><option value="pt-PT">Português (Portugal)</option><option value="en-US">English (United States)</option></select></label>{fields('organizationName', t('setup.orgName'), t('setup.orgNameExample'), true)}{fields('organizationCode', t('setup.shortCode'), t('setup.shortCodeExample'))}<label className="setup-field">{t('setup.timezone')}<select value={form.timezone} onChange={(event) => update('timezone', event.target.value)}><option>Europe/Lisbon</option><option>UTC</option><option>Europe/London</option><option>Europe/Madrid</option></select></label></div><div className="onboarding-actions">{backButton(0)}<button className="onboarding-primary" disabled={!form.organizationName.trim() || saving} onClick={() => void saveOrganization()}>{saving ? t('setup.saving') : <>{t('setup.continue')} <ArrowRight size={16} /></>}</button></div></div>}
