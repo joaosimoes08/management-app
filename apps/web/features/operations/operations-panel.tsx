@@ -81,7 +81,7 @@ export function OperationsPanel({ showAlerts = true, showQuality = true, compact
     await act(() => resolveOperationalAlert(alert.id));
   };
   // Global alerts (no Site) can only be changed by ADMIN, as the API enforces.
-  const canEditAlert = (alert: OperationalAlert) => canEdit && (alert.siteId !== null || hasRole('ADMIN'));
+  const canEditAlert = (alert: OperationalAlert) => canEdit && (alert.siteId != null || hasRole('ADMIN'));
   const alertRows = alerts.map((alert) => {
     const href = alertTargetHref(alert);
     return <div className={`alert-row ${alert.severity.toLowerCase()}`} key={alert.id}><AlertTriangle size={15} aria-hidden="true" /><span><strong>{compact && <SeverityTag severity={alert.severity} />}{href ? <a href={href}>{alert.title}</a> : alert.title}</strong>{alert.detail && <small>{alert.detail}</small>}<small className="alert-next-step">{alertNextStep(alert)}</small></span>{canEditAlert(alert) && <span className="button-row">{alert.status !== 'ACKNOWLEDGED' && <button className="secondary-button" onClick={() => void act(() => acknowledgeOperationalAlert(alert.id))} aria-label={`Reconhecer ${alert.title}`}>Reconhecer</button>}<SnoozeSelect compact label={`Adiar ${alert.title}`} onPick={(hours) => void act(() => snoozeOperationalAlert(alert.id, hours))} /><button className="secondary-button" onClick={() => void resolve(alert)} aria-label={`Resolver ${alert.title}`}><Check size={13} /> Resolver</button></span>}</div>;
