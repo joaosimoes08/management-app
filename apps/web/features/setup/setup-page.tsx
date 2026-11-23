@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, LazyMotion, MotionConfig, domMax, useReducedMotion } from 'motion/react';
 import * as m from 'motion/react-m';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ArrowRight, Building2, Check, Flag, MapPin, ShieldCheck, Sparkles, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Building2, Check, DoorOpen, Flag, MapPin, ShieldCheck, type LucideIcon } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { currentSearch, designPreviewStep, isDesignPreview } from '@/lib/design-preview';
 import { AppLocale, useI18n } from '@/lib/i18n';
@@ -14,7 +14,7 @@ import { completeSetup, createSetupOrganization, createSetupSite, getSetupStatus
 
 type SetupForm = { organizationName: string; organizationCode: string; timezone: string; locale: AppLocale; siteName: string; siteCode: string; address: string; city: string; region: string; country: string; buildingName: string; roomName: string; rackName: string };
 
-const SETUP_STEP_ICONS: LucideIcon[] = [Sparkles, Building2, MapPin, Flag];
+const SETUP_STEP_ICONS: LucideIcon[] = [DoorOpen, Building2, MapPin, Flag];
 
 function ProgressRing({ current, total, label, reduceMotion }: { current: number; total: number; label: string; reduceMotion: boolean }) {
   const radius = 24;

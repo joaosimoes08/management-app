@@ -39,6 +39,8 @@ describe('SetupPage design preview', () => {
     renderAt('?preview=1');
     expect(await screen.findByText('setup.welcomeTitle')).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('setup.previewBadge');
+    expect(document.querySelector('.lucide-sparkles')).toBeNull();
+    expect(document.querySelector('.lucide-door-open')).not.toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: /setup.start/ }));
     fireEvent.click(await screen.findByRole('button', { name: /setup.continue/ }));
