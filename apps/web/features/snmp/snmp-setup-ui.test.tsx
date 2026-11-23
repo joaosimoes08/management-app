@@ -71,14 +71,15 @@ describe('SnmpUnknownTrapsView', () => {
     expect(preRegisterHref('fe80::1')).toBe('/descoberta?tab=snmp&preRegister=fe80%3A%3A1');
   });
 
-  it('ignores a source only after confirming', async () => {
+  it('hides the existing traps of a source only after confirming', async () => {
     mockedFetch.mockImplementation(async (url: string, init?: RequestInit) => init?.method === 'POST' ? { sourceAddress: '10.9.9.9', ignored: 12 } : sources);
     wrap(<SnmpUnknownTrapsView />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Ignorar 10.9.9.9' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Ocultar as traps existentes de 10.9.9.9' }));
     const dialog = await screen.findByRole('alertdialog').catch(() => screen.findByRole('dialog'));
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Ignorar' }));
+    expect(within(dialog).getByText('Ocultar as traps já recebidas de 10.9.9.9? Deixam de aparecer nesta lista e o alerta desta origem fecha. O IP não fica bloqueado: traps novas deste IP voltam a aparecer aqui.')).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Ocultar traps existentes' }));
     await waitFor(() => expect(mockedFetch).toHaveBeenCalledWith('/api/v1/snmp/traps/unmatched/ignore', { method: 'POST', body: JSON.stringify({ sourceAddress: '10.9.9.9' }) }));
-    expect(await screen.findByText('10.9.9.9: 12 traps ignoradas.')).toBeInTheDocument();
+    expect(await screen.findByText('10.9.9.9: 12 traps existentes ocultadas.')).toBeInTheDocument();
   });
 
   it('shows the empty state', async () => {
