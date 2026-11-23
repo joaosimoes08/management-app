@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { collectTrapSourceAlerts, planTrapSourceAlerts, TRAP_SOURCE_ALERT_SOURCE, trapSourceDedupKey } from './trap-alerts';
+import { collectTrapSourceAlerts, planTrapSourceAlerts, TRAP_SOURCE_ALERT_SOURCE, trapSourceDedupKey, trapSourceDeviceMap } from './trap-alerts';
 
 // SNMP Phase 1 step 2: UNMATCHED and REJECTED traps raise one WARNING alert per source IP.
 const at = (minutesAgo: number) => new Date(Date.now() - minutesAgo * 60_000);
@@ -66,4 +66,21 @@ test('collectTrapSourceAlerts reads grouped counts, ignores self-tests and maps 
 test('no bad traps in 24 h: nothing to raise and open source alerts resolve', async () => {
   const db = { snmpTrapEvent: { groupBy: async () => [] }, device: { findMany: async () => [] }, operationalAlert: { findMany: async () => [] } };
   assert.deepEqual(await collectTrapSourceAlerts(db as never, at(24 * 60)), { candidates: [], resolveKeys: [], resolveMissing: true });
+});
+
+test('a source IP documented in two sites is logged and left without a site instead of picking the last one', () => {
+  const warnings: Array<Record<string, unknown>> = [];
+  const map = trapSourceDeviceMap([
+    { managementIp: '10.0.0.1', siteId: 'site-b', name: 'sw-b' },
+    { managementIp: '10.0.0.1', siteId: 'site-a', name: 'sw-a' },
+    { managementIp: '10.0.0.2', siteId: 'site-a', name: 'sw-2' },
+    { managementIp: null, siteId: 'site-a', name: 'no-ip' },
+  ], (_message, meta) => warnings.push(meta));
+  assert.deepEqual(map.get('10.0.0.1'), { siteId: null, name: 'sw-a / sw-b' });
+  assert.deepEqual(map.get('10.0.0.2'), { siteId: 'site-a', name: 'sw-2' });
+  assert.equal(map.size, 2);
+  assert.equal(warnings.length, 1);
+  assert.deepEqual(warnings[0], { errorCode: 'SNMP_TRAP_SOURCE_AMBIGUOUS', sourceAddress: '10.0.0.1', siteIds: ['site-a', 'site-b'], devices: ['sw-a', 'sw-b'] });
+  const plan = planTrapSourceAlerts([{ sourceAddress: '10.0.0.1', status: 'UNMATCHED', errorCode: null, count: 1, lastAt: new Date('2026-11-23T10:00:00Z') }], new Map(), map);
+  assert.equal(plan.candidates[0].siteId, null);
 });

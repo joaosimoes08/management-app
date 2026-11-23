@@ -410,6 +410,10 @@ test('enforces SNMP roles, Site isolation and disabled SET over HTTP', async () 
   assert.equal((await request('PATCH', '/api/v1/settings/organization', 'qa-admin', { timezone: 'Europe/Lisbon' })).statusCode, 200);
   assert.equal((await request('GET', '/api/v1/settings/snmp-listeners', 'qa-network-scoped')).statusCode, 403);
   assert.equal((await request('GET', '/api/v1/settings/snmp-listeners', 'qa-admin')).statusCode, 200);
+  await prisma.snmpListenerConfig.upsert({ where: { id: 'default' }, create: { id: 'default', engineId: '8000b98305aabbccddeeff001122' }, update: { engineId: '8000b98305aabbccddeeff001122' } });
+  const listenerView = (await request('GET', '/api/v1/settings/snmp-listeners', 'qa-admin')).json();
+  assert.equal(listenerView.engineId, '8000b98305aabbccddeeff001122');
+  assert.equal(listenerView.engineIdSource, 'STORED');
   assert.equal((await request('PATCH', '/api/v1/settings/snmp-listeners', 'qa-network-scoped', { listenAll: true, interfaceIds: [] })).statusCode, 403);
   assert.equal((await request('PATCH', '/api/v1/settings/snmp-listeners', 'qa-admin', { listenAll: false, interfaceIds: [] })).statusCode, 400);
   assert.equal((await request('PATCH', '/api/v1/settings/snmp-listeners', 'qa-admin', { listenAll: true, interfaceIds: [] })).statusCode, 200);

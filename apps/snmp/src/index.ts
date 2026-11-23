@@ -23,7 +23,7 @@ const locks = new DeviceLocks(redis);
 const poll = new PollProcessor(prisma, locks);
 const set = new SetProcessor(prisma, locks);
 const traps = new TrapReceiver(prisma, queue);
-const metrics: SnmpMetrics = { jobsCompleted: 0, jobsFailed: 0, trapsProcessed: 0 };
+const metrics: SnmpMetrics = { jobsCompleted: 0, jobsFailed: 0, trapsProcessed: 0, untrustedTrapRowsDropped: () => traps.untrustedRowsDropped() };
 let worker: Worker | undefined;
 let healthServer: Server | undefined;
 const timers: NodeJS.Timeout[] = [];

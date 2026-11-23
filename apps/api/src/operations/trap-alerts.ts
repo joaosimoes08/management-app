@@ -355,6 +355,30 @@ export function planTrapSourceAlerts(bad: TrapSourceRow[], acceptedAt: Map<strin
   return { candidates: candidates.slice(0, TRAP_SOURCE_CAP), resolveMissing: candidates.length <= TRAP_SOURCE_CAP, resolveKeys };
 }
 
+/**
+ * Maps a trap source IP to the device that owns it. One IP can be documented in two sites (overlapping private
+ * ranges): then the alert is not guessed into one of them; it stays global (siteId null), names every candidate and
+ * the ambiguity is logged.
+ */
+export function trapSourceDeviceMap(devices: Array<{ managementIp: string | null; siteId: string | null; name: string }>, warn: (message: string, meta: Record<string, unknown>) => void = (message, meta) => logger.warn(`${message} ${JSON.stringify(meta)}`)) {
+  const byIp = new Map<string, Array<{ siteId: string | null; name: string }>>();
+  for (const device of devices) {
+    if (!device.managementIp) continue;
+    byIp.set(device.managementIp, [...(byIp.get(device.managementIp) ?? []), { siteId: device.siteId, name: device.name }]);
+  }
+  const result = new Map<string, { siteId: string | null; name: string }>();
+  for (const [ip, list] of byIp) {
+    const siteIds = [...new Set(list.map((item) => item.siteId))];
+    if (siteIds.length > 1) {
+      warn('SNMP trap source IP is documented in more than one site; alert left without a site', { errorCode: 'SNMP_TRAP_SOURCE_AMBIGUOUS', sourceAddress: ip, siteIds: siteIds.sort(), devices: list.map((item) => item.name).sort() });
+      result.set(ip, { siteId: null, name: list.map((item) => item.name).sort().join(' / ') });
+    } else {
+      result.set(ip, { siteId: siteIds[0] ?? null, name: list.map((item) => item.name).sort().join(' / ') });
+    }
+  }
+  return result;
+}
+
 export async function collectTrapSourceAlerts(prisma: TrapSourceDb, cutoff: Date) {
   const grouped = await prisma.snmpTrapEvent.groupBy({ by: ['sourceAddress', 'status', 'errorCode'], where: { receivedAt: { gte: cutoff }, status: { in: ['UNMATCHED', 'REJECTED'] }, OR: [{ category: null }, { category: { not: 'SELF_TEST' } }] }, _count: { _all: true }, _max: { receivedAt: true }, orderBy: { _max: { receivedAt: 'desc' } }, take: 1000 });
   const bad: TrapSourceRow[] = grouped.map((row) => ({ sourceAddress: row.sourceAddress, status: row.status, errorCode: row.errorCode ?? null, count: row._count?._all ?? 0, lastAt: row._max?.receivedAt ?? cutoff }));
@@ -368,7 +392,7 @@ export async function collectTrapSourceAlerts(prisma: TrapSourceDb, cutoff: Date
   const plan = planTrapSourceAlerts(
     bad.filter((row) => sources.includes(row.sourceAddress)),
     new Map(accepted.flatMap((row) => row._max?.receivedAt ? [[row.sourceAddress, row._max.receivedAt] as const] : [])),
-    new Map(devices.flatMap((device: any) => device.managementIp ? [[device.managementIp, { siteId: device.siteId, name: device.name }] as const] : [])),
+    trapSourceDeviceMap(devices),
     new Map(resolved.flatMap((alert: any) => alert.resolvedAt ? [[alert.dedupKey, alert.resolvedAt] as const] : [])),
   );
   // a truncated read must not resolve sources it did not look at

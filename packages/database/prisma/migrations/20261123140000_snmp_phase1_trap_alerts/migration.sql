@@ -4,3 +4,6 @@ ALTER TABLE "SnmpDeviceConfig" ADD COLUMN "consecutiveFailures" INTEGER NOT NULL
 ALTER TYPE "SnmpTrapStatus" ADD VALUE IF NOT EXISTS 'REJECTED';
 
 ALTER TABLE "SnmpListenerConfig" ADD COLUMN "engineId" TEXT;
+
+-- Phase 1 review: rejected SNMPv1 traps are stored with their real version. Credentials stay V2C/V3 (API validation).
+ALTER TYPE "SnmpVersion" ADD VALUE IF NOT EXISTS 'V1';
