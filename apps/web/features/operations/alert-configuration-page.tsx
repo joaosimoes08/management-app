@@ -1,9 +1,9 @@
 'use client';
 
 import { DateTimeInput } from '@/components/ui/date-time-input';
-import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useId, useState } from 'react';
 import { Pencil, RefreshCw, X } from 'lucide-react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppShell } from '@/components/layout/app-shell';
 import { useTableUrlState } from '@/components/data-table';
 import { useConfirm } from '@/components/ui/confirm-dialog';
@@ -14,8 +14,9 @@ import { useAuth } from '@/lib/auth';
 import { apiFetch } from '@/lib/api/client';
 import { formatDateTime } from '@/lib/format/date';
 import { useSiteContext } from '@/lib/site-context';
-import { patchAlertRule, patchMaintenanceWindow, type AlertRule as Rule, type AlertRulePatch, type MaintenanceWindowPatch } from './api';
+import { listAlertSources, patchAlertRule, patchMaintenanceWindow, type AlertRule as Rule, type AlertRulePatch, type MaintenanceWindowPatch } from './api';
 import { AlertList, MaintenanceSummaryPanel, alertListConfig, alertSeverities } from './alerts-overview';
+import { alertSourceLabel, alertSourceLabels, severityMeanings, severityName } from './alert-meta';
 
 type Window = { id: string; name: string; reason?: string | null; siteId?: string | null; startsAt: string; endsAt: string; site?: { id: string; name: string } | null };
 type Site = { id: string; name: string };
@@ -49,7 +50,7 @@ export default function AlertConfigurationPage() {
   return <>{confirmDialog}<AppShell section="Alertas" search={{ value: table.search, onChange: table.setSearch, placeholder: 'Pesquisar alertas…', ariaLabel: 'Pesquisar alertas' }} actions={<><button className="topbar-action secondary-button" disabled={busy} onClick={refresh}><RefreshCw size={14} /> Atualizar</button>{(admin || hasRole('AUDITOR')) && <a className="secondary-button" href="/auditoria">Histórico de auditoria</a>}</>}><div className="module-page"><header className="workspace-head"><div><span className="section-kicker">OPERAÇÕES</span><h1>Alertas</h1><p>Alertas por resolver, janelas de manutenção e regras de alerta. Alertas críticos permanecem ativos durante qualquer janela.</p></div></header>
     <AlertList siteId={siteId} table={table} />
     <MaintenanceSummaryPanel siteId={table.filters.scope === 'all' ? '' : siteId} />
-    {admin && <>{error && <div className="ipam-alert error">{error}</div>}<section className="panel settings-panel" id="regras"><div className="panel-heading"><div><span className="section-kicker">REGRAS</span><h2>Regras de alerta</h2></div></div><form className="settings-form" onSubmit={saveRule}><label>Nome<input required maxLength={120} value={rule.name} onChange={(e) => setRule({ ...rule, name: e.target.value })} /></label><label>Tipo de evento<input required maxLength={100} placeholder="Ex.: SNMP_DRIFT" value={rule.source} onChange={(e) => setRule({ ...rule, source: e.target.value })} /></label><label>Site<select value={rule.siteId} onChange={(e) => setRule({ ...rule, siteId: e.target.value })}><option value="">Todos os Sites</option>{sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</select></label><label>Severidade mínima<select value={rule.minSeverity} onChange={(e) => setRule({ ...rule, minSeverity: e.target.value })}>{alertSeverities.map((severity) => <option key={severity}>{severity}</option>)}</select></label><button className="primary-button" disabled={busy}>Adicionar regra</button></form><div className="audit-list">{rules.map((item) => <div className="audit-row" key={item.id}><span><strong>{item.name}</strong><small>{item.source} · {item.site?.name ?? 'Todos os Sites'} · mínimo {item.minSeverity} · {item.enabled ? 'Ativa' : 'Inativa'}</small>{item.activeAlerts && <RuleAlertCountsLine rule={item} />}</span><span className="table-actions"><label className="checkbox-label"><input type="checkbox" checked={item.enabled} disabled={busy} onChange={() => toggleRule(item)} aria-label={`${item.enabled ? 'Desativar' : 'Ativar'} regra ${item.name}`} /> Ativa</label><button className="icon-button subtle" disabled={busy} onClick={() => setEditingRule(item)} aria-label={`Editar regra ${item.name}`} title="Editar"><Pencil size={14} /></button><button className="secondary-button" disabled={busy} onClick={() => void deleteRule(item)}>Eliminar</button></span></div>)}{!rules.length && <div className="no-data">Ainda não existem regras configuradas.</div>}</div></section><section className="panel settings-panel"><div className="panel-heading"><div><span className="section-kicker">JANELAS DE MANUTENÇÃO</span><h2>Períodos agendados</h2></div></div><form className="settings-form" onSubmit={saveWindow}><label>Nome<input required maxLength={120} value={windowForm.name} onChange={(e) => setWindowForm({ ...windowForm, name: e.target.value })} /></label><label>Site<select value={windowForm.siteId} onChange={(e) => setWindowForm({ ...windowForm, siteId: e.target.value })}><option value="">Todos os Sites</option>{sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</select></label><DateTimeInput label="Início" required value={windowForm.startsAt} onChange={(value) => setWindowForm({ ...windowForm, startsAt: value })} /><DateTimeInput label="Fim" required value={windowForm.endsAt} onChange={(value) => setWindowForm({ ...windowForm, endsAt: value })} /><label>Motivo<textarea maxLength={500} value={windowForm.reason} onChange={(e) => setWindowForm({ ...windowForm, reason: e.target.value })} /></label><button className="primary-button" disabled={busy}>Agendar janela</button></form><div className="audit-list">{windows.map((item) => <div className="audit-row" key={item.id}><span><strong>{item.name}</strong><small>{item.site?.name ?? 'Todos os Sites'} · {formatDateTime(item.startsAt)} — {formatDateTime(item.endsAt)}{item.reason ? ` · ${item.reason}` : ''}</small></span><span className="table-actions"><button className="icon-button subtle" disabled={busy} onClick={() => setEditingWindow(item)} aria-label={`Editar janela ${item.name}`} title="Editar"><Pencil size={14} /></button><button className="secondary-button" disabled={busy} onClick={() => void deleteWindow(item)}>Cancelar</button></span></div>)}{!windows.length && <div className="no-data">Sem janelas agendadas.</div>}</div></section></>}
+    {admin && <>{error && <div className="ipam-alert error">{error}</div>}<section className="panel settings-panel" id="regras"><div className="panel-heading"><div><span className="section-kicker">REGRAS</span><h2>Regras de alerta</h2></div></div><form className="settings-form" onSubmit={saveRule}><label>Nome<input required maxLength={120} value={rule.name} onChange={(e) => setRule({ ...rule, name: e.target.value })} /></label><SourceSelect value={rule.source} onChange={(source) => setRule({ ...rule, source })} /><label>Site<select value={rule.siteId} onChange={(e) => setRule({ ...rule, siteId: e.target.value })}><option value="">Todos os Sites</option>{sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</select></label><SeveritySelect value={rule.minSeverity} onChange={(minSeverity) => setRule({ ...rule, minSeverity })} /><button className="primary-button" disabled={busy}>Adicionar regra</button></form><div className="audit-list">{rules.map((item) => <div className="audit-row" key={item.id}><span><strong>{item.name}</strong><small>{alertSourceLabel(item.source)} <code>{item.source}</code> · {item.site?.name ?? 'Todos os Sites'} · mínimo {severityName(item.minSeverity)} · {item.enabled ? 'Ativa' : 'Inativa'}</small>{item.activeAlerts && <RuleAlertCountsLine rule={item} />}</span><span className="table-actions"><label className="checkbox-label"><input type="checkbox" checked={item.enabled} disabled={busy} onChange={() => toggleRule(item)} aria-label={`${item.enabled ? 'Desativar' : 'Ativar'} regra ${item.name}`} /> Ativa</label><button className="icon-button subtle" disabled={busy} onClick={() => setEditingRule(item)} aria-label={`Editar regra ${item.name}`} title="Editar"><Pencil size={14} /></button><button className="secondary-button" disabled={busy} onClick={() => void deleteRule(item)}>Eliminar</button></span></div>)}{!rules.length && <div className="no-data">Ainda não existem regras configuradas.</div>}</div></section><section className="panel settings-panel"><div className="panel-heading"><div><span className="section-kicker">JANELAS DE MANUTENÇÃO</span><h2>Períodos agendados</h2></div></div><form className="settings-form" onSubmit={saveWindow}><label>Nome<input required maxLength={120} value={windowForm.name} onChange={(e) => setWindowForm({ ...windowForm, name: e.target.value })} /></label><label>Site<select value={windowForm.siteId} onChange={(e) => setWindowForm({ ...windowForm, siteId: e.target.value })}><option value="">Todos os Sites</option>{sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</select></label><DateTimeInput label="Início" required value={windowForm.startsAt} onChange={(value) => setWindowForm({ ...windowForm, startsAt: value })} /><DateTimeInput label="Fim" required value={windowForm.endsAt} onChange={(value) => setWindowForm({ ...windowForm, endsAt: value })} /><label>Motivo<textarea maxLength={500} value={windowForm.reason} onChange={(e) => setWindowForm({ ...windowForm, reason: e.target.value })} /></label><button className="primary-button" disabled={busy}>Agendar janela</button></form><div className="audit-list">{windows.map((item) => <div className="audit-row" key={item.id}><span><strong>{item.name}</strong><small>{item.site?.name ?? 'Todos os Sites'} · {formatDateTime(item.startsAt)} — {formatDateTime(item.endsAt)}{item.reason ? ` · ${item.reason}` : ''}</small></span><span className="table-actions"><button className="icon-button subtle" disabled={busy} onClick={() => setEditingWindow(item)} aria-label={`Editar janela ${item.name}`} title="Editar"><Pencil size={14} /></button><button className="secondary-button" disabled={busy} onClick={() => void deleteWindow(item)}>Cancelar</button></span></div>)}{!windows.length && <div className="no-data">Sem janelas agendadas.</div>}</div></section></>}
     {editingRule && <RuleDialog rule={editingRule} sites={sites} close={() => setEditingRule(null)} save={submitRule} />}
     {editingWindow && <WindowDialog item={editingWindow} sites={sites} close={() => setEditingWindow(null)} save={submitWindow} />}
   </div></AppShell></>;
@@ -60,6 +61,28 @@ function RuleAlertCountsLine({ rule }: { rule: Rule }) {
   const counts = rule.activeAlerts!;
   const href = alertListHref(rule.siteId ?? undefined, { source: rule.source, scope: rule.siteId ? undefined : 'all' });
   return <small>Alertas ativos: <a className="text-button" href={href} aria-label={`Ver ${counts.matching} alertas ativos de ${rule.name}`}>{counts.matching}</a>{counts.governed > 0 && ` · ${counts.shown} visíveis · ${counts.belowThreshold} abaixo do mínimo · ${counts.inMaintenance} em manutenção`}</small>;
+}
+
+/**
+ * Event type of a rule: the sources the back end raises plus any source already stored
+ * (GET /operations/alerts/sources). A rule saved with another code keeps it as an option.
+ */
+function SourceSelect({ value, onChange }: { value: string; onChange: (source: string) => void }) {
+  const query = useQuery({ queryKey: ['operations', 'alert-sources'], queryFn: listAlertSources, retry: false, staleTime: 60_000 });
+  const known = query.data?.items ?? Object.keys(alertSourceLabels);
+  const options = value && !known.includes(value) ? [...known, value] : known;
+  return <label>Tipo de evento<select required value={value} onChange={(event) => onChange(event.target.value)}>
+    <option value="">Escolher tipo de evento…</option>
+    {options.map((source) => <option key={source} value={source}>{alertSourceLabel(source) === source ? source : `${alertSourceLabel(source)} (${source})`}</option>)}
+  </select></label>;
+}
+
+/** Minimum severity in Portuguese, with what each level means. */
+function SeveritySelect({ value, onChange }: { value: string; onChange: (severity: string) => void }) {
+  const meaningId = useId();
+  return <div className="field-with-hint"><label>Severidade mínima<select value={value} onChange={(event) => onChange(event.target.value)} aria-describedby={meaningId}>
+    {alertSeverities.map((severity) => <option key={severity} value={severity}>{severityName(severity)}</option>)}
+  </select></label><small id={meaningId}>{severityMeanings[value] ?? ''}</small></div>;
 }
 
 function RuleDialog({ rule, sites, close, save }: { rule: Rule; sites: Site[]; close: () => void; save: (patch: AlertRulePatch) => Promise<string> }) {
@@ -83,9 +106,9 @@ function RuleDialog({ rule, sites, close, save }: { rule: Rule; sites: Site[]; c
   return <IpamModal title={`Editar regra ${rule.name}`} close={close}><form className="modal-form" onSubmit={(event) => void onSubmit(event)}>
     {error && <div className="ipam-alert error" role="alert"><X size={15} />{error}</div>}
     <label>Nome<input required autoFocus maxLength={120} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
-    <label>Tipo de evento<input required maxLength={100} value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} /></label>
+    <SourceSelect value={form.source} onChange={(source) => setForm({ ...form, source })} />
     <label>Site<select value={form.siteId} onChange={(e) => setForm({ ...form, siteId: e.target.value })}><option value="">Todos os Sites</option>{sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</select></label>
-    <label>Severidade mínima<select value={form.minSeverity} onChange={(e) => setForm({ ...form, minSeverity: e.target.value })}>{alertSeverities.map((severity) => <option key={severity}>{severity}</option>)}</select></label>
+    <SeveritySelect value={form.minSeverity} onChange={(minSeverity) => setForm({ ...form, minSeverity })} />
     <label className="checkbox-label"><input type="checkbox" checked={form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} /> Regra ativa</label>
     <div className="modal-actions"><button type="button" className="secondary-button" onClick={close}>Cancelar</button><button className="primary-button" disabled={saving}>{saving ? 'A guardar…' : 'Guardar regra'}</button></div>
   </form></IpamModal>;

@@ -27,6 +27,7 @@ const alertItem = { id: 'a1', source: 'SNMP_DRIFT', siteId: 'site-1', site: { id
 function route(path: string, init?: RequestInit) {
   if (path.startsWith('/api/v1/operations/alerts?')) return Promise.resolve({ items: [alertItem], total: 1, page: 1, pageSize: 100 });
   if (path.startsWith('/api/v1/operations/maintenance/summary')) return Promise.resolve(maintenance);
+  if (path === '/api/v1/operations/alerts/sources') return Promise.resolve({ items: ['SNMP_DRIFT', 'SNMP_TRAP', 'CUSTOM_HOOK'] });
   if (path === '/api/v1/operations/configuration') return Promise.resolve({ rules: [rule], windows: [windowItem] });
   if (init?.method === 'PATCH') return Promise.resolve({});
   return Promise.reject(new Error(`unexpected ${path}`));
@@ -94,6 +95,16 @@ describe('Alert rules and maintenance windows (ADMIN)', () => {
     const link = await screen.findByRole('link', { name: 'Ver 4 alertas ativos de Drifts' });
     expect(link).toHaveAttribute('href', '/alertas?source=SNMP_DRIFT&scope=all');
     expect(link.closest('small')).toHaveTextContent('2 visíveis · 1 abaixo do mínimo · 0 em manutenção');
+  });
+
+  it('offers the event types from the API with plain labels and Portuguese severity names', async () => {
+    renderPage();
+    const source = await screen.findByRole('combobox', { name: 'Tipo de evento' });
+    await waitFor(() => expect(within(source).getByRole('option', { name: 'Trap SNMP recebido (SNMP_TRAP)' })).toBeTruthy());
+    expect(within(source).getByRole('option', { name: 'CUSTOM_HOOK' })).toBeTruthy();
+    const severity = screen.getByRole('combobox', { name: 'Severidade mínima' });
+    expect(within(severity).getAllByRole('option').map((option) => option.textContent)).toEqual(['Crítico', 'Alto', 'Aviso', 'Info']);
+    expect(severity.getAttribute('aria-describedby')).toBeTruthy();
   });
 
   it('switches a rule off with PATCH { enabled: false }', async () => {

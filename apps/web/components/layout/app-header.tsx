@@ -2,7 +2,7 @@
 
 import { useEscapeClose } from '@/components/ui/use-escape-close';
 import { isValidElement, useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactElement, type ReactNode } from 'react';
-import { Activity, AlertTriangle, Bell, CheckCircle2, ChevronRight, Menu, Search, X } from 'lucide-react';
+import { Activity, AlertTriangle, Bell, CheckCircle2, ChevronRight, ListChecks, Menu, Search, X } from 'lucide-react';
 import { apiFetch } from '@/lib/api/client';
 import { SiteSwitcher } from './site-switcher';
 import { isMissingConfigAlert, unavailableTopbarState, type TopbarState } from './topbar-state';
@@ -82,12 +82,16 @@ export function AppHeader({ section, moduleTabs, onOpenSidebar, onOpenGlobalSear
     id: 'next-steps-ipam-setup', severity: 'INFO' as const, title: t('shell.nextSteps'),
     detail: t('shell.continueIpam'), href: '/ipam', occurredAt: new Date().toISOString(), persistent: true,
   } : null;
-  // Missing-config alerts are persistent whatever the API says: only fixing the devices clears them.
-  const alerts = [...(nextStepsAlert ? [nextStepsAlert] : []), ...topbarState.alerts.map((alert) => (isMissingConfigAlert(alert) ? { ...alert, persistent: true } : alert))];
+  // Setup to-dos (next steps, devices missing a required config) are not alerts: they have their own
+  // section and never count in the bell. Missing-config to-dos are persistent whatever the API says:
+  // only fixing the devices clears them.
+  const todos = [...(nextStepsAlert ? [nextStepsAlert] : []), ...topbarState.alerts.filter(isMissingConfigAlert).map((alert) => ({ ...alert, persistent: true }))];
+  const alerts = topbarState.alerts.filter((alert) => !isMissingConfigAlert(alert));
   const visibleAlerts = alerts.filter((alert) => alert.persistent || !dismissedAlertIds.has(alert.id));
   const alertCount = topbarState.notificationUnreadCount === undefined
     ? visibleAlerts.length
     : topbarState.notificationUnreadCount + visibleAlerts.filter((alert) => !alert.id.startsWith('notification-')).length;
+  const bellLabel = `${alertCount} ${alertCount === 1 ? 'alerta ativo' : 'alertas ativos'}${todos.length ? ` · ${todos.length} ${todos.length === 1 ? 'tarefa de configuração' : 'tarefas de configuração'}` : ''}`;
   const openAlert = (event: ReactMouseEvent<HTMLAnchorElement>, id: string, href: string) => {
     if (!id.startsWith('notification-')) return;
     const read = markNotificationRead(id.slice('notification-'.length), true).catch(() => undefined);
@@ -107,8 +111,8 @@ export function AppHeader({ section, moduleTabs, onOpenSidebar, onOpenGlobalSear
     <div className="topbar-globals">
       <button className="topbar-search-trigger" onClick={onOpenGlobalSearch} aria-label={ui('ui.searchApp')}><Search size={15} /><span>Pesquisar</span><kbd>⌘ K</kbd></button>
       <div className="topbar-popover-anchor" ref={alertsRef}>
-        <button className="icon-button alerts-trigger" onClick={() => setAlertsOpen((value) => !value)} aria-label={`${alertCount} ${alertCount === 1 ? 'alerta ativo' : 'alertas ativos'}`} aria-expanded={alertsOpen} aria-haspopup="dialog"><Bell size={17} />{alertCount > 0 && <span className="alert-count">{alertCount > 9 ? '9+' : alertCount}</span>}</button>
-        {alertsOpen && <section className="topbar-popover alerts-popover" role="dialog" aria-label="Centro de alertas"><PopoverHeading eyebrow="CENTRO DE ALERTAS" title={`${alertCount} ${alertCount === 1 ? 'ativo' : 'ativos'}`} onClose={closeAlerts} action={visibleAlerts.length ? <button className="clear-alerts-button" type="button" onClick={clearAlerts}>Limpar todos</button> : undefined} />{topbarState.processes.length > 0 && <div className="running-processes"><span><Activity size={13} /> Em execução</span>{topbarState.processes.map((process) => <a href={process.href} key={process.id}><i /><span><strong>{process.label}</strong><small>{process.detail} · {process.state}</small></span><ChevronRight size={13} /></a>)}</div>}<div className="alert-list">{visibleAlerts.length ? visibleAlerts.map((alert) => <a href={alert.href} onClick={(event) => openAlert(event, alert.id, alert.href)} className={`${alert.severity.toLowerCase()}${alert.persistent ? ' persistent' : ''}${isMissingConfigAlert(alert) ? ' missing-config' : ''}`} data-kind={'kind' in alert ? alert.kind : undefined} key={alert.id}><span className="alert-severity">{alert.severity === 'INFO' ? <Activity size={14} /> : <AlertTriangle size={14} />}</span><span><strong>{alert.title}</strong><small>{alert.detail}</small>{!alert.persistent && <time>{formatDateTime(alert.occurredAt)}</time>}</span><ChevronRight size={13} /></a>) : <div className="alerts-empty"><CheckCircle2 size={20} /><strong>Sem alertas ativos</strong><span>O ambiente não requer atenção.</span></div>}</div></section>}
+        <button className="icon-button alerts-trigger" onClick={() => setAlertsOpen((value) => !value)} aria-label={bellLabel} aria-expanded={alertsOpen} aria-haspopup="dialog"><Bell size={17} />{alertCount > 0 ? <span className="alert-count">{alertCount > 9 ? '9+' : alertCount}</span> : todos.length > 0 && <span className="alert-todo-dot" aria-hidden="true" />}</button>
+        {alertsOpen && <section className="topbar-popover alerts-popover" role="dialog" aria-label="Centro de alertas"><PopoverHeading eyebrow="CENTRO DE ALERTAS" title={`${alertCount} ${alertCount === 1 ? 'ativo' : 'ativos'}`} onClose={closeAlerts} action={visibleAlerts.length ? <button className="clear-alerts-button" type="button" onClick={clearAlerts}>Limpar todos</button> : undefined} />{topbarState.processes.length > 0 && <div className="running-processes"><span><Activity size={13} /> Em execução</span>{topbarState.processes.map((process) => <a href={process.href} key={process.id}><i /><span><strong>{process.label}</strong><small>{process.detail} · {process.state}</small></span><ChevronRight size={13} /></a>)}</div>}<div className="alert-list">{visibleAlerts.length ? visibleAlerts.map((alert) => <a href={alert.href} onClick={(event) => openAlert(event, alert.id, alert.href)} className={`${alert.severity.toLowerCase()}${alert.persistent ? ' persistent' : ''}`} data-kind={'kind' in alert ? alert.kind : undefined} key={alert.id}><span className="alert-severity">{alert.severity === 'INFO' ? <Activity size={14} /> : <AlertTriangle size={14} />}</span><span><strong>{alert.title}</strong><small>{alert.detail}</small>{!alert.persistent && <time>{formatDateTime(alert.occurredAt)}</time>}</span><ChevronRight size={13} /></a>) : <div className="alerts-empty"><CheckCircle2 size={20} /><strong>Sem alertas ativos</strong><span>O ambiente não requer atenção.</span></div>}</div>{todos.length > 0 && <div className="alert-list alert-setup-list" role="group" aria-label="Tarefas de configuração"><span className="alert-setup-heading"><ListChecks size={13} /> Tarefas de configuração</span>{todos.map((todo) => <a href={todo.href} className={`${todo.severity.toLowerCase()} persistent${isMissingConfigAlert(todo) ? ' missing-config' : ''}`} data-kind={'kind' in todo ? todo.kind : undefined} key={todo.id}><span className="alert-severity"><ListChecks size={14} /></span><span><strong>{todo.title}</strong><small>{todo.detail}</small></span><ChevronRight size={13} /></a>)}</div>}</section>}
       </div>
     </div>
   </header>;

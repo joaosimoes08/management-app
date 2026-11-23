@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { DashboardService } from './dashboard.service';
+import { DashboardService, topbarAlertHref } from './dashboard.service';
 
 function serviceWith(prisma: Record<string, unknown>, queue: Record<string, unknown> = {}, operations: Record<string, unknown> = { list: async () => ({ items: [] }) }) {
   const service = Object.create(DashboardService.prototype) as DashboardService;
@@ -123,4 +123,12 @@ test('topbar state stays up when the missing-config source fails, and the failur
     assert.deepEqual(result.alerts, []);
   } finally { Logger.prototype.warn = original; }
   assert.ok(warnings.some((message) => message.includes('db down')), warnings.join('|'));
+});
+
+test('topbar trap alerts open the device that sent them; other alerts keep their own link', () => {
+  assert.equal(topbarAlertHref({ source: 'SNMP_TRAP', actionHref: '/snmp?tab=traps', relatedDeviceId: 'dev 1', siteId: 'site-1' }), '/infraestrutura/equipamentos/dev%201?siteId=site-1');
+  assert.equal(topbarAlertHref({ source: 'SNMP_TRAP', actionHref: '/snmp?tab=traps', relatedDeviceId: null, siteId: 'site-1' }), '/snmp?tab=traps');
+  assert.equal(topbarAlertHref({ source: 'SNMP_DRIFT', actionHref: '/snmp?drift=1', relatedDeviceId: 'dev', siteId: null }), '/snmp?drift=1');
+  assert.equal(topbarAlertHref({ source: 'CAPACITY', actionHref: null, relatedDeviceId: 'dev', siteId: null }), '/infraestrutura/equipamentos/dev');
+  assert.equal(topbarAlertHref({ source: 'SYSTEM_HEALTH', actionHref: null, relatedDeviceId: null, siteId: null }), '/');
 });

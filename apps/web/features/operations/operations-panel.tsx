@@ -1,17 +1,17 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Check, Clock3, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Check, RefreshCw } from 'lucide-react';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useAuth } from '@/lib/auth';
 import { useSiteContext } from '@/lib/site-context';
 import { acknowledgeOperationalAlert, getInventoryQuality, getInventoryQualityItems, listOperationalAlerts, readAllOperationalAlerts, resolveOperationalAlert, snoozeOperationalAlert, type InventoryFinding, type InventoryQuality, type OperationalAlert } from './api';
 import { useOperationalEvents } from './use-operational-events';
+import { alertNextStep, alertTargetHref } from './alert-meta';
+import { OPERATOR_ROLES, ReadOnlyAlertNote, SnoozeSelect } from './alert-actions';
+import { SeverityLegend, SeverityTag } from './alert-severity';
 
-const severityLabels: Record<string, string> = { CRITICAL: 'Crítico', HIGH: 'Alto', MEDIUM: 'Médio', WARNING: 'Aviso', LOW: 'Baixo', INFO: 'Info' };
+export { SeverityTag };
 const severityRank: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, WARNING: 2, LOW: 3, INFO: 3 };
-export function SeverityTag({ severity }: { severity: string }) {
-  const key = severity.toUpperCase();
-  return <span className={`severity-tag ${key.toLowerCase()}`}>{severityLabels[key] ?? key}</span>;
-}
 
 /** Dashboard alert list: only what still needs attention (OPEN + ACKNOWLEDGED), matching the severity tiles. SNOOZED is excluded. */
 async function listProblemAlerts(siteId: string | undefined): Promise<{ items: OperationalAlert[]; total: number }> {
@@ -38,7 +38,8 @@ export function OperationsPanel({ showAlerts = true, showQuality = true, compact
   const siteId = scopedSiteId || contextSiteId;
   const [alerts, setAlerts] = useState<OperationalAlert[]>([]); const [alertTotal, setAlertTotal] = useState(0); const [quality, setQuality] = useState<InventoryQuality>(); const [findings, setFindings] = useState<InventoryFinding[]>();
   const [loaded, setLoaded] = useState(false); const [loadError, setLoadError] = useState(false); const [qualityError, setQualityError] = useState(false);
-  const canEdit = hasRole('ADMIN') || hasRole('NETWORK_OPERATOR') || hasRole('SYSTEMS_OPERATOR');
+  const canEdit = OPERATOR_ROLES.some((role) => hasRole(role));
+  const { confirm, confirmDialog } = useConfirm();
   const requestRef = useRef(0);
   // A new scope must never show the previous site's numbers, not even while loading or after a failed request.
   useEffect(() => { setAlerts([]); setAlertTotal(0); setQuality(undefined); setFindings(undefined); setLoaded(false); setLoadError(false); setQualityError(false); }, [siteId]);
@@ -75,10 +76,19 @@ export function OperationsPanel({ showAlerts = true, showQuality = true, compact
   useEffect(() => { void load(); }, [load]);
   useOperationalEvents({ fallback: () => load(), onEvent: (event) => { if (event.event !== 'heartbeat') void load(true); } });
   const act = async (fn: () => Promise<unknown>) => { await fn(); await load(true); };
-  const alertRows = alerts.map((alert) => <div className={`alert-row ${alert.severity.toLowerCase()}`} key={alert.id}><AlertTriangle size={15} aria-hidden="true" /><span><strong>{compact && <SeverityTag severity={alert.severity} />}{alert.title}</strong><small>{alert.detail ?? 'Requer atenção operacional.'}</small></span>{canEdit && <span className="button-row"><button className="secondary-button" onClick={() => void act(() => acknowledgeOperationalAlert(alert.id))}>Reconhecer</button><button className="secondary-button" onClick={() => void act(() => snoozeOperationalAlert(alert.id))}><Clock3 size={13} /> Adiar</button><button className="secondary-button" onClick={() => void act(() => resolveOperationalAlert(alert.id))}><Check size={13} /> Resolver</button></span>}</div>);
+  const resolve = async (alert: OperationalAlert) => {
+    if (!await confirm({ title: 'Resolver alertas', message: `Resolver o alerta "${alert.title}"?\nSai da lista de alertas ativos; se o problema voltar a ocorrer, abre um novo alerta.`, confirmLabel: 'Resolver' })) return;
+    await act(() => resolveOperationalAlert(alert.id));
+  };
+  // Global alerts (no Site) can only be changed by ADMIN, as the API enforces.
+  const canEditAlert = (alert: OperationalAlert) => canEdit && (alert.siteId !== null || hasRole('ADMIN'));
+  const alertRows = alerts.map((alert) => {
+    const href = alertTargetHref(alert);
+    return <div className={`alert-row ${alert.severity.toLowerCase()}`} key={alert.id}><AlertTriangle size={15} aria-hidden="true" /><span><strong>{compact && <SeverityTag severity={alert.severity} />}{href ? <a href={href}>{alert.title}</a> : alert.title}</strong>{alert.detail && <small>{alert.detail}</small>}<small className="alert-next-step">{alertNextStep(alert.source)}</small></span>{canEditAlert(alert) && <span className="button-row">{alert.status !== 'ACKNOWLEDGED' && <button className="secondary-button" onClick={() => void act(() => acknowledgeOperationalAlert(alert.id))} aria-label={`Reconhecer ${alert.title}`}>Reconhecer</button>}<SnoozeSelect compact label={`Adiar ${alert.title}`} onPick={(hours) => void act(() => snoozeOperationalAlert(alert.id, hours))} /><button className="secondary-button" onClick={() => void resolve(alert)} aria-label={`Resolver ${alert.title}`}><Check size={13} /> Resolver</button></span>}</div>;
+  });
   const alertError = <div className="no-data panel-load-error" role="alert">{alerts.length ? 'Não foi possível atualizar os alertas. A lista pode estar desatualizada.' : 'Não foi possível carregar os alertas. Tenta atualizar.'}</div>;
   const alertEmpty = !loaded ? <div className="no-data" role="status">A carregar alertas…</div> : loadError ? null : <div className="no-data">Sem alertas ativos.</div>;
-  return <section className={`content-grid ${compact ? 'operations-compact' : ''}`.trim()} aria-label="Operações">{showAlerts && <article className="panel"><div className="panel-heading"><div>{!compact && <span className="section-kicker">OPERAÇÕES</span>}<h2>Alertas ativos{compact && alertTotal > 0 ? <span className="panel-count"> · {alertTotal > alerts.length ? `${alerts.length} de ${alertTotal}` : alertTotal}</span> : null}</h2></div><span className="button-row"><a className="text-button" href={siteId ? `/alertas?siteId=${encodeURIComponent(siteId)}` : '/alertas'}>{compact ? 'Ver tudo' : 'Lista de alertas'}</a>{!compact && hasRole('ADMIN') && <a className="text-button" href="/alertas#regras">Regras</a>}<button className="icon-button subtle" onClick={() => void load()} aria-label="Atualizar alertas"><RefreshCw size={16} /></button></span></div>{loadError && alertError}{alerts.length ? (compact ? <div className="alert-list dashboard-scroll" tabIndex={0} role="region" aria-label="Lista de alertas ativos">{alertRows}</div> : <div className="alert-list">{alertRows}</div>) : alertEmpty}{alerts.length > 0 && <button className="text-button" onClick={() => void readAllOperationalAlerts().then(() => load())}>Marcar tudo como lido</button>}</article>}{showQuality && <InventoryQualityCard quality={quality} findings={compact ? findings : undefined} compact={compact} error={qualityError} />}</section>;
+  return <section className={`content-grid ${compact ? 'operations-compact' : ''}`.trim()} aria-label="Operações">{confirmDialog}{showAlerts && <article className="panel"><div className="panel-heading"><div>{!compact && <span className="section-kicker">OPERAÇÕES</span>}<h2>Alertas ativos{compact && alertTotal > 0 ? <span className="panel-count"> · {alertTotal > alerts.length ? `${alerts.length} de ${alertTotal}` : alertTotal}</span> : null}</h2></div><span className="button-row"><a className="text-button" href={siteId ? `/alertas?siteId=${encodeURIComponent(siteId)}` : '/alertas'}>{compact ? 'Ver tudo' : 'Lista de alertas'}</a>{!compact && hasRole('ADMIN') && <a className="text-button" href="/alertas#regras">Regras</a>}<button className="icon-button subtle" onClick={() => void load()} aria-label="Atualizar alertas"><RefreshCw size={16} /></button></span></div>{loadError && alertError}{compact && <p className="panel-description alert-card-note">Adiados não aparecem aqui. <a href={siteId ? `/alertas?siteId=${encodeURIComponent(siteId)}&status=SNOOZED` : '/alertas?status=SNOOZED'}>Ver adiados</a></p>}{!canEdit && alerts.length > 0 && <ReadOnlyAlertNote />}<SeverityLegend />{alerts.length ? (compact ? <div className="alert-list dashboard-scroll" tabIndex={0} role="region" aria-label="Lista de alertas ativos">{alertRows}</div> : <div className="alert-list">{alertRows}</div>) : alertEmpty}{alerts.length > 0 && <button className="text-button" onClick={() => void readAllOperationalAlerts().then(() => load())}>Marcar tudo como lido</button>}</article>}{showQuality && <InventoryQualityCard quality={quality} findings={compact ? findings : undefined} compact={compact} error={qualityError} />}</section>;
 }
 
 /** pt-PT count phrase: singular for exactly 1, plural otherwise. */

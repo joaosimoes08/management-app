@@ -13,7 +13,6 @@ const operationalFiles = [
   'apps/web/features/portal/check-all-panel.tsx',
   'apps/web/features/netapp/netapp-capacity.tsx',
   'apps/web/features/infrastructure/components/rack/rack-power-summary.tsx',
-  'apps/web/features/infrastructure/components/rack/rack-unit-reservations.tsx',
   'apps/web/features/settings/components/role-request-queue.tsx',
   'apps/web/features/audit/audit-page.tsx',
   'apps/web/features/audit/workspace.ts',
@@ -63,6 +62,13 @@ const operationalFiles = [
   'apps/web/features/change-plans/plan-impact.tsx',
   // Step 36 tags on devices and subnets
   'apps/web/features/tags/tag-components.tsx',
+  // SNMP Phase 1: alert actions, detail, severity meanings
+  'apps/web/features/operations/alert-meta.ts',
+  'apps/web/features/operations/alert-actions.tsx',
+  'apps/web/features/operations/alert-detail.tsx',
+  'apps/web/features/operations/alert-severity.tsx',
+  'apps/web/features/operations/operations-panel.tsx',
+  'apps/web/components/layout/app-header.tsx',
 ];
 
 function sourceFile(relative, kind = ts.ScriptKind.TSX) {

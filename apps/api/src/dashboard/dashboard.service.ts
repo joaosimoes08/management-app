@@ -64,6 +64,12 @@ export type GlobalSearchResult = {
   actionHref?: string;
 };
 
+/** Trap alerts open the device that sent the trap (Device 360) when it is known; other alerts keep their own link. */
+export function topbarAlertHref(alert: { source: string; actionHref: string | null; relatedDeviceId?: string | null; siteId: string | null }) {
+  if (alert.relatedDeviceId && (alert.source === 'SNMP_TRAP' || !alert.actionHref)) return `/infraestrutura/equipamentos/${encodeURIComponent(alert.relatedDeviceId)}${alert.siteId ? `?siteId=${encodeURIComponent(alert.siteId)}` : ''}`;
+  return alert.actionHref ?? '/';
+}
+
 @Injectable()
 export class DashboardService implements OnModuleDestroy {
   private readonly discoveryQueue = new Queue('discovery', { connection: this.redisConnection() });
@@ -229,7 +235,7 @@ export class DashboardService implements OnModuleDestroy {
       user ? this.requiredConfig.topbarAlerts(user).catch((error: unknown) => { logger.warn(`Alertas de configuração em falta indisponíveis: ${error instanceof Error ? error.message : String(error)}`); return []; }) : Promise.resolve([]),
     ]);
 
-    const alerts: TopbarAlert[] = operationalAlerts.items.map((alert) => ({ id: alert.id, severity: alert.severity === 'HIGH' ? 'CRITICAL' : alert.severity, title: alert.title, detail: alert.detail, href: alert.actionHref ?? '/', occurredAt: alert.lastOccurredAt.toISOString() }));
+    const alerts: TopbarAlert[] = operationalAlerts.items.map((alert) => ({ id: alert.id, severity: alert.severity === 'HIGH' ? 'CRITICAL' : alert.severity, title: alert.title, detail: alert.detail, href: topbarAlertHref(alert), occurredAt: alert.lastOccurredAt.toISOString() }));
     if (pendingRoleRequests > 0) alerts.push({ id: 'role-requests-pending', severity: 'INFO', title: `${pendingRoleRequests} pedido${pendingRoleRequests === 1 ? '' : 's'} de role${pendingRoleRequests === 1 ? '' : 's'} por rever`, detail: 'Existem pedidos de acesso à espera de decisão.', href: '/definicoes?tab=users', occurredAt: new Date().toISOString() });
     const notificationAlerts: TopbarAlert[] = notifications.map((notification) => ({
       id: `notification-${notification.id}`, severity: 'INFO', title: notification.title, detail: notification.message,

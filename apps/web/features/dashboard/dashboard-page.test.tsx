@@ -40,6 +40,8 @@ vi.mock('@/components/layout/app-shell', () => ({
   ToolbarMore: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 vi.mock('@/features/operations/operations-panel', () => ({ OperationsPanel: (props: { siteId?: string; showAlerts?: boolean; showQuality?: boolean }) => { mocks.operationsPanelProps.push(props); return <div />; } }));
+const liveRefresh = vi.hoisted(() => vi.fn());
+vi.mock('@/features/operations/use-live-alert-refresh', () => ({ useLiveAlertRefresh: liveRefresh }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ user: { username: 'tester' }, profile: null, hasRole: (role: string) => mocks.role === role }) }));
 const siteContext = vi.hoisted(() => ({ value: { siteId: null as string | null, resolved: true } }));
 vi.mock('@/lib/site-context', () => ({ useSiteContext: () => siteContext.value }));
@@ -214,6 +216,12 @@ describe('DashboardPage role-gated toolbar action', () => {
 });
 
 describe('DashboardPage drill-through (Phase D)', () => {
+  it('refreshes the severity tiles live on alert events', () => {
+    mocks.role = 'ADMIN';
+    render(<DashboardPage />);
+    expect(liveRefresh).toHaveBeenCalledWith([['dashboard', 'operational']]);
+  });
+
   it('links the KPI tiles to the matching filtered lists', async () => {
     mocks.role = 'ADMIN';
     mocks.operational = {
