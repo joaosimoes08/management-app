@@ -3478,3 +3478,40 @@ small.alert-next-step::before { content:'→ '; }
 .alert-setup-heading { display:flex; align-items:center; gap:6px; padding:10px 14px 4px; color:var(--muted); font:600 10px 'DM Mono', monospace; text-transform:uppercase; letter-spacing:.04em; }
 .alert-todo-dot { position:absolute; top:2px; right:2px; width:8px; height:8px; border:2px solid #fff; border-radius:50%; background:#e3a33b; }
 .app-shell .global-topbar .alert-todo-dot { border-color:#12213a; }
+/* SNMP Phase 1: switch setup panel, inline credential test, setup wizard, receiver facts in Settings. */
+.snmp-setup-panel { display:grid; gap:12px; }
+.snmp-setup-status { display:flex; align-items:center; gap:8px; margin:0; padding:9px 12px; border-radius:9px; font-size:11px; }
+.snmp-setup-status.received { background:#edf7ef; color:#1f6b33; }
+.snmp-setup-status.waiting { background:#fff7e6; color:#8a5a00; }
+.snmp-setup-facts,.settings-snmp-receiver { display:grid; grid-template-columns:minmax(140px,max-content) 1fr; gap:6px 16px; margin:0; font-size:11px; }
+.snmp-setup-facts dt,.settings-snmp-receiver dt { color:var(--muted); }
+.snmp-setup-facts dd,.settings-snmp-receiver dd { margin:0; min-width:0; overflow-wrap:anywhere; }
+.settings-snmp-receiver { margin-top:16px; padding-top:14px; border-top:1px solid var(--line); }
+.settings-snmp-receiver dd small { margin-left:8px; color:var(--muted); font:9px 'DM Mono'; }
+.snmp-setup-missing { color:#8a5a00; }
+.snmp-setup-warning { display:flex; align-items:flex-start; gap:8px; margin:0; padding:9px 12px; border:1px solid #f0d9a8; border-radius:9px; background:#fffaf0; color:#6b4a00; font-size:11px; }
+.snmp-setup-warning svg { flex:0 0 auto; margin-top:1px; }
+.snmp-setup-block { border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+.snmp-setup-block-head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 12px; border-bottom:1px solid var(--line); background:#fafafa; font-size:11px; }
+.snmp-setup-block pre { margin:0; padding:12px; max-height:320px; overflow:auto; font:10px/1.6 'DM Mono',monospace; white-space:pre; }
+.snmp-setup-block pre:focus-visible { outline:2px solid #222; outline-offset:-2px; }
+.snmp-setup-details { border:1px solid var(--line); border-radius:10px; padding:8px 12px; }
+.snmp-setup-details > summary { cursor:pointer; font-size:11px; font-weight:600; }
+.snmp-setup-details[open] > summary { margin-bottom:10px; }
+.snmp-setup-details .snmp-setup-panel { border:0; padding:0; box-shadow:none; }
+.snmp-enrollment-modal { max-height:calc(100vh - 48px); overflow:auto; }
+.snmp-test-result { display:flex!important; flex-wrap:wrap; align-items:center; gap:6px; margin:0; font-size:10px; }
+.snmp-test-result.ok { color:#1f6b33; }
+.snmp-test-result.timeout,.snmp-test-result.auth,.snmp-test-result.failed { color:#a12b2b; }
+.snmp-test-result.running { color:var(--muted); }
+.snmp-test-result span { color:inherit; opacity:.85; }
+.snmp-wizard { width:min(560px,calc(100vw - 32px)); }
+.snmp-wizard-steps { display:flex; flex-wrap:wrap; gap:6px 14px; margin:0 0 14px; padding:0; list-style:none; font-size:10px; color:var(--muted); }
+.snmp-wizard-steps li { display:flex; align-items:center; gap:6px; }
+.snmp-wizard-steps li span { display:inline-grid; place-items:center; width:18px; height:18px; border:1px solid var(--line); border-radius:50%; font-size:9px; }
+.snmp-wizard-steps li.active { color:#222; font-weight:600; }
+.snmp-wizard-steps li.active span { border-color:#222; background:#222; color:#fff; }
+.snmp-wizard-steps li.done span { border-color:#1f6b33; color:#1f6b33; }
+.snmp-wizard-check { display:flex!important; flex-direction:row!important; align-items:center; gap:8px; }
+.snmp-wizard-check input { width:15px!important; height:15px; margin:0!important; accent-color:#222; }
+@media (max-width: 640px) { .snmp-setup-facts,.settings-snmp-receiver { grid-template-columns:1fr; } .snmp-setup-facts dd,.settings-snmp-receiver dd { margin-bottom:6px; } }

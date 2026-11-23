@@ -1,5 +1,6 @@
 import { apiFetch } from '@/lib/api/client';
 import type { BulkReviewResponse } from '@/components/ui/bulk-review-dialog';
+import type { SnmpJobView, SnmpReceiverSettings } from './snmp-setup';
 
 export type SnmpCredentialPurpose = 'READ' | 'WRITE' | 'TRAP';
 export type SnmpVersion = 'V2C' | 'V3';
@@ -10,9 +11,11 @@ export interface SnmpOverview {
   config: SnmpConfig | null;
   credentials: SnmpCredentialSummary[];
   latestSnapshot: null | { id: string; sysName?: string | null; sysDescr?: string | null; sysObjectId?: string | null; sysLocation?: string | null; uptimeTicks?: string | null; observedAt: string; interfaces: SnmpObservation[] };
-  jobs: Array<{ id: string; type: string; status: string; errorCode?: string | null; createdAt: string; completedAt?: string | null }>;
+  jobs: SnmpJobView[];
   drifts: Array<{ id: string; field: string; documentedValue: unknown; observedValue: unknown; status: string; createdAt: string }>;
   traps: Array<{ id: string; receivedAt: string; category?: string | null; severity?: string | null; trapOid?: string | null; label?: string | null; summary?: string | null; sourceAddress: string; status: string }>;
+  /** SNMP Phase 1 step 3: newest trap from this device, or null while waiting for the first one. */
+  lastTrapReceivedAt?: string | null;
   setEnabled: boolean;
 }
 export interface SnmpMetrics {
@@ -28,8 +31,8 @@ export const getSnmpOverview = (deviceId: string) => apiFetch<SnmpOverview>(`/ap
 export const getSnmpMetrics = (deviceId: string, interfaceIndex?: number, days = 7) => apiFetch<SnmpMetrics>(`/api/v1/snmp/devices/${deviceId}/metrics?days=${days}${interfaceIndex === undefined ? '' : `&interfaceIndex=${interfaceIndex}`}`);
 export const saveSnmpConfig = (deviceId: string, body: Omit<SnmpConfig, 'id' | 'lastPollAt' | 'nextPollAt' | 'lastStatus' | 'lastErrorCode'>) => apiFetch<SnmpConfig>(`/api/v1/snmp/devices/${deviceId}/config`, { method: 'PATCH', body: JSON.stringify(body) });
 export const saveSnmpCredential = (deviceId: string, body: Record<string, unknown>) => apiFetch<SnmpCredentialSummary>(`/api/v1/snmp/devices/${deviceId}/credentials`, { method: 'POST', body: JSON.stringify(body) });
-export const testSnmpCredential = (deviceId: string, purpose: SnmpCredentialPurpose) => apiFetch(`/api/v1/snmp/devices/${deviceId}/credentials/${purpose}/test`, { method: 'POST' });
-export const runSnmpPoll = (deviceId: string) => apiFetch(`/api/v1/snmp/devices/${deviceId}/poll`, { method: 'POST' });
+export const testSnmpCredential = (deviceId: string, purpose: SnmpCredentialPurpose) => apiFetch<SnmpJobView>(`/api/v1/snmp/devices/${deviceId}/credentials/${purpose}/test`, { method: 'POST' });
+export const runSnmpPoll = (deviceId: string) => apiFetch<SnmpJobView>(`/api/v1/snmp/devices/${deviceId}/poll`, { method: 'POST' });
 export const reviewSnmpDrift = (id: string, status: 'ACCEPTED' | 'IGNORED') => apiFetch(`/api/v1/snmp/drifts/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
 export type SnmpImpactPreview = { applicable: boolean; summary: string; knownImpacts: { id: string; name: string; type: string; href: string; source: string; observedAt?: string }[]; coverage: { status: string; source?: string; lastObservedAt?: string | null; reason: string } };
 export const previewSnmpWrite = (deviceId: string, operation: string, parameters: Record<string, unknown>) => apiFetch<{ id: string; status: string; impactPreview: SnmpImpactPreview }>(`/api/v1/snmp/devices/${deviceId}/write-requests/preview`, { method: 'POST', body: JSON.stringify({ operation, parameters }) });
@@ -37,7 +40,7 @@ export const executeSnmpWrite = (id: string, impactAcknowledged: boolean) => api
 
 // Phase E: fleet summary and drift review across devices. Types are kept loose
 // (optional fields, string unions open-ended) so API additions never break the UI.
-export type SnmpAttentionReason = 'FAILED' | 'BLOCKED' | 'NO_SCHEDULE' | 'STALE' | 'NEVER_POLLED' | (string & {});
+export type SnmpAttentionReason = 'FAILED' | 'BLOCKED' | 'NO_SCHEDULE' | 'STALE' | 'NEVER_POLLED' | 'NOT_CONFIGURED' | (string & {});
 export interface SnmpFleetSummary {
   siteId?: string | null;
   generatedAt?: string;
@@ -77,3 +80,13 @@ export const bulkReviewSnmpDrifts = (ids: string[], status: 'ACCEPTED' | 'IGNORE
 export type AttachableChangePlan = { id: string; title: string; status: 'APPROVED' | 'IN_PROGRESS'; plannedStartAt: string; plannedEndAt: string };
 export const getAttachableChangePlans = (deviceId: string) => apiFetch<AttachableChangePlan[]>(`/api/v1/change-plans/attachable?deviceId=${encodeURIComponent(deviceId)}`);
 export const linkSnmpWriteToChangePlan = (changePlanId: string, snmpWriteRequestId: string) => apiFetch<{ changePlanId: string; snmpWriteRequestId: string }>(`/api/v1/change-plans/${encodeURIComponent(changePlanId)}/snmp-writes`, { method: 'POST', body: JSON.stringify({ snmpWriteRequestId }) });
+
+/** SNMP Phase 1 step 3: the trap receiver's addresses, UDP port, engine ID and v2c lab flag (ADMIN only). */
+export const snmpReceiverKey = ['snmp', 'receiver'] as const;
+export const getSnmpReceiverSettings = () => apiFetch<SnmpReceiverSettings>('/api/v1/settings/snmp-listeners');
+
+/** SNMP Phase 1 step 4.3: unmatched traps grouped by source IP, and ignoring one source (ADMIN only). */
+export type UnmatchedTrapSource = { sourceAddress: string; count: number; firstSeenAt: string | null; lastSeenAt: string | null; lastTrapLabel?: string | null; lastTrapOid?: string | null; version?: string | null; preRegistered?: boolean };
+export const unmatchedTrapSourcesKey = ['snmp', 'unmatched-sources'] as const;
+export const listUnmatchedTrapSources = () => apiFetch<{ items: UnmatchedTrapSource[] }>('/api/v1/snmp/traps/unmatched/sources');
+export const ignoreUnmatchedTraps = (sourceAddress: string) => apiFetch<{ sourceAddress: string; ignored: number }>('/api/v1/snmp/traps/unmatched/ignore', { method: 'POST', body: JSON.stringify({ sourceAddress }) });

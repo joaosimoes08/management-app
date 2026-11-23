@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/api/client';
 import { entityHref } from '@/components/data-table/entity-link';
-import { Device360Page } from './device-360-page';
+import { Device360Page, driftCounts, snmpDriftStatusLabel } from './device-360-page';
 
 vi.mock('@/components/layout/app-shell', () => ({ AppShell: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 const roles = vi.hoisted(() => ({ current: ['ADMIN'] as string[] }));
@@ -172,5 +172,23 @@ describe('Device360Page', () => {
 
   it('EntityLink for a device points to the Device 360 page', () => {
     expect(entityHref({ kind: 'device', id: 'd1', siteId: 's1' })).toBe('/infraestrutura/equipamentos/d1?siteId=s1');
+  });
+
+  it('counts PENDING drifts from the SNMP overview (SNMP Phase 1 step 5.4)', async () => {
+    routeApi({ '/api/v1/snmp/devices/': { config: { enabled: true }, latestSnapshot: { observedAt: '2026-11-23T10:00:00.000Z' }, drifts: [{ id: 'x1', status: 'PENDING' }, { id: 'x2', status: 'PENDING' }, { id: 'x3' }], traps: [{ id: 't1' }] } });
+    renderPage();
+    const snmp = await screen.findByRole('region', { name: 'SNMP' });
+    const label = await within(snmp).findByText('Divergências pendentes');
+    expect(label.nextElementSibling).toHaveTextContent('3');
+    expect(within(snmp).queryByText('Drifts abertos')).not.toBeInTheDocument();
+  });
+
+  it('labels drift statuses in Portuguese and counts other statuses apart', () => {
+    expect(snmpDriftStatusLabel('PENDING')).toBe('Pendente');
+    expect(snmpDriftStatusLabel('ACCEPTED')).toBe('Aceite');
+    expect(snmpDriftStatusLabel('IGNORED')).toBe('Ignorada');
+    expect(snmpDriftStatusLabel(undefined)).toBe('Pendente');
+    expect(snmpDriftStatusLabel('NEW_STATUS')).toBe('NEW_STATUS');
+    expect(driftCounts([{ status: 'PENDING' }, {}, { status: 'ACCEPTED' }])).toEqual({ pending: 2, other: [['ACCEPTED', 1]] });
   });
 });

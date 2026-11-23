@@ -21,7 +21,7 @@ test('fleet summary counts configuration, poll status, staleness and drift', () 
   assert.deepEqual(summary.polling.lastPollAt, minutesAgo(5));
   assert.deepEqual(summary.polling.oldestPollAt, minutesAgo(31));
   assert.deepEqual(summary.drift, { pending: 3, devicesWithPending: 2 });
-  assert.deepEqual(summary.attention.map((item) => [item.name, item.reason]), [['edge-1', 'FAILED'], ['fw-1', 'STALE'], ['new-1', 'NEVER_POLLED']]);
+  assert.deepEqual(summary.attention.map((item) => [item.name, item.reason]), [['edge-1', 'FAILED'], ['fw-1', 'STALE'], ['new-1', 'NEVER_POLLED'], ['bare-1', 'NOT_CONFIGURED']]);
 });
 
 // Round 2 #12: polling that stopped silently is surfaced.

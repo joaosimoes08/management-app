@@ -43,12 +43,13 @@ export function summarizeSnmpFleet(devices: FleetDevice[], now = new Date()) {
   const byStatus: Record<string, number> = Object.fromEntries([...POLL_STATUSES, 'NEVER_POLLED'].map((status) => [status, 0]));
   let configured = 0; let enabled = 0; let stale = 0; let noSchedule = 0; let pendingDrifts = 0; let devicesWithDrift = 0;
   let lastPollAt: Date | null = null; let oldestPollAt: Date | null = null;
-  const attention: Array<{ deviceId: string; name: string; siteId: string; reason: 'FAILED' | 'BLOCKED' | 'NO_SCHEDULE' | 'STALE' | 'NEVER_POLLED'; lastStatus: string | null; lastPollAt: Date | null; lastErrorCode: string | null; pendingDrifts: number }> = [];
+  const attention: Array<{ deviceId: string; name: string; siteId: string; reason: 'FAILED' | 'BLOCKED' | 'NO_SCHEDULE' | 'STALE' | 'NEVER_POLLED' | 'NOT_CONFIGURED'; lastStatus: string | null; lastPollAt: Date | null; lastErrorCode: string | null; pendingDrifts: number }> = [];
   for (const device of devices) {
     pendingDrifts += device.pendingDrifts;
     if (device.pendingDrifts > 0) devicesWithDrift += 1;
     const config = device.snmpConfig;
-    if (!config) continue;
+    // SNMP Phase 1 step 5: a network device without SNMP is listed last, so the fleet view can offer "Configurar".
+    if (!config) { attention.push({ deviceId: device.id, name: device.name, siteId: device.siteId, reason: 'NOT_CONFIGURED', lastStatus: null, lastPollAt: null, lastErrorCode: null, pendingDrifts: device.pendingDrifts }); continue; }
     configured += 1;
     if (!config.enabled) continue;
     enabled += 1;
@@ -63,7 +64,7 @@ export function summarizeSnmpFleet(devices: FleetDevice[], now = new Date()) {
     const reason = config.lastStatus === 'FAILED' ? 'FAILED' : config.lastStatus === 'BLOCKED' ? 'BLOCKED' : stopped ?? (!config.lastPollAt ? 'NEVER_POLLED' : null);
     if (reason) attention.push({ deviceId: device.id, name: device.name, siteId: device.siteId, reason, lastStatus: config.lastStatus, lastPollAt: config.lastPollAt, lastErrorCode: config.lastErrorCode, pendingDrifts: device.pendingDrifts });
   }
-  const order = { FAILED: 0, BLOCKED: 1, NO_SCHEDULE: 2, STALE: 3, NEVER_POLLED: 4 };
+  const order = { FAILED: 0, BLOCKED: 1, NO_SCHEDULE: 2, STALE: 3, NEVER_POLLED: 4, NOT_CONFIGURED: 5 };
   attention.sort((left, right) => order[left.reason] - order[right.reason] || left.name.localeCompare(right.name));
   return {
     generatedAt: now.toISOString(),

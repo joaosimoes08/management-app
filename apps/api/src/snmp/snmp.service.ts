@@ -116,6 +116,28 @@ export class SnmpService implements OnModuleDestroy, OnModuleInit {
     });
   }
 
+  /**
+   * SNMP Phase 1 step 4.3: unmatched traps grouped by source IP for "Traps de equipamentos desconhecidos", with first and
+   * last seen, count, the latest trap's label and whether the IP already has a pre-registration.
+   */
+  async unmatchedTrapSources() {
+    const grouped = await this.prisma.snmpTrapEvent.groupBy({ by: ['sourceAddress'], where: { status: 'UNMATCHED' }, _count: { _all: true }, _min: { receivedAt: true }, _max: { receivedAt: true }, orderBy: { _max: { receivedAt: 'desc' } }, take: 200 });
+    const sources = grouped.map((row) => row.sourceAddress);
+    if (!sources.length) return { items: [] };
+    const [latest, enrollments] = await Promise.all([
+      this.prisma.snmpTrapEvent.findMany({ where: { status: 'UNMATCHED', sourceAddress: { in: sources } }, distinct: ['sourceAddress'], orderBy: { receivedAt: 'desc' }, select: { sourceAddress: true, trapOid: true, varbinds: true, version: true } }),
+      this.prisma.snmpTrapEnrollment.findMany({ where: { sourceAddress: { in: sources } }, select: { sourceAddress: true } }),
+    ]);
+    return { items: summarizeUnmatchedTrapSources(grouped.map((row) => ({ sourceAddress: row.sourceAddress, count: row._count?._all ?? 0, firstSeenAt: row._min?.receivedAt ?? null, lastSeenAt: row._max?.receivedAt ?? null })), latest.map((trap) => ({ ...this.withTrapLabel(trap), version: trap.version })), new Set(enrollments.map((item) => item.sourceAddress))) };
+  }
+
+  /** SNMP Phase 1 step 4.3: hides an unknown source's unmatched traps; its source alert resolves on the next reconcile. */
+  async ignoreUnmatchedTraps(sourceAddress: string, user: AuthenticatedUser) {
+    const result = await this.prisma.snmpTrapEvent.updateMany({ where: { sourceAddress, status: 'UNMATCHED' }, data: { status: 'IGNORED' } });
+    await this.log(user, 'SNMP_UNMATCHED_TRAPS_IGNORED', 'SnmpTrapSource', sourceAddress, { sourceAddress, count: result.count });
+    return { sourceAddress, ignored: result.count };
+  }
+
   async overview(deviceId: string, user: AuthenticatedUser) {
     await this.device(deviceId, user);
     const [config, credentials, latestSnapshot, jobs, drifts, traps] = await Promise.all([
@@ -559,4 +581,15 @@ export class SnmpService implements OnModuleDestroy, OnModuleInit {
     if (result.trapCredentialId) await this.reloadTrapCredentials(result.trapCredentialId);
     await this.log(user, 'SNMP_DEVICE_ONBOARDED', 'Device', result.device.id, { siteId: dto.siteId, credentials: ['READ', ...(dto.trapCredential ? ['TRAP'] : [])], schedulerPending }); return result.device;
   }
+}
+
+export type UnmatchedTrapSource = { sourceAddress: string; count: number; firstSeenAt: Date | null; lastSeenAt: Date | null; lastTrapLabel: string | null; lastTrapOid: string | null; version: string | null; preRegistered: boolean };
+
+/** Joins grouped unmatched-trap counts with each source's latest trap and pre-registration; newest source first. */
+export function summarizeUnmatchedTrapSources(groups: Array<{ sourceAddress: string; count: number; firstSeenAt: Date | null; lastSeenAt: Date | null }>, latest: Array<{ sourceAddress: string; trapOid: string | null; label: string | null; version?: string | null }>, preRegistered: Set<string>): UnmatchedTrapSource[] {
+  const latestBySource = new Map(latest.map((trap) => [trap.sourceAddress, trap]));
+  return groups.map((group) => {
+    const trap = latestBySource.get(group.sourceAddress);
+    return { ...group, lastTrapLabel: trap?.label ?? null, lastTrapOid: trap?.trapOid ?? null, version: trap?.version ?? null, preRegistered: preRegistered.has(group.sourceAddress) };
+  }).sort((left, right) => (right.lastSeenAt?.getTime() ?? 0) - (left.lastSeenAt?.getTime() ?? 0));
 }

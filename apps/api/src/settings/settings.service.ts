@@ -1,4 +1,4 @@
-import { normalizeEngineId } from '@simoes/snmp-core';
+import { normalizeEngineId, snmpV2cAllowed } from '@simoes/snmp-core';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaClient } from '@simoes/database';
 import { AuditService } from '../audit/audit.service';
@@ -20,6 +20,12 @@ export function snmpEngineIdView(active: string | null | undefined, source: stri
   if (!engineId) return { engineId: null, engineIdSource: null };
   return { engineId, engineIdSource: source === 'ENV' ? 'ENV' : 'STORED' };
 }
+/** SNMP Phase 1 step 3: the UDP port switches send traps to (the host port published for the receiver) and the v2c lab flag. */
+export function snmpReceiverView(hostPort: string | undefined, v2cAllowed: boolean): { trapPort: number; v2cAllowed: boolean } {
+  const port = Number(hostPort);
+  return { trapPort: Number.isInteger(port) && port >= 1 && port <= 65535 ? port : 162, v2cAllowed };
+}
+
 @Injectable()
 export class SettingsService {
   constructor(private readonly prisma: PrismaClient, private readonly audit: AuditService, private readonly keycloak: KeycloakAdminService) {}
@@ -64,6 +70,7 @@ export class SettingsService {
       selectedInterfaceIds: interfaces.filter((item) => selected.some((entry) => entry.instanceId === item.instanceId && entry.name === item.name && entry.address === item.address)).map((item) => item.id),
       interfaces: interfaces.map(({ id, instanceId, name, address, internal, lastSeenAt }) => ({ id, instanceId, name, address, internal, lastSeenAt })),
       ...snmpEngineIdView(config?.activeEngineId, config?.activeEngineIdSource),
+      ...snmpReceiverView(process.env.SNMP_TRAP_HOST_PORT, snmpV2cAllowed()),
       updatedAt: config?.updatedAt ?? null,
       refreshSeconds: 30,
     };
