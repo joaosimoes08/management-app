@@ -25,6 +25,11 @@ describe('SNMP endpoint authorization policy', () => {
     for (const method of ['updateSiteHealthThresholds', 'updateDeviceHealthThresholds'] as const) assert.deepEqual(roles(method), ['ADMIN', 'NETWORK_OPERATOR']);
     for (const method of ['healthThresholdDefaults', 'siteHealthThresholds', 'deviceHealthThresholds', 'healthHistory'] as const) assert.deepEqual(roles(method), ['ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY']);
   });
+
+  it('D-P1d: discovery neighbour evidence is read-only and open to the read roles', () => {
+    assert.deepEqual(roles('discoveryJobNeighbors'), ['ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY']);
+    assert.deepEqual(roles('lldpObservations'), ['ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY']);
+  });
 });
 
 describe('fix F2: credential delete force flag', () => {
