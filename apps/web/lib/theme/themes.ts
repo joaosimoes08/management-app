@@ -154,7 +154,7 @@ export const themes: ThemeDefinition[] = [
 
 /** The default light theme defines no tokens; these are the main colours the existing stylesheet uses (for the contrast check and the picker preview). */
 export const defaultLightReference: ThemeTokens = {
-  canvas: '#e9eef5', panel: '#ffffff', 'panel-2': '#faf9f9', 'panel-3': '#edf2f8', text: '#17243a', 'text-3': '#64738a', 'line-strong': '#8c8a91', line: '#dce4ef',
+  canvas: '#e9eef5', panel: '#ffffff', 'panel-2': '#faf9f9', 'panel-3': '#edf2f8', text: '#17243a', 'text-3': '#57667c', 'line-strong': '#8c8a91', line: '#dce4ef',
   focus: '#4f66c5', accent: '#315fc5', inverse: '#222222',
   'red-text': '#a14c41', 'red-soft': '#fff0ed', 'amber-text': '#946528', 'amber-soft': '#fff4df', 'green-text': '#32734d', 'green-soft': '#ecf7ef',
   'blue-text': '#315fc5', 'blue-soft': '#edf2ff', 'violet-text': '#755f95', 'violet-soft': '#f1ecf8',

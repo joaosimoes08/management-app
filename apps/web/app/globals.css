@@ -1778,7 +1778,7 @@ body { background:var(--t-canvas,#f1f2f4); color:var(--ink); }
 .sidebar-collapsed .app-sidebar.keyboard-focus-expanded .nav-group-label { height:auto; margin:0 10px 3px; opacity:1; }
 
 /* Operations workspace: explicit hierarchy, a durable navigation rail, and a real command bar. */
-:root { --ink:#17243a; --muted:#64738a; --line:#dce4ef; --surface:#edf2f8; --panel:#fff; --blue:#315fc5; }
+:root { --ink:#17243a; --muted:#57667c; --line:#dce4ef; --surface:#edf2f8; --panel:#fff; --blue:#315fc5; }
 body { color:var(--ink); background:var(--t-canvas,#e9eef5); }
 .site-shell { background:var(--t-canvas,radial-gradient(ellipse at 78% 0%,#f8fbff 0%,#eef3f9 42%,#e9eef5 100%)); }
 .app-shell { padding:18px; }

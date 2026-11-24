@@ -4,12 +4,6 @@ import { contrastRatio, defaultLightReference, themes, type ThemeMode, type Them
 export const AA_TEXT = 4.5;
 export const AA_LARGE_UI = 3;
 
-/**
- * The default light theme is the existing look and is deliberately left unchanged. Its one pair under
- * AA is listed here so the check stays honest and fails on anything new.
- */
-export const knownDefaultLightExceptions = ['muted text on panel-3'];
-
 export type ContrastCheck = { group: 'text' | 'muted' | 'status' | 'button' | 'sidebar' | 'ui'; label: string; foreground: string; background: string; minimum: number; ratio: number };
 export type ThemeContrastResult = { theme: string; mode: ThemeMode; checks: ContrastCheck[] };
 
@@ -48,8 +42,7 @@ export function contrastMarkdownTable(results = themeContrastResults()) {
   const rows = results.map(({ theme, mode, checks }) => {
     const cells = groups.map(([group]) => { const worst = checks.filter((check) => check.group === group).reduce((low, check) => check.ratio < low.ratio ? check : low); return `${worst.ratio.toFixed(2)}`; });
     const failing = checks.filter((check) => check.ratio < check.minimum);
-    const known = theme === 'default' && mode === 'light' && failing.length > 0 && failing.every((check) => knownDefaultLightExceptions.includes(check.label));
-    return `| ${theme} | ${mode} | ${cells.join(' | ')} | ${failing.length === 0 ? '✅' : known ? '⚠️ unchanged' : '❌'} |`;
+    return `| ${theme} | ${mode} | ${cells.join(' | ')} | ${failing.length === 0 ? '✅' : '❌'} |`;
   });
   return [header, divider, ...rows].join('\n');
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contrastMarkdownTable, knownDefaultLightExceptions, themeContrastResults } from './contrast-checks';
+import { contrastMarkdownTable, themeContrastResults } from './contrast-checks';
 import { contrastRatio, themeCss, themes } from './themes';
 
 describe('theme contrast (WCAG AA)', () => {
@@ -10,8 +10,7 @@ describe('theme contrast (WCAG AA)', () => {
 
   for (const result of themeContrastResults()) {
     it(`${result.theme} ${result.mode} meets AA`, () => {
-      const exempt = result.theme === 'default' && result.mode === 'light' ? knownDefaultLightExceptions : [];
-      const failures = result.checks.filter((check) => check.ratio < check.minimum && !exempt.includes(check.label)).map((check) => `${check.label}: ${check.foreground} on ${check.background} = ${check.ratio.toFixed(2)} (needs ${check.minimum})`);
+      const failures = result.checks.filter((check) => check.ratio < check.minimum).map((check) => `${check.label}: ${check.foreground} on ${check.background} = ${check.ratio.toFixed(2)} (needs ${check.minimum})`);
       expect(failures).toEqual([]);
     });
   }
