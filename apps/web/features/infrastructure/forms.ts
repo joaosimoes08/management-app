@@ -91,6 +91,8 @@ export interface DeviceForm {
   /** API `requiredConfig.missing` of the device as opened (legacy gaps, e.g. power with no outlets). */
   requiredMissing?: string[];
   notes?: string;
+  /** D-P1b: serial read over SNMP by discovery; sent on create (the editor has no field for it). */
+  serialNumber?: string;
   snmpEnabled?: boolean;
   snmpVersion?: 'V2C' | 'V3';
   snmpReadUsername?: string;

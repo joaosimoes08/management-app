@@ -3858,3 +3858,8 @@ small.alert-next-step::before { content:'→ '; }
   .discovery-results-search { flex-basis:auto; }
   .discovery-results-tools > :last-child { justify-content:center; }
 }
+/* D-P1b promote an approved discovery result: the action sits in the results table's actions cell and wraps on narrow screens. */
+.discovery-promote { display:inline-flex; flex-wrap:wrap; align-items:center; gap:6px; max-width:100%; }
+.discovery-promote > a.secondary-button, .discovery-promote > button { display:inline-flex; align-items:center; gap:5px; white-space:nowrap; text-decoration:none; }
+.discovery-promote small { flex-basis:100%; white-space:normal; line-height:1.4; }
+.discovery-promotion-offer .form-help svg { vertical-align:-2px; }

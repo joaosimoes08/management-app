@@ -68,6 +68,9 @@ const operationalFiles = [
   // D-P2b discovery results tools and scan estimate
   'apps/web/features/discovery/discovery-results-tools.tsx',
   'apps/web/features/discovery/discovery-scan-estimate.tsx',
+  // D-P1b promote a discovery result to a device
+  'apps/web/features/discovery/discovery-promote.tsx',
+  'apps/web/features/infrastructure/discovery-promotion.tsx',
   'apps/web/features/snmp/snmp-fleet.tsx',
   'apps/web/features/snmp/snmp-page.tsx',
   'apps/web/features/snmp/snmp-drifts.tsx',
