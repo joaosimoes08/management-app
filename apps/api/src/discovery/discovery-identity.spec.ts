@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { NotFoundException } from '@nestjs/common';
 import { identityHints, IdentityDevice, matchIdentity, normaliseHostName, normaliseSerial } from './discovery-identity';
+import { identityMatcher } from './discovery-identity';
 import { DiscoveryIdentityService } from './discovery-identity.service';
 
 const field = (value: string) => ({ value, oid: '1.3.6', source: 'SNMP' as const, credentialId: 'c1', observedAt: '2026-11-24T10:00:00.000Z' });
@@ -20,6 +21,22 @@ test('D-P1c: hints come only from SNMP readings that succeeded', () => {
   assert.deepEqual(identityHints({ address: '10.0.0.2', snmp: enriched({ sysName: 'sw1' }, 'PARTIAL') }), { address: '10.0.0.2', serial: null, sysName: 'sw1' });
   assert.deepEqual(identityHints({ address: '10.0.0.2', snmp: { status: 'AUTH_FAILED', fields: {} } }), { address: '10.0.0.2', serial: null, sysName: null });
   assert.deepEqual(identityHints({ address: '10.0.0.2', snmp: null }), { address: '10.0.0.2', serial: null, sysName: null });
+});
+
+test('identityMatcher returns what matchIdentity returns for every result (randomised, with shared and conflicting keys)', () => {
+  let seed = 7;
+  const rand = (n: number) => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % n; };
+  const pick = <T>(values: T[]) => values[rand(values.length)];
+  const ips = ['10.0.0.1', '10.0.0.2', ' 10.0.0.3 ', '10.0.0.4', null];
+  const serials = ['FOC1', ' foc1 ', 'FOC2', 'N/A', 'ab', null];
+  const names = ['sw1', 'SW1.corp.local', ' sw2 ', 'sw3.lab', '', null];
+  const devices: IdentityDevice[] = Array.from({ length: 60 }, (_, index) => ({ id: `d${String(index).padStart(2, '0')}`, name: pick(names.filter(Boolean) as string[]), hostname: pick(names), managementIp: pick(ips), serialNumber: pick(serials), siteId: null, status: 'ACTIVE' }));
+  const match = identityMatcher(devices);
+  for (let index = 0; index < 400; index++) {
+    const hints = { address: pick(['10.0.0.1', '10.0.0.2', '10.0.0.3', '10.0.0.9']), serial: pick(['FOC1', 'FOC2', 'FOC9', null]), sysName: pick(['sw1', 'sw2', 'sw3', 'sw9', null]) };
+    assert.deepEqual(match(hints), matchIdentity(hints, devices), JSON.stringify(hints));
+  }
+  assert.deepEqual(identityMatcher([])({ address: '10.0.0.1', serial: null, sysName: null }), { signals: ['MANAGEMENT_IP'], candidates: [], ambiguous: false });
 });
 
 test('D-P1c: confidence follows the signals: serial HIGH, IP+sysName HIGH, IP MEDIUM, sysName alone LOW', () => {

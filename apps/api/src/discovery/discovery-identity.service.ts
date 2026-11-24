@@ -2,7 +2,7 @@ import { HttpException, Injectable } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@simoes/database';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { InfrastructureAccessService } from '../infrastructure/infrastructure-access.service';
-import { DiscoveryIdentity, identityHints, IdentityDevice, matchIdentity } from './discovery-identity';
+import { DiscoveryIdentity, identityHints, IdentityDevice, identityMatcher } from './discovery-identity';
 
 /**
  * Discovery D-P1c read side: identity candidates for the results of one discovery job. Read-only and suggestion-only:
@@ -22,7 +22,8 @@ export class DiscoveryIdentityService {
     const devices = results.length ? await this.candidateDevices(addresses, serials, names) : [];
     const readable = await this.readableDevices(user, devices.map((device) => device.id));
     const visible = devices.filter((device) => readable.has(device.id));
-    return new Map(hints.map((item) => [item.id, matchIdentity(item.hints, visible)]));
+    const match = identityMatcher(visible);
+    return new Map(hints.map((item) => [item.id, match(item.hints)]));
   }
 
   /** Devices that share an address, a serial or a host name (first DNS label, case-insensitive) with any result. */
