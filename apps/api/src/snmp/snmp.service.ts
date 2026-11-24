@@ -14,6 +14,9 @@ import { interfaceTrafficRates } from './metrics';
 export type SchedulerHealth = { lastRunAt: string | null; ok: boolean | null; checked: number; repaired: number; failed: number; errorCode: string | null };
 const SCHEDULER_RECONCILE_INTERVAL_MS = 10 * 60_000;
 
+/** Fix F2: a queued or running job younger than this blocks credential deletion; older ones are treated as stuck (no job sweeper exists). */
+export const SNMP_CREDENTIAL_BUSY_WINDOW_MS = 30 * 60_000;
+
 @Injectable()
 export class SnmpService implements OnModuleDestroy, OnModuleInit {
   private readonly queue = new Queue(SNMP_QUEUE, { connection: this.redisConnection() });
@@ -309,13 +312,48 @@ export class SnmpService implements OnModuleDestroy, OnModuleInit {
     return this.publicCredential(item);
   }
 
-  async deleteCredential(deviceId: string, purpose: SnmpCredentialPurpose, user: AuthenticatedUser) {
+  /**
+   * Fix F2: what would break if this credential were deleted now (one entry per usage; empty = not in use).
+   * Mirrors what each purpose is used for: READ by the polling schedule, TRAP to validate SNMPv3 traps from the device,
+   * WRITE by SNMP SET. Credentials are per device; discovery and discovery schedules do not reference them.
+   */
+  private async credentialUsages(deviceId: string, purpose: SnmpCredentialPurpose) {
+    const device = await this.prisma.device.findUnique({ where: { id: deviceId }, select: { name: true } });
+    const base = { deviceId, deviceName: device?.name ?? null };
+    const usages: Array<Record<string, unknown> & { type: 'POLL_SCHEDULE' | 'TRAP_VALIDATION' | 'SNMP_SET' }> = [];
+    if (purpose === 'READ') {
+      const config = await this.prisma.snmpDeviceConfig.findUnique({ where: { deviceId }, select: { enabled: true, intervalMinutes: true, nextPollAt: true } });
+      if (config?.enabled) usages.push({ type: 'POLL_SCHEDULE', ...base, intervalMinutes: config.intervalMinutes, nextPollAt: config.nextPollAt });
+    }
+    if (purpose === 'TRAP') {
+      const trap = await this.prisma.snmpTrapEvent.findFirst({ where: { deviceId }, orderBy: { receivedAt: 'desc' }, select: { receivedAt: true } });
+      if (trap) usages.push({ type: 'TRAP_VALIDATION', ...base, lastTrapReceivedAt: trap.receivedAt });
+    }
+    if (purpose === 'WRITE' && process.env.SNMP_SET_ENABLED === 'true') usages.push({ type: 'SNMP_SET', ...base });
+    return usages;
+  }
+
+  /**
+   * Fix F2: refused with 409 SNMP_CREDENTIAL_BUSY while an SNMP job using it is queued or running (even with force);
+   * refused with 409 SNMP_CREDENTIAL_IN_USE plus the usages unless force=true; a forced delete is audited as such.
+   */
+  async deleteCredential(deviceId: string, purpose: SnmpCredentialPurpose, user: AuthenticatedUser, force = false) {
     purpose = this.purpose(purpose);
     await this.device(deviceId, user, 'UPDATE');
-    const item = await this.prisma.snmpCredential.delete({ where: { deviceId_purpose: { deviceId, purpose } } }).catch(() => { throw new NotFoundException('Credencial SNMP não encontrada'); });
-    await this.log(user, 'SNMP_CREDENTIAL_DELETED', 'SnmpCredential', item.id, { deviceId, purpose });
+    const credential = await this.prisma.snmpCredential.findUnique({ where: { deviceId_purpose: { deviceId, purpose } }, select: { id: true } });
+    if (!credential) throw new NotFoundException('Credencial SNMP não encontrada');
+    const jobs = await this.prisma.snmpJob.findMany({
+      where: { credentialId: credential.id, status: { in: ['PENDING', 'RUNNING'] }, createdAt: { gte: new Date(Date.now() - SNMP_CREDENTIAL_BUSY_WINDOW_MS) } },
+      select: { id: true, type: true, status: true, createdAt: true }, orderBy: { createdAt: 'desc' },
+    });
+    if (jobs.length) throw new ConflictException({ code: 'SNMP_CREDENTIAL_BUSY', message: 'Há uma tarefa SNMP em curso com esta credencial; aguarda que termine para a eliminar.', details: { jobs } });
+    const usages = await this.credentialUsages(deviceId, purpose);
+    if (usages.length && !force) throw new ConflictException({ code: 'SNMP_CREDENTIAL_IN_USE', message: 'Esta credencial está em uso. Confirma a eliminação com force=true.', details: { usages } });
+    const item = await this.prisma.snmpCredential.delete({ where: { id: credential.id } }).catch(() => { throw new NotFoundException('Credencial SNMP não encontrada'); });
+    if (usages.length) await this.log(user, 'SNMP_CREDENTIAL_FORCE_DELETED', 'SnmpCredential', item.id, { deviceId, purpose, forced: true, usages });
+    else await this.log(user, 'SNMP_CREDENTIAL_DELETED', 'SnmpCredential', item.id, { deviceId, purpose });
     if (purpose === 'TRAP') await this.reloadTrapCredentials(item.id);
-    return { success: true };
+    return { success: true, forced: usages.length > 0, usages };
   }
 
   async testCredential(deviceId: string, purpose: SnmpCredentialPurpose, user: AuthenticatedUser) {

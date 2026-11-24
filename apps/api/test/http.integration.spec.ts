@@ -462,6 +462,85 @@ test('enforces SNMP roles, Site isolation and disabled SET over HTTP', async () 
   assert.equal((await request('POST', `/api/v1/snmp/discovery/enrollments/${ids.enrollmentA}/accept`, 'qa-auditor', {})).statusCode, 403);
 });
 
+test('fix F2: SNMP credential delete is refused while in use unless forced, and while a job is running', async (context) => {
+  const deviceId = ids.deviceA2;
+  const credentialUrl = (purpose: string, query = '') => `/api/v1/snmp/devices/${deviceId}/credentials/${purpose}${query}`;
+  const createCredential = (purpose: 'READ' | 'WRITE' | 'TRAP') => prisma.snmpCredential.create({ data: { deviceId, purpose, version: 'V2C', ...encryptCredential({ community: `http-f2-${purpose.toLowerCase()}` }, testKeyring) } });
+  const originalSetEnabled = process.env.SNMP_SET_ENABLED;
+  context.after(async () => {
+    if (originalSetEnabled === undefined) delete process.env.SNMP_SET_ENABLED; else process.env.SNMP_SET_ENABLED = originalSetEnabled;
+    await prisma.snmpTrapEvent.deleteMany({ where: { deviceId } });
+    await prisma.snmpJob.deleteMany({ where: { deviceId } });
+    await prisma.snmpCredential.deleteMany({ where: { deviceId } });
+    await prisma.snmpDeviceConfig.deleteMany({ where: { deviceId } });
+  });
+
+  // Not in use: deleted at once, plain audit entry.
+  const idle = await createCredential('READ');
+  assert.equal((await request('DELETE', credentialUrl('READ'), 'qa-network-scoped')).statusCode, 403);
+  const plain = await request('DELETE', credentialUrl('READ'), 'qa-admin');
+  assert.equal(plain.statusCode, 200, plain.body);
+  assert.deepEqual(json(plain), { success: true, forced: false, usages: [] });
+  assert.equal(await prisma.auditLog.count({ where: { action: 'SNMP_CREDENTIAL_DELETED', entityId: idle.id } }), 1);
+  assert.equal((await request('DELETE', credentialUrl('READ'), 'qa-admin')).statusCode, 404);
+
+  // READ in use by the polling schedule: 409 with the usage list; the credential stays.
+  const read = await createCredential('READ');
+  await prisma.snmpDeviceConfig.create({ data: { deviceId, enabled: true, intervalMinutes: 15 } });
+  const inUse = await request('DELETE', credentialUrl('READ'), 'qa-admin');
+  assert.equal(inUse.statusCode, 409, inUse.body);
+  assert.equal(json(inUse).code, 'SNMP_CREDENTIAL_IN_USE');
+  assert.equal(json(inUse).details.usages.length, 1);
+  assert.equal(json(inUse).details.usages[0].type, 'POLL_SCHEDULE');
+  assert.equal(json(inUse).details.usages[0].deviceId, deviceId);
+  assert.equal(json(inUse).details.usages[0].deviceName, 'HTTP Switch A2');
+  assert.equal(json(inUse).details.usages[0].intervalMinutes, 15);
+  assert.equal((await request('DELETE', credentialUrl('READ', '?force=false'), 'qa-admin')).statusCode, 409);
+  const badForce = await request('DELETE', credentialUrl('READ', '?force=yes'), 'qa-admin');
+  assert.equal(badForce.statusCode, 400);
+  assert.equal(json(badForce).code, 'SNMP_FORCE_INVALID');
+  assert.ok(await prisma.snmpCredential.findUnique({ where: { id: read.id } }), 'nothing deleted without force');
+
+  // A queued or running job using the credential: refused even with force.
+  const running = await prisma.snmpJob.create({ data: { deviceId, credentialId: read.id, type: 'POLL', status: 'RUNNING', startedAt: new Date() } });
+  const busy = await request('DELETE', credentialUrl('READ', '?force=true'), 'qa-admin');
+  assert.equal(busy.statusCode, 409, busy.body);
+  assert.equal(json(busy).code, 'SNMP_CREDENTIAL_BUSY');
+  assert.deepEqual(json(busy).details.jobs.map((job: { id: string; status: string }) => [job.id, job.status]), [[running.id, 'RUNNING']]);
+  await prisma.snmpJob.update({ where: { id: running.id }, data: { status: 'PENDING', startedAt: null } });
+  assert.equal(json(await request('DELETE', credentialUrl('READ', '?force=true'), 'qa-admin')).code, 'SNMP_CREDENTIAL_BUSY', 'queued counts too');
+  assert.ok(await prisma.snmpCredential.findUnique({ where: { id: read.id } }));
+
+  // A job stuck for longer than the 30-minute window no longer blocks; the forced delete is audited with the usages.
+  await prisma.snmpJob.update({ where: { id: running.id }, data: { createdAt: new Date(Date.now() - 31 * 60_000) } });
+  const forced = await request('DELETE', credentialUrl('READ', '?force=true'), 'qa-admin');
+  assert.equal(forced.statusCode, 200, forced.body);
+  assert.equal(json(forced).forced, true);
+  assert.equal(json(forced).usages[0].type, 'POLL_SCHEDULE');
+  assert.equal(await prisma.snmpCredential.findUnique({ where: { id: read.id } }), null);
+  const audit = await prisma.auditLog.findFirstOrThrow({ where: { action: 'SNMP_CREDENTIAL_FORCE_DELETED', entityId: read.id } });
+  assert.equal(audit.userId, ids.admin);
+  assert.equal((audit.metadata as { forced: boolean }).forced, true);
+  assert.equal((audit.metadata as { usages: Array<{ type: string }> }).usages[0].type, 'POLL_SCHEDULE');
+  assert.equal((await prisma.snmpJob.findUniqueOrThrow({ where: { id: running.id } })).credentialId, null, 'job history kept, link cleared');
+
+  // TRAP in use once the device has sent traps; WRITE in use while SNMP SET is enabled.
+  await createCredential('TRAP');
+  await prisma.snmpTrapEvent.create({ data: { deviceId, sourceAddress: '10.250.1.3', sourcePort: 162, version: 'V2C', authIdentity: 'http-f2', pduType: 'TRAP', varbinds: [], expiresAt: new Date(Date.now() + 86_400_000) } });
+  const trapInUse = await request('DELETE', credentialUrl('TRAP'), 'qa-admin');
+  assert.equal(trapInUse.statusCode, 409);
+  assert.equal(json(trapInUse).details.usages[0].type, 'TRAP_VALIDATION');
+  assert.ok(json(trapInUse).details.usages[0].lastTrapReceivedAt);
+  assert.equal((await request('DELETE', credentialUrl('TRAP', '?force=true'), 'qa-admin')).statusCode, 200);
+  await createCredential('WRITE');
+  process.env.SNMP_SET_ENABLED = 'true';
+  const writeInUse = await request('DELETE', credentialUrl('WRITE'), 'qa-admin');
+  assert.equal(writeInUse.statusCode, 409);
+  assert.equal(json(writeInUse).details.usages[0].type, 'SNMP_SET');
+  delete process.env.SNMP_SET_ENABLED;
+  assert.equal(json(await request('DELETE', credentialUrl('WRITE'), 'qa-admin')).forced, false);
+});
+
 test('accepts SNMP candidates atomically and onboards devices without model images', async () => {
   const accepted = await request('POST', `/api/v1/snmp/discovery/enrollments/${ids.enrollmentCandidate}/accept`, 'qa-network-scoped', { name: 'HTTP Discovered Switch', type: 'SWITCH' });
   assert.equal(accepted.statusCode, 201, accepted.body);
