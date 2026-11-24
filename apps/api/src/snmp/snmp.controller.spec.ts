@@ -18,6 +18,7 @@ describe('SNMP endpoint authorization policy', () => {
     assert.deepEqual(roles('overview'), ['ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY']);
     assert.deepEqual(roles('metrics'), ['ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY']);
     assert.deepEqual(roles('health'), ['ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY']);
+    assert.deepEqual(roles('healthSummary'), ['ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY']);
   });
 
   it('step 9: health limits are written by ADMIN and NETWORK_OPERATOR and read by the usual read roles', () => {

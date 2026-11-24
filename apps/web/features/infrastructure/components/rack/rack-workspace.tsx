@@ -1,5 +1,6 @@
 'use client';
 
+import type { SnmpHealthSummaryItem } from '@/features/snmp/health/health-api';
 import { useEffect, useState } from 'react';
 import { Check, ChevronLeft, ChevronRight, GripVertical, MapPinned, Plus, X } from 'lucide-react';
 import type { Device, Rack, RackEditDraft, RackPlacementPlan, RoomWithBuilding } from '../../types';
@@ -31,10 +32,12 @@ export interface RackWorkspaceProps {
   /** ADMIN / SYSTEMS_OPERATOR: may disconnect devices from a PDU. */
   canEditPower?: boolean;
   onDisconnectPdu?: (rackId: string, pduId: string, deviceId: string) => Promise<void>;
+  /** SNMP Phase 2 step 10: health per device id, drawn on the rack equipment. */
+  health?: ReadonlyMap<string, SnmpHealthSummaryItem>;
 }
 
 /** Rack gallery of the selected room, or the full detail view of the selected rack. */
-export function RackWorkspace({ rooms, roomId, buildingId, racks, allRoomRacks, selected, setRack, onOut, onDevice, onEdit, onDelete, deletingRackId, canEdit, onPreviewPlacement, onPlaceDevice, onReorderRacks, onEditDevice, canReorderRacks, canEditPower = false, onDisconnectPdu }: RackWorkspaceProps) {
+export function RackWorkspace({ rooms, roomId, buildingId, racks, allRoomRacks, selected, setRack, onOut, onDevice, onEdit, onDelete, deletingRackId, canEdit, onPreviewPlacement, onPlaceDevice, onReorderRacks, onEditDevice, canReorderRacks, canEditPower = false, onDisconnectPdu, health }: RackWorkspaceProps) {
   const racksPerPage = 5;
   const [firstVisibleRack, setFirstVisibleRack] = useState(0);
   const [reordering, setReordering] = useState(false);
@@ -134,7 +137,7 @@ export function RackWorkspace({ rooms, roomId, buildingId, racks, allRoomRacks, 
     || new URLSearchParams(location.search).get('buildingId')
     || '';
 
-  if (selected) return <RackDetail rack={selected} onOut={() => {
+  if (selected) return <RackDetail rack={selected} health={health} onOut={() => {
     onOut();
     const url = new URL(location.href);
     url.searchParams.delete('rackId');

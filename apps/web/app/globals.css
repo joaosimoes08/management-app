@@ -3744,3 +3744,43 @@ small.alert-next-step::before { content:'→ '; }
 /* SNMP credentials: Testar / Rodar / Eliminar stay on one row next to the credential, and wrap under it on narrow cards. */
 .snmp-credential-list > div { flex-wrap:wrap; }
 .snmp-credential-list .snmp-credential-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; }
+/* SNMP Phase 2 step 10: health badges (existing state-badge tones), the Device 360 health panel and the searchable device picker. */
+.snmp-health-badge { flex:none; width:max-content; white-space:nowrap; font-weight:600; }
+.snmp-health-badge.is-stale { opacity:.72; border:1px dashed currentColor; }
+.infra-device-row .snmp-health-badge { margin-left:auto; }
+.snmp-health-details { display:grid; gap:12px; }
+.snmp-health-summary { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:0; }
+.snmp-health-issues { display:grid; gap:6px; padding:10px 12px; color:var(--t-amber-text,#946528); border:1px solid var(--t-amber-line,#f6e8c7); border-radius:9px; background:var(--t-amber-soft,#fff8ea); font-size:11px; }
+.snmp-health-issues .device-360-list { margin:0; }
+.snmp-health-list { margin:0; padding:0; list-style:none; display:grid; gap:4px; }
+.snmp-health-list .state-badge { margin-right:4px; }
+.snmp-health-sub { display:block; margin-top:3px; color:var(--muted); font-size:10px; }
+.rack-overlay > .rack-equipment-health { position:absolute; z-index:1; top:3px; right:3px; display:block; width:8px; height:8px; padding:0; flex:none; border:1px solid var(--t-panel,#fff); border-radius:50%; background:#999; pointer-events:none; }
+.rack-overlay > .rack-equipment-health[data-health="OK"] { background:#55b97d; }
+.rack-overlay > .rack-equipment-health[data-health="DEGRADED"] { background:#e4ad67; }
+.topology-node-health { display:inline-flex; align-items:center; gap:4px; width:max-content; max-width:100%; padding:2px 6px; border:1px solid currentColor; border-radius:999px; color:var(--t-text-3,#586982); background:var(--t-panel,#fff); font-size:9px; font-weight:700; line-height:1.25; pointer-events:none; }
+.topology-node-health[data-health="OK"] { color:var(--t-green-text,#32734d); }
+.topology-node-health[data-health="DEGRADED"] { color:var(--t-amber-text,#946528); }
+.device-picker { position:relative; display:flex; align-items:center; gap:7px; min-width:0; }
+.device-picker > label { color:var(--t-text-3,#586982); font-size:11px; font-weight:700; }
+.device-picker-field { position:relative; display:flex; align-items:center; min-width:0; flex:1; }
+.device-picker-input.context-toolbar-selector { width:min(300px,100%); min-width:200px; padding-right:28px; text-overflow:ellipsis; }
+.device-picker-toggle { position:absolute; right:3px; display:grid; place-items:center; width:24px; height:24px; padding:0; color:var(--t-text-3,#586982); border:0; border-radius:6px; background:transparent; cursor:pointer; }
+.device-picker-toggle:disabled { cursor:not-allowed; opacity:.5; }
+.device-picker-list { position:absolute; z-index:1200; top:calc(100% + 6px); left:0; display:grid; gap:2px; width:min(380px,calc(100vw - 24px)); max-height:min(340px,60vh); overflow:auto; margin:0; padding:6px; box-sizing:border-box; list-style:none; border:1px solid var(--t-line,#dce4ef); border-radius:11px; background:var(--t-panel,#fff); box-shadow:0 14px 34px rgba(22,39,66,.18); }
+.device-picker-list[hidden] { display:none; }
+.device-picker-list [role="option"] { display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:40px; padding:5px 9px; color:var(--t-text-2,#344761); border-radius:7px; font-size:11px; cursor:pointer; }
+.device-picker-list [role="option"].is-active { background:var(--t-panel-2,#f5f4f4); outline:2px solid var(--t-focus,#4d79bd); outline-offset:-2px; }
+.device-picker-list [role="option"][aria-selected="true"] strong { text-decoration:underline; text-underline-offset:2px; }
+.device-picker-option-text { display:grid; min-width:0; }
+.device-picker-option-text strong,.device-picker-option-text small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.device-picker-option-text small { color:var(--muted); font-size:10px; }
+.device-picker-empty { padding:10px 9px; color:var(--muted); font-size:11px; }
+@media (max-width: 720px) {
+  .device-picker { display:grid; grid-template-columns:1fr; flex:1 1 100%; width:100%; gap:4px; }
+  .device-picker-input.context-toolbar-selector { width:100%; min-width:0; }
+  .device-picker-list { width:100%; max-width:calc(100vw - 24px); }
+  .infra-device-row .snmp-health-badge { margin-left:0; }
+  .device-360-facts.snmp-health-facts { grid-template-columns:1fr; gap:2px; }
+  .device-360-facts.snmp-health-facts dt { margin-top:8px; }
+}

@@ -8,6 +8,41 @@ import { SnmpService } from './snmp.service';
 export const SNMP_NETWORK_TYPES = ['SWITCH', 'ROUTER', 'FIREWALL'];
 const POLL_STATUSES = ['PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'BLOCKED'] as const;
 const DRIFT_STATUSES = ['PENDING', 'ACCEPTED', 'IGNORED'];
+/** Upper bound for `deviceIds` on GET snmp/health, so one request can't ask for an unbounded list. */
+export const SNMP_HEALTH_MAX_DEVICE_IDS = 500;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export type SnmpHealthBadgeStatus = 'OK' | 'DEGRADED' | 'UNKNOWN';
+export type HealthSummaryDevice = {
+  id: string;
+  snmpConfig: { enabled: boolean; intervalMinutes: number } | null;
+  snmpHealth: { status: string; observedAt: Date; issueCount: number; rebootDetectedAt: Date | null } | null;
+};
+
+/** Parses the comma-separated `deviceIds` filter of GET snmp/health (undefined when absent). */
+export function parseHealthDeviceIds(value?: string) {
+  if (value === undefined || value.trim() === '') return undefined;
+  const ids = [...new Set(value.split(',').map((item) => item.trim()).filter(Boolean))];
+  if (ids.length > SNMP_HEALTH_MAX_DEVICE_IDS) throw new BadRequestException({ code: 'SNMP_HEALTH_TOO_MANY_DEVICES', message: `deviceIds aceita no máximo ${SNMP_HEALTH_MAX_DEVICE_IDS} equipamentos.` });
+  if (ids.some((id) => !UUID.test(id))) throw new BadRequestException({ code: 'SNMP_HEALTH_DEVICE_ID_INVALID', message: 'deviceIds deve ser uma lista de identificadores separados por vírgulas.' });
+  return ids;
+}
+
+/**
+ * SNMP Phase 2 step 10: one compact health line per device for the badges on lists, the rack and the topology.
+ * `status` is null when no health reading exists yet ("Sem dados"). `stale` marks a reading older than twice the
+ * poll interval (or any reading while polling is disabled), so the UI can say the badge may be out of date.
+ */
+export function summarizeSnmpHealth(devices: HealthSummaryDevice[], now = new Date()) {
+  return devices.map((device) => {
+    const health = device.snmpHealth;
+    if (!health) return { deviceId: device.id, status: null, observedAt: null, issueCount: 0, rebootDetectedAt: null, stale: false };
+    const status: SnmpHealthBadgeStatus = health.status === 'OK' || health.status === 'DEGRADED' ? health.status : 'UNKNOWN';
+    const config = device.snmpConfig;
+    const stale = !config || !config.enabled || now.getTime() - health.observedAt.getTime() > config.intervalMinutes * 2 * 60_000;
+    return { deviceId: device.id, status, observedAt: health.observedAt, issueCount: health.issueCount, rebootDetectedAt: health.rebootDetectedAt, stale };
+  });
+}
 
 export type FleetDevice = {
   id: string; name: string; type: string; siteId: string;
@@ -96,6 +131,23 @@ export class SnmpFleetService {
       select: { id: true, name: true, type: true, siteId: true, snmpConfig: { select: { enabled: true, intervalMinutes: true, lastPollAt: true, nextPollAt: true, lastStatus: true, lastErrorCode: true } }, _count: { select: { snmpDrifts: { where: { status: 'PENDING' } } } } },
     });
     return { siteId: siteId ?? null, ...summarizeSnmpFleet(devices.map(({ _count, ...device }) => ({ ...device, pendingDrifts: _count.snmpDrifts })) as FleetDevice[]), scheduler: this.snmp.schedulerHealth };
+  }
+
+  /**
+   * GET snmp/health — SNMP Phase 2 step 10: latest health status of every visible network device (optionally one Site
+   * and/or an explicit `deviceIds` list), in one query, so device lists don't fetch health per row. Same roles and Site
+   * scoping as GET snmp/devices/:deviceId/health; devices the caller can't see are simply not returned.
+   */
+  async healthSummary(user: AuthenticatedUser, query: { siteId?: string; deviceIds?: string }) {
+    const deviceIds = parseHealthDeviceIds(query.deviceIds);
+    const visible = await this.visibleDeviceWhere(user, query.siteId);
+    if (deviceIds && !deviceIds.length) return { siteId: query.siteId ?? null, items: [] };
+    const devices = await this.prisma.device.findMany({
+      where: { AND: [visible, { type: { in: SNMP_NETWORK_TYPES as never[] } }, ...(deviceIds ? [{ id: { in: deviceIds } }] : [])] },
+      select: { id: true, snmpConfig: { select: { enabled: true, intervalMinutes: true } }, snmpHealth: { select: { status: true, observedAt: true, issueCount: true, rebootDetectedAt: true } } },
+      orderBy: { name: 'asc' },
+    });
+    return { siteId: query.siteId ?? null, items: summarizeSnmpHealth(devices as HealthSummaryDevice[]) };
   }
 
   /** GET snmp/drifts — drift list across visible devices (default status PENDING). */

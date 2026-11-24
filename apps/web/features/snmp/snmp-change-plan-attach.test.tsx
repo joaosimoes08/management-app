@@ -67,6 +67,17 @@ describe('SNMP SET attach to a change plan (Step 30)', () => {
     expect(mockedFetch.mock.calls.some(([path]) => String(path).includes('/snmp-writes'))).toBe(false);
   });
 
+  it('reads the attachable plans before the preview, so the prompt appears with it', async () => {
+    route([plan]);
+    wrap(<SnmpPage />);
+    await waitFor(() => expect(mockedFetch).toHaveBeenCalledWith('/api/v1/change-plans/attachable?deviceId=dev-1'));
+    expect(mockedFetch.mock.calls.some(([path]) => String(path).includes('/write-requests/preview'))).toBe(false);
+    expect(screen.queryByRole('combobox', { name: /Associar a uma alteração/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Criar preview' }));
+    expect(await screen.findByRole('combobox', { name: /Associar a uma alteração/ })).toBeInTheDocument();
+    expect(mockedFetch.mock.calls.filter(([path]) => String(path).startsWith('/api/v1/change-plans/attachable'))).toHaveLength(1);
+  });
+
   it('hides the prompt when the list cannot be read', async () => {
     mockedFetch.mockRejectedValue(new Error('403'));
     const { container } = wrap(<SnmpChangePlanAttach deviceId="dev-1" value="" onChange={() => undefined} />);

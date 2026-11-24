@@ -1,5 +1,6 @@
 'use client';
 
+import type { SnmpHealthSummaryItem } from '@/features/snmp/health/health-api';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, ArrowLeft, Check, Edit3, Trash2 } from 'lucide-react';
 import { ImpactDialog } from '@/features/topology/impact-panel';
@@ -62,10 +63,12 @@ export interface RackDetailProps {
   canEditPower?: boolean;
   /** Desligar on a PDU card: frees the device's outlets on that PDU. */
   onDisconnectPdu?: (rackId: string, pduId: string, deviceId: string) => Promise<void>;
+  /** SNMP Phase 2 step 10: health per device id, drawn on the rack equipment. */
+  health?: ReadonlyMap<string, SnmpHealthSummaryItem>;
 }
 
 /** Full 42U view of one rack, including placement preview/confirmation. */
-export function RackDetail({ rack, onOut, onDevice, onEdit, onDelete, deleting, canEdit, onPreviewPlacement, onPlaceDevice, onEditDevice, canEditPower = false, onDisconnectPdu }: RackDetailProps) {
+export function RackDetail({ rack, onOut, onDevice, onEdit, onDelete, deleting, canEdit, onPreviewPlacement, onPlaceDevice, onEditDevice, canEditPower = false, onDisconnectPdu, health }: RackDetailProps) {
   const { t, locale } = useI18n();
   const powerDefaults = usePowerDefaults();
   const [thresholds, setThresholds] = useState<RackPowerThresholds>(readPowerThresholds);
@@ -238,7 +241,7 @@ export function RackDetail({ rack, onOut, onDevice, onEdit, onDelete, deleting, 
           {pduStrip(supplierPdu, 'left')}
           {faces.map((face, index) => <figure className="rack-face" key={face} data-face={face} style={{ width: `${rackWidth}px`, marginLeft: index > 0 ? `${FACE_GAP}px` : undefined }}>
             {both && <figcaption className="rack-face-caption" style={{ height: `${FACE_CAPTION}px` }}>{FACE_LABEL[face]}</figcaption>}
-            <div className="rack-frame" style={{ width: `${rackWidth}px` }}><img src={FIXED_RACK_IMAGE} alt={`Bastidor ${rack.name}, ${FACE_LABEL[face].toLowerCase()}`} draggable={false} /><RackEquipmentOverlay rack={displayRack} face={face} onSelect={(id) => setZoomDevice({ id, face })} onDropDevice={preview} draggingDeviceId={draggingDeviceId} onDragging={setDraggingDeviceId} canEdit={canEdit && !pending} pendingDeviceId={pending?.target?.id} powerLevels={devicePowerLevels} /></div>
+            <div className="rack-frame" style={{ width: `${rackWidth}px` }}><img src={FIXED_RACK_IMAGE} alt={`Bastidor ${rack.name}, ${FACE_LABEL[face].toLowerCase()}`} draggable={false} /><RackEquipmentOverlay health={health} rack={displayRack} face={face} onSelect={(id) => setZoomDevice({ id, face })} onDropDevice={preview} draggingDeviceId={draggingDeviceId} onDragging={setDraggingDeviceId} canEdit={canEdit && !pending} pendingDeviceId={pending?.target?.id} powerLevels={devicePowerLevels} /></div>
           </figure>)}
           {pduStrip(upsPdu, 'right')}
         </div>

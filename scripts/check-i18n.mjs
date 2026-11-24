@@ -5,6 +5,9 @@ import ts from 'typescript';
 const root = process.cwd();
 const operationalFiles = [
   'apps/web/features/dashboard/dashboard-page.tsx',
+  'apps/web/features/snmp/health/health-badge.tsx',
+  'apps/web/features/snmp/health/health-panel.tsx',
+  'apps/web/features/snmp/health/device-picker.tsx',
   'apps/web/features/discovery/discovery-page.tsx',
   'apps/web/features/portal/portal-page.tsx',
   'apps/web/features/operations/inventory-quality-page.tsx',

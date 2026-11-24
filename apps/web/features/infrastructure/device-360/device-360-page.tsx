@@ -12,6 +12,9 @@ import { rememberRecentItem } from '@/lib/recent-items';
 import { apiFetch } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth';
 import { ImpactPanel } from '@/features/topology/impact-panel';
+import { useUiText } from '@/components/ui/use-ui-text';
+import { isSnmpNetworkDevice } from '@/features/snmp/health/health-api';
+import { SnmpDeviceHealthBadge, SnmpHealthPanel } from '@/features/snmp/health/health-panel';
 import { getDevice, listDeviceIpAddresses, listInterfaces } from '../api';
 import type { Device } from '../types';
 import { assetFileUrl } from '../utils';
@@ -100,6 +103,7 @@ function SectionBody<T>({ query, empty, children }: { query: { data?: T; isLoadi
 
 export function Device360Page({ deviceId }: { deviceId: string }) {
   const { hasRole, user } = useAuth();
+  const t = useUiText();
   const can = (key: keyof typeof ROLES) => ROLES[key].some((role) => hasRole(role));
 
   const [impactOpen, setImpactOpen] = useState(false);
@@ -107,6 +111,8 @@ export function Device360Page({ deviceId }: { deviceId: string }) {
   const queryClient = useQueryClient();
   const deviceQuery = useQuery({ queryKey: ['device-360', deviceId], queryFn: () => getDevice(deviceId), enabled: Boolean(deviceId) });
   const device = deviceQuery.data as (Device & FutureDeviceFields) | undefined;
+  // SNMP Phase 2 step 10: health badge and panel for network equipment, same roles as the SNMP section.
+  const showHealth = Boolean(device) && can('snmp') && isSnmpNetworkDevice(device?.type);
   const siteId = device?.siteId ?? device?.site?.id ?? '';
   const ready = Boolean(device);
   /** Step 36: ADMIN and SYSTEMS_OPERATOR tag any device; NETWORK_OPERATOR only network equipment (the API checks it too). */
@@ -150,6 +156,7 @@ export function Device360Page({ deviceId }: { deviceId: string }) {
         <p>{[device.type, modelName, location || 'Sem localização'].filter(Boolean).join(' · ')}</p>
         <p className="device-360-badges">
           <span className="state-badge"><i />{device.status}</span>
+          {showHealth && <SnmpDeviceHealthBadge deviceId={device.id} />}
           {tier ? <span className="state-badge warning" data-testid="tier-badge" title="Criticidade">{TIER_LABELS[tier] ?? tier}</span> : device.isCritical ? <span className="state-badge warning" data-testid="tier-badge">Crítico</span> : null}
         </p>
         {device.tags?.length ? <TagChips tags={device.tags} className="device-360-tags" /> : null}
@@ -196,6 +203,9 @@ export function Device360Page({ deviceId }: { deviceId: string }) {
         {outlets.length ? <ul className="device-360-list">{outlets.map((o, i) => <li key={`${o.pduId ?? ''}:${o.outletIndex ?? i}`}>{o.pduName ?? 'PDU'} · tomada {o.outletIndex ?? '—'}</li>)}</ul> : <EmptyLine>Sem tomadas de PDU ligadas.</EmptyLine>}
       </Section>
 
+      {showHealth && <Section id="saude" title={t('snmpHealth.panel.title')} fullHref={`/snmp${q({ deviceId: device.id })}`} fullLabel={t('snmpHealth.panel.full')}>
+        <SnmpHealthPanel deviceId={device.id} />
+      </Section>}
       {can('snmp') && <Section id="snmp" title="SNMP" fullHref={`/snmp${q({ deviceId: device.id })}`} fullLabel="Ver no SNMP">
         <SectionBody query={snmp} empty={(r) => (r.config ? null : 'Sem SNMP configurado.')}>{(r) => { const drifts = driftCounts(r.drifts); return <dl className="device-360-facts"><dt>Estado</dt><dd>{snmpStateLabel(r.config?.enabled)}</dd><dt>Última recolha</dt><dd>{fmt(r.latestSnapshot?.observedAt ?? r.latestSnapshot?.collectedAt ?? r.latestSnapshot?.createdAt)}</dd><dt>Divergências pendentes</dt><dd>{drifts.pending}</dd>{drifts.other.map(([status, count]) => <Fragment key={status}><dt>{`Divergências: ${snmpDriftStatusLabel(status)}`}</dt><dd>{count}</dd></Fragment>)}<dt>Traps recentes</dt><dd>{(r.traps ?? []).length}</dd></dl>; }}</SectionBody>
       </Section>}

@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { snmpPollingStopReason, summarizeSnmpFleet } from './snmp-fleet.service';
+import { BadRequestException } from '@nestjs/common';
+import { parseHealthDeviceIds, SNMP_HEALTH_MAX_DEVICE_IDS, snmpPollingStopReason, summarizeSnmpFleet, summarizeSnmpHealth } from './snmp-fleet.service';
 
 const now = new Date('2026-11-21T12:00:00Z');
 const minutesAgo = (minutes: number) => new Date(now.getTime() - minutes * 60_000);
@@ -43,4 +44,40 @@ test('snmpPollingStopReason ignores disabled devices and healthy schedules', () 
   assert.equal(snmpPollingStopReason({ enabled: true, intervalMinutes: 15, lastPollAt: minutesAgo(5), nextPollAt: null, lastErrorCode: 'TIMEOUT' }, now), null);
   assert.equal(snmpPollingStopReason({ enabled: true, intervalMinutes: 15, lastPollAt: minutesAgo(5), nextPollAt: null, lastErrorCode: 'SNMP_SCHEDULER_FAILED' }, now), 'NO_SCHEDULE');
   assert.equal(snmpPollingStopReason({ enabled: true, intervalMinutes: 15, lastPollAt: minutesAgo(31), nextPollAt: minutesAgo(16), lastErrorCode: null }, now), 'STALE');
+});
+
+// SNMP Phase 2 step 10: health badges.
+const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+const reading = (overrides: Record<string, unknown> = {}) => ({ status: 'OK', observedAt: minutesAgo(5), issueCount: 0, rebootDetectedAt: null, ...overrides });
+
+test('health summary maps readings to badge statuses and handles no data', () => {
+  const items = summarizeSnmpHealth([
+    { id: 'ok', snmpConfig: { enabled: true, intervalMinutes: 15 }, snmpHealth: reading() as never },
+    { id: 'bad', snmpConfig: { enabled: true, intervalMinutes: 15 }, snmpHealth: reading({ status: 'DEGRADED', issueCount: 2, rebootDetectedAt: minutesAgo(3) }) as never },
+    { id: 'unknown', snmpConfig: { enabled: true, intervalMinutes: 15 }, snmpHealth: reading({ status: 'UNKNOWN' }) as never },
+    { id: 'weird', snmpConfig: { enabled: true, intervalMinutes: 15 }, snmpHealth: reading({ status: 'SOMETHING_NEW' }) as never },
+    { id: 'none', snmpConfig: { enabled: true, intervalMinutes: 15 }, snmpHealth: null },
+  ], now);
+  assert.deepEqual(items.map((item) => [item.deviceId, item.status, item.issueCount, item.stale]), [['ok', 'OK', 0, false], ['bad', 'DEGRADED', 2, false], ['unknown', 'UNKNOWN', 0, false], ['weird', 'UNKNOWN', 0, false], ['none', null, 0, false]]);
+  assert.deepEqual(items[1].rebootDetectedAt, minutesAgo(3));
+  assert.equal(items[4].observedAt, null);
+});
+
+test('health summary marks readings older than twice the interval, or with polling off, as stale', () => {
+  const items = summarizeSnmpHealth([
+    { id: 'old', snmpConfig: { enabled: true, intervalMinutes: 15 }, snmpHealth: reading({ observedAt: minutesAgo(31) }) as never },
+    { id: 'edge', snmpConfig: { enabled: true, intervalMinutes: 15 }, snmpHealth: reading({ observedAt: minutesAgo(30) }) as never },
+    { id: 'off', snmpConfig: { enabled: false, intervalMinutes: 15 }, snmpHealth: reading() as never },
+    { id: 'no-config', snmpConfig: null, snmpHealth: reading() as never },
+  ], now);
+  assert.deepEqual(items.map((item) => [item.deviceId, item.stale]), [['old', true], ['edge', false], ['off', true], ['no-config', true]]);
+});
+
+test('parseHealthDeviceIds accepts a bounded, de-duplicated list of UUIDs', () => {
+  assert.equal(parseHealthDeviceIds(undefined), undefined);
+  assert.equal(parseHealthDeviceIds(' '), undefined);
+  assert.deepEqual(parseHealthDeviceIds(`${uuid(1)}, ${uuid(2)},${uuid(1)},`), [uuid(1), uuid(2)]);
+  assert.throws(() => parseHealthDeviceIds('not-a-uuid'), BadRequestException);
+  assert.throws(() => parseHealthDeviceIds(Array.from({ length: SNMP_HEALTH_MAX_DEVICE_IDS + 1 }, (_, index) => uuid(index)).join(',')), BadRequestException);
+  assert.equal(parseHealthDeviceIds(Array.from({ length: SNMP_HEALTH_MAX_DEVICE_IDS }, (_, index) => uuid(index)).join(','))?.length, SNMP_HEALTH_MAX_DEVICE_IDS);
 });
