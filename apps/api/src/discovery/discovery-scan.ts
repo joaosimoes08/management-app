@@ -10,8 +10,9 @@ import { loadDiscoverySnmpEnricher, type DiscoverySnmpEnricher, type DiscoverySn
  * - Progress: each batch's results and counters are written in one transaction, guarded by the resume cursor
  *   (`processedCount`). A retry or a re-delivered job resumes after the last saved batch, and two workers that pick up
  *   the same job never count a batch twice (the second one's guarded update matches no row and it stops).
- * - Cancel: `cancelRequestedAt` is checked before every batch and, while a batch runs, every `controlPollMs` (1 s). A
- *   cancel or a passed deadline aborts the probes still queued in the limiter; the unfinished batch is not saved
+ * - Cancel: `cancelRequestedAt` is checked before every batch and, while a batch runs (probes and reverse DNS), every
+ *   `controlPollMs` (1 s), so a cancel is honoured within about `controlPollMs` plus one status query. A cancel or a
+ *   passed deadline aborts the probes still queued in the limiter and stops waiting for those in flight; the unfinished batch is not saved
  *   (a retry would probe it again) and the scan ends as CANCELLED / LIMIT_DURATION, keeping the saved batches.
  * - Limits: `maxDurationSeconds` (from the first start, across retries) and `maxProbes` (ICMP pings plus TCP connects).
  *   Reaching one ends the scan as COMPLETED with stopReason LIMIT_DURATION / LIMIT_PROBES ("stopped at limit").
@@ -132,34 +133,38 @@ export async function runDiscoveryScan(prisma: PrismaClient, jobId: string, deps
     }, controlPollMs);
     watcher.unref?.();
     const runner = limiter.bind(abort.signal);
-    let outcomes: ProbeOutcome[];
     const enrichments = new Map<string, DiscoverySnmpEnrichment>();
+    const rows: Prisma.DiscoveryResultCreateManyInput[] = [];
+    let icmp = 0; let tcp = 0; let snmpEnriched = 0; let snmpFailed = 0;
+    // fix/discovery-scan-cancel-latency: the abort ends the batch at once, not only the probes still queued. Probes and
+    // SNMP requests already in flight (ping up to 1.5 s, TCP 0.8 s, SNMP up to its timeout) are left to finish in the
+    // background and release their limiter slots; their outcomes are dropped. The watcher also keeps running through
+    // reverse DNS, which is abandoned too, and nothing from an aborted batch is saved.
     try {
-      outcomes = await Promise.all(batch.map((address) => deps.probe(address, methods, tcpPorts, runner)));
+      const outcomes = await untilAborted(Promise.all(batch.map((address) => deps.probe(address, methods, tcpPorts, runner))), abort.signal);
       // D-P1a: only hosts that answered in this scan, only the scan's one credential, through the same limiter.
       if (enricher) {
         const answered = outcomes.filter((item) => item.icmp.reachable || item.openPorts.length);
-        const results = await Promise.all(answered.map((item) => enricher!(item.address, runner)));
+        const results = await untilAborted(Promise.all(answered.map((item) => enricher!(item.address, runner))), abort.signal);
         answered.forEach((item, index) => enrichments.set(item.address, results[index]));
+      }
+      for (const item of outcomes) {
+        if (abort.signal.aborted) break;
+        if (item.icmp.reachable) icmp += 1;
+        if (item.openPorts.length) tcp += 1;
+        if (!item.icmp.reachable && !item.openPorts.length) continue;
+        let hostname: string | undefined;
+        if (job.reverseDns !== false && deps.reverse) { try { hostname = await untilAborted(deps.reverse(item.address), abort.signal); } catch { /* reverse DNS is best effort */ } }
+        const snmp = enrichments.get(item.address);
+        if (snmp) { if (snmp.status === 'OK' || snmp.status === 'PARTIAL') snmpEnriched += 1; else snmpFailed += 1; }
+        rows.push({ jobId, address: item.address, hostname, icmpReachable: item.icmp.reachable, responseMs: item.icmp.responseMs, openPorts: item.openPorts, ...(snmp ? { snmp: snmp as unknown as Prisma.InputJsonValue } : {}) });
       }
     } catch (error) {
       if (!(error instanceof ProbeAbortedError) || !abortReason) throw error;
-      return abortReason === 'CANCELLED' ? finish('CANCELLED', 'CANCELLED') : finish('COMPLETED', 'LIMIT_DURATION');
     } finally {
       clearInterval(watcher);
     }
-    const rows: Prisma.DiscoveryResultCreateManyInput[] = [];
-    let icmp = 0; let tcp = 0; let snmpEnriched = 0; let snmpFailed = 0;
-    for (const item of outcomes) {
-      if (item.icmp.reachable) icmp += 1;
-      if (item.openPorts.length) tcp += 1;
-      if (!item.icmp.reachable && !item.openPorts.length) continue;
-      let hostname: string | undefined;
-      if (job.reverseDns !== false && deps.reverse) { try { hostname = await deps.reverse(item.address); } catch { /* reverse DNS is best effort */ } }
-      const snmp = enrichments.get(item.address);
-      if (snmp) { if (snmp.status === 'OK' || snmp.status === 'PARTIAL') snmpEnriched += 1; else snmpFailed += 1; }
-      rows.push({ jobId, address: item.address, hostname, icmpReachable: item.icmp.reachable, responseMs: item.icmp.responseMs, openPorts: item.openPorts, ...(snmp ? { snmp: snmp as unknown as Prisma.InputJsonValue } : {}) });
-    }
+    if (abortReason) return abortReason === 'CANCELLED' ? finish('CANCELLED', 'CANCELLED') : finish('COMPLETED', 'LIMIT_DURATION');
     try {
       await prisma.$transaction(async (tx) => {
         const advanced = await tx.discoveryJob.updateMany({
@@ -193,4 +198,14 @@ export async function recordDiscoveryFailure(prisma: PrismaClient, jobId: string
   const final = finalAttempt || error instanceof DiscoveryConfigurationError;
   await prisma.discoveryJob.updateMany({ where: { id: jobId, status: { in: ['PENDING', 'RUNNING'] } }, data: final ? { status: 'FAILED', completedAt: new Date(), errorMessage: code } : { status: 'PENDING', errorMessage: code } });
   return { code, final };
+}
+
+/** Resolves with `work`, or rejects as soon as `signal` aborts (the work itself keeps running and its result is dropped). */
+function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(new ProbeAbortedError());
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new ProbeAbortedError());
+    signal.addEventListener('abort', onAbort, { once: true });
+    work.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
+  });
 }
