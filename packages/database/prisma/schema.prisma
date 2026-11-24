@@ -1458,11 +1458,19 @@ model TopologyProposal {
   @@index([deviceId, status, createdAt])
 }
 
+/// SNMP Phase 2 step 11: the neighbour discovery protocol an LldpObservation came from.
+enum NeighborProtocol {
+  LLDP
+  CDP
+}
+
 model LldpObservation {
   id                     String        @id @default(uuid()) @db.Uuid
   deviceId               String        @db.Uuid
   snapshotId             String?       @db.Uuid
   source                 SourceType    @default(SNMP)
+  /// SNMP Phase 2 step 11: LLDP, or the vendor protocol used where LLDP saw no neighbour on the port (CDP for Cisco).
+  protocol               NeighborProtocol @default(LLDP)
   observedAt             DateTime      @default(now())
   confidence             Int
   localPortNumber        Int?
