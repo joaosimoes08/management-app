@@ -11,6 +11,7 @@ import { formatDateTime } from '@/lib/format/date';
 import { bulkReviewDiscoveryResults, type DiscoveryResult, type DiscoveryResultIpam } from './api';
 import { DiscoverySnmpCell } from './discovery-snmp-enrichment';
 import { DiscoveryPromoteAction } from './discovery-promote';
+import { DiscoveryOutcomeCell } from './discovery-outcomes';
 
 type ReviewStatus = 'APPROVED' | 'IGNORED';
 
@@ -83,7 +84,7 @@ export function DiscoveryResultsTable({ results, canEdit, review, bulkDone }: Pr
   const columns = useMemo<DataTableColumn<DiscoveryResult>[]>(() => [
     { id: 'address', header: 'Endereço', sortValue: (result) => result.address.split(/[.:]/).map((part) => part.padStart(5, '0')).join('.'), cell: (result) => <strong className="mono">{result.address}</strong> },
     { id: 'hostname', header: 'Hostname', sortValue: (result) => result.hostname ?? null, cell: (result) => result.hostname || <span className="muted-cell">reverse DNS não encontrado</span> },
-    { id: 'probe', header: 'Sonda', cell: (result) => <small>{probeSummary(result)}</small> },
+    { id: 'probe', header: 'Sonda', cell: (result) => result.outcome ? <DiscoveryOutcomeCell outcome={result.outcome} /> : <small>{probeSummary(result)}</small> },
     ...(hasSnmp ? [{ id: 'snmp', header: 'SNMP', sortValue: (result: DiscoveryResult) => result.snmp?.fields.sysName?.value ?? null, cell: (result: DiscoveryResult) => <DiscoverySnmpCell snmp={result.snmp} /> }] : []),
     { id: 'ipam', header: 'IPAM', sortValue: resultIpamState, cell: (result) => <DiscoveryIpamStatus ipam={result.ipam} /> },
     { id: 'status', header: 'Revisão', sortValue: (result) => result.status, cell: (result) => <span className={`state-badge ${result.status === 'APPROVED' ? 'approved' : result.status === 'IGNORED' ? 'rejected' : 'pending'}`}><i />{result.status}</span> },

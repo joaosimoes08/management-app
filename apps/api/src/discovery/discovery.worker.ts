@@ -6,7 +6,8 @@ import * as net from 'node:net';
 import { PrismaClient } from '@simoes/database';
 import { runAuditRetentionCleanup } from '../audit/audit-retention';
 import { normalizeDiscoveryPorts } from './discovery-policy';
-import { DiscoveryConfigurationError, recordDiscoveryFailure, runDiscoveryScan } from './discovery-scan';
+import { DiscoveryConfigurationError, recordDiscoveryFailure, runDiscoveryScan, type ProbeOutcome } from './discovery-scan';
+import { classifyPingFailure, classifyTcpFailure, type TcpPortState } from './discovery-outcome';
 import type { ProbeRunner } from './discovery-limiter';
 import { runInventoryQualityReconciliation } from '../inventory-quality/inventory-quality.service';
 import { deliverLifecycleReminders } from '../infrastructure/lifecycle-reminders';
@@ -16,16 +17,32 @@ const prisma = new PrismaClient();
 const redisUrl = new URL(process.env.REDIS_URL ?? 'redis://localhost:6379');
 const connection = { host: redisUrl.hostname, port: Number(redisUrl.port || 6379), ...(redisUrl.password ? { password: redisUrl.password } : {}) };
 
-async function ping(address: string) { const started = Date.now(); try { const args = process.platform === 'win32' ? ['-n', '1', '-w', '800', address] : ['-c', '1', '-W', '1', address]; await execFileAsync(process.platform === 'win32' ? 'ping.exe' : 'ping', args, { timeout: 1500, windowsHide: true }); return { reachable: true, responseMs: Date.now() - started }; } catch { return { reachable: false, responseMs: undefined }; } }
-function testPort(address: string, port: number) { return new Promise<boolean>((resolve) => { const socket = net.createConnection({ host: address, port, timeout: 800 }); const done = (result: boolean) => { socket.destroy(); resolve(result); }; socket.once('connect', () => done(true)); socket.once('timeout', () => done(false)); socket.once('error', () => done(false)); }); }
+async function ping(address: string): Promise<ProbeOutcome['icmp']> {
+  const started = Date.now();
+  try {
+    const args = process.platform === 'win32' ? ['-n', '1', '-w', '800', address] : ['-c', '1', '-W', '1', address];
+    await execFileAsync(process.platform === 'win32' ? 'ping.exe' : 'ping', args, { timeout: 1500, windowsHide: true });
+    return { reachable: true, responseMs: Date.now() - started, status: 'REPLY' };
+  } catch (error) { return { reachable: false, responseMs: undefined, status: classifyPingFailure(error) }; }
+}
+/** D-P2a: OPEN, REFUSED (RST), TIMEOUT (no answer in 800 ms) or ERROR (unreachable, reset…). */
+function testPort(address: string, port: number) {
+  return new Promise<TcpPortState>((resolve) => {
+    const socket = net.createConnection({ host: address, port, timeout: 800 });
+    const done = (result: TcpPortState) => { socket.destroy(); resolve(result); };
+    socket.once('connect', () => done('OPEN'));
+    socket.once('timeout', () => done('TIMEOUT'));
+    socket.once('error', (error: NodeJS.ErrnoException) => done(classifyTcpFailure(error.code)));
+  });
+}
 
 type DiscoveryData = { jobId?: string; subnetId?: string; cidr?: string; methods?: string[]; tcpPorts?: number[]; reverseDns?: boolean };
 
 /** Each ping and each TCP connect waits for the subnet's shared limiter (rate, subnet socket cap, process ceiling); a cancelled scan aborts the queued ones. */
-async function probe(address: string, methods: string[], tcpPorts: number[], limiter: ProbeRunner) {
-  const icmp = methods.includes('ICMP') ? await limiter.run(() => ping(address)) : { reachable: false, responseMs: undefined };
-  const openPorts = methods.includes('TCP') ? (await Promise.all(tcpPorts.map(async (port) => (await limiter.run(() => testPort(address, port))) ? port : null))).filter((port): port is number => port !== null) : [];
-  return { address, icmp, openPorts };
+async function probe(address: string, methods: string[], tcpPorts: number[], limiter: ProbeRunner): Promise<ProbeOutcome> {
+  const icmp: ProbeOutcome['icmp'] = methods.includes('ICMP') ? await limiter.run(() => ping(address)) : { reachable: false, responseMs: undefined };
+  const tcp = methods.includes('TCP') ? await Promise.all(tcpPorts.map(async (port) => ({ port, state: await limiter.run(() => testPort(address, port)) }))) : [];
+  return { address, icmp, openPorts: tcp.filter((item) => item.state === 'OPEN').map((item) => item.port), tcp };
 }
 async function reverseName(address: string) { return (await reverse(address))[0]; }
 

@@ -1942,6 +1942,9 @@ model DiscoveryJob {
   snmpEnrichedCount  Int                @default(0)
   snmpFailedCount    Int                @default(0)
   snmpSkippedReason  String?
+  /// D-P2a: structured outcome counts over all scanned hosts (apps/api/src/discovery/discovery-outcome.ts,
+  /// DiscoveryOutcomeCounts). null = run saved before D-P2a. Not scanned = totalCount - processedCount.
+  outcomeCounts      Json?
   subnet             Subnet             @relation(fields: [subnetId], references: [id], onDelete: Cascade)
   results            DiscoveryResult[]
   createdAt          DateTime           @default(now())
@@ -1961,6 +1964,9 @@ model DiscoveryResult {
   /// D-P1a: SNMP enrichment outcome for this target, with per-field provenance (source SNMP, credentialId, observedAt).
   /// See apps/api/src/discovery/discovery-snmp.ts (DiscoverySnmpEnrichment). null = enrichment not attempted.
   snmp          Json?
+  /// D-P2a: what each method saw for this host (ICMP, TCP per port, reverse DNS, SNMP). See discovery-outcome.ts
+  /// (DiscoveryHostOutcome). null = saved before D-P2a.
+  outcome       Json?
   status        DiscoveryResultStatus @default(PENDING)
   reviewedAt    DateTime?
   reviewedBy    String?               @db.Uuid
