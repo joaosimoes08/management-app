@@ -3841,3 +3841,20 @@ small.alert-next-step::before { content:'→ '; }
   .health-limits-actions { justify-content:stretch; }
   .health-limits-actions > button { flex:1 1 auto; justify-content:center; }
 }
+
+/* D-P2b discovery results: search + CSV export row above the chips, and the scan form's size/duration check. */
+.discovery-results-tools { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:10px 0 8px; }
+.discovery-results-tools > :last-child { flex:none; }
+.discovery-results-search { display:flex; flex:1 1 240px; align-items:center; gap:7px; min-width:0; padding:0 10px; color:var(--muted); border:1px solid var(--line); border-radius:8px; background:var(--t-panel,#fff); }
+.discovery-results-search:focus-within { outline:2px solid var(--t-focus,#2c6bed); outline-offset:1px; }
+.discovery-results-search input { flex:1; min-width:0; height:32px; padding:0; color:var(--t-text,#222); border:0; outline:0; background:transparent; font-size:11px; }
+.discovery-scan-estimate { display:grid; gap:4px; }
+.discovery-scan-estimate .form-help, .discovery-scan-estimate .form-error { margin:0; line-height:1.45; }
+.discovery-scan-estimate .form-help svg { vertical-align:-2px; }
+.discovery-scan-warning { color:var(--t-amber-text,#9a6a1f); }
+.result-row .state-badge { flex:none; }
+@media (max-width:480px) {
+  .discovery-results-tools { flex-direction:column; align-items:stretch; }
+  .discovery-results-search { flex-basis:auto; }
+  .discovery-results-tools > :last-child { justify-content:center; }
+}

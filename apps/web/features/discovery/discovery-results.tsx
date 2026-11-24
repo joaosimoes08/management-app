@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { Check, X } from 'lucide-react';
+import { DiscoveryResultsCsvButton, useDiscoveryResultsTools } from './discovery-results-tools';
 import { DataTable, sortByColumns, useTableUrlState, type DataTableColumn, type TableStateConfig } from '@/components/data-table';
 import { BULK_REVIEW_MAX, BulkReviewDialog, type BulkReviewResponse } from '@/components/ui/bulk-review-dialog';
 import { FilterChipBar, FilterChips } from '@/components/ui/filter-chips';
@@ -66,9 +67,11 @@ export function DiscoveryResultsTable({ results, canEdit, review, bulkDone }: Pr
   const table = useTableUrlState(resultsTableConfig);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulk, setBulk] = useState<{ status: ReviewStatus; ids: string[] } | null>(null);
-  const visibleResults = useMemo(() => applyChipFilters(results, table.filters, resultAccessors), [results, table.filters]);
-  const reviewOptions = chipOptions(reviewChipLabels, facetCounts(results, table.filters, resultAccessors, 'Review'), { complete: true, selected: table.filters.Review });
-  const ipamOptions = chipOptions(ipamChipLabels, facetCounts(results, table.filters, resultAccessors, 'Ipam'), { complete: true, selected: table.filters.Ipam, hideEmpty: true });
+  // D-P2b: text search and response-type chips narrow the rows first; review/IPAM chips, sort and bulk selection apply on top.
+  const tools = useDiscoveryResultsTools(results);
+  const visibleResults = useMemo(() => applyChipFilters(tools.rows, table.filters, resultAccessors), [tools.rows, table.filters]);
+  const reviewOptions = chipOptions(reviewChipLabels, facetCounts(tools.rows, table.filters, resultAccessors, 'Review'), { complete: true, selected: table.filters.Review });
+  const ipamOptions = chipOptions(ipamChipLabels, facetCounts(tools.rows, table.filters, resultAccessors, 'Ipam'), { complete: true, selected: table.filters.Ipam, hideEmpty: true });
   // Only visible pending rows can stay selected, so a bulk action never touches rows hidden by a chip.
   const pendingIds = useMemo(() => new Set(visibleResults.filter((result) => result.status === 'PENDING').map((result) => result.id)), [visibleResults]);
   // Selection only keeps rows that are still pending (a row reviewed elsewhere drops out).
@@ -95,9 +98,11 @@ export function DiscoveryResultsTable({ results, canEdit, review, bulkDone }: Pr
       <button className="secondary-button" disabled={!selectedIds.length || tooMany} onClick={() => setBulk({ status: 'APPROVED', ids: selectedIds })}><Check size={13} /> Aprovar selecionados</button>
       <button className="danger-button" disabled={!selectedIds.length || tooMany} onClick={() => setBulk({ status: 'IGNORED', ids: selectedIds })}><X size={13} /> Ignorar selecionados</button>
     </div>}
+    {results.length > 0 && <div className="discovery-results-tools">{tools.searchField}<DiscoveryResultsCsvButton rows={rows} /></div>}
     {results.length > 0 && <FilterChipBar>
-      <FilterChips label="Revisão" value={table.filters.Review} options={reviewOptions} total={results.length} onChange={(value) => table.setFilter('Review', value)} />
-      <FilterChips label="IPAM" value={table.filters.Ipam} options={ipamOptions} total={results.length} onChange={(value) => table.setFilter('Ipam', value)} />
+      <FilterChips label="Revisão" value={table.filters.Review} options={reviewOptions} total={tools.rows.length} onChange={(value) => table.setFilter('Review', value)} />
+      <FilterChips label="IPAM" value={table.filters.Ipam} options={ipamOptions} total={tools.rows.length} onChange={(value) => table.setFilter('Ipam', value)} />
+      {tools.typeChips}
     </FilterChipBar>}
     {tooMany && <div className="ipam-alert warning" role="note">{`Seleciona no máximo ${BULK_REVIEW_MAX} resultados por pedido.`}</div>}
     <DataTable rows={rows} columns={columns} rowKey={(result) => result.id} label="Resultados de sondas" sort={table.sort} onSortChange={table.setSort} defaultSort={table.defaultSort}
