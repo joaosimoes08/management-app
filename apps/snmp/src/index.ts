@@ -9,6 +9,7 @@ import { TrapReceiver } from './traps';
 import { log, publicErrorCode } from './log';
 import { startHealthServer, SnmpMetrics } from './health';
 import { metricsRetentionDays } from './metrics-retention';
+import { HEALTH_HISTORY_RETENTION_DAYS, healthHistoryCutoff } from './device-health';
 import type { Server } from 'node:http';
 
 if (process.env.SNMP_DATABASE_URL) process.env.DATABASE_URL = process.env.SNMP_DATABASE_URL;
@@ -67,6 +68,9 @@ async function start() {
         where: { type: 'POLL', status: { in: ['COMPLETED', 'FAILED', 'BLOCKED'] }, createdAt: { lt: cutoff } },
       });
       if (result.count) log('info', 'expired SNMP metric history removed', { count: result.count, retentionDays });
+      // SNMP Phase 2 step 9: health history older than 30 days (Joao's answer 13). The only rows this job removes.
+      const health = await prisma.snmpDeviceHealthSample.deleteMany({ where: { observedAt: { lt: healthHistoryCutoff() } } });
+      if (health.count) log('info', 'expired SNMP health history removed', { count: health.count, retentionDays: HEALTH_HISTORY_RETENTION_DAYS });
     };
     await pruneMetrics();
     const metricsRetentionTimer = setInterval(() => void pruneMetrics().catch((error) => log('error', 'SNMP metric retention failed', { errorCode: publicErrorCode(error) })), 60 * 60 * 1000);

@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import * as snmp from 'net-snmp';
 import { CISCO_VENDOR, DeviceHealthSnapshot } from '@simoes/snmp-core';
-import { healthRecord, normaliseVarbind, pollDeviceHealth } from './device-health';
+import { HEALTH_HISTORY_RETENTION_DAYS, healthHistoryCutoff, healthRecord, healthSample, normaliseVarbind, pollDeviceHealth } from './device-health';
 import { PollProcessor } from './poll';
 
 /** A net-snmp-like session whose subtree() answers from a fixed varbind list (or fails for chosen prefixes). */
@@ -112,16 +112,24 @@ describe('SNMP Phase 2 step 8: stored health record', () => {
 });
 
 describe('SNMP Phase 2 step 8: health polling inside the standard poll', () => {
-  it('upserts the reading for the device', async () => {
-    const calls: any[] = [];
+  it('upserts the reading for the device and adds one history sample (step 9)', async () => {
+    const calls: any[] = []; const samples: any[] = [];
     const processor = Object.create(PollProcessor.prototype) as any;
-    processor.prisma = { snmpDeviceHealth: { findUnique: async () => null, upsert: async (args: any) => { calls.push(args); } } };
+    processor.prisma = {
+      snmpDeviceHealth: { findUnique: async () => null, upsert: (args: any) => { calls.push(args); return Promise.resolve(); } },
+      snmpDeviceHealthSample: { create: (args: any) => { samples.push(args); return Promise.resolve(); } },
+      $transaction: async (items: Promise<unknown>[]) => Promise.all(items),
+    };
     const status = await processor.storeHealth('device-1', 'job-1', fakeSession(CISCO_VARBINDS), { sysObjectId: '1.3.6.1.4.1.9.1.2494', uptimeTicks: '24000' });
     assert.equal(status, 'DEGRADED');
     assert.equal(calls.length, 1);
     assert.deepEqual(calls[0].where, { deviceId: 'device-1' });
     assert.equal(calls[0].create.deviceId, 'device-1');
     assert.equal(calls[0].update.vendor, 'cisco');
+    assert.equal(samples.length, 1);
+    assert.equal(samples[0].data.deviceId, 'device-1');
+    assert.equal(samples[0].data.status, 'DEGRADED');
+    assert.equal(samples[0].data.rebooted, false);
   });
 
   it('never fails the standard poll when health polling fails', async () => {
@@ -134,5 +142,44 @@ describe('SNMP Phase 2 step 8: health polling inside the standard poll', () => {
       assert.equal(status, null);
       assert.equal(upserts, 0);
     } finally { console.warn = originalWarn; }
+  });
+});
+
+describe('SNMP Phase 2 step 9: health history sample and retention', () => {
+  const now = new Date('2026-11-24T12:00:00Z');
+  const snapshot = (uptimeTicks: number): DeviceHealthSnapshot => ({
+    vendor: 'cisco', status: 'OK', uptimeTicks, inventory: [], cpus: [], cpu: { fiveSecondPercent: 95, oneMinutePercent: 93, fiveMinutePercent: 91 }, memoryPools: [],
+    memory: { name: 'Processor', usedBytes: '90', totalBytes: '100', usedPercent: 90 },
+    temperatures: [{ index: 1, description: 'Inlet', celsius: 41, thresholdCelsius: 56, state: 'normal' }, { index: 2, description: 'Hotspot', celsius: 58, thresholdCelsius: 105, state: 'normal' }, { index: 3, description: 'Absent', celsius: null, thresholdCelsius: null, state: 'notPresent' }],
+    fans: [], powerSupplies: [], stack: null,
+    interfaces: [
+      { ifIndex: 1, name: 'Gi1/0/1', operUp: true, inErrors: '12', outErrors: '3', inDiscards: '0', outDiscards: '0', inOctets: '1', outOctets: '1', highCapacity: true },
+      { ifIndex: 2, name: 'Vlan1', operUp: true, inErrors: null, outErrors: null, inDiscards: null, outDiscards: null, inOctets: '1', outOctets: '1', highCapacity: false },
+    ],
+    issues: [], unavailable: [],
+  });
+
+  it('keeps headline numbers, the hottest sensor and the error counters', () => {
+    const sample = healthSample('device-1', healthRecord(null, snapshot(1000), 'job-1', now));
+    assert.equal(sample.cpu5mPercent, 91);
+    assert.equal(sample.memoryUsedPercent, 90);
+    assert.equal(sample.maxTemperatureCelsius, 58);
+    assert.equal(sample.rebooted, false);
+    assert.deepEqual(sample.interfaceErrors, [{ ifIndex: 1, name: 'Gi1/0/1', inErrors: '12', outErrors: '3' }]);
+    assert.equal(sample.observedAt.getTime(), now.getTime());
+  });
+
+  it('marks the sample that detected a reboot, and only that one', () => {
+    const previous = { uptimeTicks: 5_000_000n, observedAt: new Date(now.getTime() - 300_000), rebootDetectedAt: null, rebootCount: 0 };
+    const rebooted = healthRecord(previous, snapshot(1000), 'job-2', now);
+    assert.equal(healthSample('device-1', rebooted).rebooted, true);
+    const later = new Date(now.getTime() + 300_000);
+    const next = healthRecord({ uptimeTicks: 1000n, observedAt: now, rebootDetectedAt: rebooted.rebootDetectedAt, rebootCount: 1 }, snapshot(31_000), 'job-3', later);
+    assert.equal(healthSample('device-1', next).rebooted, false);
+  });
+
+  it('keeps 30 days of history', () => {
+    assert.equal(HEALTH_HISTORY_RETENTION_DAYS, 30);
+    assert.equal(healthHistoryCutoff(now).toISOString(), '2026-10-25T12:00:00.000Z');
   });
 });

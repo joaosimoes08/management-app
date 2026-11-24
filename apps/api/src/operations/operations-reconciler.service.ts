@@ -7,9 +7,12 @@ import { collectTrapAlerts, collectTrapSourceAlerts, TRAP_SOURCE_ALERT_SOURCE } 
 import { snmpPollingStopReason } from '../snmp/snmp-fleet.service';
 import { collectInterfaceAlerts, INTERFACE_ALERT_SOURCE } from './interface-alerts';
 import { CAPACITY_ALERT_SOURCE, collectCapacityAlerts } from './capacity-alerts';
+import { collectHealthAlerts, HEALTH_ALERT_SOURCE } from './health-alerts';
 
 /** Round 2 #7: interface alerts read snapshots and observations, so they are recomputed at most once a minute. */
 const INTERFACE_ALERT_INTERVAL_MS = 60_000;
+/** SNMP Phase 2 step 9: health readings arrive once per poll (5 min or more), so health alerts are recomputed once a minute. */
+export const HEALTH_ALERT_INTERVAL_MS = 60_000;
 /** Round 2 #15: capacity changes slowly; its pass reads every subnet, rack and NetApp snapshot, so it runs every 5 minutes. */
 export const CAPACITY_ALERT_INTERVAL_MS = 5 * 60_000;
 /** SNMP Phase 1 step 1: a device is unreachable after this many consecutive failed polls (env SNMP_UNREACHABLE_AFTER_FAILURES). */
@@ -26,6 +29,7 @@ export class OperationsReconcilerService implements OnModuleInit, OnModuleDestro
   private running = false;
   private interfaceAlertsAt = 0;
   private lastCapacityAt = 0;
+  private healthAlertsAt = 0;
   private readonly queue = new Queue('discovery', { connection: this.connection() });
   constructor(private readonly prisma: PrismaClient, private readonly operations: OperationsService) {}
   private connection() { const url = new URL(process.env.REDIS_URL ?? 'redis://localhost:6379'); return { host: url.hostname, port: Number(url.port || 6379), connectTimeout: 1500, maxRetriesPerRequest: 1, ...(url.password ? { password: url.password } : {}) }; }
@@ -71,6 +75,11 @@ export class OperationsReconcilerService implements OnModuleInit, OnModuleDestro
       this.interfaceAlertsAt = Date.now();
       const interfaceAlerts = await collectInterfaceAlerts(this.prisma);
       await this.operations.reconcileSource(INTERFACE_ALERT_SOURCE, interfaceAlerts.candidates, undefined, false, interfaceAlerts.resolveKeys);
+    }
+    if (Date.now() - this.healthAlertsAt >= HEALTH_ALERT_INTERVAL_MS) {
+      this.healthAlertsAt = Date.now();
+      const health = await collectHealthAlerts(this.prisma);
+      await this.operations.reconcileSource(HEALTH_ALERT_SOURCE, health.candidates, undefined, false, health.resolveKeys);
     }
     if (Date.now() - this.lastCapacityAt >= CAPACITY_ALERT_INTERVAL_MS) {
       this.lastCapacityAt = Date.now();

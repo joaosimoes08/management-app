@@ -81,3 +81,35 @@ export function healthRecord(previous: PreviousHealth, snapshot: DeviceHealthSna
     data,
   };
 }
+
+/** SNMP Phase 2 step 9: health history is kept this many days (Joao's answer 13); older samples are pruned. */
+export const HEALTH_HISTORY_RETENTION_DAYS = 30;
+
+export function healthHistoryCutoff(now: Date = new Date()) {
+  return new Date(now.getTime() - HEALTH_HISTORY_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+}
+
+/**
+ * SNMP Phase 2 step 9: the history row for one reading (SnmpDeviceHealthSample). Headline numbers plus the cumulative
+ * interface error counters, so the API can compute error rates between two samples without the full snapshot.
+ */
+export function healthSample(deviceId: string, record: ReturnType<typeof healthRecord>) {
+  const data = record.data;
+  const celsius = data.temperatures.map((item) => item.celsius).filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+  const interfaceErrors = data.interfaces
+    .filter((item) => item.inErrors !== null || item.outErrors !== null)
+    .map((item) => ({ ifIndex: item.ifIndex, name: item.name, inErrors: item.inErrors, outErrors: item.outErrors }));
+  return {
+    deviceId,
+    observedAt: record.observedAt,
+    status: record.status,
+    cpu5sPercent: record.cpu5sPercent,
+    cpu1mPercent: record.cpu1mPercent,
+    cpu5mPercent: record.cpu5mPercent,
+    memoryUsedPercent: record.memoryUsedPercent,
+    maxTemperatureCelsius: celsius.length ? Math.max(...celsius) : null,
+    issueCount: record.issueCount,
+    rebooted: Boolean(record.rebootDetectedAt && record.rebootDetectedAt.getTime() === record.observedAt.getTime()),
+    interfaceErrors,
+  };
+}

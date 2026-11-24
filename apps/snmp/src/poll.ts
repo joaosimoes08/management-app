@@ -1,7 +1,7 @@
 import { Prisma, PrismaClient } from '@simoes/database';
 import { SNMP_JOB_NAMES } from '@simoes/snmp-core';
 import { createSnmpSession, get, pollLldp, pollStandard, withDeadline } from './client';
-import { healthRecord, pollDeviceHealth } from './device-health';
+import { healthRecord, healthSample, pollDeviceHealth } from './device-health';
 import { DeviceLocks } from './locks';
 import { log, publicErrorCode } from './log';
 
@@ -110,7 +110,12 @@ export class PollProcessor {
       const previous = await this.prisma.snmpDeviceHealth.findUnique({ where: { deviceId }, select: { uptimeTicks: true, observedAt: true, rebootDetectedAt: true, rebootCount: true } });
       const record = healthRecord(previous, snapshot, jobId);
       const data = { ...record, data: record.data as unknown as Prisma.InputJsonValue };
-      await this.prisma.snmpDeviceHealth.upsert({ where: { deviceId }, create: { deviceId, ...data }, update: data });
+      // Step 9: the latest reading plus one history sample per reading (kept 30 days), written together.
+      const sample = healthSample(deviceId, record);
+      await this.prisma.$transaction([
+        this.prisma.snmpDeviceHealth.upsert({ where: { deviceId }, create: { deviceId, ...data }, update: data }),
+        this.prisma.snmpDeviceHealthSample.create({ data: { ...sample, interfaceErrors: sample.interfaceErrors as unknown as Prisma.InputJsonValue } }),
+      ]);
       if (record.rebootDetectedAt && record.rebootDetectedAt.getTime() === record.observedAt.getTime()) log('warn', 'device reboot detected', { deviceId, jobId, bootedAt: record.bootedAt?.toISOString() ?? null });
       return record.status;
     } catch (error) {

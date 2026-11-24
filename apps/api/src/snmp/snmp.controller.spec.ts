@@ -19,6 +19,11 @@ describe('SNMP endpoint authorization policy', () => {
     assert.deepEqual(roles('metrics'), ['ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY']);
     assert.deepEqual(roles('health'), ['ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY']);
   });
+
+  it('step 9: health limits are written by ADMIN and NETWORK_OPERATOR and read by the usual read roles', () => {
+    for (const method of ['updateSiteHealthThresholds', 'updateDeviceHealthThresholds'] as const) assert.deepEqual(roles(method), ['ADMIN', 'NETWORK_OPERATOR']);
+    for (const method of ['healthThresholdDefaults', 'siteHealthThresholds', 'deviceHealthThresholds', 'healthHistory'] as const) assert.deepEqual(roles(method), ['ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY']);
+  });
 });
 
 describe('fix F2: credential delete force flag', () => {

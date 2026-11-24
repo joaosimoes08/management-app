@@ -48,6 +48,8 @@ A configuração nginx atual encaminha a interface, `/api/` e `/realms/`. Se a i
 
 Revise as notas da versão e confirme backups recentes/testados antes de mudar `APP_IMAGE_TAG`. A API executa `prisma migrate deploy` ao arrancar; alterações de esquema podem não permitir reverter apenas as imagens. Se a atualização falhar, consulte `docker compose ps` e `docker compose logs --tail=200 api web keycloak`, corrija o problema e restaure backups compatíveis antes de reverter para a versão anterior. O assistente guarda uma cópia datada de `.env`; use-a para recuperar a configuração, mas não restaure uma base sem avaliar a compatibilidade com a versão-alvo. As cópias SQL ficam em `backups/` e devem ser transferidas para armazenamento protegido fora do servidor.
 
+Se a instalação usa o role restrito `simoes_snmp_runtime` (`SNMP_DATABASE_URL`, ver `docs/setup.md`), volte a aplicar `scripts/snmp-database-grants.sql` depois de cada atualização que crie tabelas SNMP, com o utilizador dono da base e depois de a API ter aplicado as migrações: `docker compose exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < scripts/snmp-database-grants.sql`. O script é idempotente. Sem este passo, o worker SNMP falha com `permission denied` nas tabelas novas (por exemplo `SnmpDeviceHealthSample`, a partir da Phase 2 step 9).
+
 ### Operação e resolução de problemas
 
 - Estado: `docker compose ps`.
