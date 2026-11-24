@@ -1,8 +1,8 @@
 #!/bin/sh
-# Picks one variant (healthy | degraded) and serves it over SNMPv2c and SNMPv3 authPriv (SHA / AES-128).
+# Picks one variant (healthy | degraded | nolldp) and serves it over SNMPv2c and SNMPv3 authPriv (SHA / AES-128).
 # All credentials are lab-only test values, overridable through the environment.
 set -eu
-variant="${SIM_VARIANT:?set SIM_VARIANT to healthy or degraded}"
+variant="${SIM_VARIANT:?set SIM_VARIANT to healthy, degraded or nolldp}"
 src="/usr/local/snmpsim/variants/c9300-${variant}.snmprec"
 [ -f "$src" ] || { echo "unknown SIM_VARIANT '${variant}'" >&2; exit 1; }
 community="${SIM_COMMUNITY:-lab-public}"

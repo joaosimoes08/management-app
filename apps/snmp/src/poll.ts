@@ -3,6 +3,7 @@ import { SNMP_JOB_NAMES } from '@simoes/snmp-core';
 import { createSnmpSession, get, pollLldp, pollStandard, withDeadline } from './client';
 import { healthRecord, healthSample, pollDeviceHealth } from './device-health';
 import { DeviceLocks } from './locks';
+import { ObservedNeighbor, observedNeighbors, pollFallbackNeighbors } from './neighbors';
 import { log, publicErrorCode } from './log';
 
 /** Extra time past the device timeout before the worker gives up on a credential test request. */
@@ -71,10 +72,14 @@ export class PollProcessor {
         const result = await pollStandard(session);
         let lldp: Awaited<ReturnType<typeof pollLldp>> = [];
         try { lldp = await pollLldp(session); } catch { /* LLDP-MIB is optional; preserve the standard SNMP poll. */ }
+        // SNMP Phase 2 step 11: the vendor's own protocol (CDP for Cisco) fills in ports where LLDP saw no neighbour.
+        let fallback: Awaited<ReturnType<typeof pollFallbackNeighbors>> = [];
+        try { fallback = await pollFallbackNeighbors(session, result.system.sysObjectId); } catch { /* best effort, like LLDP */ }
+        const neighbours = observedNeighbors(lldp, fallback, result.interfaces);
         const existingInterfaces = await this.prisma.deviceInterface.findMany({ where: { deviceId: job.deviceId }, orderBy: { id: 'asc' }, include: { allowedVlans: { select: { vlanId: true } } } });
         const byName = new Map(existingInterfaces.flatMap((item) => [item.name, item.portKey].filter(Boolean).map((name) => [String(name).toLowerCase(), item] as const)));
         const snapshot = await this.prisma.snmpSnapshot.create({ data: { deviceId: job.deviceId, jobId: job.id, ...result.system, raw: result.raw as Prisma.InputJsonValue, interfaces: { create: result.interfaces.map((item) => ({ ...item, counters: item.counters as Prisma.InputJsonValue, deviceInterfaceId: (item.name && byName.get(item.name.toLowerCase())?.id) || (item.description && byName.get(item.description.toLowerCase())?.id) })) } } });
-        await this.storeLldpObservations(job.deviceId, snapshot.id, job.device.siteId, lldp, existingInterfaces);
+        await this.storeLldpObservations(job.deviceId, snapshot.id, job.device.siteId, neighbours, existingInterfaces);
         await this.replaceDrifts(job.deviceId, snapshot.id, job.device, result, byName);
         await this.createTopologyProposals(job.deviceId, snapshot.id, result.interfaces, existingInterfaces, job.device.siteId);
         const healthStatus = await this.storeHealth(job.deviceId, job.id, session, result.system);
@@ -124,13 +129,19 @@ export class PollProcessor {
     }
   }
 
-  private async storeLldpObservations(deviceId: string, snapshotId: string, siteId: string | null, entries: Awaited<ReturnType<typeof pollLldp>>, interfaces: any[]) {
+  /**
+   * Stores LLDP rows and vendor fallback rows (CDP) alike, and feeds both into the same reviewed proposal flow.
+   * A link seen by both protocols, or from both ends, produces the same proposal key, so only one pending
+   * proposal exists. A fallback row is slightly less trusted than LLDP (confidence 5 points lower).
+   */
+  private async storeLldpObservations(deviceId: string, snapshotId: string, siteId: string | null, entries: ObservedNeighbor[], interfaces: any[]) {
     for (const entry of entries) {
+      const penalty = entry.protocol === 'LLDP' ? 0 : 5;
       const localPortDescription = interfaces.find((item) => item.name === entry.localPortId || item.portKey === entry.localPortId)?.name ?? null;
       const matches = entry.managementAddress && siteId ? await this.prisma.device.findMany({ where: { siteId, managementIp: entry.managementAddress }, select: { id: true } }) : [];
       const resolvedDeviceId = matches.length === 1 ? matches[0].id : null;
       const observedAt = new Date();
-      const observation = await this.prisma.lldpObservation.create({ data: { deviceId, snapshotId, observedAt, confidence: resolvedDeviceId ? 95 : entry.managementAddress ? 50 : 25, localPortNumber: entry.localPortNumber, localPortId: entry.localPortId ?? null, localPortDescription, remoteChassisIdSubtype: entry.chassisSubtype ?? null, remoteChassisId: entry.chassisId ?? null, remotePortIdSubtype: entry.portSubtype ?? null, remotePortId: entry.portId ?? null, remotePortDescription: entry.portDescription ?? null, remoteSystemName: entry.systemName ?? null, managementAddress: entry.managementAddress ?? null, resolvedDeviceId, rawIdentifiers: entry.rawIdentifiers as Prisma.InputJsonValue } });
+      const observation = await this.prisma.lldpObservation.create({ data: { deviceId, snapshotId, protocol: entry.protocol, observedAt, confidence: (resolvedDeviceId ? 95 : entry.managementAddress ? 50 : 25) - penalty, localPortNumber: entry.localPortNumber, localPortId: entry.localPortId ?? null, localPortDescription, remoteChassisIdSubtype: entry.chassisSubtype ?? null, remoteChassisId: entry.chassisId ?? null, remotePortIdSubtype: entry.portSubtype ?? null, remotePortId: entry.portId ?? null, remotePortDescription: entry.portDescription ?? null, remoteSystemName: entry.systemName ?? null, managementAddress: entry.managementAddress ?? null, resolvedDeviceId, rawIdentifiers: entry.rawIdentifiers as Prisma.InputJsonValue } });
       if (!resolvedDeviceId || !siteId || !localPortDescription || !entry.portId) continue;
       const remotePorts = await this.prisma.deviceInterface.findMany({ where: { deviceId: resolvedDeviceId, OR: [{ name: entry.portId }, { portKey: entry.portId }] }, select: { id: true } });
       const localPorts = await this.prisma.deviceInterface.findMany({ where: { deviceId, OR: [{ name: localPortDescription }, { portKey: entry.localPortId ?? '' }] }, select: { id: true } });
@@ -149,7 +160,7 @@ export class PollProcessor {
       if (existing && existing.sourceInterfaceId === desiredSourceInterfaceId && existing.targetInterfaceId === desiredTargetInterfaceId) continue;
       const action = existing ? 'CONNECTION_UPDATE' : 'CONNECTION_ADD';
       const proposalKey = `${action}:${desiredSourceDeviceId}:${desiredSourceInterfaceId}:${desiredTargetDeviceId}:${desiredTargetInterfaceId}`;
-      await this.createPendingProposals([{ deviceId, snapshotId, action, proposalKey, connectionId: existing?.id, confidence: 95, context: { observationId: observation.id, siteId }, beforeValues: existing ? { sourceInterfaceId: existing.sourceInterfaceId, targetInterfaceId: existing.targetInterfaceId, label: existing.label, type: existing.type } : undefined, observedValues: { siteId, sourceDeviceId: desiredSourceDeviceId, targetDeviceId: desiredTargetDeviceId, sourceInterfaceId: desiredSourceInterfaceId, targetInterfaceId: desiredTargetInterfaceId, type: existing?.type ?? 'PHYSICAL', label: existing?.label ?? (entry.portDescription ?? null) } }]);
+      await this.createPendingProposals([{ deviceId, snapshotId, action, proposalKey, connectionId: existing?.id, confidence: 95 - penalty, context: { observationId: observation.id, siteId, protocol: entry.protocol }, beforeValues: existing ? { sourceInterfaceId: existing.sourceInterfaceId, targetInterfaceId: existing.targetInterfaceId, label: existing.label, type: existing.type } : undefined, observedValues: { siteId, sourceDeviceId: desiredSourceDeviceId, targetDeviceId: desiredTargetDeviceId, sourceInterfaceId: desiredSourceInterfaceId, targetInterfaceId: desiredTargetInterfaceId, type: existing?.type ?? 'PHYSICAL', label: existing?.label ?? (entry.portDescription ?? null) } }]);
     }
   }
 

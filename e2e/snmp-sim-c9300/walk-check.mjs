@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Walks the simulated C9300 (healthy and degraded) over SNMPv2c and SNMPv3 authPriv and checks the key OIDs
+// Walks the simulated C9300 (healthy, degraded and nolldp) over SNMPv2c and SNMPv3 authPriv and checks the key OIDs
 // and the healthy/degraded differences. Exits 1 on any failure.
 // Needs net-snmp's snmpbulkwalk/snmpget on PATH (with AES support) and the compose stack up:
 //   docker compose -f e2e/snmp-sim-c9300/docker-compose.yml up -d --build
@@ -9,7 +9,7 @@ import { promisify } from 'node:util';
 
 const run = promisify(execFile);
 const env = (name, fallback) => process.env[name] || fallback;
-const TARGETS = { healthy: env('SIM_HEALTHY', '127.0.0.1:16161'), degraded: env('SIM_DEGRADED', '127.0.0.1:16162') };
+const TARGETS = { healthy: env('SIM_HEALTHY', '127.0.0.1:16161'), degraded: env('SIM_DEGRADED', '127.0.0.1:16162'), nolldp: env('SIM_NOLLDP', '127.0.0.1:16163') };
 // Lab-only test credentials (see docker-compose.yml).
 const COMMUNITY = env('SIM_COMMUNITY', 'lab-public');
 const V3 = ['-v3', '-l', 'authPriv', '-u', env('SIM_V3_USER', 'labpoll'), '-a', 'SHA', '-A', env('SIM_V3_AUTH_KEY', 'lab-poll-auth-pass'), '-x', 'AES', '-X', env('SIM_V3_PRIV_KEY', 'lab-poll-priv-pass')];
@@ -39,7 +39,7 @@ const num = (m, oid) => Number(m.get(oid));
 const sub = (m, prefix) => [...m.keys()].filter((k) => k.startsWith(`${prefix}.`));
 
 // Structural checks that both variants must pass.
-function common(m, label) {
+function common(m, label, lldp = true) {
   expect(m.get('1.3.6.1.2.1.1.5.0') === 'sim-c9300-01', `${label} sysName = sim-c9300-01`);
   expect(/CAT9K_IOSXE/.test(m.get('1.3.6.1.2.1.1.1.0') ?? ''), `${label} sysDescr is IOS XE Cat9k`);
   expect(m.get('1.3.6.1.2.1.1.2.0') === '.1.3.6.1.4.1.9.1.2494' || m.get('1.3.6.1.2.1.1.2.0') === '1.3.6.1.4.1.9.1.2494', `${label} sysObjectID in Cisco subtree`);
@@ -67,8 +67,10 @@ function common(m, label) {
   expect(sub(m, '1.3.6.1.4.1.9.9.500.1.2.1.1.6').length === 2, `${label} StackWise 2 members`);
   expect(num(m, '1.3.6.1.4.1.9.9.500.1.2.1.1.3.1000') === 1, `${label} StackWise member 1 is master`);
   expect(m.get('1.3.6.1.4.1.9.9.23.1.2.1.1.6.49.1') === 'core-sw-01', `${label} CDP neighbour on uplink 1 = core-sw-01`);
-  expect(m.get('1.0.8802.1.1.2.1.4.1.1.9.0.49.1') === 'core-sw-01', `${label} LLDP neighbour on uplink 1 = core-sw-01`);
-  expect(m.get('1.0.8802.1.1.2.1.3.3.0') === 'sim-c9300-01', `${label} lldpLocSysName`);
+  if (lldp) {
+    expect(m.get('1.0.8802.1.1.2.1.4.1.1.9.0.49.1') === 'core-sw-01', `${label} LLDP neighbour on uplink 1 = core-sw-01`);
+    expect(m.get('1.0.8802.1.1.2.1.3.3.0') === 'sim-c9300-01', `${label} lldpLocSysName`);
+  }
 }
 
 function healthy(m, label) {
@@ -101,6 +103,16 @@ function degraded(m, h, label) {
   expect(!m.has('1.3.6.1.4.1.9.9.23.1.2.1.1.6.50.1') && !m.has('1.0.8802.1.1.2.1.4.1.1.9.0.50.1'), `${label} no CDP/LLDP neighbour on down uplink 2`);
 }
 
+// Phase 2 step 11: LLDP-MIB absent, CDP still reports all three neighbours of the healthy stack.
+function nolldp(m, h, label) {
+  expect(sub(m, '1.0.8802').length === 0, `${label} no LLDP-MIB OIDs at all`);
+  const cdpNames = sub(m, '1.3.6.1.4.1.9.9.23.1.2.1.1.6').map((k) => m.get(k)).sort();
+  expect(JSON.stringify(cdpNames) === JSON.stringify(['ap-floor1-01', 'core-sw-01', 'core-sw-02']), `${label} CDP neighbours = ap-floor1-01, core-sw-01, core-sw-02`);
+  expect(m.get('1.3.6.1.4.1.9.9.23.1.2.1.1.7.50.1') === 'TenGigabitEthernet1/0/1', `${label} CDP port of core-sw-02 on uplink 2`);
+  const same = [...h].filter(([k]) => !k.startsWith('1.0.8802.') && k !== '1.3.6.1.2.1.1.3.0').every(([k, v]) => m.get(k) === v);
+  expect(same, `${label} equals healthy apart from LLDP-MIB`);
+}
+
 async function snmpget(args) {
   return run('snmpget', [...args, '-t', '1', '-r', '0', TARGETS.healthy, '1.3.6.1.2.1.1.5.0'], { timeout: 10_000 });
 }
@@ -122,7 +134,7 @@ async function rejected(args, msg) {
 }
 
 const walks = {};
-for (const variant of ['healthy', 'degraded']) {
+for (const variant of ['healthy', 'degraded', 'nolldp']) {
   for (const auth of ['v2c', 'v3']) {
     const label = `${variant}/${auth}`;
     try {
@@ -133,14 +145,16 @@ for (const variant of ['healthy', 'degraded']) {
     }
   }
 }
-for (const label of Object.keys(walks)) { console.log(`checks ${label}`); common(walks[label], label); }
+for (const label of Object.keys(walks)) { console.log(`checks ${label}`); common(walks[label], label, !label.startsWith('nolldp/')); }
 for (const auth of ['v2c', 'v3']) {
   const h = walks[`healthy/${auth}`]; const d = walks[`degraded/${auth}`];
   if (h) { console.log(`healthy checks ${auth}`); healthy(h, `healthy/${auth}`); }
   if (h && d) { console.log(`degraded checks ${auth}`); degraded(d, h, `degraded/${auth}`); }
+  const n = walks[`nolldp/${auth}`];
+  if (h && n) { console.log(`nolldp checks ${auth}`); nolldp(n, h, `nolldp/${auth}`); }
 }
 console.log('v2c and v3 return the same data');
-for (const variant of ['healthy', 'degraded']) {
+for (const variant of ['healthy', 'degraded', 'nolldp']) {
   const a = walks[`${variant}/v2c`]; const b = walks[`${variant}/v3`];
   expect(a && b && a.size === b.size && [...a].every(([k, v]) => b.get(k) === v), `${variant} v2c walk == v3 walk`);
 }
