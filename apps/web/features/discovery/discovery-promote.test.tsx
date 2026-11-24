@@ -62,6 +62,48 @@ describe('discovery promotion data', () => {
   });
 });
 
+describe('exhaustive duplicate check', () => {
+  const page = (n: number, total: number, items: Array<{ id: string; name: string; managementIp: string }>) => ({ items, page: n, pageSize: 100, total: total * 100, totalPages: total });
+  const near = (from: number) => Array.from({ length: 100 }, (_, index) => ({ id: `d${from + index}`, name: `n${from + index}`, managementIp: `10.0.0.1${from + index}` }));
+
+  it('finds a match beyond the first page of 100 search results', async () => {
+    mockedFetch.mockImplementation(async (path: string) => {
+      const n = Number(new URLSearchParams(path.split('?')[1]).get('page'));
+      return (n === 3 ? page(3, 3, [{ id: 'exact', name: 'SW-EXACT', managementIp: '10.0.0.1' }]) : page(n, 3, near(n * 100))) as never;
+    });
+    await expect(findDeviceByManagementIp('site-lx', '10.0.0.1')).resolves.toMatchObject({ id: 'exact' });
+    expect(mockedFetch.mock.calls.map(([path]) => new URLSearchParams(String(path).split('?')[1]).get('page'))).toEqual(['1', '2', '3']);
+  });
+
+  it('stops at the last page, at the first exact match, and on an empty page', async () => {
+    mockedFetch.mockImplementation(async (path: string) => page(Number(new URLSearchParams(path.split('?')[1]).get('page')), 2, near(0)) as never);
+    await expect(findDeviceByManagementIp('site-lx', '10.0.0.1')).resolves.toBeNull();
+    expect(mockedFetch).toHaveBeenCalledTimes(2);
+
+    mockedFetch.mockReset();
+    mockedFetch.mockResolvedValue(page(1, 5, [{ id: 'first', name: 'A', managementIp: '10.0.0.1' }]) as never);
+    await expect(findDeviceByManagementIp('site-lx', '10.0.0.1')).resolves.toMatchObject({ id: 'first' });
+    expect(mockedFetch).toHaveBeenCalledTimes(1);
+
+    mockedFetch.mockReset();
+    mockedFetch.mockResolvedValue({ items: [], totalPages: 99 } as never);
+    await expect(findDeviceByManagementIp('site-lx', '10.0.0.1')).resolves.toBeNull();
+    expect(mockedFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('links to a device found on a later page from the action', async () => {
+    mockedFetch.mockImplementation(async (path: string) => {
+      if (path.startsWith('/api/v1/discovery/jobs/job-1')) return { subnet: { siteId: 'site-lx' } } as never;
+      const n = Number(new URLSearchParams(path.split('?')[1]).get('page'));
+      return (n === 2 ? page(2, 2, [{ id: 'later', name: 'SW-LATER', managementIp: '10.0.0.1' }]) : page(1, 2, near(0))) as never;
+    });
+    const navigate = renderAction(result(), ['ADMIN']);
+    fireEvent.click(screen.getByRole('button', { name: 'Promover 10.0.0.1 a equipamento' }));
+    expect(await screen.findByRole('link', { name: 'Abrir o equipamento SW-LATER (10.0.0.1)' })).toHaveAttribute('href', '/infraestrutura?siteId=site-lx&tab=devices&focus=device&deviceId=later');
+    expect(navigate).not.toHaveBeenCalled();
+  });
+});
+
 describe('Promover a equipamento', () => {
   it('is only on approved rows, for roles that can create devices', () => {
     renderAction(result({ status: 'PENDING' }), ['ADMIN']);

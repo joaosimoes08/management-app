@@ -7,6 +7,7 @@ import { FilterChips } from '@/components/ui/filter-chips';
 import { useUiText } from '@/components/ui/use-ui-text';
 import { chipOptions, countBy } from '@/lib/filter-chips';
 import type { DiscoveryComparisonItem, DiscoveryResult } from './api';
+import { DiscoveryPromoteAction } from './discovery-promote';
 
 /** D-P2b: what answered the probes for one address. */
 export type DiscoveryResponseType = 'ICMP_TCP' | 'ICMP' | 'TCP' | 'NONE';
@@ -73,12 +74,17 @@ export function DiscoveryResultsCsvButton({ rows }: { rows: DiscoveryResult[] })
 
 /**
  * D-P2b: approve a newly seen or changed address straight from the comparison list. The comparison's current run is
- * the selected run, so its row is found by address among that run's results. Reviewed rows show their state instead.
+ * the selected run, so its row is found by address among that run's results. Reviewed rows show their state instead,
+ * and approved ones also get "Promover a equipamento" (D-P1b follow-up).
  */
 export function DiscoveryComparisonApprove({ item, results, review }: { item: DiscoveryComparisonItem; results: DiscoveryResult[]; review: (id: string, status: 'APPROVED' | 'IGNORED') => Promise<void> }) {
   const t = useUiText();
   const result = item.current ? results.find((candidate) => candidate.address === item.address) : undefined;
   if (!result) return null;
-  if (result.status !== 'PENDING') return <span className={`state-badge ${result.status === 'APPROVED' ? 'approved' : 'rejected'}`}><i />{t(`discoveryResults.review.${result.status}`, result.status)}</span>;
+  if (result.status !== 'PENDING') {
+    const badge = <span className={`state-badge ${result.status === 'APPROVED' ? 'approved' : 'rejected'}`}><i />{t(`discoveryResults.review.${result.status}`, result.status)}</span>;
+    // An approved address can be promoted to a device from here too (same check and create flow as the results table).
+    return result.status === 'APPROVED' ? <span className="discovery-comparison-approved">{badge}<DiscoveryPromoteAction result={result} /></span> : badge;
+  }
   return <span className="result-actions"><button type="button" aria-label={t('discoveryResults.approveFor', undefined, { address: result.address })} onClick={() => void review(result.id, 'APPROVED')}><Check size={13} aria-hidden="true" /> {t('discoveryResults.approve')}</button></span>;
 }

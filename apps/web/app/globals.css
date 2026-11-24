@@ -3868,3 +3868,6 @@ small.alert-next-step::before { content:'→ '; }
 .discovery-promote > a.secondary-button, .discovery-promote > button { display:inline-flex; align-items:center; gap:5px; white-space:nowrap; text-decoration:none; }
 .discovery-promote small { flex-basis:100%; white-space:normal; line-height:1.4; }
 .discovery-promotion-offer .form-help svg { vertical-align:-2px; }
+.discovery-comparison-approved { display:inline-flex; flex:0 1 auto; flex-wrap:wrap; justify-content:flex-end; align-items:center; gap:6px; max-width:65%; min-width:0; }
+.discovery-comparison-approved .discovery-promote { justify-content:flex-end; }
+.discovery-comparison-approved .discovery-promote small { text-align:right; }
