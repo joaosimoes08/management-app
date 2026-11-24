@@ -1,8 +1,8 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, type MouseEvent, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { CircleHelp, MoreHorizontal } from 'lucide-react';
+import { ChevronDown, CircleHelp, MoreHorizontal, SlidersHorizontal } from 'lucide-react';
 import { LazyMotion, MotionConfig, domAnimation } from 'motion/react';
 import * as m from 'motion/react-m';
 import { usePathname } from 'next/navigation';
@@ -13,6 +13,7 @@ import { useUiText } from '@/components/ui/use-ui-text';
 import { GlobalSearchPalette, type LocalSearchContext, type RackSearchContext } from './global-search';
 import { UserMenu } from './user-menu';
 import { ResponsiveToolbarActions } from './responsive-overflow';
+import { contextToolbarHasControls, contextToolbarOverflows } from './context-toolbar-fit';
 import { helpArticle, helpArticleForPath } from '@/features/help/articles';
 import { useI18n } from '@/lib/i18n';
 
@@ -40,6 +41,69 @@ export function AppShell({ children, section, context, search, rackSearch, modul
   const [collapsed, setCollapsed] = useState(false);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const [toolbarActionsElement, setToolbarActionsElement] = useState<HTMLDivElement | null>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const controlsId = useId();
+  const [toolbarCompact, setToolbarCompact] = useState(false);
+  const [controlsOpen, setControlsOpen] = useState(false);
+
+  // One-line utility bar: when the page's controls do not fit beside the title (they would wrap or spill),
+  // they move into the "Controlos" panel. The check runs before paint and again on resize or content change.
+  useLayoutEffect(() => {
+    const toolbar = toolbarRef.current;
+    if (!toolbar) return;
+    let frame = 0;
+    // Width at which the one-line layout last failed for real, so a passing trial cannot flip it back and forth.
+    let failedAt = -1;
+    const fit = () => {
+      frame = 0;
+      const width = toolbar.clientWidth;
+      if (!contextToolbarHasControls(toolbar)) {
+        if (toolbar.hasAttribute('data-compact')) { toolbar.removeAttribute('data-compact'); setToolbarCompact(false); }
+        return;
+      }
+      if (!toolbar.hasAttribute('data-compact')) {
+        if (contextToolbarOverflows(toolbar)) { failedAt = width; toolbar.setAttribute('data-compact', ''); setToolbarCompact(true); }
+        return;
+      }
+      if (width <= failedAt) return;
+      // Trial: lay the bar out on one line with the page actions folded to their minimum, measure, and keep compact if it still spills.
+      toolbar.removeAttribute('data-compact');
+      toolbar.setAttribute('data-measuring', '');
+      const overflows = contextToolbarOverflows(toolbar);
+      toolbar.removeAttribute('data-measuring');
+      if (overflows) toolbar.setAttribute('data-compact', '');
+      else { setToolbarCompact(false); setControlsOpen(false); }
+    };
+    const schedule = () => { if (!frame) frame = window.requestAnimationFrame(fit); };
+    fit();
+    const resize = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(schedule);
+    resize?.observe(toolbar);
+    const content = typeof MutationObserver === 'undefined' ? undefined : new MutationObserver((records) => {
+      const inside = (selector: string) => records.every((record) => (record.target instanceof Element ? record.target : record.target.parentElement)?.closest(selector));
+      if (inside('.responsive-overflow-measure, .responsive-overflow-popover')) return;
+      // "Mais ações" re-folding itself is a consequence of our own layout change, not new content: keep the failure memory.
+      if (!inside('.responsive-toolbar-actions')) failedAt = -1;
+      schedule();
+    });
+    content?.observe(toolbar, { childList: true, subtree: true, characterData: true });
+    return () => { resize?.disconnect(); content?.disconnect(); if (frame) window.cancelAnimationFrame(frame); };
+  }, []);
+
+  useEffect(() => { setControlsOpen(false); }, [pathname]);
+
+  useEffect(() => {
+    if (!controlsOpen) return;
+    const toolbar = toolbarRef.current;
+    const outside = (event: PointerEvent) => { if (toolbar && event.target instanceof Node && !toolbar.contains(event.target)) setControlsOpen(false); };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setControlsOpen(false);
+      toolbar?.querySelector<HTMLElement>('.context-toolbar-controls-toggle')?.focus();
+    };
+    document.addEventListener('pointerdown', outside);
+    document.addEventListener('keydown', escape);
+    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); };
+  }, [controlsOpen]);
 
   useEffect(() => {
     setCollapsed(window.localStorage.getItem('cociber.sidebar.collapsed') === 'true');
@@ -84,7 +148,7 @@ export function AppShell({ children, section, context, search, rackSearch, modul
   return <MotionConfig reducedMotion="user"><LazyMotion features={domAnimation} strict><div className={`site-shell app-shell ${sidebarOpen ? 'sidebar-visible' : ''} ${collapsed ? 'sidebar-collapsed' : ''}`}>
     <a className="skip-link" href="#main-content" onClick={skipToContent}>{t('shell.skipToContent')}</a>
     <AppHeader section={section} moduleTabs={moduleTabs} onOpenSidebar={() => setSidebarOpen((value) => !value)} onOpenGlobalSearch={() => setGlobalSearchOpen(true)} />
-    <div className="dashboard-frame"><AppSidebar collapsed={collapsed} onToggle={toggleCollapsed} onClose={() => setSidebarOpen(false)} /><button className="sidebar-backdrop" aria-label={t('shell.closeMenu')} onClick={() => setSidebarOpen(false)} /><section className="content-area"><PageToolbarContext.Provider value={toolbarActionsElement}><div className={`context-toolbar ${section === 'Dashboard' ? 'dashboard-context-toolbar' : ''}`} role="region" aria-label={t('shell.pageControls')}><div className="context-toolbar-title">{showSectionTitle && <strong>{section}</strong>}{breadcrumb ? <span>{breadcrumb}</span> : null}{help && <Link className="icon-button subtle context-toolbar-help" href={`/ajuda/${help.slug}`} aria-label={`Ajuda: ${help.title}`} title={`Ajuda: ${help.title}`}><CircleHelp size={14} /></Link>}</div><m.div key={`${transitionKey}:navigation`} className="context-toolbar-navigation" initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18, ease: 'easeOut' }}>{toolbar}</m.div><m.div key={`${transitionKey}:actions`} className="context-toolbar-actions" ref={setToolbarActionsElement} initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18, ease: 'easeOut' }}><ResponsiveToolbarActions>{actions}</ResponsiveToolbarActions></m.div></div><main id="main-content" className="app-shell-content" tabIndex={-1}>{children}</main></PageToolbarContext.Provider></section></div>
+    <div className="dashboard-frame"><AppSidebar collapsed={collapsed} onToggle={toggleCollapsed} onClose={() => setSidebarOpen(false)} /><button className="sidebar-backdrop" aria-label={t('shell.closeMenu')} onClick={() => setSidebarOpen(false)} /><section className="content-area"><PageToolbarContext.Provider value={toolbarActionsElement}><div ref={toolbarRef} className={`context-toolbar ${section === 'Dashboard' ? 'dashboard-context-toolbar' : ''} ${toolbarCompact && controlsOpen ? 'controls-open' : ''}`} role="region" aria-label={t('shell.pageControls')} data-compact={toolbarCompact ? '' : undefined}><div className="context-toolbar-title">{showSectionTitle && <strong>{section}</strong>}{breadcrumb ? <span>{breadcrumb}</span> : null}{help && <Link className="icon-button subtle context-toolbar-help" href={`/ajuda/${help.slug}`} aria-label={`Ajuda: ${help.title}`} title={`Ajuda: ${help.title}`}><CircleHelp size={14} /></Link>}</div><button type="button" className="context-toolbar-controls-toggle" aria-expanded={toolbarCompact && controlsOpen} aria-controls={controlsId} hidden={!toolbarCompact} onClick={() => setControlsOpen((open) => !open)}><SlidersHorizontal size={15} aria-hidden="true" /><span>{t('shell.controls')}</span><ChevronDown size={14} aria-hidden="true" /></button><div className="context-toolbar-controls" id={controlsId}><m.div key={`${transitionKey}:navigation`} className="context-toolbar-navigation" initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18, ease: 'easeOut' }}>{toolbar}</m.div><m.div key={`${transitionKey}:actions`} className="context-toolbar-actions" ref={setToolbarActionsElement} initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18, ease: 'easeOut' }}><ResponsiveToolbarActions>{actions}</ResponsiveToolbarActions></m.div></div></div><main id="main-content" className="app-shell-content" tabIndex={-1}>{children}</main></PageToolbarContext.Provider></section></div>
     <GlobalSearchPalette open={globalSearchOpen} onClose={() => setGlobalSearchOpen(false)} rackSearch={rackSearch} localSearch={search} />
   </div></LazyMotion></MotionConfig>;
 }

@@ -3639,3 +3639,44 @@ small.alert-next-step::before { content:'→ '; }
 }
 .snmp-v2c-pending { margin:0; padding:9px 12px; color:var(--muted); border:1px dashed var(--line); border-radius:9px; font-size:12px; line-height:1.45; }
 .snmp-version-options label.pending { opacity:.75; cursor:progress; }
+
+/* One-line utility bar (fix/utility-bar-one-line). The bar never wraps, at any width. Title, page navigation and actions share
+   one row (navigation and actions sit in .context-toolbar-controls, display:contents). Page actions fold into "Mais ações" first;
+   when the controls still do not fit, AppShell sets [data-compact] and they move into the "Controlos" panel under the bar,
+   where they may wrap and stack like the old phone layout. Popovers keep their own positioning (no overflow clipping). */
+.app-shell .context-toolbar[role="region"] { flex-direction:row; flex-wrap:nowrap; align-items:center; overflow:visible; }
+.app-shell .context-toolbar[role="region"] .context-toolbar-title { flex:0 1 auto; width:auto; max-width:none; min-width:0; overflow:hidden; }
+.app-shell .context-toolbar[role="region"] .context-toolbar-title > strong,
+.app-shell .context-toolbar[role="region"] .context-toolbar-title > span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.app-shell .context-toolbar[role="region"] .context-toolbar-title > .icon-button { flex:none; }
+.app-shell .context-toolbar[role="region"] .context-toolbar-navigation { flex:1 1 0%; width:auto; min-width:0; }
+.app-shell .context-toolbar[role="region"] .context-toolbar-actions { flex:0 1 auto; width:auto; min-width:0; margin-left:auto; }
+.app-shell .context-toolbar .context-toolbar-controls { display:contents; }
+.app-shell .context-toolbar .responsive-toolbar-actions { flex-shrink:1000; min-width:var(--toolbar-actions-min, 0px); }
+.app-shell .context-toolbar[data-measuring] .responsive-toolbar-actions { flex:0 0 var(--toolbar-actions-min, 0px); width:var(--toolbar-actions-min, 0px); overflow:hidden; }
+.app-shell .context-toolbar-controls-toggle { display:none; }
+.app-shell .context-toolbar[data-compact] .context-toolbar-title { flex:1 1 auto; }
+.app-shell .context-toolbar[data-compact] .context-toolbar-controls-toggle { display:inline-flex; flex:none; align-items:center; gap:6px; height:36px; margin-left:auto; padding:0 10px; color:#344761; border:1px solid #d5deeb; border-radius:9px; background:#fff; font:inherit; font-size:12px; font-weight:600; cursor:pointer; }
+.app-shell .context-toolbar[data-compact] .context-toolbar-controls-toggle:hover,
+.app-shell .context-toolbar[data-compact] .context-toolbar-controls-toggle[aria-expanded="true"] { background:#edf3fb; }
+.app-shell .context-toolbar[data-compact] .context-toolbar-controls-toggle[aria-expanded="true"] > svg:last-child { transform:rotate(180deg); }
+.app-shell .context-toolbar[data-compact] .context-toolbar-controls-toggle:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
+.app-shell .context-toolbar[data-compact] .context-toolbar-controls { position:absolute; z-index:5; top:calc(100% + 6px); right:12px; display:flex; visibility:hidden; pointer-events:none; flex-direction:column; align-items:stretch; gap:10px; box-sizing:border-box; width:min(560px, calc(100% - 24px)); padding:12px; color:#192a43; border:1px solid #dce4ef; border-radius:12px; background:#fff; box-shadow:0 16px 40px rgba(22,39,66,.18); white-space:normal; }
+/* Closed = hidden but still laid out, so "Mais ações" keeps measuring real widths for the next one-line trial. */
+.app-shell .context-toolbar[data-compact].controls-open .context-toolbar-controls { visibility:visible; pointer-events:auto; }
+.app-shell .context-toolbar[data-compact][role="region"] .context-toolbar-navigation,
+.app-shell .context-toolbar[data-compact][role="region"] .context-toolbar-actions { flex:0 0 auto; flex-wrap:wrap; justify-content:flex-start; box-sizing:border-box; width:100%; min-width:0; margin:0; }
+.app-shell .context-toolbar[data-compact] .context-toolbar-navigation:empty { display:none; }
+.app-shell .context-toolbar[data-compact] .context-toolbar-actions > * { max-width:100%; }
+/* Inside the panel page contributions take a full row and their groups may wrap (the bar itself never does). */
+.app-shell .context-toolbar[data-compact] .context-toolbar-actions > .context-toolbar-contribution { flex:1 1 100%; min-width:0; }
+.app-shell .context-toolbar[data-compact] .context-toolbar-contribution,
+.app-shell .context-toolbar[data-compact] .context-toolbar-contribution > *,
+.app-shell .context-toolbar[data-compact] .context-toolbar-contribution > * > *,
+.app-shell .context-toolbar[data-compact] .context-toolbar-navigation > *,
+.app-shell .context-toolbar[data-compact] .context-toolbar-navigation > * > *,
+.app-shell .context-toolbar[data-compact] .context-toolbar-navigation > * > * > * { flex-wrap:wrap; max-width:100%; min-width:0; }
+.app-shell .context-toolbar[data-compact] .responsive-toolbar-actions { flex:1 1 100%; flex-shrink:1; min-width:0; justify-content:flex-start; }
+@media (max-width:780px) {
+  .app-shell .context-toolbar[data-compact] .context-toolbar-controls { right:8px; width:calc(100% - 16px); }
+}

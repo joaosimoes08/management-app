@@ -10,7 +10,10 @@ vi.mock('./app-header', () => ({ AppHeader: () => <header /> }));
 vi.mock('./app-sidebar', () => ({ AppSidebar: ({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) => <aside className={`sidebar app-sidebar${collapsed ? ' sidebar-collapsed' : ''}`}><button onClick={onToggle}>{collapsed ? 'Expandir' : 'Recolher'}</button></aside> }));
 vi.mock('./global-search', () => ({ GlobalSearchPalette: () => null }));
 vi.mock('./user-menu', () => ({ UserMenu: () => null }));
-vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ locale: 'pt-PT', t: (key: string) => ({ 'shell.skipToContent': 'Saltar para o conteúdo', 'shell.closeMenu': 'Fechar menu', 'shell.pageControls': 'Controlos da página' } as Record<string, string>)[key] ?? key }) }));
+// jsdom has no layout, so the one-line fit check is stubbed: false = the controls fit.
+const toolbarFit = vi.hoisted(() => ({ overflows: false }));
+vi.mock('./context-toolbar-fit', async (importOriginal) => ({ ...(await importOriginal<typeof import('./context-toolbar-fit')>()), contextToolbarOverflows: () => toolbarFit.overflows }));
+vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ locale: 'pt-PT', t: (key: string) => ({ 'shell.skipToContent': 'Saltar para o conteúdo', 'shell.closeMenu': 'Fechar menu', 'shell.pageControls': 'Controlos da página', 'shell.controls': 'Controlos' } as Record<string, string>)[key] ?? key }) }));
 
 afterEach(() => { cleanup(); localStorage.clear(); });
 
@@ -45,8 +48,9 @@ describe('Dashboard AppShell toolbar layout', () => {
       const actions = toolbar.querySelector('.context-toolbar-actions') as HTMLElement;
       expect(navigation).toContainElement(screen.getByRole('combobox', { name: 'Workspace' }));
       expect(actions).toContainElement(screen.getByRole('button', { name: 'Nova descoberta' }));
-      expect(toolbar.children[1]).toBe(navigation);
-      expect(toolbar.children[2]).toBe(actions);
+      const controls = toolbar.querySelector('.context-toolbar-controls') as HTMLElement;
+      expect(controls.children[0]).toBe(navigation);
+      expect(controls.children[1]).toBe(actions);
       fireEvent.click(within(actions).getByRole('button', { name: 'Nova descoberta' }));
       expect(discovery).toHaveBeenCalledOnce();
     } finally {
@@ -66,8 +70,9 @@ describe('AppShell utility action alignment slot', () => {
     const actions = toolbar.querySelector('.context-toolbar-actions') as HTMLElement;
     await waitFor(() => expect(within(actions).getByRole('button', { name: 'Exportar' })).toBeInTheDocument());
 
-    expect(toolbar.children[1]).toBe(navigation);
-    expect(toolbar.children[2]).toBe(actions);
+    const controls = toolbar.querySelector('.context-toolbar-controls') as HTMLElement;
+    expect(controls.children[0]).toBe(navigation);
+    expect(controls.children[1]).toBe(actions);
     expect(within(actions).getByRole('button', { name: 'Atualizar' })).toBeInTheDocument();
   });
 });
@@ -142,5 +147,45 @@ describe('AppShell landmarks and skip link', () => {
     skip.focus();
     fireEvent.click(skip);
     expect(document.activeElement).toBe(screen.getByRole('main'));
+  });
+});
+
+describe('AppShell one-line utility bar', () => {
+  it('moves the page controls into the "Controlos" panel when they do not fit on one line', async () => {
+    toolbarFit.overflows = true;
+    try {
+      render(<AppShell section="Alterações" toolbar={<label>Estado<select aria-label="Estado"><option>Todos</option></select></label>} actions={<button className="primary-button">Nova alteração</button>}><div /></AppShell>);
+      const toolbar = document.querySelector('.context-toolbar') as HTMLElement;
+      await waitFor(() => expect(toolbar).toHaveAttribute('data-compact'));
+      const toggle = within(toolbar).getByRole('button', { name: 'Controlos' });
+      expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      expect(toggle).toHaveAttribute('aria-controls', (toolbar.querySelector('.context-toolbar-controls') as HTMLElement).id);
+      fireEvent.click(toggle);
+      expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      expect(toolbar).toHaveClass('controls-open');
+      fireEvent.keyDown(document, { key: 'Escape' });
+      expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      fireEvent.click(toggle);
+      fireEvent.pointerDown(document.body);
+      expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    } finally {
+      toolbarFit.overflows = false;
+    }
+  });
+
+  it('keeps everything on the bar and hides the toggle when the controls fit', () => {
+    render(<AppShell section="Alertas" actions={<button>Atualizar</button>}><div /></AppShell>);
+    const toolbar = document.querySelector('.context-toolbar') as HTMLElement;
+    expect(toolbar).not.toHaveAttribute('data-compact');
+    expect(toolbar.querySelector('.context-toolbar-controls-toggle')).toHaveAttribute('hidden');
+  });
+
+  it('never wraps: the bar stays a single row at every width', async () => {
+    const { readFileSync } = await import('node:fs');
+    const css = readFileSync(`${process.cwd()}/app/globals.css`, 'utf8');
+    const block = css.slice(css.lastIndexOf('/* One-line utility bar'));
+    expect(block).toMatch(/\.app-shell \.context-toolbar\[role="region"\] \{[^}]*flex-direction:row;[^}]*flex-wrap:nowrap/);
+    expect(block).toMatch(/\[data-compact\] \.context-toolbar-controls \{[^}]*position:absolute/);
+    expect(css.lastIndexOf('/* One-line utility bar')).toBeGreaterThan(css.lastIndexOf('flex-direction:column; flex-wrap:nowrap; align-items:stretch'));
   });
 });
