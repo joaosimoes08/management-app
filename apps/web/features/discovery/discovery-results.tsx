@@ -10,6 +10,7 @@ import { applyChipFilters, chipOptions, CHIP_NONE, facetCounts, type ChipAccesso
 import { formatDateTime } from '@/lib/format/date';
 import { bulkReviewDiscoveryResults, type DiscoveryResult, type DiscoveryResultIpam } from './api';
 import { DiscoverySnmpCell } from './discovery-snmp-enrichment';
+import { DiscoveryPromoteAction } from './discovery-promote';
 
 type ReviewStatus = 'APPROVED' | 'IGNORED';
 
@@ -86,7 +87,7 @@ export function DiscoveryResultsTable({ results, canEdit, review, bulkDone }: Pr
     ...(hasSnmp ? [{ id: 'snmp', header: 'SNMP', sortValue: (result: DiscoveryResult) => result.snmp?.fields.sysName?.value ?? null, cell: (result: DiscoveryResult) => <DiscoverySnmpCell snmp={result.snmp} /> }] : []),
     { id: 'ipam', header: 'IPAM', sortValue: resultIpamState, cell: (result) => <DiscoveryIpamStatus ipam={result.ipam} /> },
     { id: 'status', header: 'Revisão', sortValue: (result) => result.status, cell: (result) => <span className={`state-badge ${result.status === 'APPROVED' ? 'approved' : result.status === 'IGNORED' ? 'rejected' : 'pending'}`}><i />{result.status}</span> },
-    ...(canEdit ? [{ id: 'actions', header: 'Ações', className: 'table-actions', cell: (result: DiscoveryResult) => result.status === 'PENDING' ? <><button className="secondary-button" aria-label={`Aprovar ${result.address}`} onClick={() => void review(result.id, 'APPROVED')}><Check size={13} /> Aprovar</button><button className="danger-button" aria-label={`Ignorar ${result.address}`} onClick={() => void review(result.id, 'IGNORED')}><X size={13} /> Ignorar</button></> : null }] : []),
+    ...(canEdit ? [{ id: 'actions', header: 'Ações', className: 'table-actions', cell: (result: DiscoveryResult) => result.status === 'PENDING' ? <><button className="secondary-button" aria-label={`Aprovar ${result.address}`} onClick={() => void review(result.id, 'APPROVED')}><Check size={13} /> Aprovar</button><button className="danger-button" aria-label={`Ignorar ${result.address}`} onClick={() => void review(result.id, 'IGNORED')}><X size={13} /> Ignorar</button></> : <DiscoveryPromoteAction result={result} /> }] : []),
   ], [canEdit, hasSnmp, review]);
   const rows = useMemo(() => sortByColumns(visibleResults, columns, table.sort), [columns, visibleResults, table.sort]);
   const byId = useMemo(() => new Map(results.map((result) => [result.id, result])), [results]);
