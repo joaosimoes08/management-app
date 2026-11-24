@@ -31,6 +31,9 @@ export const getSnmpOverview = (deviceId: string) => apiFetch<SnmpOverview>(`/ap
 export const getSnmpMetrics = (deviceId: string, interfaceIndex?: number, days = 7) => apiFetch<SnmpMetrics>(`/api/v1/snmp/devices/${deviceId}/metrics?days=${days}${interfaceIndex === undefined ? '' : `&interfaceIndex=${interfaceIndex}`}`);
 export const saveSnmpConfig = (deviceId: string, body: Omit<SnmpConfig, 'id' | 'lastPollAt' | 'nextPollAt' | 'lastStatus' | 'lastErrorCode'>) => apiFetch<SnmpConfig>(`/api/v1/snmp/devices/${deviceId}/config`, { method: 'PATCH', body: JSON.stringify(body) });
 export const saveSnmpCredential = (deviceId: string, body: Record<string, unknown>) => apiFetch<SnmpCredentialSummary>(`/api/v1/snmp/devices/${deviceId}/credentials`, { method: 'POST', body: JSON.stringify(body) });
+/** Removes one credential: this device, this purpose. Nothing else changes. */
+/** Plain delete is refused with 409 SNMP_CREDENTIAL_IN_USE when the credential is in use; `force` (the confirmed "Eliminar mesmo assim" path) deletes anyway. A running job is refused with 409 SNMP_CREDENTIAL_BUSY either way (#176). */
+export const deleteSnmpCredential = (deviceId: string, purpose: SnmpCredentialPurpose, force = false) => apiFetch<{ success: boolean; forced?: boolean }>(`/api/v1/snmp/devices/${deviceId}/credentials/${purpose}${force ? '?force=true' : ''}`, { method: 'DELETE' });
 export const testSnmpCredential = (deviceId: string, purpose: SnmpCredentialPurpose) => apiFetch<SnmpJobView>(`/api/v1/snmp/devices/${deviceId}/credentials/${purpose}/test`, { method: 'POST' });
 export const runSnmpPoll = (deviceId: string) => apiFetch<SnmpJobView>(`/api/v1/snmp/devices/${deviceId}/poll`, { method: 'POST' });
 export const reviewSnmpDrift = (id: string, status: 'ACCEPTED' | 'IGNORED') => apiFetch(`/api/v1/snmp/drifts/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });

@@ -82,6 +82,7 @@ const operationalFiles = [
   'apps/web/features/operations/alert-severity.tsx',
   'apps/web/features/operations/operations-panel.tsx',
   'apps/web/components/layout/app-header.tsx',
+  'apps/web/features/snmp/snmp-credential-usage.ts',
 ];
 
 function sourceFile(relative, kind = ts.ScriptKind.TSX) {

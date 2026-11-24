@@ -51,6 +51,8 @@ export const localizedApiErrors: Record<string, Record<string, string>> = {
     PORT_LAYOUT_CONFLICT: 'Alterado por outra pessoa — recarrega.',
     ASSET_NOT_IMAGE: 'O ficheiro escolhido não é uma imagem. Escolhe uma imagem PNG, JPG, SVG ou WebP.',
     CRITICAL_ASSET_ATTESTATION_ALREADY_RECORDED: 'A revisão desta semana já foi registada. Não é possível registar outra para o mesmo ciclo.',
+    SNMP_CREDENTIAL_IN_USE: 'A credencial não foi eliminada: está em uso neste equipamento (recolha SNMP, validação de traps ou SET). Revê o aviso e escolhe Eliminar mesmo assim se quiseres continuar.',
+    SNMP_CREDENTIAL_BUSY: 'A credencial não foi eliminada: há uma tarefa SNMP em curso que a usa. Tenta novamente quando a tarefa terminar.',
   },
   'en-US': {
     APPLICATION_ROLE_REQUIRED: 'The user must retain at least one application role.',
@@ -85,6 +87,8 @@ export const localizedApiErrors: Record<string, Record<string, string>> = {
     PORT_LAYOUT_CONFLICT: 'Changed by someone else — reload.',
     ASSET_NOT_IMAGE: 'The chosen file is not an image. Choose a PNG, JPG, SVG or WebP image.',
     CRITICAL_ASSET_ATTESTATION_ALREADY_RECORDED: 'This week\'s review has already been recorded. Another one cannot be recorded for the same cycle.',
+    SNMP_CREDENTIAL_IN_USE: 'The credential was not deleted: it is in use on this device (SNMP polling, trap validation or SET). Review the warning and choose Delete anyway to continue.',
+    SNMP_CREDENTIAL_BUSY: 'The credential was not deleted: an SNMP job that uses it is still running. Try again when the job finishes.',
   },
 };
 

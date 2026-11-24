@@ -2720,7 +2720,7 @@ a.dashboard-kpi:focus-visible { box-shadow:0 9px 24px rgba(35,55,87,.09); outlin
 .dashboard-kpi.info { --severity-color:#4f7bd9; --severity-ink:#2f55a8; }
 .dashboard-kpi.critical:not(.is-zero) { background:var(--t-panel-2,#fff8f6); }
 .dashboard-kpi.is-zero .dashboard-kpi-value { color:var(--t-text-3,#5f6c7f); }
-.severity-tag { display:inline-block; margin-right:6px; padding:1px 6px; border-radius:6px; font-size:10px; font-weight:700; line-height:1.5; vertical-align:1px; white-space:nowrap; }
+.severity-tag { display:inline-block; margin-right:6px; padding:1px 6px; border-radius:6px; font-size:12px; font-weight:700; line-height:1.5; vertical-align:1px; white-space:nowrap; }
 .severity-tag.critical { color:var(--t-red-text,#a33b32); background:var(--t-red-soft,#fff0ed); }
 .severity-tag.high { color:var(--t-amber-text,#9a4a0c); background:var(--t-amber-soft,#fff1e3); }
 .severity-tag.warning,.severity-tag.medium { color:var(--t-amber-text,#7a5a00); background:var(--t-amber-soft,#fff6d6); }
@@ -3738,3 +3738,9 @@ small.alert-next-step::before { content:'→ '; }
 .filter-chip-count { min-width:18px; padding:0 5px; border-radius:999px; background:#eef0f4; color:#4b5361; font-size:11px; font-variant-numeric:tabular-nums; text-align:center; }
 .filter-chip.active .filter-chip-count { background:rgba(255,255,255,.18); color:#fff; }
 .filter-chip:disabled .filter-chip-count { background:#f3f4f6; color:#a2a7b0; }
+
+/* Settings: who sets a server-only value (e.g. APP_PUBLIC_URL), shown under the warning. */
+.ipam-alert .settings-env-help { color:inherit; font-size:11px; line-height:1.4; }
+/* SNMP credentials: Testar / Rodar / Eliminar stay on one row next to the credential, and wrap under it on narrow cards. */
+.snmp-credential-list > div { flex-wrap:wrap; }
+.snmp-credential-list .snmp-credential-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; }
