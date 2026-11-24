@@ -635,6 +635,7 @@ model Device {
   snmpCredentials           SnmpCredential[]
   snmpJobs                  SnmpJob[]
   snmpSnapshots             SnmpSnapshot[]
+  snmpHealth                SnmpDeviceHealth?
   snmpTraps                 SnmpTrapEvent[]
   snmpDrifts                SnmpDrift[]
   topologyProposals         TopologyProposal[]
@@ -1257,6 +1258,40 @@ model SnmpSnapshot {
   lldpObservations LldpObservation[]
 
   @@index([deviceId, observedAt])
+}
+
+/// SNMP Phase 2 step 8: the latest device-health reading per device (replaced on every successful health poll).
+/// Headline numbers are columns so steps 9-10 (thresholds, badges) can filter on them; the full parsed snapshot
+/// (inventory, per-CPU, memory pools, environment, stack, interface error counters, issues) is in `data`.
+model SnmpDeviceHealth {
+  id                String    @id @default(uuid()) @db.Uuid
+  deviceId          String    @unique @db.Uuid
+  /// SnmpJob that produced this reading (no FK: job rows are pruned independently).
+  jobId             String?   @db.Uuid
+  /// Vendor implementation that parsed it: "cisco" or "generic".
+  vendor            String
+  /// OK, DEGRADED (the device reports a fault) or UNKNOWN (no health data answered).
+  status            String
+  observedAt        DateTime
+  uptimeTicks       BigInt?
+  /// Estimated from sysUpTime at the latest poll.
+  bootedAt          DateTime?
+  /// When a sysUpTime drop was last seen, and how many times since health polling started.
+  rebootDetectedAt  DateTime?
+  rebootCount       Int       @default(0)
+  cpu5sPercent      Float?
+  cpu1mPercent      Float?
+  cpu5mPercent      Float?
+  memoryUsedPercent Float?
+  memoryUsedBytes   BigInt?
+  memoryTotalBytes  BigInt?
+  issueCount        Int       @default(0)
+  data              Json
+  device            Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([status])
 }
 
 model SnmpInterfaceObservation {

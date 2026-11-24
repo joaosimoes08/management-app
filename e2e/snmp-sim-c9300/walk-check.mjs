@@ -101,8 +101,23 @@ function degraded(m, h, label) {
   expect(!m.has('1.3.6.1.4.1.9.9.23.1.2.1.1.6.50.1') && !m.has('1.0.8802.1.1.2.1.4.1.1.9.0.50.1'), `${label} no CDP/LLDP neighbour on down uplink 2`);
 }
 
+async function snmpget(args) {
+  return run('snmpget', [...args, '-t', '1', '-r', '0', TARGETS.healthy, '1.3.6.1.2.1.1.5.0'], { timeout: 10_000 });
+}
+
+// A refusal only means something if the same target answers good credentials: otherwise a stopped simulator
+// would make every "bad credentials are refused" check pass.
+async function reachable() {
+  for (const [auth, args] of Object.entries(AUTH)) {
+    try { await snmpget(args); }
+    catch (error) { fail(`${TARGETS.healthy} does not answer valid ${auth} credentials, so the refusal checks cannot run: ${(error.stderr || error.message || '').toString().trim()}`); return false; }
+  }
+  ok(`${TARGETS.healthy} answers valid v2c and v3 credentials`);
+  return true;
+}
+
 async function rejected(args, msg) {
-  try { await run('snmpget', [...args, '-t', '1', '-r', '0', TARGETS.healthy, '1.3.6.1.2.1.1.5.0'], { timeout: 10_000 }); fail(msg); }
+  try { await snmpget(args); fail(msg); }
   catch { ok(msg); }
 }
 
@@ -130,8 +145,10 @@ for (const variant of ['healthy', 'degraded']) {
   expect(a && b && a.size === b.size && [...a].every(([k, v]) => b.get(k) === v), `${variant} v2c walk == v3 walk`);
 }
 console.log('bad credentials are refused');
-await rejected(['-v2c', '-c', 'wrong-community'], 'v2c with a wrong community gets no answer');
-await rejected([...V3.slice(0, V3.indexOf('-A') + 1), 'wrong-auth-pass-123', ...V3.slice(V3.indexOf('-A') + 2)], 'v3 with a wrong auth key is refused');
+if (await reachable()) {
+  await rejected(['-v2c', '-c', 'wrong-community'], 'v2c with a wrong community gets no answer');
+  await rejected([...V3.slice(0, V3.indexOf('-A') + 1), 'wrong-auth-pass-123', ...V3.slice(V3.indexOf('-A') + 2)], 'v3 with a wrong auth key is refused');
+}
 
 console.log(failures ? `\nFAILED: ${failures} check(s)` : '\nPASS: all checks');
 process.exit(failures ? 1 : 0);

@@ -31,6 +31,25 @@ describe('SNMP credential policy and redaction', () => {
     assert.equal(result.availability[0].errorCode, 'SNMP_TIMEOUT');
   });
 
+  it('returns the latest device health only after device access, with BigInt columns as strings (Phase 2 step 8)', async () => {
+    const calls: string[] = [];
+    const healthService = Object.create(SnmpService.prototype) as any;
+    healthService.device = async (deviceId: string, user: unknown) => { calls.push(`access:${deviceId}:${user}`); };
+    let row: any = null;
+    healthService.prisma = { snmpDeviceHealth: { findUnique: async ({ where }: any) => { calls.push(`read:${where.deviceId}`); return row; } } };
+    assert.deepEqual(await healthService.health('device-1', 'reader'), { deviceId: 'device-1', health: null });
+    assert.deepEqual(calls, ['access:device-1:reader', 'read:device-1']);
+    const observedAt = new Date('2026-11-23T12:00:00.000Z');
+    row = { vendor: 'cisco', status: 'DEGRADED', observedAt, jobId: 'job-1', uptimeTicks: 24000n, bootedAt: observedAt, rebootDetectedAt: observedAt, rebootCount: 1, cpu5sPercent: 97, cpu1mPercent: 94, cpu5mPercent: 91, memoryUsedPercent: 94.03, memoryUsedBytes: 1513000000n, memoryTotalBytes: 1609000000n, issueCount: 6, data: { issues: [] } };
+    const result = await healthService.health('device-1', 'reader');
+    assert.equal(result.health.uptimeTicks, '24000');
+    assert.equal(result.health.memory.totalBytes, '1609000000');
+    assert.deepEqual(result.health.cpu, { fiveSecondPercent: 97, oneMinutePercent: 94, fiveMinutePercent: 91 });
+    assert.doesNotThrow(() => JSON.stringify(result));
+    healthService.device = async () => { throw new Error('denied'); };
+    await assert.rejects(healthService.health('device-1', 'outsider'), /denied/);
+  });
+
   it('rejects unsupported periods and interface indices', async () => {
     const metricsService = Object.create(SnmpService.prototype) as any;
     await assert.rejects(metricsService.metrics('device-1', 'reader', undefined, 2));
