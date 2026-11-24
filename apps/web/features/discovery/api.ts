@@ -29,6 +29,8 @@ export interface DiscoveryJob {
   snmpEnrichedCount?: number;
   snmpFailedCount?: number;
   snmpSkippedReason?: string | null;
+  /** D-P2a: per-run host counts by outcome (tcp* count probed ports); null for runs saved before D-P2a. */
+  outcomeCounts?: DiscoveryOutcomeCounts | null;
   _count: { results: number };
   subnet: {
     id: string;
@@ -52,6 +54,28 @@ export interface DiscoveryResult {
   ipam?: DiscoveryResultIpam | null;
   /** D-P1a: values read over SNMP from this host, each with its provenance; null when enrichment was off. */
   snmp?: DiscoverySnmpEnrichment | null;
+  /** D-P2a: what each probe method saw for this host; null for runs saved before D-P2a. */
+  outcome?: DiscoveryHostOutcome | null;
+}
+
+/** D-P2a: structured per-host outcome, read-only. */
+export interface DiscoveryHostOutcome {
+  v: 1;
+  result: 'RESPONDED';
+  icmp: 'REPLY' | 'NO_REPLY' | 'ERROR' | 'NOT_PROBED';
+  tcp: Array<{ port: number; state: 'OPEN' | 'REFUSED' | 'TIMEOUT' | 'ERROR' }> | null;
+  dns: 'PTR' | 'NO_PTR' | 'LOOKUP_FAILED' | 'NOT_REQUESTED';
+  dnsError?: string;
+  snmp: 'OK' | 'PARTIAL' | 'AUTH_FAILED' | 'TIMEOUT' | 'ERROR' | 'SKIPPED_POLICY' | 'NOT_ENABLED';
+  snmpSkipReason?: string;
+}
+export interface DiscoveryOutcomeCounts {
+  v: 1;
+  responded: number; noResponse: number;
+  icmpReply: number; icmpNoReply: number; icmpError: number;
+  tcpOpen: number; tcpRefused: number; tcpTimeout: number; tcpError: number;
+  dnsPtr: number; dnsNoPtr: number; dnsLookupFailed: number;
+  snmpOk: number; snmpPartial: number; snmpAuthFailed: number; snmpTimeout: number; snmpError: number; snmpSkippedPolicy: number;
 }
 
 export const DISCOVERY_SNMP_FIELDS = ['sysName', 'sysObjectId', 'entityModel', 'entitySerial', 'sysDescr'] as const;

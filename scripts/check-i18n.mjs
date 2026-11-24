@@ -71,6 +71,8 @@ const operationalFiles = [
   // D-P1b promote a discovery result to a device
   'apps/web/features/discovery/discovery-promote.tsx',
   'apps/web/features/infrastructure/discovery-promotion.tsx',
+  // D-P2a structured scan outcomes
+  'apps/web/features/discovery/discovery-outcomes.tsx',
   'apps/web/features/snmp/snmp-fleet.tsx',
   'apps/web/features/snmp/snmp-page.tsx',
   'apps/web/features/snmp/snmp-drifts.tsx',

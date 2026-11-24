@@ -1918,6 +1918,19 @@ const enUS: LegacyDictionary = {
   'a credencial já não pertence a um equipamento do Site da subnet': 'the credential no longer belongs to a device on the subnet Site',
   'o SNMPv2c está desativado neste servidor': 'SNMPv2c is disabled on this server',
   'o keyring SNMP não está disponível no servidor': 'the SNMP keyring is not available on the server',
+  // D-P2a: structured scan outcomes
+  'Resultado por método': 'Outcome by method',
+  'ICMP: respondeu': 'ICMP: replied',
+  'ICMP: sem resposta': 'ICMP: no reply',
+  'ICMP: erro na sonda': 'ICMP: probe error',
+  'DNS: registo PTR encontrado': 'DNS: PTR record found',
+  'DNS: sem registo PTR': 'DNS: no PTR record',
+  'SNMP: lido': 'SNMP: read',
+  'SNMP: leitura parcial': 'SNMP: partial read',
+  'SNMP: autenticação falhou': 'SNMP: authentication failed',
+  'SNMP: sem resposta': 'SNMP: no response',
+  'SNMP: erro': 'SNMP: error',
+  'SNMP: não tentado (política da execução)': 'SNMP: not tried (run policy)',
 };
 
 const substitutions: Array<[RegExp, string]> = [
@@ -2284,6 +2297,17 @@ const substitutions: Array<[RegExp, string]> = [
   [/^Enriquecimento SNMP não executado: o keyring SNMP não está disponível no servidor\.$/g, 'SNMP enrichment not run: the SNMP keyring is not available on the server.'],
   [/^Enriquecimento SNMP não executado: (.+)$/g, 'SNMP enrichment not run: $1'],
   [/^Enriquecimento SNMP: (\d+) hosts lidos · (\d+) sem leitura$/g, 'SNMP enrichment: $1 hosts read · $2 not read'],
+  // D-P2a: structured scan outcomes
+  [/^TCP (\d+): aberta$/g, 'TCP $1: open'],
+  [/^TCP (\d+): recusada$/g, 'TCP $1: refused'],
+  [/^TCP (\d+): sem resposta$/g, 'TCP $1: no answer'],
+  [/^TCP (\d+): erro$/g, 'TCP $1: error'],
+  [/^DNS: pesquisa falhou \(([A-Z_]+)\)$/g, 'DNS: lookup failed ($1)'],
+  [/^Hosts: (\d+) responderam · (\d+) sem resposta · (\d+) não sondados$/g, 'Hosts: $1 responded · $2 no response · $3 not scanned'],
+  [/^ICMP: (\d+) respostas · (\d+) sem resposta · (\d+) erros$/g, 'ICMP: $1 replies · $2 no reply · $3 errors'],
+  [/^Portas TCP: (\d+) abertas · (\d+) recusadas · (\d+) sem resposta · (\d+) erros$/g, 'TCP ports: $1 open · $2 refused · $3 no answer · $4 errors'],
+  [/^DNS inverso: (\d+) com PTR · (\d+) sem PTR · (\d+) falhas$/g, 'Reverse DNS: $1 with PTR · $2 without PTR · $3 failed'],
+  [/^SNMP: (\d+) lidos · (\d+) parciais · (\d+) autenticação falhou · (\d+) sem resposta · (\d+) erros · (\d+) não tentados \(política\)$/g, 'SNMP: $1 read · $2 partial · $3 authentication failed · $4 no response · $5 errors · $6 not tried (policy)'],
 ];
 
 export function translateLegacyText(locale: AppLocale, input: string): string {

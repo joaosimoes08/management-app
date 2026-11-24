@@ -3536,6 +3536,11 @@ small.alert-next-step::before { content:'→ '; }
 .discovery-progress-fill { position:absolute; inset:0 auto 0 0; background:#d9a55e; border-radius:999px; transition:width .4s ease; }
 .discovery-progress-label { color:var(--muted); font:9px 'DM Mono'; white-space:nowrap; }
 .job-row small.discovery-failure-reason,.discovery-failure-reason { display:flex; align-items:flex-start; gap:5px; margin-top:5px; color:var(--t-red-text,#a14c41); white-space:normal; overflow:visible; font-size:10px; line-height:1.4; }
+/* D-P2a: structured scan outcomes (read-only) */
+.discovery-outcome { list-style:none; margin:0; padding:0; display:grid; gap:1px; }
+.discovery-outcome li[data-tone="ok"] small { color:var(--t-green-text,#1f6b33); }
+.discovery-outcome li[data-tone="bad"] small { color:var(--t-red-text,#a14c41); }
+.discovery-outcome-summary { display:grid; gap:2px; margin-top:5px; }
 .job-row.selected { background:var(--t-panel-2,#faf9f9); }
 .job-status.cancelled { background:#aaa7ab; }
 .schedule-form fieldset.schedule-limits { display:grid; grid-column:1 / -1; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; padding:8px 10px; }

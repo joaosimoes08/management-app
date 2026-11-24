@@ -391,3 +391,64 @@ test('fix/discovery-scan-cancel-latency: a cancel while SNMP enrichment is in fl
   assert.deepEqual([stored.processedCount, stored.snmpEnrichedCount, await prisma.discoveryResult.count({ where: { jobId: job.id } })], [0, 0, 0], 'the unfinished batch is not saved');
   await new Promise((resolve) => setTimeout(resolve, hold));
 });
+
+// D-P2a: structured per-host outcomes and per-run counts.
+const detailedProbe: ScanDependencies['probe'] = async (address, methods, tcpPorts) => {
+  const last = Number(address.split('.')[3]);
+  const answers = reachable(address);
+  const tcp = methods.includes('TCP') ? tcpPorts.map((port) => ({ port, state: (address.endsWith('.10') && port === 22 ? 'OPEN' : last % 2 ? 'TIMEOUT' : 'REFUSED') as 'OPEN' | 'REFUSED' | 'TIMEOUT' })) : undefined;
+  return { address, icmp: { reachable: methods.includes('ICMP') && answers, responseMs: answers ? 1 : undefined, status: answers ? 'REPLY' : last === 7 ? 'ERROR' : 'NO_REPLY' }, openPorts: tcp?.filter((item) => item.state === 'OPEN').map((item) => item.port) ?? [], tcp };
+};
+const fakeReverse = async (address: string) => {
+  if (address.endsWith('.5')) return 'sw5.example';
+  if (address.endsWith('.10')) throw Object.assign(new Error('queryPtr ETIMEOUT'), { code: 'ETIMEOUT' });
+  throw Object.assign(new Error('getHostByAddr ENOTFOUND'), { code: 'ENOTFOUND' });
+};
+
+test('D-P2a: each saved host records what ICMP, TCP per port and reverse DNS saw; the job counts every scanned host', async () => {
+  const job = await createJob({ methods: ['ICMP', 'TCP'], tcpPorts: [22, 443], reverseDns: true });
+  assert.equal((await runDiscoveryScan(prisma, job.id, { probe: detailedProbe, reverse: fakeReverse, batchSize: 16 })).status, 'COMPLETED');
+  const rows = new Map((await prisma.discoveryResult.findMany({ where: { jobId: job.id } })).map((row) => [row.address, row]));
+  assert.equal(rows.size, 12, 'silent hosts still get no row');
+  assert.deepEqual(rows.get('10.251.0.10')?.outcome, { v: 1, result: 'RESPONDED', icmp: 'REPLY', tcp: [{ port: 22, state: 'OPEN' }, { port: 443, state: 'REFUSED' }], dns: 'LOOKUP_FAILED', dnsError: 'ETIMEOUT', snmp: 'NOT_ENABLED' });
+  assert.equal(rows.get('10.251.0.10')?.hostname, null);
+  assert.deepEqual(rows.get('10.251.0.5')?.outcome, { v: 1, result: 'RESPONDED', icmp: 'REPLY', tcp: [{ port: 22, state: 'TIMEOUT' }, { port: 443, state: 'TIMEOUT' }], dns: 'PTR', snmp: 'NOT_ENABLED' });
+  assert.equal(rows.get('10.251.0.5')?.hostname, 'sw5.example');
+  assert.equal((rows.get('10.251.0.15')?.outcome as { dns?: string }).dns, 'NO_PTR');
+  const stored = await prisma.discoveryJob.findUniqueOrThrow({ where: { id: job.id } });
+  // 62 hosts, 12 answer; .7 is a ping error. Odd hosts time out on TCP, even ones refuse, except .10:22 which is open.
+  assert.deepEqual(stored.outcomeCounts, {
+    v: 1, responded: 12, noResponse: 50, icmpReply: 12, icmpNoReply: 49, icmpError: 1,
+    tcpOpen: 1, tcpRefused: 61, tcpTimeout: 62, tcpError: 0, dnsPtr: 1, dnsNoPtr: 10, dnsLookupFailed: 1,
+    snmpOk: 0, snmpPartial: 0, snmpAuthFailed: 0, snmpTimeout: 0, snmpError: 0, snmpSkippedPolicy: 0,
+  });
+});
+
+test('D-P2a: outcome counts are summed per saved batch, so a crash and retry neither lose nor double-count hosts', async () => {
+  await prisma.subnet.update({ where: { id: subnetId }, data: { discoverySnmpCredentialId: snmpCredentialId } });
+  const fake = fakeSnmp((address) => address.endsWith('.10') ? 'AUTH' : address.endsWith('.15') ? 'TIMEOUT' : 'OK');
+  const job = await createJob();
+  let calls = 0;
+  const crashing: ScanDependencies['probe'] = async (...args) => { calls += 1; if (calls > 40) throw Object.assign(new Error('worker lost'), { code: 'ECONNRESET' }); return probe(...args); };
+  await assert.rejects(runDiscoveryScan(prisma, job.id, { probe: crashing, batchSize: 16, snmpEnricher: fake.snmpEnricher }), /worker lost/);
+  const partial = await prisma.discoveryJob.findUniqueOrThrow({ where: { id: job.id } });
+  assert.equal(partial.processedCount, 32);
+  assert.equal((partial.outcomeCounts as { responded: number; noResponse: number }).responded + (partial.outcomeCounts as { noResponse: number }).noResponse, 32);
+  await recordDiscoveryFailure(prisma, job.id, Object.assign(new Error('x'), { code: 'ECONNRESET' }), false);
+  assert.equal((await runDiscoveryScan(prisma, job.id, { probe, batchSize: 16, snmpEnricher: fake.snmpEnricher })).status, 'COMPLETED');
+  const stored = await prisma.discoveryJob.findUniqueOrThrow({ where: { id: job.id } });
+  const counts = stored.outcomeCounts as Record<string, number>;
+  assert.deepEqual([counts.responded, counts.noResponse, counts.icmpReply, counts.icmpNoReply, counts.snmpOk, counts.snmpAuthFailed, counts.snmpTimeout, counts.tcpOpen],
+    [12, 50, 12, 50, 10, 1, 1, 0], 'TCP was not probed, so no port is counted');
+  const row = await prisma.discoveryResult.findFirstOrThrow({ where: { jobId: job.id, address: '10.251.0.10' } });
+  assert.deepEqual(row.outcome, { v: 1, result: 'RESPONDED', icmp: 'REPLY', tcp: null, dns: 'NOT_REQUESTED', snmp: 'AUTH_FAILED' });
+});
+
+test('D-P2a: SNMP skipped by policy for the run is recorded on every answered host with the reason', async () => {
+  await prisma.subnet.update({ where: { id: subnetId }, data: { discoverySnmpCredentialId: snmpCredentialId } });
+  const job = await createJob();
+  assert.equal((await runDiscoveryScan(prisma, job.id, { probe, batchSize: 16, snmpEnricher: async () => ({ skipped: 'SNMP_CREDENTIAL_OUT_OF_SCOPE' }) })).status, 'COMPLETED');
+  const rows = await prisma.discoveryResult.findMany({ where: { jobId: job.id } });
+  assert.ok(rows.length === 12 && rows.every((row) => (row.outcome as { snmp: string; snmpSkipReason: string }).snmp === 'SKIPPED_POLICY' && (row.outcome as { snmpSkipReason: string }).snmpSkipReason === 'SNMP_CREDENTIAL_OUT_OF_SCOPE'));
+  assert.equal((await prisma.discoveryJob.findUniqueOrThrow({ where: { id: job.id } }) as { outcomeCounts: Record<string, number> }).outcomeCounts.snmpSkippedPolicy, 12);
+});

@@ -1,6 +1,10 @@
 import { Prisma, PrismaClient } from '@simoes/database';
 import { hostsFor } from './discovery-network';
 import { assertDiscoveryAllowed, normalizeDiscoveryPorts } from './discovery-policy';
+import {
+  addOutcomeCounts, classifyReverseDns, classifyReverseDnsError, countHost, DISCOVERY_OUTCOME_VERSION, emptyOutcomeCounts, icmpOutcomeFor,
+  readOutcomeCounts, snmpOutcomeFor, tcpOutcomeFor, type DiscoveryHostOutcome, type DnsLookup, type TcpPortState,
+} from './discovery-outcome';
 import { ProbeAbortedError, resolveDiscoveryLimits, subnetProbeLimiter, type LimiterClock, type ProbeRunner } from './discovery-limiter';
 import { loadDiscoverySnmpEnricher, type DiscoverySnmpEnricher, type DiscoverySnmpEnrichment, type DiscoverySnmpSkipReason } from './discovery-snmp';
 
@@ -24,6 +28,9 @@ import { loadDiscoverySnmpEnricher, type DiscoverySnmpEnricher, type DiscoverySn
  *   Per-target failures are stored on the result; a credential that cannot be used skips enrichment, never the scan.
  *   Enrichment attempts are added to `probeCount` (so `maxProbes` also bounds them), but batches are still sized by
  *   ping/TCP probes only, so a scan can pass `maxProbes` by at most one batch of SNMP attempts.
+ * - Outcomes (D-P2a): each saved result carries `outcome` (ICMP, TCP per port, reverse DNS, SNMP), and the job keeps
+ *   `outcomeCounts`, summed in the same guarded transaction as the other counters, so silent hosts are counted without
+ *   a row (discovery-outcome.ts). Hosts never scanned are `totalCount - processedCount`.
  */
 export const DISCOVERY_BATCH_SIZE = 32;
 export const DISCOVERY_DEFAULT_MAX_DURATION_SECONDS = positiveInt(process.env.DISCOVERY_MAX_DURATION_SECONDS, 3600);
@@ -33,7 +40,8 @@ export const DISCOVERY_JOB_ATTEMPTS = 3;
 export const DISCOVERY_JOB_OPTIONS = { attempts: DISCOVERY_JOB_ATTEMPTS, backoff: { type: 'exponential', delay: 5_000 }, removeOnComplete: 100, removeOnFail: 100 } as const;
 
 export type DiscoveryStopReason = 'CANCELLED' | 'LIMIT_DURATION' | 'LIMIT_PROBES';
-export type ProbeOutcome = { address: string; icmp: { reachable: boolean; responseMs?: number }; openPorts: number[] };
+/** `icmp.status` and `tcp` (D-P2a) are optional details; without them the outcome is derived from `reachable` / `openPorts`. */
+export type ProbeOutcome = { address: string; icmp: { reachable: boolean; responseMs?: number; status?: 'REPLY' | 'NO_REPLY' | 'ERROR' }; openPorts: number[]; tcp?: Array<{ port: number; state: TcpPortState }> };
 export type ScanDependencies = {
   probe: (address: string, methods: string[], tcpPorts: number[], limiter: ProbeRunner) => Promise<ProbeOutcome>;
   reverse?: (address: string) => Promise<string | undefined>;
@@ -91,9 +99,10 @@ export async function runDiscoveryScan(prisma: PrismaClient, jobId: string, deps
   const snmpCredentialId = job.startedAt ? job.snmpCredentialId : job.subnet.discoverySnmpCredentialId;
   await prisma.discoveryJob.update({ where: { id: jobId }, data: { status: 'RUNNING', startedAt, errorMessage: null, totalCount: addresses.length, attemptCount: { increment: 1 }, ...(job.startedAt ? {} : { snmpCredentialId }) } });
   let enricher: DiscoverySnmpEnricher | null = null;
+  let snmpSkipped: string | null = null;
   if (snmpCredentialId) {
     const loaded = await (deps.snmpEnricher ?? ((id, siteId) => loadDiscoverySnmpEnricher(prisma, id, siteId)))(snmpCredentialId, job.subnet.siteId);
-    if ('enricher' in loaded) enricher = loaded.enricher;
+    if ('enricher' in loaded) enricher = loaded.enricher; else snmpSkipped = loaded.skipped;
     await prisma.discoveryJob.update({ where: { id: jobId }, data: { snmpSkippedReason: 'skipped' in loaded ? loaded.skipped : null } });
   }
   const maxDurationMs = (job.maxDurationSeconds ?? DISCOVERY_DEFAULT_MAX_DURATION_SECONDS) * 1000;
@@ -136,6 +145,7 @@ export async function runDiscoveryScan(prisma: PrismaClient, jobId: string, deps
     const enrichments = new Map<string, DiscoverySnmpEnrichment>();
     const rows: Prisma.DiscoveryResultCreateManyInput[] = [];
     let icmp = 0; let tcp = 0; let snmpEnriched = 0; let snmpFailed = 0;
+    const batchCounts = emptyOutcomeCounts();
     // fix/discovery-scan-cancel-latency: the abort ends the batch at once, not only the probes still queued. Probes and
     // SNMP requests already in flight (ping up to 1.5 s, TCP 0.8 s, SNMP up to its timeout) are left to finish in the
     // background and release their limiter slots; their outcomes are dropped. The watcher also keeps running through
@@ -152,12 +162,22 @@ export async function runDiscoveryScan(prisma: PrismaClient, jobId: string, deps
         if (abort.signal.aborted) break;
         if (item.icmp.reachable) icmp += 1;
         if (item.openPorts.length) tcp += 1;
-        if (!item.icmp.reachable && !item.openPorts.length) continue;
-        let hostname: string | undefined;
-        if (job.reverseDns !== false && deps.reverse) { try { hostname = await untilAborted(deps.reverse(item.address), abort.signal); } catch { /* reverse DNS is best effort */ } }
+        const icmpOutcome = icmpOutcomeFor(item, methods);
+        const tcpOutcome = tcpOutcomeFor(item, methods, tcpPorts);
+        if (!item.icmp.reachable && !item.openPorts.length) { countHost(batchCounts, icmpOutcome, tcpOutcome, null); continue; }
+        // D-P2a: reverse DNS failures are recorded (no PTR vs. a failed lookup) instead of being swallowed; a cancel is not a lookup failure.
+        let lookup: DnsLookup = { dns: 'NOT_REQUESTED' };
+        if (job.reverseDns !== false && deps.reverse) {
+          try { lookup = classifyReverseDns(await untilAborted(deps.reverse(item.address), abort.signal)); } catch (error) { if (error instanceof ProbeAbortedError) throw error; lookup = classifyReverseDnsError(error); }
+        }
         const snmp = enrichments.get(item.address);
         if (snmp) { if (snmp.status === 'OK' || snmp.status === 'PARTIAL') snmpEnriched += 1; else snmpFailed += 1; }
-        rows.push({ jobId, address: item.address, hostname, icmpReachable: item.icmp.reachable, responseMs: item.icmp.responseMs, openPorts: item.openPorts, ...(snmp ? { snmp: snmp as unknown as Prisma.InputJsonValue } : {}) });
+        const outcome: DiscoveryHostOutcome = {
+          v: DISCOVERY_OUTCOME_VERSION, result: 'RESPONDED', icmp: icmpOutcome, tcp: tcpOutcome,
+          dns: lookup.dns, ...(lookup.dnsError ? { dnsError: lookup.dnsError } : {}), ...snmpOutcomeFor(snmp, snmpSkipped),
+        };
+        countHost(batchCounts, icmpOutcome, tcpOutcome, outcome);
+        rows.push({ jobId, address: item.address, hostname: lookup.hostname, icmpReachable: item.icmp.reachable, responseMs: item.icmp.responseMs, openPorts: item.openPorts, outcome: outcome as unknown as Prisma.InputJsonValue, ...(snmp ? { snmp: snmp as unknown as Prisma.InputJsonValue } : {}) });
       }
     } catch (error) {
       if (!(error instanceof ProbeAbortedError) || !abortReason) throw error;
@@ -167,10 +187,13 @@ export async function runDiscoveryScan(prisma: PrismaClient, jobId: string, deps
     if (abortReason) return abortReason === 'CANCELLED' ? finish('CANCELLED', 'CANCELLED') : finish('COMPLETED', 'LIMIT_DURATION');
     try {
       await prisma.$transaction(async (tx) => {
+        // The cursor guard below makes this read-modify-write safe: a concurrent writer that advanced first makes it match no row.
+        const stored = await tx.discoveryJob.findUnique({ where: { id: jobId }, select: { outcomeCounts: true } });
+        const outcomeCounts = addOutcomeCounts(readOutcomeCounts(stored?.outcomeCounts), batchCounts) as unknown as Prisma.InputJsonValue;
         const advanced = await tx.discoveryJob.updateMany({
           where: { id: jobId, status: 'RUNNING', processedCount: cursor },
           data: {
-            processedCount: cursor + size, probeCount: { increment: size * perAddress + enrichments.size },
+            processedCount: cursor + size, outcomeCounts, probeCount: { increment: size * perAddress + enrichments.size },
             snmpEnrichedCount: { increment: snmpEnriched }, snmpFailedCount: { increment: snmpFailed },
             scannedCount: { increment: size }, icmpReachableCount: { increment: icmp }, tcpReachableCount: { increment: tcp },
             reachableCount: { increment: rows.length }, unreachableCount: { increment: size - rows.length }, resultCount: { increment: rows.length },
