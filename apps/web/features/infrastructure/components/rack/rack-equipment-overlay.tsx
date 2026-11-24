@@ -5,6 +5,9 @@ import { EquipmentTypeIcon } from '../equipment-type-icon';
 import { deviceFaceImage, RACK_UNITS, RACK_VIEWPORT, rackUnitBox, rackUnitFromDrop } from '../../utils';
 import type { Rack, RackFace } from '../../types';
 import { AssetImage } from '../asset-image';
+import { useUiText } from '@/components/ui/use-ui-text';
+import { badgeStatus, snmpHealthDescription, snmpHealthStatusLabel } from '@/features/snmp/health/health-badge';
+import { isSnmpNetworkDevice, type SnmpHealthSummaryItem } from '@/features/snmp/health/health-api';
 import { clearActiveRackCard, clearActiveRackCards, RackDeviceHoverCard, setActiveRackCard, useActiveRackCard } from './rack-device-hover-card';
 
 export interface RackEquipmentOverlayProps {
@@ -19,6 +22,8 @@ export interface RackEquipmentOverlayProps {
   face?: RackFace;
   /** Devices the power summary marks near the limit (warn / over); they get an amber / red outline. */
   powerLevels?: ReadonlyMap<string, 'warn' | 'over' | 'ok'>;
+  /** SNMP Phase 2 step 10: health per device id; network equipment gets a dot, the hover card and the name a status. */
+  health?: ReadonlyMap<string, SnmpHealthSummaryItem>;
 }
 
 const FACE_TEXT: Record<RackFace, { name: string; image: string; missing: string }> = {
@@ -27,7 +32,8 @@ const FACE_TEXT: Record<RackFace, { name: string; image: string; missing: string
 };
 
 /** Interactive overlay over the 42U rack picture in the rack detail view. */
-export function RackEquipmentOverlay({ rack, onSelect, onDropDevice, draggingDeviceId, onDragging, canEdit, pendingDeviceId, face = 'front', powerLevels }: RackEquipmentOverlayProps) {
+export function RackEquipmentOverlay({ rack, onSelect, onDropDevice, draggingDeviceId, onDragging, canEdit, pendingDeviceId, face = 'front', powerLevels, health }: RackEquipmentOverlayProps) {
+  const t = useUiText();
   const text = FACE_TEXT[face];
   // One card at a time across the front and rear overlays: the store is shared, keyed by face and device.
   const active = useActiveRackCard();
@@ -65,6 +71,7 @@ export function RackEquipmentOverlay({ rack, onSelect, onDropDevice, draggingDev
       const visual = deviceFaceImage(device, face);
       const cardId = `rack-device-card-${face}-${device.id}`;
       const showCard = active?.key === cardKey(device.id) && !draggingDeviceId;
+      const healthItem = health && isSnmpNetworkDevice(device.type) ? health.get(device.id) ?? null : undefined;
       return <button type="button" key={device.id} draggable={canEdit} className={`rack-overlay rack-${String(device.type || 'other').toLowerCase()}${draggingDeviceId === device.id ? ' moving' : ''}${pendingDeviceId === device.id ? ' pending-placement' : ''}`} style={{ top: `${top}%`, height: `${height}%` }} data-power-level={powerLevels?.get(device.id)} aria-describedby={showCard ? cardId : undefined} onMouseEnter={(event) => show(device.id, event.currentTarget)} onMouseLeave={() => hide(device.id)} onFocus={(event) => {
         if (isFocusVisible(event.currentTarget)) show(device.id, event.currentTarget);
       }} onBlur={() => hide(device.id)} onKeyDown={(event) => {
@@ -85,9 +92,10 @@ export function RackEquipmentOverlay({ rack, onSelect, onDropDevice, draggingDev
       }} onDragEnd={() => window.setTimeout(() => onDragging(''), 0)} onClick={() => {
         hide(device.id);
         if (!draggingDeviceId) onSelect(device.id);
-      }} data-face={face} aria-label={`${canEdit ? 'Arrastar ou abrir' : 'Abrir'} ${device.name}, U${start}${size > 1 ? ` a U${end}` : ''}, ${text.name}`}>
+      }} data-face={face} aria-label={`${canEdit ? 'Arrastar ou abrir' : 'Abrir'} ${device.name}, U${start}${size > 1 ? ` a U${end}` : ''}, ${text.name}${healthItem !== undefined ? `, ${snmpHealthDescription(t, healthItem)}` : ''}`}>
       <span className={`rack-device-media${visual ? '' : ' rack-device-media-missing'}`}>{visual ? <AssetImage asset={visual} alt={`${text.image} ${device.name}`} /> : <><EquipmentTypeIcon type={device.type} alt={`Ícone de ${device.type}`} className="rack-device-type-icon" /><span className="rack-device-missing-face">{text.missing}</span></>}</span>
-      {showCard && active && <RackDeviceHoverCard id={cardId} anchor={active.anchor}><strong>{device.name}</strong><span><small>Localização:</small><b>{rack.name}</b></span><span><small>U:</small><b>{size > 1 ? `U${start}–U${end}` : `U${start}`}</b></span><span><small>IP Management:</small><b>{device.managementIp || 'não definido'}</b></span><span><small>Status:</small><b>{String(device.status || 'unknown').toLowerCase()}</b></span>{!visual && <span><small>Imagem:</small><b>{text.missing}</b></span>}</RackDeviceHoverCard>}
+      {showCard && active && <RackDeviceHoverCard id={cardId} anchor={active.anchor}><strong>{device.name}</strong><span><small>Localização:</small><b>{rack.name}</b></span><span><small>U:</small><b>{size > 1 ? `U${start}–U${end}` : `U${start}`}</b></span><span><small>IP Management:</small><b>{device.managementIp || 'não definido'}</b></span><span><small>Status:</small><b>{String(device.status || 'unknown').toLowerCase()}</b></span>{healthItem !== undefined && <span><small>{t('snmpHealth.column')}:</small><b>{snmpHealthStatusLabel(t, healthItem?.status)}{healthItem?.issueCount ? ` · ${t('snmpHealth.issues', undefined, { count: healthItem.issueCount })}` : ''}</b></span>}{!visual && <span><small>Imagem:</small><b>{text.missing}</b></span>}</RackDeviceHoverCard>}
+      {healthItem !== undefined && <span className="rack-equipment-health" data-health={badgeStatus(healthItem?.status)} aria-hidden="true" />}
     </button>;
     })}
   </div>;

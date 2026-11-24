@@ -26,23 +26,31 @@ import { impactHighlight, pathHighlight, withHighlightClasses } from './impact-h
 import { ImpactPanel, PathView } from './impact-panel';
 import type { TopologyConnection, TopologyMap, TopologyMapType, TopologyNode } from './types';
 import { topologyToolbarSummary } from './toolbar-summary';
+import { useUiText } from '@/components/ui/use-ui-text';
+import { isSnmpNetworkDevice, useSnmpHealthMap, type SnmpHealthSummaryItem } from '@/features/snmp/health/health-api';
+import { badgeStatus, snmpHealthDescription, snmpHealthStatusLabel } from '@/features/snmp/health/health-badge';
 
 const types: TopologyMapType[] = ['PHYSICAL', 'NETWORK', 'VLAN_SUBNET'];
 const EMPTY_DEVICE_INTERFACES: Record<string, DeviceInterface[]> = {};
 
-type TopologyNodeData = { label: string; deviceName: string; hostname: string; location: string; managementIp: string; modelName: string; status: string; asset: ReturnType<typeof topologyDeviceImage>; equipmentType: string; alertSummary?: TopologyNodeAlertSummary };
+type TopologyNodeData = { label: string; deviceName: string; hostname: string; location: string; managementIp: string; modelName: string; status: string; asset: ReturnType<typeof topologyDeviceImage>; equipmentType: string; alertSummary?: TopologyNodeAlertSummary; /** SNMP Phase 2 step 10: undefined = not a network device or no SNMP read access; null = no reading yet. */ health?: SnmpHealthSummaryItem | null };
 type TopologyFlowNode = Node<TopologyNodeData, 'topologyDevice'>;
 type TopologyEdgeData = { tooltip: string; onSelect: (id: string) => void };
 type TopologyFlowEdge = Edge<TopologyEdgeData, 'topologyConnection'>;
 
 function TopologyDeviceNode({ data, selected }: NodeProps<TopologyFlowNode>) {
-  return <div className={`topology-device-node${selected ? ' topology-device-node--selected' : ''}`} aria-label={`${data.deviceName}; hostname ${data.hostname || 'não definido'}; localização ${data.location || 'não definida'}`}>
+  const t = useUiText();
+  const health = data.health === undefined ? undefined : badgeStatus(data.health?.status);
+  // The pill only appears when the device needs a look (Degradado / Desconhecido); OK and Sem dados stay in the tooltip and the accessible name.
+  const healthPill = health === 'DEGRADED' || health === 'UNKNOWN';
+  return <div className={`topology-device-node${selected ? ' topology-device-node--selected' : ''}`} aria-label={`${data.deviceName}; hostname ${data.hostname || 'não definido'}; localização ${data.location || 'não definida'}${health ? `; ${snmpHealthDescription(t, data.health)}` : ''}`}>
     <Handle type="target" position={Position.Left} className="topology-device-handle" />
     <span className="topology-device-image">{data.asset ? <AssetImage asset={data.asset} alt={`Imagem de ${data.deviceName}`} fallback={<EquipmentTypeIcon type={data.equipmentType} alt="" />} /> : <EquipmentTypeIcon type={data.equipmentType} alt="" />}</span>
     <span className="topology-node-label">{data.deviceName}</span>
     {data.alertSummary && <span className={`topology-node-alert topology-node-alert--${String(data.alertSummary.highestSeverity).toLowerCase()}`} aria-label={`${data.alertSummary.count} alertas ativos · ${data.alertSummary.highestSeverity}`}>{data.alertSummary.count} · {data.alertSummary.highestSeverity}</span>}
+    {healthPill && <span className="topology-node-health" data-health={health} aria-hidden="true">{snmpHealthStatusLabel(t, data.health?.status)}{data.health?.issueCount ? ` · ${data.health.issueCount}` : ''}</span>}
     <Handle type="source" position={Position.Right} className="topology-device-handle" />
-    <span className="topology-device-tooltip" role="tooltip"><strong>{data.deviceName}</strong><span><small>Hostname:</small><b>{data.hostname || 'Não definido'}</b></span><span><small>Modelo:</small><b>{data.modelName || data.equipmentType}</b></span><span><small>Localização:</small><b>{data.location || 'Não definida'}</b></span><span><small>IP Management:</small><b>{data.managementIp || 'não definido'}</b></span><span><small>Status:</small><b>{data.status.toLowerCase()}</b></span>{data.alertSummary && <span><small>Alertas ativos:</small><b style={{ color: topologySeverityColor(data.alertSummary.highestSeverity) }}>{data.alertSummary.count} · {data.alertSummary.highestSeverity}</b></span>}</span>
+    <span className="topology-device-tooltip" role="tooltip"><strong>{data.deviceName}</strong><span><small>Hostname:</small><b>{data.hostname || 'Não definido'}</b></span><span><small>Modelo:</small><b>{data.modelName || data.equipmentType}</b></span><span><small>Localização:</small><b>{data.location || 'Não definida'}</b></span><span><small>IP Management:</small><b>{data.managementIp || 'não definido'}</b></span><span><small>Status:</small><b>{data.status.toLowerCase()}</b></span>{data.alertSummary && <span><small>Alertas ativos:</small><b style={{ color: topologySeverityColor(data.alertSummary.highestSeverity) }}>{data.alertSummary.count} · {data.alertSummary.highestSeverity}</b></span>}{health && <span><small>{t('snmpHealth.column')}:</small><b>{snmpHealthStatusLabel(t, data.health?.status)}{data.health?.issueCount ? ` · ${t('snmpHealth.issues', undefined, { count: data.health.issueCount })}` : ''}</b></span>}</span>
   </div>;
 }
 
@@ -82,14 +90,14 @@ function configuredPortLabel(node: TopologyNode | undefined, port?: DeviceInterf
   return mappedPort?.label ?? port?.portKey ?? port?.name ?? 'Porta não definida';
 }
 
-function toFlowNode(node: TopologyNode, alertSummary?: TopologyNodeAlertSummary): TopologyFlowNode {
+function toFlowNode(node: TopologyNode, alertSummary?: TopologyNodeAlertSummary, healthMap?: ReadonlyMap<string, SnmpHealthSummaryItem>): TopologyFlowNode {
   const severity = alertSummary?.highestSeverity;
   const image = topologyDeviceImage(node.device);
   return {
     id: node.id,
     position: { x: node.x, y: node.y },
     type: 'topologyDevice',
-    data: { label: node.label ?? node.device?.name ?? node.deviceId, deviceName: node.device?.name ?? node.deviceId, hostname: node.device?.hostname ?? '', location: [node.device?.rack?.room?.building?.name, node.device?.rack?.room?.name, node.device?.rack?.name].filter(Boolean).join(' · '), managementIp: node.device?.managementIp ?? '', modelName: [node.device?.model?.manufacturer, node.device?.model?.model].filter(Boolean).join(' '), status: node.device?.status ?? 'UNKNOWN', asset: image, equipmentType: node.device?.type ?? 'OTHER', alertSummary: severity ? alertSummary : undefined },
+    data: { label: node.label ?? node.device?.name ?? node.deviceId, deviceName: node.device?.name ?? node.deviceId, hostname: node.device?.hostname ?? '', location: [node.device?.rack?.room?.building?.name, node.device?.rack?.room?.name, node.device?.rack?.name].filter(Boolean).join(' · '), managementIp: node.device?.managementIp ?? '', modelName: [node.device?.model?.manufacturer, node.device?.model?.model].filter(Boolean).join(' '), status: node.device?.status ?? 'UNKNOWN', asset: image, equipmentType: node.device?.type ?? 'OTHER', alertSummary: severity ? alertSummary : undefined, health: healthMap && isSnmpNetworkDevice(node.device?.type) ? healthMap.get(node.deviceId) ?? null : undefined },
     style: { width: 194, height: 100, padding: 0, border: 0, background: 'transparent', boxShadow: 'none', overflow: 'visible' },
   };
 }
@@ -150,6 +158,9 @@ export function TopologyPage() {
   const selectedSourcePorts = selectedConnection ? availableInterfaces(interfacesByDevice[selectedConnection.sourceDeviceId] ?? [], usedInterfaceIds) : [];
   const selectedTargetPorts = selectedConnection ? availableInterfaces(interfacesByDevice[selectedConnection.targetDeviceId] ?? [], usedInterfaceIds) : [];
   const nodeAlertSummaries = useMemo(() => summarizeTopologyDeviceAlerts(current?.nodes ?? [], operationalAlerts.data?.items ?? []), [current?.nodes, operationalAlerts.data?.items]);
+  // SNMP Phase 2 step 10: one Site-wide health request for every node on the map.
+  const snmpHealth = useSnmpHealthMap(siteId, Boolean(siteId) && Boolean(current));
+  const snmpHealthMap = snmpHealth.size ? snmpHealth : undefined;
   const mapProblemCount = [...nodeAlertSummaries.values()].reduce((total, summary) => total + summary.count, 0);
   const searchMatch = current ? findTopologyNode(current.nodes, search) : undefined;
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
@@ -166,21 +177,21 @@ export function TopologyPage() {
 
   useEffect(() => {
     if (!current) return;
-    setNodes(current.nodes.map((node) => { const flowNode = toFlowNode(node, nodeAlertSummaries.get(node.deviceId)); const pending = pendingPositions?.find((item) => item.id === node.id); return pending ? { ...flowNode, position: pending.position } : flowNode; }));
+    setNodes(current.nodes.map((node) => { const flowNode = toFlowNode(node, nodeAlertSummaries.get(node.deviceId), snmpHealthMap); const pending = pendingPositions?.find((item) => item.id === node.id); return pending ? { ...flowNode, position: pending.position } : flowNode; }));
     setEdges(current.connections.map((edge) => makeFlowEdge(edge, current, interfacesByDevice, setSelectedEdgeId)));
   }, [current, interfacesByDevice, pendingPositions, setEdges, setNodes]);
   useEffect(() => {
     if (!current) return;
     const currentNodes = new Map(current.nodes.map((node) => [node.id, node]));
     setNodes((existing) => {
-      if (existing.length !== current.nodes.length || existing.some((node) => !currentNodes.has(node.id))) return current.nodes.map((node) => toFlowNode(node, nodeAlertSummaries.get(node.deviceId)));
+      if (existing.length !== current.nodes.length || existing.some((node) => !currentNodes.has(node.id))) return current.nodes.map((node) => toFlowNode(node, nodeAlertSummaries.get(node.deviceId), snmpHealthMap));
       return existing.map((flowNode) => {
         const node = currentNodes.get(flowNode.id)!;
-        const refreshed = toFlowNode(node, nodeAlertSummaries.get(node.deviceId));
+        const refreshed = toFlowNode(node, nodeAlertSummaries.get(node.deviceId), snmpHealthMap);
         return { ...flowNode, data: refreshed.data, style: { ...flowNode.style, ...refreshed.style } };
       });
     });
-  }, [current, nodeAlertSummaries, setNodes]);
+  }, [current, nodeAlertSummaries, snmpHealthMap, setNodes]);
   useEffect(() => {
     if (current && selectedEdgeId && !current.connections.some((connection) => connection.id === selectedEdgeId)) setSelectedEdgeId('');
   }, [current, selectedEdgeId]);

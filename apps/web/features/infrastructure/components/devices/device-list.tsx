@@ -10,6 +10,9 @@ import { AssetImage } from '../asset-image';
 import type { Device } from '../../types';
 import type { DeviceModel, Rack, TierCounts } from '../../types';
 import { useConfirm } from '@/components/ui/confirm-dialog';
+import type { SnmpHealthSummaryItem } from '@/features/snmp/health/health-api';
+import { isSnmpNetworkDevice } from '@/features/snmp/health/health-api';
+import { SnmpHealthBadge } from '@/features/snmp/health/health-badge';
 
 export interface DeviceListProps {
   devices: Device[];
@@ -39,6 +42,8 @@ export interface DeviceListProps {
   onEditTags?: (device: Device) => void;
   /** Per-row check for the tag button (NETWORK_OPERATOR only tags network equipment). */
   canEditTagsFor?: (device: Device) => boolean;
+  /** SNMP Phase 2 step 10: health per device id (one Site-wide request); network rows show the badge when set. */
+  health?: ReadonlyMap<string, SnmpHealthSummaryItem>;
   onBulkUpdate?: (ids: string[], changes: { status?: string; modelId?: string | null; rackId?: string | null }) => Promise<{ updated: number; updatedIds: string[]; failed: { id: string; message: string }[]; auditFailed: { id: string; message: string }[]; batchAuditFailed: boolean }>;
 }
 
@@ -48,7 +53,7 @@ export function getPopoverAlignment(anchor: Pick<DOMRect, 'left' | 'right'>, vie
 }
 
 /** Active device inventory of the site. */
-export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire, canRetire, canEdit, selectedId, models = [], racks = [], onImport, canImport = canEdit, onBulkUpdate, tierFilter = '', onTierFilterChange, tierCounts, toolbarFilters, headingFilters, filterChips, onEditTags, canEditTagsFor }: DeviceListProps) {
+export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire, canRetire, canEdit, selectedId, models = [], racks = [], onImport, canImport = canEdit, onBulkUpdate, tierFilter = '', onTierFilterChange, tierCounts, toolbarFilters, headingFilters, filterChips, onEditTags, canEditTagsFor, health }: DeviceListProps) {
   const { confirm: askConfirm, confirmDialog } = useConfirm();
   const [selected, setSelected] = useState<string[]>([]);
   const [status, setStatus] = useState('');
@@ -216,6 +221,7 @@ export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire,
       {canEdit && <input type="checkbox" aria-label={`Selecionar ${device.name}`} checked={selected.includes(device.id)} onClick={(event) => event.stopPropagation()} onChange={(event) => setSelected(event.target.checked ? [...selected, device.id] : selected.filter((id) => id !== device.id))} />}
       <span className="host-icon equipment-type-icon-frame">{device.frontAsset ?? device.model?.frontAsset ? <AssetImage asset={device.frontAsset ?? device.model?.frontAsset} alt={`${device.name} — imagem frontal`} className="catalog-icon" fallback={<EquipmentTypeIcon type={device.type} />} /> : <EquipmentTypeIcon type={device.type} />}</span>
       <span><strong>{device.name}</strong><small>{device.type} · {device.model ? `${device.model.manufacturer} ${device.model.model}` : 'Sem modelo'} · {device.managementIp || 'Sem IP de gestão'} · {device.rack ? `${device.rack.name} / ${device.rackUnitStart ?? '?'}U` : 'Por localizar'}</small><TagChips tags={device.tags} limit={4} /></span>
+      {health && isSnmpNetworkDevice(device.type) && <SnmpHealthBadge item={health.get(device.id) ?? null} />}
       <em className="status-active">{device.status}</em>
       {(canEdit || canRetire || onEditTags) && <span className="row-actions">{onEditTags && (canEditTagsFor?.(device) ?? true) && <button type="button" className="icon-button subtle" aria-label={`Etiquetas de ${device.name}`} title="Etiquetas" onClick={(event) => { event.stopPropagation(); onEditTags(device); }}><Tags size={14} /></button>}{canEdit && <button type="button" className="icon-button subtle" aria-label={`Editar ${device.name}`} onClick={(event) => { event.stopPropagation(); onEdit(device, event.detail > 0); }}><Edit3 size={14} /></button>}{canRetire && <button type="button" className="icon-button subtle" aria-label={`Rever retirada de ${device.name}`} onClick={(event) => { event.stopPropagation(); onRetire(device); }}><Archive size={14} /></button>}</span>}
     </div>)}

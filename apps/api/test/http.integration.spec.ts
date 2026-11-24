@@ -486,6 +486,17 @@ test('enforces SNMP roles, Site isolation and disabled SET over HTTP', async () 
   assert.equal(badRange.statusCode, 400);
   assert.equal(badRange.json().code, 'SNMP_HEALTH_HISTORY_RANGE_INVALID');
   assert.equal((await request('GET', `/api/v1/snmp/devices/${ids.deviceB}/health/history`, 'qa-network-scoped')).statusCode, 404);
+  // SNMP Phase 2 step 10: batch health for the badges, same roles and Site scoping as the per-device read.
+  const healthSummary = await request('GET', `/api/v1/snmp/health?deviceIds=${ids.deviceA},${ids.deviceB}`, 'qa-network-scoped');
+  assert.equal(healthSummary.statusCode, 200);
+  assert.deepEqual(healthSummary.json().items.map((item: { deviceId: string; status: string; issueCount: number }) => [item.deviceId, item.status, item.issueCount]), [[ids.deviceA, 'DEGRADED', 1]]);
+  const adminSummary = (await request('GET', `/api/v1/snmp/health?deviceIds=${ids.deviceA},${ids.deviceB}`, 'qa-admin')).json();
+  assert.deepEqual(adminSummary.items.map((item: { deviceId: string }) => item.deviceId).sort(), [ids.deviceA, ids.deviceB].sort());
+  assert.equal(adminSummary.items.find((item: { deviceId: string }) => item.deviceId === ids.deviceB).status, null);
+  assert.equal((await request('GET', `/api/v1/snmp/health?siteId=${ids.siteA}`, 'qa-readonly')).statusCode, 200);
+  assert.equal((await request('GET', `/api/v1/snmp/health?siteId=${ids.siteA}`, 'qa-auditor')).statusCode, 200);
+  assert.equal((await request('GET', '/api/v1/snmp/health', 'qa-systems-scoped')).statusCode, 403);
+  assert.equal((await request('GET', '/api/v1/snmp/health?deviceIds=not-a-uuid', 'qa-admin')).statusCode, 400);
 
   const config = { enabled: true, port: 161, intervalMinutes: 15, timeoutMs: 1000, retries: 1, compatibilitySha1: false };
   assert.equal((await request('PATCH', `/api/v1/snmp/devices/${ids.deviceA}/config`, 'qa-network-scoped', config)).statusCode, 403);
