@@ -50,10 +50,19 @@ export function deviceHref(siteId: string | null | undefined, deviceId: string):
 
 type DeviceMatch = { id: string; name: string; managementIp?: string | null; siteId?: string | null };
 
-/** The device that already uses this management IP, if any (the list search is a substring match, so compare exactly). */
+/**
+ * The device that already uses this management IP, if any. The list API has no exact-IP filter, only a substring search
+ * (10.0.0.1 also returns 10.0.0.10, 10.0.0.100, ...), so every page of matches is read until an exact one turns up.
+ */
 export async function findDeviceByManagementIp(siteId: string, address: string): Promise<DeviceMatch | null> {
-  const response = await apiFetch<{ items?: DeviceMatch[] }>(`/api/v1/devices?siteId=${encodeURIComponent(siteId)}&search=${encodeURIComponent(address)}&page=1&pageSize=100`);
-  return response.items?.find((item) => item.managementIp?.trim() === address) ?? null;
+  for (let page = 1; ; page += 1) {
+    const response = await apiFetch<{ items?: DeviceMatch[]; totalPages?: number }>(`/api/v1/devices?siteId=${encodeURIComponent(siteId)}&search=${encodeURIComponent(address)}&page=${page}&pageSize=100`);
+    const items = response.items ?? [];
+    const match = items.find((item) => item.managementIp?.trim() === address);
+    if (match) return match;
+    // Stop at the last page, or on an empty page should totalPages be missing or wrong.
+    if (!items.length || page >= (response.totalPages ?? page)) return null;
+  }
 }
 
 /** Site of the run that found the result (the job's subnet). */

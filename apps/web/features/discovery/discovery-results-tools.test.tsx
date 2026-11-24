@@ -1,8 +1,10 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { toCsv } from '@/components/data-table/csv';
 import { translateMessage } from '@/lib/i18n/i18n';
 import type { DiscoveryComparisonItem, DiscoveryResult } from './api';
+import { apiFetch } from '@/lib/api/client';
+import { AuthContext, type AuthContextValue } from '@/lib/auth';
 import { DiscoveryResultsTable } from './discovery-results';
 import { DiscoveryComparisonApprove, discoveryResponseType, discoveryResultsCsvColumns, matchesDiscoveryResultSearch } from './discovery-results-tools';
 import { checkDiscoveryScan, discoveryHostCount, DiscoveryScanEstimate, parseDiscoveryPorts } from './discovery-scan-estimate';
@@ -107,6 +109,40 @@ describe('D-P2b approve from the comparison', () => {
     </>);
     expect(screen.getByText('Approved')).toBeTruthy();
     expect(container.querySelectorAll('button')).toHaveLength(0);
+  });
+});
+
+describe('Promover a equipamento from the comparison list', () => {
+  const item = (address: string): DiscoveryComparisonItem => ({ address, previous: null, current: { address, hostname: null, icmpReachable: true, openPorts: [] }, changes: [] });
+  const asRole = (roles: string[]) => ({ hasRole: (role: string) => roles.includes(role) }) as unknown as AuthContextValue;
+  const approved = result('r3', '10.0.0.3', { status: 'APPROVED', hostname: 'ap-03.lab', jobId: 'job-1' } as Partial<DiscoveryResult>);
+
+  it('offers the promote action next to an approved address, for roles that can create devices', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (path: string) => (path.startsWith('/api/v1/discovery/jobs/') ? { subnet: { siteId: 'site-lx' } } : { items: [], totalPages: 1 }) as never);
+    const assign = vi.fn();
+    const original = window.location;
+    Object.defineProperty(window, 'location', { configurable: true, value: { ...original, assign } });
+    try {
+    render(<AuthContext.Provider value={asRole(['NETWORK_OPERATOR'])}><DiscoveryComparisonApprove item={item('10.0.0.3')} results={[approved]} review={vi.fn()} /></AuthContext.Provider>);
+    expect(screen.getByText('Aprovado')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Promover 10.0.0.3 a equipamento' }));
+    await waitFor(() => expect(assign).toHaveBeenCalledWith('/infraestrutura?siteId=site-lx&tab=devices&promote=discovery&ip=10.0.0.3&hostname=ap-03.lab&name=ap-03'));
+    } finally { Object.defineProperty(window, 'location', { configurable: true, value: original }); }
+  });
+
+  it('hides it from roles that cannot create devices, and on ignored addresses', () => {
+    locale.current = 'en-US';
+    render(<>
+      <AuthContext.Provider value={asRole(['READ_ONLY'])}><DiscoveryComparisonApprove item={item('10.0.0.3')} results={[approved]} review={vi.fn()} /></AuthContext.Provider>
+      <AuthContext.Provider value={asRole(['ADMIN'])}><DiscoveryComparisonApprove item={item('10.0.0.3')} results={[{ ...approved, status: 'IGNORED' }]} review={vi.fn()} /></AuthContext.Provider>
+    </>);
+    expect(screen.queryByRole('button', { name: /Promote/ })).toBeNull();
+  });
+
+  it('speaks English in en-US', () => {
+    locale.current = 'en-US';
+    render(<AuthContext.Provider value={asRole(['ADMIN'])}><DiscoveryComparisonApprove item={item('10.0.0.3')} results={[approved]} review={vi.fn()} /></AuthContext.Provider>);
+    expect(screen.getByRole('button', { name: 'Promote 10.0.0.3 to a device' })).toHaveTextContent('Promote to device');
   });
 });
 
