@@ -10,6 +10,7 @@ import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { CreateDiscoveryJobDto, CreateHostDto, CreateIpDto, CreateServiceDto, CreateSiteDto, CreateSubnetDto, CreateVlanDto, ReviewDiscoveryResultDto, UpdateDiscoveryScheduleDto, UpdateDiscoverySnmpDto, UpdateHostDto, UpdateIpDto, UpdateServiceDto, UpdateSiteDto, UpdateSubnetDto, UpdateVlanDto } from './dto';
 import { IpamAccessService } from './ipam-access.service';
+import { DiscoveryIdentityService } from '../discovery/discovery-identity.service';
 import { parseTagFilter, subnetTagWhere, tagsInclude, withFlatTags } from '../tags/tag-rules';
 import { assertDiscoveryAllowed, DiscoveryPolicyError, normalizeDiscoveryPorts, parseNetwork } from '../discovery/discovery-policy';
 import { resolveDiscoveryProfile } from '../discovery/discovery-profiles';
@@ -61,7 +62,7 @@ function usableHosts(cidr: string) {
 @Injectable()
 export class IpamService implements OnModuleDestroy {
   private readonly discoveryQueue = new Queue('discovery', { connection: this.redisConnection() });
-  constructor(private readonly prisma: PrismaClient, private readonly audit: AuditService, private readonly access: IpamAccessService) {}
+  constructor(private readonly prisma: PrismaClient, private readonly audit: AuditService, private readonly access: IpamAccessService, private readonly identity: DiscoveryIdentityService) {}
   async onModuleDestroy() { await this.discoveryQueue.disconnect(); }
   private redisConnection() { const url = new URL(process.env.REDIS_URL ?? 'redis://localhost:6379'); return { host: url.hostname, port: Number(url.port || 6379), ...(url.password ? { password: url.password } : {}) }; }
   private async auditChange(user: AuthenticatedUser, action: string, entityType: string, entityId: string, metadata?: unknown) { await this.audit.record({ userId: user.id, action, entityType, entityId, metadata }); }
@@ -197,7 +198,9 @@ export class IpamService implements OnModuleDestroy {
     // Each result carries the current IPAM record for its address (null when the address is not tracked yet).
     const ips = results.length ? await this.prisma.ipAddress.findMany({ where: { subnetId: job.subnetId, address: { in: [...new Set(results.map((item) => item.address))] } }, select: { id: true, address: true, state: true, hostId: true, host: { select: { name: true } }, reservations: { where: { status: 'ACTIVE' }, select: { id: true, expiresAt: true }, take: 1 } } }) : [];
     const byAddress = new Map(ips.map((item) => [item.address, item]));
-    return results.map((item) => { const ip = byAddress.get(item.address); return { ...item, ipam: ip ? { ipAddressId: ip.id, state: ip.state, hostId: ip.hostId, hostName: ip.host?.name ?? null, activeReservation: ip.reservations[0] ?? null } : null }; });
+    // Discovery D-P1c: the existing Devices each result most likely is (suggestion-only, scoped to what the caller may read).
+    const identities = await this.identity.forResults(user, results);
+    return results.map((item) => { const ip = byAddress.get(item.address); return { ...item, ipam: ip ? { ipAddressId: ip.id, state: ip.state, hostId: ip.hostId, hostName: ip.host?.name ?? null, activeReservation: ip.reservations[0] ?? null } : null, identity: identities.get(item.id) ?? null }; });
   }
   async compareDiscoveryJobs(user: AuthenticatedUser, currentId: string, previousId: string) {
     if (!previousId) throw new BadRequestException('Indique a execução a comparar.');

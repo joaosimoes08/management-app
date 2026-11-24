@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module';
 import { InfrastructureController } from './infrastructure.controller';
 import { InfrastructureService } from './infrastructure.service';
@@ -15,5 +15,5 @@ import { SiteCapacityService } from './capacity/site-capacity.service';
 import { RackCapacitySampler } from './capacity/rack-capacity-sampler.service';
 import { RackUnitReservationsController } from './reservations/rack-unit-reservations.controller';
 import { RackUnitReservationsService } from './reservations/rack-unit-reservations.service';
-@Module({ imports: [AuditModule, IpamModule], controllers: [DeviceRequiredConfigController, InfrastructureController, LifecycleDatesController, PowerController, RackUnitReservationsController, SiteCapacityController], providers: [InfrastructureService, InfrastructureAccessService, LifecycleDatesService, RackPowerService, DeviceRequiredConfigService, SiteCapacityService, RackCapacitySampler, RackUnitReservationsService], exports: [InfrastructureAccessService, DeviceRequiredConfigService, LifecycleDatesService, SiteCapacityService] })
+@Module({ imports: [AuditModule, forwardRef(() => IpamModule)], controllers: [DeviceRequiredConfigController, InfrastructureController, LifecycleDatesController, PowerController, RackUnitReservationsController, SiteCapacityController], providers: [InfrastructureService, InfrastructureAccessService, LifecycleDatesService, RackPowerService, DeviceRequiredConfigService, SiteCapacityService, RackCapacitySampler, RackUnitReservationsService], exports: [InfrastructureAccessService, DeviceRequiredConfigService, LifecycleDatesService, SiteCapacityService] })
 export class InfrastructureModule {}
