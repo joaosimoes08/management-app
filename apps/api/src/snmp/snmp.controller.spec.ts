@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import { ROLES_KEY } from '../auth/roles.decorator';
-import { SnmpController } from './snmp.controller';
+import { parseForce, SnmpController } from './snmp.controller';
 
 const roles = (method: keyof SnmpController) => Reflect.getMetadata(ROLES_KEY, SnmpController.prototype[method]);
 
@@ -18,5 +18,15 @@ describe('SNMP endpoint authorization policy', () => {
     assert.deepEqual(roles('overview'), ['ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY']);
     assert.deepEqual(roles('metrics'), ['ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY']);
     assert.deepEqual(roles('health'), ['ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY']);
+  });
+});
+
+describe('fix F2: credential delete force flag', () => {
+  it('accepts only true/false and defaults to not forced', () => {
+    assert.equal(parseForce(undefined), false);
+    assert.equal(parseForce(''), false);
+    assert.equal(parseForce('false'), false);
+    assert.equal(parseForce('true'), true);
+    for (const value of ['1', 'yes', 'TRUE']) assert.throws(() => parseForce(value), (error: { response?: { code?: string } }) => error.response?.code === 'SNMP_FORCE_INVALID');
   });
 });

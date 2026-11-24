@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { SnmpCredentialPurpose } from '@simoes/database';
 import { AuthenticatedUser } from '../auth/auth.service';
@@ -27,7 +27,7 @@ export class SnmpController {
   @Get('devices/:deviceId/metrics') @Roles('ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY') metrics(@Param('deviceId') deviceId: string, @Query('interfaceIndex') interfaceIndex: string | undefined, @Query('days') days: string | undefined, @Req() req: { user: AuthenticatedUser }) { return this.service.metrics(deviceId, req.user, interfaceIndex === undefined ? undefined : Number(interfaceIndex), days === undefined ? 7 : Number(days)); }
   @Patch('devices/:deviceId/config') @Roles('ADMIN') config(@Param('deviceId') deviceId: string, @Body() dto: UpsertSnmpConfigDto, @Req() req: { user: AuthenticatedUser }) { return this.service.upsertConfig(deviceId, dto, req.user); }
   @Post('devices/:deviceId/credentials') @Roles('ADMIN') credential(@Param('deviceId') deviceId: string, @Body() dto: CreateSnmpCredentialDto, @Req() req: { user: AuthenticatedUser }) { return this.service.createCredential(deviceId, dto, req.user); }
-  @Delete('devices/:deviceId/credentials/:purpose') @Roles('ADMIN') deleteCredential(@Param('deviceId') deviceId: string, @Param('purpose') purpose: SnmpCredentialPurpose, @Req() req: { user: AuthenticatedUser }) { return this.service.deleteCredential(deviceId, purpose, req.user); }
+  @Delete('devices/:deviceId/credentials/:purpose') @Roles('ADMIN') deleteCredential(@Param('deviceId') deviceId: string, @Param('purpose') purpose: SnmpCredentialPurpose, @Req() req: { user: AuthenticatedUser }, @Query('force') force?: string) { return this.service.deleteCredential(deviceId, purpose, req.user, parseForce(force)); }
   @Post('devices/:deviceId/credentials/:purpose/test') @Roles('ADMIN') testCredential(@Param('deviceId') deviceId: string, @Param('purpose') purpose: SnmpCredentialPurpose, @Req() req: { user: AuthenticatedUser }) { return this.service.testCredential(deviceId, purpose, req.user); }
   @Post('devices/:deviceId/poll') @Roles('ADMIN', 'NETWORK_OPERATOR') poll(@Param('deviceId') deviceId: string, @Req() req: { user: AuthenticatedUser }) { return this.service.poll(deviceId, req.user); }
   @Patch('drifts/:id') @Roles('ADMIN', 'NETWORK_OPERATOR') reviewDrift(@Param('id') id: string, @Body() dto: ReviewSnmpDriftDto, @Req() req: { user: AuthenticatedUser }) { return this.service.reviewDrift(id, dto, req.user); }
@@ -40,4 +40,11 @@ export class SnmpController {
   @Delete('discovery/enrollments/:id') @Roles('ADMIN') deleteEnrollment(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.service.deleteEnrollment(id, req.user); }
   @Post('discovery/enrollments/:id/accept') @Roles('ADMIN', 'NETWORK_OPERATOR') acceptEnrollment(@Param('id') id: string, @Body() dto: AcceptSnmpEnrollmentDto, @Req() req: { user: AuthenticatedUser }) { return this.service.acceptEnrollment(id, dto, req.user); }
   @Post('onboarding/devices') @Roles('ADMIN') onboardDevice(@Body() dto: SnmpOnboardingDeviceDto, @Req() req: { user: AuthenticatedUser }) { return this.service.onboardDevice(dto, req.user); }
+}
+
+/** Fix F2: `?force=true` confirms deleting a credential that is in use; only true/false are accepted. */
+export function parseForce(value?: string) {
+  if (value === undefined || value === '' || value === 'false') return false;
+  if (value === 'true') return true;
+  throw new BadRequestException({ code: 'SNMP_FORCE_INVALID', message: 'force deve ser true ou false.' });
 }
