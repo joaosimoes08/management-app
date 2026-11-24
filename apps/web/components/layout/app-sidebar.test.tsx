@@ -1,10 +1,12 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppSidebar } from './app-sidebar';
+import { helpNavigation, navigation, settingsNavigation } from './navigation';
 
 const motionPreference = vi.hoisted(() => ({ reduced: false }));
+const routeState = vi.hoisted(() => ({ pathname: '/infraestrutura' }));
 
-vi.mock('next/navigation', () => ({ usePathname: () => '/infraestrutura', useRouter: () => ({ push: vi.fn() }) }));
+vi.mock('next/navigation', () => ({ usePathname: () => routeState.pathname, useRouter: () => ({ push: vi.fn() }) }));
 vi.mock('motion/react', () => ({ useReducedMotion: () => motionPreference.reduced }));
 vi.mock('motion/react-m', async () => {
   const React = await import('react');
@@ -32,6 +34,7 @@ vi.mock('./user-menu', async () => {
 afterEach(() => {
   cleanup();
   motionPreference.reduced = false;
+  routeState.pathname = '/infraestrutura';
 });
 
 describe('AppSidebar footer controls', () => {
@@ -94,6 +97,53 @@ describe('AppSidebar footer controls', () => {
     motionPreference.reduced = true;
     const { container } = render(<AppSidebar collapsed onToggle={vi.fn()} />);
     expect(container.querySelector('.app-sidebar')).toHaveAttribute('data-motion-duration', '0');
+  });
+});
+
+describe('AppSidebar navigation entries', () => {
+  it('renders every entry, including Portal, Settings and Help, as a real link with its href', () => {
+    const { container } = render(<AppSidebar collapsed onToggle={vi.fn()} />);
+    const nav = container.querySelector('.primary-nav') as HTMLElement;
+    expect(nav.querySelectorAll('button')).toHaveLength(0);
+    const links = Array.from(nav.querySelectorAll('a.nav-item'));
+    expect(links.map((link) => link.getAttribute('href'))).toEqual([...navigation.map((item) => item.href), settingsNavigation.href, helpNavigation.href]);
+    expect(screen.getByRole('link', { name: 'nav.portal' })).toHaveAttribute('href', '/portal');
+    expect(screen.getByRole('link', { name: 'nav.help' })).toHaveAttribute('href', '/ajuda');
+    expect(screen.getByRole('link', { name: 'nav.settings' })).toHaveAttribute('href', '/definicoes');
+  });
+
+  it('keeps the collapsed tooltip and class names on the links', () => {
+    const { container } = render(<AppSidebar collapsed onToggle={vi.fn()} />);
+    expect(screen.getByRole('link', { name: 'nav.portal' })).toHaveAttribute('title', 'nav.portal');
+    expect(container.querySelector('a.nav-item.sidebar-settings-link')).toBeInTheDocument();
+    expect(container.querySelector('a.nav-item.sidebar-help-link')).toBeInTheDocument();
+  });
+
+  it('marks only the active entry with aria-current="page", including on sub-routes', () => {
+    routeState.pathname = '/infraestrutura/racks';
+    render(<AppSidebar collapsed={false} onToggle={vi.fn()} />);
+    const active = screen.getByRole('link', { name: 'nav.infrastructure' });
+    expect(active).toHaveAttribute('aria-current', 'page');
+    expect(active).toHaveClass('active');
+    expect(screen.getByRole('link', { name: 'nav.dashboard' })).not.toHaveAttribute('aria-current');
+    expect(document.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
+  });
+
+  it('marks Help as the current page on /ajuda without adding the active style', () => {
+    routeState.pathname = '/ajuda';
+    render(<AppSidebar collapsed={false} onToggle={vi.fn()} />);
+    const help = screen.getByRole('link', { name: 'nav.help' });
+    expect(help).toHaveAttribute('aria-current', 'page');
+    expect(help).not.toHaveClass('active');
+  });
+
+  it('still closes the mobile drawer when a main entry is clicked', () => {
+    const onClose = vi.fn();
+    render(<AppSidebar collapsed={false} onToggle={vi.fn()} onClose={onClose} />);
+    const portal = screen.getByRole('link', { name: 'nav.portal' });
+    portal.addEventListener('click', (event) => event.preventDefault());
+    fireEvent.click(portal);
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });
 
