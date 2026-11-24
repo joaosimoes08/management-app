@@ -75,7 +75,7 @@ export function IpAddressPanel({ ip, canUpdate, canCheck, close, updated, saved,
   return <>
     <button className="ip-panel-backdrop" aria-label="Fechar detalhes do IP" onClick={close} />
     <aside ref={dialogRef} className="host-panel ip-address-panel" role="dialog" aria-modal="true" aria-labelledby="ip-panel-title">
-      <div className="host-panel-head"><div><span className="section-kicker">ENDEREÇO IP</span><h2 id="ip-panel-title">{ip.address}</h2><span>{ip.hostname || 'Sem hostname'}</span></div><button className="icon-button" onClick={close} aria-label="Fechar"><X size={18} /></button></div>
+      <div className="host-panel-head"><div><h2 id="ip-panel-title">{ip.address}</h2><span>{ip.hostname || 'Sem hostname'}</span></div><button className="icon-button" onClick={close} aria-label="Fechar"><X size={18} /></button></div>
       <div className="host-status-line"><span>Estado: <strong>{ipStateLabel(ip.state)}</strong></span><span>Observado: <strong>{ipStateLabel(ip.observedState)}</strong></span><span>Subnet: <strong>{ip.subnet?.cidr || ip.subnetId}</strong></span></div>
       {editing ? <form className="modal-form host-edit-form" onSubmit={save}>
         <label>Endereço IP<input required value={address} onChange={(event) => setAddress(event.target.value)} /></label>
@@ -87,7 +87,7 @@ export function IpAddressPanel({ ip, canUpdate, canCheck, close, updated, saved,
         <div className="form-actions ip-panel-actions">{canUpdate && <button className="secondary-button" onClick={() => setEditing(true)}><Edit3 size={14} /> Editar IP</button>}{canCheck && <button className="primary-button" disabled={busy} onClick={() => void check()}>{busy ? <LoaderCircle size={14} className="spin" /> : <Activity size={14} />} Verificar IP</button>}</div>
       </>}
       <section className="ip-check-history" aria-labelledby="ip-history-title" aria-busy={!history && !historyError}>
-        <div className="panel-heading"><div><span className="section-kicker">TCP · PORTA 443</span><h3 id="ip-history-title">Histórico de verificações</h3></div><button className="icon-button subtle" onClick={() => void loadHistory(1)} aria-label="Atualizar histórico"><RefreshCw size={14} /></button></div>
+        <div className="panel-heading"><div><h3 id="ip-history-title">Histórico de verificações</h3></div><button className="icon-button subtle" onClick={() => void loadHistory(1)} aria-label="Atualizar histórico"><RefreshCw size={14} /></button></div>
         {historyError && <p className="ipam-alert error" role="alert">{historyError}</p>}
         {!history && !historyError && <div className="ip-history-skeletons" aria-label="A carregar histórico de verificações">{[0, 1, 2].map((item) => <div className="ip-history-skeleton" key={item}><i className="content-skeleton"/><span><i className="content-skeleton"/><i className="content-skeleton"/></span><i className="content-skeleton"/></div>)}</div>}
         {history?.length === 0 && <p className="ip-history-muted">Ainda não existem verificações registadas.</p>}

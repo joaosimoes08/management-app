@@ -84,7 +84,7 @@ export function AlertList({ siteId, table }: { siteId: string; table: TableUrlSt
       {filtering && <button className="secondary-button" onClick={clearFilters}><X size={14} /> Limpar filtros</button>}
     </div></PageToolbarPortal>
     <section className="panel settings-panel" aria-labelledby="alert-list-title">
-      <div className="panel-heading"><div><span className="section-kicker">ALERTAS</span><h2 id="alert-list-title">Alertas ativos</h2></div></div>
+      <div className="panel-heading"><div><h2 id="alert-list-title">Alertas ativos</h2></div></div>
       <SeverityLegend />
       {!filters.status && <p className="panel-description"><Info size={13} aria-hidden="true" /> Por omissão a lista mostra abertos, reconhecidos e adiados. Os adiados voltam a abrir no fim do prazo.</p>}
       {!canAct && <ReadOnlyAlertNote />}
@@ -107,7 +107,7 @@ export function MaintenanceSummaryPanel({ siteId }: { siteId: string }) {
   const query = useQuery({ queryKey: ['operations', 'maintenance-summary', siteId], queryFn: () => getMaintenanceSummary(siteId || undefined), retry: false });
   const data = query.data;
   return <section className="panel settings-panel" aria-labelledby="maintenance-summary-title">
-    <div className="panel-heading"><div><span className="section-kicker">MANUTENÇÃO</span><h2 id="maintenance-summary-title">Janelas ativas e próximas</h2>{data && <p className="panel-description"><span>{`${data.counts.active} ativas · ${data.counts.upcoming} nos próximos ${data.horizonDays} dias`}</span>{data.criticalAlertsUnaffected !== false && <> · <span>Alertas críticos continuam visíveis durante as janelas.</span></>}</p>}</div></div>
+    <div className="panel-heading"><div><h2 id="maintenance-summary-title">Janelas ativas e próximas</h2>{data && <p className="panel-description"><span>{`${data.counts.active} ativas · ${data.counts.upcoming} nos próximos ${data.horizonDays} dias`}</span>{data.criticalAlertsUnaffected !== false && <> · <span>Alertas críticos continuam visíveis durante as janelas.</span></>}</p>}</div></div>
     {query.error && <div className="ipam-alert error" role="alert"><X size={15} />{query.error instanceof Error ? query.error.message : 'Não foi possível carregar as janelas de manutenção.'}</div>}
     {data && <div className="audit-list">
       {data.active.map((item) => <div className="audit-row" key={item.id}><span><strong>{item.name}</strong><small>{windowLine(item)}</small></span><span className="status-pill orange"><i />Em curso</span></div>)}

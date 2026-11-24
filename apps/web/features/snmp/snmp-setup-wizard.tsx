@@ -71,7 +71,7 @@ export function SnmpSetupWizard({ deviceId, deviceName, close, onDone }: Props) 
   const finish = () => { void queryClient.invalidateQueries({ queryKey: ['snmp'] }); onDone?.(); close(); };
 
   return <div className="modal-backdrop"><section ref={dialogRef} className="modal-card snmp-wizard" role="dialog" aria-modal="true" aria-labelledby="snmp-wizard-title">
-    <div className="modal-heading"><div><span className="section-kicker">{deviceName}</span><h2 id="snmp-wizard-title">Configurar SNMP</h2></div><button className="icon-button subtle" onClick={close} aria-label="Fechar"><X size={16} /></button></div>
+    <div className="modal-heading"><div><h2 id="snmp-wizard-title">Configurar SNMP</h2><p className="panel-description">{deviceName}</p></div><button className="icon-button subtle" onClick={close} aria-label="Fechar"><X size={16} /></button></div>
     <ol className="snmp-wizard-steps" aria-label="Passos">{wizardSteps.map((label, index) => <li key={label} className={index === step ? 'active' : index < step ? 'done' : ''} aria-current={index === step ? 'step' : undefined}><span>{index < step ? <Check size={11} /> : index + 1}</span>{label}</li>)}</ol>
     {error && <div className="ipam-alert error" role="alert"><X size={15} />{error}</div>}
 

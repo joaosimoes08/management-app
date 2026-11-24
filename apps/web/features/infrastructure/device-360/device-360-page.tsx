@@ -139,9 +139,8 @@ export function Device360Page({ deviceId }: { deviceId: string }) {
       {/* eslint-disable-next-line @next/next/no-img-element -- API asset URL, same as the rack views */}
       {image && <img className="device-360-image" src={image} alt={`Frente de ${modelName || device.name}`} />}
       <div>
-        <span className="section-kicker">EQUIPAMENTO · {device.type}{modelName ? ` · ${modelName}` : ''}</span>
         <h1>{device.name}</h1>
-        <p>{location || 'Sem localização'}</p>
+        <p>{[device.type, modelName, location || 'Sem localização'].filter(Boolean).join(' · ')}</p>
         <p className="device-360-badges">
           <span className="state-badge"><i />{device.status}</span>
           {tier ? <span className="state-badge warning" data-testid="tier-badge" title="Criticidade">{TIER_LABELS[tier] ?? tier}</span> : device.isCritical ? <span className="state-badge warning" data-testid="tier-badge">Crítico</span> : null}

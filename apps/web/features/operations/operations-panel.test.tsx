@@ -57,14 +57,14 @@ describe('OperationsPanel site scope', () => {
     await waitFor(() => expect(mocks.listOperationalAlerts).toHaveBeenCalledWith('context-site', 25, 1, 'OPEN'));
   });
 
-  it('drops the section kickers in the compact dashboard variant only', async () => {
+  it('renders no section kickers in either variant', async () => {
     const compact = render(<OperationsPanel compact siteId="workspace-site" />);
     await waitFor(() => expect(mocks.getInventoryQualityItems).toHaveBeenCalled());
     expect(compact.container.querySelector('.section-kicker')).toBeNull();
     compact.unmount();
     const full = render(<OperationsPanel />);
     await waitFor(() => expect(mocks.getInventoryQuality).toHaveBeenCalledTimes(2));
-    expect(full.container.querySelectorAll('.section-kicker')).toHaveLength(2);
+    expect(full.container.querySelector('.section-kicker')).toBeNull();
   });
 
   it('requests all sites when neither a siteId nor a global site is set', async () => {
