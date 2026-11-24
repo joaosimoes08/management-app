@@ -1,4 +1,4 @@
-import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PrismaClient } from '@simoes/database';
 import { Queue } from 'bullmq';
 import { AlertSeverityDto, UpsertOperationalAlert } from './dto';
@@ -30,10 +30,20 @@ export class OperationsReconcilerService implements OnModuleInit, OnModuleDestro
   private interfaceAlertsAt = 0;
   private lastCapacityAt = 0;
   private healthAlertsAt = 0;
+  private readonly logger = new Logger('OperationsReconciler');
   private readonly queue = new Queue('discovery', { connection: this.connection() });
   constructor(private readonly prisma: PrismaClient, private readonly operations: OperationsService) {}
   private connection() { const url = new URL(process.env.REDIS_URL ?? 'redis://localhost:6379'); return { host: url.hostname, port: Number(url.port || 6379), connectTimeout: 1500, maxRetriesPerRequest: 1, ...(url.password ? { password: url.password } : {}) }; }
-  onModuleInit() { void this.reconcile().catch(() => undefined); this.timer = setInterval(() => void this.reconcile().catch(() => undefined), 10_000); }
+  onModuleInit() { void this.tick(); this.timer = setInterval(() => void this.tick(), 10_000); }
+  /** One timer tick: a failed pass is logged, never thrown, and the next tick tries again. */
+  private async tick() { await this.reconcile().catch((error) => this.logger.warn(`Reconciliation pass failed: ${errorMessage(error)}`)); }
+  /**
+   * Runs one periodic alert stage in isolation: if it throws, the error is logged and the later stages still run.
+   * The stage's interval timestamp is already advanced, so a failing stage is retried on its next interval, not every tick.
+   */
+  private async stage(name: string, run: () => Promise<unknown>) {
+    try { await run(); } catch (error) { this.logger.warn(`Reconciliation stage ${name} failed; later stages still run: ${errorMessage(error)}`); }
+  }
   async onModuleDestroy() { if (this.timer) clearInterval(this.timer); await this.queue.disconnect(); }
   async reconcile() {
     if (this.running) return;
@@ -73,22 +83,30 @@ export class OperationsReconcilerService implements OnModuleInit, OnModuleDestro
     await this.operations.reconcileSource('SNMP_DRIFT', drifts.slice(0, 100).map((drift) => ({ dedupKey: `snmp:drift:${drift.id}`, source: 'SNMP_DRIFT', severity: AlertSeverityDto.HIGH, siteId: drift.device.siteId, entityType: 'SnmpDrift', entityId: drift.id, title: 'Divergência SNMP pendente', detail: `${drift.device.name}: ${drift.field}`, actionHref: '/snmp' })), undefined, drifts.length <= 100);
     if (Date.now() - this.interfaceAlertsAt >= INTERFACE_ALERT_INTERVAL_MS) {
       this.interfaceAlertsAt = Date.now();
-      const interfaceAlerts = await collectInterfaceAlerts(this.prisma);
-      await this.operations.reconcileSource(INTERFACE_ALERT_SOURCE, interfaceAlerts.candidates, undefined, false, interfaceAlerts.resolveKeys);
+      await this.stage(INTERFACE_ALERT_SOURCE, async () => {
+        const interfaceAlerts = await collectInterfaceAlerts(this.prisma);
+        await this.operations.reconcileSource(INTERFACE_ALERT_SOURCE, interfaceAlerts.candidates, undefined, false, interfaceAlerts.resolveKeys);
+      });
     }
     if (Date.now() - this.healthAlertsAt >= HEALTH_ALERT_INTERVAL_MS) {
       this.healthAlertsAt = Date.now();
-      const health = await collectHealthAlerts(this.prisma);
-      await this.operations.reconcileSource(HEALTH_ALERT_SOURCE, health.candidates, undefined, false, health.resolveKeys);
+      await this.stage(HEALTH_ALERT_SOURCE, async () => {
+        const health = await collectHealthAlerts(this.prisma);
+        await this.operations.reconcileSource(HEALTH_ALERT_SOURCE, health.candidates, undefined, false, health.resolveKeys);
+      });
     }
     if (Date.now() - this.lastCapacityAt >= CAPACITY_ALERT_INTERVAL_MS) {
       this.lastCapacityAt = Date.now();
-      const capacity = await collectCapacityAlerts(this.prisma);
-      await this.operations.reconcileSource(CAPACITY_ALERT_SOURCE, capacity.candidates, undefined, false, capacity.resolveKeys);
+      await this.stage(CAPACITY_ALERT_SOURCE, async () => {
+        const capacity = await collectCapacityAlerts(this.prisma);
+        await this.operations.reconcileSource(CAPACITY_ALERT_SOURCE, capacity.candidates, undefined, false, capacity.resolveKeys);
+      });
     }
     } finally { this.running = false; }
   }
 }
+
+const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 type UnreachableConfigRow = { deviceId: string; consecutiveFailures: number; lastPollAt: Date | null; lastErrorCode: string | null; device: { siteId: string | null; name: string } };
 
