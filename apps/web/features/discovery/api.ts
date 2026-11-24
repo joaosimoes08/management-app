@@ -56,6 +56,28 @@ export interface DiscoveryResult {
   snmp?: DiscoverySnmpEnrichment | null;
   /** D-P2a: what each probe method saw for this host; null for runs saved before D-P2a. */
   outcome?: DiscoveryHostOutcome | null;
+  /** D-P1c: existing devices this host most likely is (suggestion only); absent on APIs without D-P1c. */
+  identity?: DiscoveryIdentity | null;
+}
+
+/** D-P1c: confidence of one identity candidate. */
+export type DiscoveryIdentityConfidence = 'HIGH' | 'MEDIUM' | 'LOW';
+/** D-P1c: why a device is a candidate; SERIAL_MISMATCH is a contradiction. Unknown future codes are shown as sent. */
+export type DiscoveryIdentityReasonCode = 'SERIAL_MATCH' | 'MANAGEMENT_IP_MATCH' | 'SYSNAME_MATCH' | 'SERIAL_MISMATCH';
+export interface DiscoveryIdentityCandidate {
+  deviceId: string;
+  deviceName: string;
+  siteId: string | null;
+  deviceStatus: string;
+  confidence: DiscoveryIdentityConfidence;
+  score: number;
+  reasons: Array<{ code: DiscoveryIdentityReasonCode | (string & {}); discovered: string; registered: string }>;
+}
+/** D-P1c: read-only identity suggestion for a result: best candidate first, at most 3, only devices the caller can read. */
+export interface DiscoveryIdentity {
+  signals: Array<'MANAGEMENT_IP' | 'SERIAL' | 'SYSNAME'>;
+  ambiguous: boolean;
+  candidates: DiscoveryIdentityCandidate[];
 }
 
 /** D-P2a: structured per-host outcome, read-only. */

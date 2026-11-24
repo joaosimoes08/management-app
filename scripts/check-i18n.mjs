@@ -73,6 +73,8 @@ const operationalFiles = [
   'apps/web/features/infrastructure/discovery-promotion.tsx',
   // D-P2a structured scan outcomes
   'apps/web/features/discovery/discovery-outcomes.tsx',
+  // D-P1c identity candidates
+  'apps/web/features/discovery/discovery-identity.tsx',
   'apps/web/features/snmp/snmp-fleet.tsx',
   'apps/web/features/snmp/snmp-page.tsx',
   'apps/web/features/snmp/snmp-drifts.tsx',
