@@ -417,48 +417,6 @@ const fakeReverse = async (address: string) => {
   throw Object.assign(new Error('getHostByAddr ENOTFOUND'), { code: 'ENOTFOUND' });
 };
 
-test('fix/discovery-scan-cancel-latency: a cancel during slow reverse DNS ends the batch without waiting for the resolver', async () => {
-  let lookups = 0;
-  const slowReverse = async () => { lookups += 1; await new Promise((resolve) => setTimeout(resolve, 3_000)); return 'slow.example'; };
-  const job = await createJob({ reverseDns: true });
-  const scan = runDiscoveryScan(prisma, job.id, { probe, reverse: slowReverse, batchSize: 64, controlPollMs: 100 });
-  await new Promise((resolve) => setTimeout(resolve, 300));
-  const requestedAt = await requestCancel(job.id);
-  assert.deepEqual(await scan, { status: 'CANCELLED', stopReason: 'CANCELLED' });
-  const latency = Date.now() - requestedAt;
-  assert.ok(latency < 600, `cancel took ${latency} ms after the request`);
-  assert.equal(lookups, 1, 'no further reverse lookups after the cancel');
-  assert.equal(await prisma.discoveryResult.count({ where: { jobId: job.id } }), 0);
-  await new Promise((resolve) => setTimeout(resolve, 3_000));
-});
-test('fix/discovery-scan-cancel-latency: a cancel during slow reverse DNS ends the batch without waiting for the resolver', async () => {
-  let lookups = 0;
-  const slowReverse = async () => { lookups += 1; await new Promise((resolve) => setTimeout(resolve, 3_000)); return 'slow.example'; };
-  const job = await createJob({ reverseDns: true });
-  const scan = runDiscoveryScan(prisma, job.id, { probe, reverse: slowReverse, batchSize: 64, controlPollMs: 100 });
-  await new Promise((resolve) => setTimeout(resolve, 300));
-  const requestedAt = await requestCancel(job.id);
-  assert.deepEqual(await scan, { status: 'CANCELLED', stopReason: 'CANCELLED' });
-  const latency = Date.now() - requestedAt;
-  assert.ok(latency < 600, `cancel took ${latency} ms after the request`);
-  assert.equal(lookups, 1, 'no further reverse lookups after the cancel');
-  assert.equal(await prisma.discoveryResult.count({ where: { jobId: job.id } }), 0);
-  await new Promise((resolve) => setTimeout(resolve, 3_000));
-});
-
-// D-P2a: structured per-host outcomes and per-run counts.
-const detailedProbe: ScanDependencies['probe'] = async (address, methods, tcpPorts) => {
-  const last = Number(address.split('.')[3]);
-  const answers = reachable(address);
-  const tcp = methods.includes('TCP') ? tcpPorts.map((port) => ({ port, state: (address.endsWith('.10') && port === 22 ? 'OPEN' : last % 2 ? 'TIMEOUT' : 'REFUSED') as 'OPEN' | 'REFUSED' | 'TIMEOUT' })) : undefined;
-  return { address, icmp: { reachable: methods.includes('ICMP') && answers, responseMs: answers ? 1 : undefined, status: answers ? 'REPLY' : last === 7 ? 'ERROR' : 'NO_REPLY' }, openPorts: tcp?.filter((item) => item.state === 'OPEN').map((item) => item.port) ?? [], tcp };
-};
-const fakeReverse = async (address: string) => {
-  if (address.endsWith('.5')) return 'sw5.example';
-  if (address.endsWith('.10')) throw Object.assign(new Error('queryPtr ETIMEOUT'), { code: 'ETIMEOUT' });
-  throw Object.assign(new Error('getHostByAddr ENOTFOUND'), { code: 'ENOTFOUND' });
-};
-
 test('D-P2a: each saved host records what ICMP, TCP per port and reverse DNS saw; the job counts every scanned host', async () => {
   const job = await createJob({ methods: ['ICMP', 'TCP'], tcpPorts: [22, 443], reverseDns: true });
   assert.equal((await runDiscoveryScan(prisma, job.id, { probe: detailedProbe, reverse: fakeReverse, batchSize: 16 })).status, 'COMPLETED');
