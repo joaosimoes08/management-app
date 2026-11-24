@@ -1900,6 +1900,24 @@ const enUS: LegacyDictionary = {
   'Só esta credencial é removida; as outras credenciais e a configuração SNMP ficam como estão. Não é possível desfazer.': 'Only this credential is removed; the other credentials and the SNMP configuration stay as they are. This cannot be undone.',
   'Atenção, esta credencial está em uso:': 'Warning, this credential is in use:',
   'Quem instala o servidor define este endereço público (por exemplo, https://gestao.exemplo.pt) no ficheiro .env do servidor e reinicia a API; não se altera nesta página.': 'Whoever installs the server sets this public address (for example https://gestao.exemplo.pt) in the server .env file and restarts the API; it cannot be changed on this page.',
+  // D-P1a: discovery SNMP enrichment
+  'Não foi possível guardar o enriquecimento SNMP.': 'Could not save the SNMP enrichment.',
+  'Enriquecimento SNMP': 'SNMP enrichment',
+  'Não foi possível consultar o enriquecimento SNMP desta subnet.': 'Could not load the SNMP enrichment of this subnet.',
+  'Credencial de leitura': 'Read credential',
+  'Credencial SNMP de enriquecimento': 'SNMP enrichment credential',
+  'Desligado': 'Off',
+  'Quando ligado, cada execução desta subnet tenta só esta credencial e só nos hosts que responderam a ping ou TCP, para ler sysObjectID, sysDescr, sysName e o modelo e número de série (ENTITY-MIB). Conta para os limites de carga da subnet.': 'When on, each run of this subnet tries only this credential, and only on hosts that answered ping or TCP, to read sysObjectID, sysDescr, sysName and the model and serial number (ENTITY-MIB). It counts towards the subnet load limits.',
+  'Não há credenciais SNMP de leitura ativas em equipamentos deste Site.': 'There are no enabled SNMP read credentials on devices of this Site.',
+  'Só um ADMIN pode alterar esta opção.': 'Only an ADMIN can change this option.',
+  'Autenticação SNMP falhou': 'SNMP authentication failed',
+  'SNMP sem resposta': 'No SNMP response',
+  'Erro SNMP': 'SNMP error',
+  'Leitura SNMP parcial': 'Partial SNMP read',
+  'a credencial já não existe, não é de leitura ou está desativada': 'the credential no longer exists, is not a read credential or is disabled',
+  'a credencial já não pertence a um equipamento do Site da subnet': 'the credential no longer belongs to a device on the subnet Site',
+  'o SNMPv2c está desativado neste servidor': 'SNMPv2c is disabled on this server',
+  'o keyring SNMP não está disponível no servidor': 'the SNMP keyring is not available on the server',
 };
 
 const substitutions: Array<[RegExp, string]> = [
@@ -2259,6 +2277,13 @@ const substitutions: Array<[RegExp, string]> = [
   [/^Configurar SNMP em (.+)$/g, 'Configure SNMP on $1'],
   [/^Divergências: (.+)$/g, 'Drifts: $1'],
   [/^sysName (.+)$/g, 'sysName $1'],
+  // D-P1a: discovery SNMP enrichment
+  [/^Enriquecimento SNMP não executado: a credencial já não existe, não é de leitura ou está desativada\.$/g, 'SNMP enrichment not run: the credential no longer exists, is not a read credential or is disabled.'],
+  [/^Enriquecimento SNMP não executado: a credencial já não pertence a um equipamento do Site da subnet\.$/g, 'SNMP enrichment not run: the credential no longer belongs to a device on the subnet Site.'],
+  [/^Enriquecimento SNMP não executado: o SNMPv2c está desativado neste servidor\.$/g, 'SNMP enrichment not run: SNMPv2c is disabled on this server.'],
+  [/^Enriquecimento SNMP não executado: o keyring SNMP não está disponível no servidor\.$/g, 'SNMP enrichment not run: the SNMP keyring is not available on the server.'],
+  [/^Enriquecimento SNMP não executado: (.+)$/g, 'SNMP enrichment not run: $1'],
+  [/^Enriquecimento SNMP: (\d+) hosts lidos · (\d+) sem leitura$/g, 'SNMP enrichment: $1 hosts read · $2 not read'],
 ];
 
 export function translateLegacyText(locale: AppLocale, input: string): string {

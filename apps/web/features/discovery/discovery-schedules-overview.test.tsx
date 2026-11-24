@@ -11,7 +11,9 @@ vi.mock('@/lib/i18n/i18n', async () => {
   const real = await vi.importActual<typeof import('@/lib/i18n/i18n')>('@/lib/i18n/i18n');
   return { ...real, useOptionalI18n: () => ({ locale: locale.current, t: (key: string, fallback?: string, params?: Record<string, string | number>) => real.translateMessage(locale.current, key, fallback, params) }) };
 });
-vi.mock('./api', async () => ({ ...(await vi.importActual<typeof import('./api')>('./api')), getDiscoverySchedule: vi.fn(), updateDiscoverySchedule: vi.fn() }));
+// D-P1a: the schedule panel also renders the SNMP enrichment setting, which reads the role and its own endpoint.
+vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: () => false }) }));
+vi.mock('./api', async () => ({ ...(await vi.importActual<typeof import('./api')>('./api')), getDiscoverySchedule: vi.fn(), updateDiscoverySchedule: vi.fn(), getDiscoverySnmp: vi.fn(async (subnetId: string) => ({ subnetId, enabled: false, credentialId: null, credential: null, candidates: [] })) }));
 const mockedSchedule = vi.mocked(getDiscoverySchedule);
 
 const subnets = [{ id: 'sn-a', cidr: '10.0.0.0/24' }, { id: 'sn-b', cidr: '10.0.1.0/24' }, { id: 'sn-c', cidr: '192.168.5.0/24' }];

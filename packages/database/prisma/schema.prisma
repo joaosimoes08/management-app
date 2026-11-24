@@ -1186,6 +1186,9 @@ model SnmpCredential {
   device         Device                @relation(fields: [deviceId], references: [id], onDelete: Cascade)
   jobs           SnmpJob[]
   trapEvents     SnmpTrapEvent[]
+  /// D-P1a: subnets whose discovery scans use this READ credential for SNMP enrichment, and the scans that used it.
+  discoverySubnets Subnet[]           @relation("SubnetDiscoverySnmpCredential")
+  discoveryJobs    DiscoveryJob[]     @relation("DiscoveryJobSnmpCredential")
   createdAt      DateTime              @default(now())
   updatedAt      DateTime              @updatedAt
 
@@ -1581,6 +1584,10 @@ model Subnet {
   // `prisma migrate diff` does not see them; keep them when regenerating migrations.
   discoveryProbesPerSecond Int?
   discoveryMaxSockets      Int?
+  /// D-P1a: optional SNMP enrichment. null = off (default). When set, every scan of this subnet tries only this READ
+  /// credential, and only on hosts that answered ping or TCP in that scan. Deleting the credential turns it off.
+  discoverySnmpCredentialId String?        @db.Uuid
+  discoverySnmpCredential   SnmpCredential? @relation("SubnetDiscoverySnmpCredential", fields: [discoverySnmpCredentialId], references: [id], onDelete: SetNull)
   lastScanAt         DateTime?
   nextScanAt         DateTime?
   lastScanStatus     String?
@@ -1589,6 +1596,7 @@ model Subnet {
   @@index([vlanId])
   @@index([siteId, vrfId, version])
   @@index([parentSubnetId])
+  @@index([discoverySnmpCredentialId])
 }
 
 /// Step 36: site-scoped labels for devices and subnets. Names are unique per Site, case-insensitively (checked by the API).
@@ -1927,11 +1935,19 @@ model DiscoveryJob {
   maxProbes          Int?
   cancelRequestedAt  DateTime?
   stopReason         String?
+  /// D-P1a: the READ credential this scan used for SNMP enrichment, fixed when the scan first starts (retries keep it).
+  /// null = no enrichment. snmpSkippedReason says why enrichment did not run at all (e.g. SNMP_CREDENTIAL_UNAVAILABLE).
+  snmpCredentialId   String?            @db.Uuid
+  snmpCredential     SnmpCredential?    @relation("DiscoveryJobSnmpCredential", fields: [snmpCredentialId], references: [id], onDelete: SetNull)
+  snmpEnrichedCount  Int                @default(0)
+  snmpFailedCount    Int                @default(0)
+  snmpSkippedReason  String?
   subnet             Subnet             @relation(fields: [subnetId], references: [id], onDelete: Cascade)
   results            DiscoveryResult[]
   createdAt          DateTime           @default(now())
 
   @@index([subnetId, createdAt])
+  @@index([snmpCredentialId])
 }
 
 model DiscoveryResult {
@@ -1942,6 +1958,9 @@ model DiscoveryResult {
   icmpReachable Boolean               @default(false)
   responseMs    Int?
   openPorts     Json?
+  /// D-P1a: SNMP enrichment outcome for this target, with per-field provenance (source SNMP, credentialId, observedAt).
+  /// See apps/api/src/discovery/discovery-snmp.ts (DiscoverySnmpEnrichment). null = enrichment not attempted.
+  snmp          Json?
   status        DiscoveryResultStatus @default(PENDING)
   reviewedAt    DateTime?
   reviewedBy    String?               @db.Uuid

@@ -6,6 +6,7 @@ const root = process.cwd();
 const operationalFiles = [
   'apps/web/features/dashboard/dashboard-page.tsx',
   'apps/web/features/discovery/discovery-page.tsx',
+  'apps/web/features/discovery/discovery-snmp-enrichment.tsx',
   'apps/web/features/portal/portal-page.tsx',
   'apps/web/features/operations/inventory-quality-page.tsx',
   'apps/web/features/operations/quality-bulk-dialog.tsx',

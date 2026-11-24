@@ -2,6 +2,7 @@ import { Prisma, PrismaClient } from '@simoes/database';
 import { hostsFor } from './discovery-network';
 import { assertDiscoveryAllowed, normalizeDiscoveryPorts } from './discovery-policy';
 import { ProbeAbortedError, resolveDiscoveryLimits, subnetProbeLimiter, type LimiterClock, type ProbeRunner } from './discovery-limiter';
+import { loadDiscoverySnmpEnricher, type DiscoverySnmpEnricher, type DiscoverySnmpEnrichment, type DiscoverySnmpSkipReason } from './discovery-snmp';
 
 /**
  * Round 2 #10/#11: one discovery scan, saved batch by batch.
@@ -17,6 +18,11 @@ import { ProbeAbortedError, resolveDiscoveryLimits, subnetProbeLimiter, type Lim
  * - Load (discovery P0): every probe goes through the subnet's process-wide `ProbeLimiter` (shared by all scans of the
  *   subnet, see discovery-limiter.ts), built from `discoveryProbesPerSecond` / `discoveryMaxSockets` (null = defaults),
  *   plus the process-wide socket ceiling. `probe` must run each ping and TCP connect through `limiter.run`.
+ * - SNMP enrichment (D-P1a): when the subnet has a READ credential set, the scan fixes it on its first start and, after
+ *   each batch's probes, enriches only the hosts that answered ping or TCP, one limiter slot per host (discovery-snmp.ts).
+ *   Per-target failures are stored on the result; a credential that cannot be used skips enrichment, never the scan.
+ *   Enrichment attempts are added to `probeCount` (so `maxProbes` also bounds them), but batches are still sized by
+ *   ping/TCP probes only, so a scan can pass `maxProbes` by at most one batch of SNMP attempts.
  */
 export const DISCOVERY_BATCH_SIZE = 32;
 export const DISCOVERY_DEFAULT_MAX_DURATION_SECONDS = positiveInt(process.env.DISCOVERY_MAX_DURATION_SECONDS, 3600);
@@ -36,6 +42,8 @@ export type ScanDependencies = {
   limiterClock?: LimiterClock;
   /** How often a running batch checks for cancel and the deadline (ms). */
   controlPollMs?: number;
+  /** D-P1a: builds the SNMP enricher for the scan's credential (default: decrypts it with the SNMP keyring). */
+  snmpEnricher?: (credentialId: string, subnetSiteId: string | null) => Promise<{ enricher: DiscoverySnmpEnricher } | { skipped: DiscoverySnmpSkipReason }>;
 };
 export type ScanOutcome = { status: 'COMPLETED' | 'CANCELLED' | 'FAILED' | 'PENDING' | 'RUNNING'; stopReason?: DiscoveryStopReason | null; skipped?: 'TERMINAL' | 'SUPERSEDED' };
 
@@ -57,7 +65,7 @@ export async function runDiscoveryScan(prisma: PrismaClient, jobId: string, deps
   const now = deps.now ?? (() => new Date());
   const batchSize = deps.batchSize ?? DISCOVERY_BATCH_SIZE;
   const [job, settings] = await Promise.all([
-    prisma.discoveryJob.findUnique({ where: { id: jobId }, include: { subnet: { select: { id: true, cidr: true, discoveryProbesPerSecond: true, discoveryMaxSockets: true } } } }),
+    prisma.discoveryJob.findUnique({ where: { id: jobId }, include: { subnet: { select: { id: true, cidr: true, siteId: true, discoveryProbesPerSecond: true, discoveryMaxSockets: true, discoverySnmpCredentialId: true } } } }),
     prisma.systemSettings.findFirst({ select: { discoveryAllowedCidrs: true } }),
   ]);
   if (!job) throw new DiscoveryConfigurationError('DISCOVERY_JOB_NOT_FOUND', 'Execução de discovery inexistente');
@@ -78,7 +86,15 @@ export async function runDiscoveryScan(prisma: PrismaClient, jobId: string, deps
   }
 
   const startedAt = job.startedAt ?? now();
-  await prisma.discoveryJob.update({ where: { id: jobId }, data: { status: 'RUNNING', startedAt, errorMessage: null, totalCount: addresses.length, attemptCount: { increment: 1 } } });
+  // D-P1a: the first start fixes the subnet's SNMP credential for this scan; retries keep it (even if the subnet changed).
+  const snmpCredentialId = job.startedAt ? job.snmpCredentialId : job.subnet.discoverySnmpCredentialId;
+  await prisma.discoveryJob.update({ where: { id: jobId }, data: { status: 'RUNNING', startedAt, errorMessage: null, totalCount: addresses.length, attemptCount: { increment: 1 }, ...(job.startedAt ? {} : { snmpCredentialId }) } });
+  let enricher: DiscoverySnmpEnricher | null = null;
+  if (snmpCredentialId) {
+    const loaded = await (deps.snmpEnricher ?? ((id, siteId) => loadDiscoverySnmpEnricher(prisma, id, siteId)))(snmpCredentialId, job.subnet.siteId);
+    if ('enricher' in loaded) enricher = loaded.enricher;
+    await prisma.discoveryJob.update({ where: { id: jobId }, data: { snmpSkippedReason: 'skipped' in loaded ? loaded.skipped : null } });
+  }
   const maxDurationMs = (job.maxDurationSeconds ?? DISCOVERY_DEFAULT_MAX_DURATION_SECONDS) * 1000;
   const maxProbes = job.maxProbes ?? DISCOVERY_DEFAULT_MAX_PROBES;
   const perAddress = Math.max(1, probesPerAddress(methods, tcpPorts));
@@ -117,8 +133,15 @@ export async function runDiscoveryScan(prisma: PrismaClient, jobId: string, deps
     watcher.unref?.();
     const runner = limiter.bind(abort.signal);
     let outcomes: ProbeOutcome[];
+    const enrichments = new Map<string, DiscoverySnmpEnrichment>();
     try {
       outcomes = await Promise.all(batch.map((address) => deps.probe(address, methods, tcpPorts, runner)));
+      // D-P1a: only hosts that answered in this scan, only the scan's one credential, through the same limiter.
+      if (enricher) {
+        const answered = outcomes.filter((item) => item.icmp.reachable || item.openPorts.length);
+        const results = await Promise.all(answered.map((item) => enricher!(item.address, runner)));
+        answered.forEach((item, index) => enrichments.set(item.address, results[index]));
+      }
     } catch (error) {
       if (!(error instanceof ProbeAbortedError) || !abortReason) throw error;
       return abortReason === 'CANCELLED' ? finish('CANCELLED', 'CANCELLED') : finish('COMPLETED', 'LIMIT_DURATION');
@@ -126,21 +149,24 @@ export async function runDiscoveryScan(prisma: PrismaClient, jobId: string, deps
       clearInterval(watcher);
     }
     const rows: Prisma.DiscoveryResultCreateManyInput[] = [];
-    let icmp = 0; let tcp = 0;
+    let icmp = 0; let tcp = 0; let snmpEnriched = 0; let snmpFailed = 0;
     for (const item of outcomes) {
       if (item.icmp.reachable) icmp += 1;
       if (item.openPorts.length) tcp += 1;
       if (!item.icmp.reachable && !item.openPorts.length) continue;
       let hostname: string | undefined;
       if (job.reverseDns !== false && deps.reverse) { try { hostname = await deps.reverse(item.address); } catch { /* reverse DNS is best effort */ } }
-      rows.push({ jobId, address: item.address, hostname, icmpReachable: item.icmp.reachable, responseMs: item.icmp.responseMs, openPorts: item.openPorts });
+      const snmp = enrichments.get(item.address);
+      if (snmp) { if (snmp.status === 'OK' || snmp.status === 'PARTIAL') snmpEnriched += 1; else snmpFailed += 1; }
+      rows.push({ jobId, address: item.address, hostname, icmpReachable: item.icmp.reachable, responseMs: item.icmp.responseMs, openPorts: item.openPorts, ...(snmp ? { snmp: snmp as unknown as Prisma.InputJsonValue } : {}) });
     }
     try {
       await prisma.$transaction(async (tx) => {
         const advanced = await tx.discoveryJob.updateMany({
           where: { id: jobId, status: 'RUNNING', processedCount: cursor },
           data: {
-            processedCount: cursor + size, probeCount: { increment: size * perAddress },
+            processedCount: cursor + size, probeCount: { increment: size * perAddress + enrichments.size },
+            snmpEnrichedCount: { increment: snmpEnriched }, snmpFailedCount: { increment: snmpFailed },
             scannedCount: { increment: size }, icmpReachableCount: { increment: icmp }, tcpReachableCount: { increment: tcp },
             reachableCount: { increment: rows.length }, unreachableCount: { increment: size - rows.length }, resultCount: { increment: rows.length },
           },
@@ -153,7 +179,7 @@ export async function runDiscoveryScan(prisma: PrismaClient, jobId: string, deps
       throw error;
     }
     cursor += size;
-    probes += size * perAddress;
+    probes += size * perAddress + enrichments.size;
   }
   return finish('COMPLETED', null);
 }

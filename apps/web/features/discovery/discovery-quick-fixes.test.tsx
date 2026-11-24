@@ -7,6 +7,8 @@ import { describeDiscoveryError, discoveryFailureReason, discoveryProgressPercen
 import { parseLimitField } from './discovery-schedule-panel';
 
 vi.mock('@/lib/api/client', () => ({ apiFetch: vi.fn() }));
+// The schedule panel also renders the D-P1a SNMP enrichment setting, which reads the role.
+vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: (role: string) => role === 'ADMIN' }) }));
 const mockedFetch = vi.mocked(apiFetch);
 beforeEach(() => { mockedFetch.mockReset(); mockedFetch.mockResolvedValue({ items: [], total: 0 }); });
 afterEach(cleanup);
@@ -124,7 +126,7 @@ describe('Discovery P0: schedule panel saves the per-subnet limits', () => {
     const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query');
     const { DiscoverySchedulePanel } = await import('./discovery-schedule-panel');
     const schedule = { subnetId: 'subnet-1', enabled: false, intervalHours: 12, methods: ['ICMP'], tcpPorts: [], reverseDns: true, lastRunAt: null, nextRunAt: null, lastStatus: 'COMPLETED', lastError: 'LIMIT_DURATION', limits: { probesPerSecond: null, maxSockets: 16, effective: { probesPerSecond: 100, maxSockets: 16 } } };
-    mockedFetch.mockImplementation(async (_path: string, init?: RequestInit) => (init?.method === 'PATCH' ? { ...schedule, ...JSON.parse(String(init.body)) } : schedule) as never);
+    mockedFetch.mockImplementation(async (path: string, init?: RequestInit) => (path.endsWith('/discovery-snmp') ? { subnetId: 'subnet-1', enabled: false, credentialId: null, credential: null, candidates: [] } : init?.method === 'PATCH' ? { ...schedule, ...JSON.parse(String(init.body)) } : schedule) as never);
     const onError = vi.fn();
     render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><DiscoverySchedulePanel subnets={[{ id: 'subnet-1', cidr: '10.0.0.0/24' }]} canEdit onError={onError} /></QueryClientProvider>);
     const rate = await screen.findByLabelText('Sondas por segundo') as HTMLInputElement;

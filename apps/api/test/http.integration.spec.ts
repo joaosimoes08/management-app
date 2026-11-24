@@ -3077,3 +3077,44 @@ test('Round 2 #18 rack U reservations: validated, conflict-checked, scoped, audi
   const audit = await prisma.auditLog.findMany({ where: { entityType: 'Rack', entityId: rackId, action: { in: ['RACK_UNITS_RESERVED', 'RACK_UNIT_RESERVATION_RELEASED'] } }, orderBy: { createdAt: 'asc' } });
   assert.deepEqual(audit.map((entry) => entry.action), ['RACK_UNITS_RESERVED', 'RACK_UNIT_RESERVATION_RELEASED']);
 });
+
+test('D-P1a discovery SNMP enrichment: off by default, ADMIN-only, one READ credential on the subnet Site, audited, secrets never returned', async () => {
+  const envelope = () => encryptCredential({ community: 'http-dp1a-secret' }, testKeyring);
+  const readA = await prisma.snmpCredential.create({ data: { deviceId: ids.deviceA, purpose: 'READ', version: 'V2C', label: 'A read', ...envelope() } });
+  const writeA = await prisma.snmpCredential.create({ data: { deviceId: ids.deviceA, purpose: 'WRITE', version: 'V2C', ...envelope() } });
+  const disabledA2 = await prisma.snmpCredential.create({ data: { deviceId: ids.deviceA2, purpose: 'READ', version: 'V2C', enabled: false, ...envelope() } });
+  const readB = await prisma.snmpCredential.create({ data: { deviceId: ids.deviceB, purpose: 'READ', version: 'V2C', ...envelope() } });
+  const path = `/api/v1/subnets/${ids.subnetA}/discovery-snmp`;
+  try {
+    const initial = await request('GET', path, 'qa-admin');
+    assert.equal(initial.statusCode, 200, initial.body);
+    const view = json(initial);
+    assert.deepEqual([view.enabled, view.credentialId, view.credential], [false, null, null]);
+    assert.deepEqual(view.candidates.map((item: { id: string }) => item.id), [readA.id], 'only enabled READ credentials on the subnet Site');
+    assert.equal(initial.body.includes('http-dp1a-secret') || initial.body.includes('ciphertext'), false);
+    assert.equal((await request('GET', path, 'qa-network-scoped')).statusCode, 200);
+    assert.equal((await request('GET', `/api/v1/subnets/${ids.subnetB}/discovery-snmp`, 'qa-network-scoped')).statusCode, 404, 'another Site stays hidden');
+
+    for (const persona of ['qa-network-scoped', 'qa-auditor', 'qa-readonly']) assert.equal((await request('PATCH', path, persona, { credentialId: readA.id })).statusCode, 403, persona);
+    for (const [credentialId, code] of [[writeA.id, 'DISCOVERY_SNMP_CREDENTIAL_NOT_READ'], [disabledA2.id, 'DISCOVERY_SNMP_CREDENTIAL_DISABLED'], [readB.id, 'DISCOVERY_SNMP_CREDENTIAL_OUT_OF_SCOPE'], ['00000000-0000-4000-8000-0000000000ff', 'DISCOVERY_SNMP_CREDENTIAL_NOT_FOUND']]) {
+      const response = await request('PATCH', path, 'qa-admin', { credentialId });
+      assert.equal(response.statusCode, 400, response.body); assert.equal(json(response).code, code);
+    }
+    assert.equal((await request('PATCH', path, 'qa-admin', { credentialId: 'nope' })).statusCode, 400);
+    assert.equal((await prisma.subnet.findUniqueOrThrow({ where: { id: ids.subnetA } })).discoverySnmpCredentialId, null);
+
+    const on = await request('PATCH', path, 'qa-admin', { credentialId: readA.id });
+    assert.equal(on.statusCode, 200, on.body);
+    assert.deepEqual([json(on).enabled, json(on).credential.id, json(on).credential.deviceName], [true, readA.id, 'HTTP Switch A']);
+    assert.equal(on.body.includes('http-dp1a-secret'), false);
+    assert.equal((await request('PATCH', path, 'qa-admin', { credentialId: readA.id })).statusCode, 200);
+    const off = await request('PATCH', path, 'qa-admin', { credentialId: null });
+    assert.equal(off.statusCode, 200, off.body); assert.equal(json(off).enabled, false);
+
+    const audit = await prisma.auditLog.findMany({ where: { entityType: 'Subnet', entityId: ids.subnetA, action: 'DISCOVERY_SNMP_ENRICHMENT_UPDATED' }, orderBy: { createdAt: 'asc' } });
+    assert.deepEqual(audit.map((entry) => [entry.userId, (entry.metadata as { enabled: boolean }).enabled, (entry.metadata as { credentialId: string | null }).credentialId]), [[ids.admin, true, readA.id], [ids.admin, false, null]], 'one audit row per change; a no-op save writes none');
+  } finally {
+    await prisma.subnet.update({ where: { id: ids.subnetA }, data: { discoverySnmpCredentialId: null } });
+    await prisma.snmpCredential.deleteMany({ where: { id: { in: [readA.id, writeA.id, disabledA2.id, readB.id] } } });
+  }
+});

@@ -24,6 +24,11 @@ export interface DiscoveryJob {
   cancelRequestedAt?: string | null;
   stopReason?: 'CANCELLED' | 'LIMIT_DURATION' | 'LIMIT_PROBES' | null;
   errorMessage?: string | null;
+  /** D-P1a: SNMP enrichment for this run (credential fixed when the run first started). */
+  snmpCredentialId?: string | null;
+  snmpEnrichedCount?: number;
+  snmpFailedCount?: number;
+  snmpSkippedReason?: string | null;
   _count: { results: number };
   subnet: {
     id: string;
@@ -45,6 +50,37 @@ export interface DiscoveryResult {
   device?: { id: string; name: string; type: string } | null;
   /** Current IPAM record for the address; null when the address is not tracked yet. */
   ipam?: DiscoveryResultIpam | null;
+  /** D-P1a: values read over SNMP from this host, each with its provenance; null when enrichment was off. */
+  snmp?: DiscoverySnmpEnrichment | null;
+}
+
+export const DISCOVERY_SNMP_FIELDS = ['sysName', 'sysObjectId', 'entityModel', 'entitySerial', 'sysDescr'] as const;
+export type DiscoverySnmpFieldName = (typeof DISCOVERY_SNMP_FIELDS)[number];
+export interface DiscoverySnmpField { value: string; oid: string; source: 'SNMP'; credentialId: string; observedAt: string }
+export interface DiscoverySnmpEnrichment {
+  status: 'OK' | 'PARTIAL' | 'AUTH_FAILED' | 'TIMEOUT' | 'ERROR';
+  errorCode?: string;
+  credentialId: string;
+  observedAt: string;
+  durationMs: number;
+  fields: Partial<Record<DiscoverySnmpFieldName, DiscoverySnmpField>>;
+}
+
+export interface DiscoverySnmpCredentialOption {
+  id: string;
+  deviceId: string;
+  deviceName: string;
+  managementIp?: string | null;
+  version: 'V1' | 'V2C' | 'V3';
+  label?: string | null;
+  username?: string | null;
+}
+export interface DiscoverySnmpSetting {
+  subnetId: string;
+  enabled: boolean;
+  credentialId: string | null;
+  credential: DiscoverySnmpCredentialOption | null;
+  candidates: DiscoverySnmpCredentialOption[];
 }
 
 export interface DiscoveryResultIpam {
@@ -57,8 +93,8 @@ export interface DiscoveryResultIpam {
 
 export interface DiscoveryComparisonItem {
   address: string;
-  previous: Pick<DiscoveryResult, 'address' | 'hostname' | 'icmpReachable' | 'openPorts'> | null;
-  current: Pick<DiscoveryResult, 'address' | 'hostname' | 'icmpReachable' | 'openPorts'> | null;
+  previous: Pick<DiscoveryResult, 'address' | 'hostname' | 'icmpReachable' | 'openPorts' | 'snmp'> | null;
+  current: Pick<DiscoveryResult, 'address' | 'hostname' | 'icmpReachable' | 'openPorts' | 'snmp'> | null;
   changes: string[];
 }
 
@@ -169,6 +205,14 @@ export interface DiscoveryJobPayload {
  * `status` is a comma list (e.g. `PENDING,RUNNING`); the API answers 400 with a message for unknown values.
  * `siteId` (discovery P0) limits the list to runs on that Site's subnets; empty means every Site the user can read.
  */
+export function getDiscoverySnmp(subnetId: string): Promise<DiscoverySnmpSetting> {
+  return apiFetch<DiscoverySnmpSetting>(`/api/v1/subnets/${encodeURIComponent(subnetId)}/discovery-snmp`);
+}
+
+export function updateDiscoverySnmp(subnetId: string, credentialId: string | null): Promise<DiscoverySnmpSetting> {
+  return apiFetch<DiscoverySnmpSetting>(`/api/v1/subnets/${encodeURIComponent(subnetId)}/discovery-snmp`, { method: 'PATCH', body: JSON.stringify({ credentialId }) });
+}
+
 export function listDiscoveryJobs(status = '', siteId = ''): Promise<{ items: DiscoveryJob[]; total: number }> {
   const suffix = `${status ? `&status=${encodeURIComponent(status)}` : ''}${siteId ? `&siteId=${encodeURIComponent(siteId)}` : ''}`;
   return apiFetch<{ items: DiscoveryJob[]; total: number }>(`/api/v1/discovery/jobs?pageSize=100${suffix}`);

@@ -8,13 +8,14 @@ import { FilterChipBar, FilterChips } from '@/components/ui/filter-chips';
 import { applyChipFilters, chipOptions, CHIP_NONE, facetCounts, type ChipAccessors } from '@/lib/filter-chips';
 import { formatDateTime } from '@/lib/format/date';
 import { bulkReviewDiscoveryResults, type DiscoveryResult, type DiscoveryResultIpam } from './api';
+import { DiscoverySnmpCell } from './discovery-snmp-enrichment';
 
 type ReviewStatus = 'APPROVED' | 'IGNORED';
 
 /** Review and IPAM chips live in `?resultsReview=` / `?resultsIpam=`; the table sort in `?resultssort=`. */
 const resultsTableConfig: TableStateConfig<{ Review: string; Ipam: string }> = {
   filters: { Review: '', Ipam: '' },
-  sortable: ['address', 'hostname', 'ipam', 'status'],
+  sortable: ['address', 'hostname', 'snmp', 'ipam', 'status'],
   prefix: 'results',
 };
 
@@ -73,14 +74,17 @@ export function DiscoveryResultsTable({ results, canEdit, review, bulkDone }: Pr
   // Selection only keeps rows that are still pending (a row reviewed elsewhere drops out).
   const selectedIds = useMemo(() => [...selected].filter((id) => pendingIds.has(id)), [pendingIds, selected]);
 
+  // D-P1a: the SNMP column appears only for runs that tried SNMP enrichment.
+  const hasSnmp = useMemo(() => results.some((result) => result.snmp), [results]);
   const columns = useMemo<DataTableColumn<DiscoveryResult>[]>(() => [
     { id: 'address', header: 'Endereço', sortValue: (result) => result.address.split(/[.:]/).map((part) => part.padStart(5, '0')).join('.'), cell: (result) => <strong className="mono">{result.address}</strong> },
     { id: 'hostname', header: 'Hostname', sortValue: (result) => result.hostname ?? null, cell: (result) => result.hostname || <span className="muted-cell">reverse DNS não encontrado</span> },
     { id: 'probe', header: 'Sonda', cell: (result) => <small>{probeSummary(result)}</small> },
+    ...(hasSnmp ? [{ id: 'snmp', header: 'SNMP', sortValue: (result: DiscoveryResult) => result.snmp?.fields.sysName?.value ?? null, cell: (result: DiscoveryResult) => <DiscoverySnmpCell snmp={result.snmp} /> }] : []),
     { id: 'ipam', header: 'IPAM', sortValue: resultIpamState, cell: (result) => <DiscoveryIpamStatus ipam={result.ipam} /> },
     { id: 'status', header: 'Revisão', sortValue: (result) => result.status, cell: (result) => <span className={`state-badge ${result.status === 'APPROVED' ? 'approved' : result.status === 'IGNORED' ? 'rejected' : 'pending'}`}><i />{result.status}</span> },
     ...(canEdit ? [{ id: 'actions', header: 'Ações', className: 'table-actions', cell: (result: DiscoveryResult) => result.status === 'PENDING' ? <><button className="secondary-button" aria-label={`Aprovar ${result.address}`} onClick={() => void review(result.id, 'APPROVED')}><Check size={13} /> Aprovar</button><button className="danger-button" aria-label={`Ignorar ${result.address}`} onClick={() => void review(result.id, 'IGNORED')}><X size={13} /> Ignorar</button></> : null }] : []),
-  ], [canEdit, review]);
+  ], [canEdit, hasSnmp, review]);
   const rows = useMemo(() => sortByColumns(visibleResults, columns, table.sort), [columns, visibleResults, table.sort]);
   const byId = useMemo(() => new Map(results.map((result) => [result.id, result])), [results]);
   const tooMany = selectedIds.length > BULK_REVIEW_MAX;
