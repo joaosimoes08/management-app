@@ -3118,3 +3118,34 @@ test('D-P1a discovery SNMP enrichment: off by default, ADMIN-only, one READ cred
     await prisma.snmpCredential.deleteMany({ where: { id: { in: [readA.id, writeA.id, disabledA2.id, readB.id] } } });
   }
 });
+
+test('D-P1a + #176: a READ credential picked for discovery SNMP enrichment is in use; delete returns 409 unless forced', async () => {
+  const credential = await prisma.snmpCredential.create({ data: { deviceId: ids.deviceA, purpose: 'READ', version: 'V2C', ...encryptCredential({ community: 'http-dp1a-inuse' }, testKeyring) } });
+  const url = (query = '') => `/api/v1/snmp/devices/${ids.deviceA}/credentials/READ${query}`;
+  try {
+    assert.equal((await request('PATCH', `/api/v1/subnets/${ids.subnetA}/discovery-snmp`, 'qa-admin', { credentialId: credential.id })).statusCode, 200);
+
+    const refused = await request('DELETE', url(), 'qa-admin');
+    assert.equal(refused.statusCode, 409, refused.body);
+    assert.equal(json(refused).code, 'SNMP_CREDENTIAL_IN_USE');
+    const usage = json(refused).details.usages.find((item: { type: string }) => item.type === 'DISCOVERY_ENRICHMENT');
+    assert.deepEqual([usage?.deviceId, usage?.deviceName, usage?.subnetId, usage?.subnetCidr], [ids.deviceA, 'HTTP Switch A', ids.subnetA, '10.250.1.0/24']);
+    assert.equal(refused.body.includes('http-dp1a-inuse'), false);
+    assert.equal((await request('DELETE', url('?force=false'), 'qa-admin')).statusCode, 409);
+    assert.ok(await prisma.snmpCredential.findUnique({ where: { id: credential.id } }), 'nothing deleted without force');
+
+    const forced = await request('DELETE', url('?force=true'), 'qa-admin');
+    assert.equal(forced.statusCode, 200, forced.body);
+    assert.equal(json(forced).forced, true);
+    assert.ok(json(forced).usages.some((item: { type: string }) => item.type === 'DISCOVERY_ENRICHMENT'));
+    assert.equal(await prisma.snmpCredential.findUnique({ where: { id: credential.id } }), null);
+    assert.equal((await prisma.subnet.findUniqueOrThrow({ where: { id: ids.subnetA } })).discoverySnmpCredentialId, null, 'enrichment turns off with the credential (FK SET NULL)');
+    const audit = await prisma.auditLog.findFirstOrThrow({ where: { action: 'SNMP_CREDENTIAL_FORCE_DELETED', entityId: credential.id } });
+    assert.ok((audit.metadata as { usages: Array<{ type: string }> }).usages.some((item) => item.type === 'DISCOVERY_ENRICHMENT'));
+    const view = json(await request('GET', `/api/v1/subnets/${ids.subnetA}/discovery-snmp`, 'qa-admin'));
+    assert.deepEqual([view.enabled, view.credentialId], [false, null]);
+  } finally {
+    await prisma.subnet.update({ where: { id: ids.subnetA }, data: { discoverySnmpCredentialId: null } });
+    await prisma.snmpCredential.deleteMany({ where: { id: credential.id } });
+  }
+});
