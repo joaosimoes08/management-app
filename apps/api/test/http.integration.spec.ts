@@ -3160,3 +3160,80 @@ test('D-P1a + #176: a READ credential picked for discovery SNMP enrichment is in
     await prisma.snmpCredential.deleteMany({ where: { id: credential.id } });
   }
 });
+
+test('Discovery D-P1d: discovery candidates show their LLDP/CDP neighbour evidence and link proposals, inside the caller scope', async () => {
+  const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000);
+  const pollJobs: string[] = [];
+  const snapshot = async (deviceId: string, observedAt: Date) => {
+    const job = await prisma.snmpJob.create({ data: { deviceId, type: 'POLL', status: 'COMPLETED' } });
+    pollJobs.push(job.id);
+    return prisma.snmpSnapshot.create({ data: { deviceId, jobId: job.id, observedAt } });
+  };
+  const jobA = await prisma.discoveryJob.create({ data: { name: 'D-P1d site A run', subnetId: ids.subnetA, methods: ['ICMP'], tcpPorts: [], status: 'COMPLETED' } });
+  const jobB = await prisma.discoveryJob.create({ data: { name: 'D-P1d site B run', subnetId: ids.subnetB, methods: ['ICMP'], tcpPorts: [], status: 'COMPLETED' } });
+  const candidate = await prisma.discoveryResult.create({ data: { jobId: jobA.id, address: '10.250.1.60', hostname: 'ap-new.example', icmpReachable: true, openPorts: [] } });
+  const registered = await prisma.discoveryResult.create({ data: { jobId: jobA.id, address: '10.250.1.3', icmpReachable: true, openPorts: [] } });
+  await prisma.discoveryResult.create({ data: { jobId: jobA.id, address: '10.250.1.61', icmpReachable: true, openPorts: [] } });
+  await prisma.discoveryResult.create({ data: { jobId: jobB.id, address: '10.250.1.60', icmpReachable: true, openPorts: [] } });
+  const snapA1 = await snapshot(ids.deviceA, minutesAgo(120));
+  const snapA2 = await snapshot(ids.deviceA, minutesAgo(5));
+  const snapSibling = await snapshot(ids.deviceSibling, minutesAgo(10));
+  const snapB = await snapshot(ids.deviceB, minutesAgo(10));
+  const seen = (deviceId: string, snapshotId: string, observedAt: Date, extra: Record<string, unknown>) => prisma.lldpObservation.create({ data: { deviceId, snapshotId, observedAt, confidence: 95, rawIdentifiers: {}, ...extra } as never });
+  const uplink = await seen(ids.deviceA, snapA1.id, minutesAgo(120), { localPortNumber: 49, localPortId: 'Te1/1/1', remoteSystemName: 'HTTP Switch A2', remotePortId: 'Te1/0/1', managementAddress: '10.250.1.3', resolvedDeviceId: ids.deviceA2 });
+  const apCdp = await seen(ids.deviceA, snapA2.id, minutesAgo(5), { protocol: 'CDP', confidence: 90, localPortNumber: 1, localPortId: 'Gi1/0/1', remoteSystemName: 'ap-new', remotePortId: 'GigabitEthernet0', managementAddress: '10.250.1.60' });
+  await seen(ids.deviceA, snapA1.id, minutesAgo(120), { protocol: 'CDP', confidence: 90, localPortNumber: 1, localPortId: 'Gi1/0/1', remoteSystemName: 'ap-new', managementAddress: '10.250.1.60' });
+  await seen(ids.deviceA, snapA1.id, minutesAgo(8 * 24 * 60), { localPortNumber: 2, localPortId: 'Gi1/0/2', remoteSystemName: 'too-old', managementAddress: '10.250.1.61' });
+  const hidden = await seen(ids.deviceSibling, snapSibling.id, minutesAgo(10), { localPortNumber: 7, localPortId: 'Gi1/0/7', remoteSystemName: 'ap-new', managementAddress: '10.250.1.60' });
+  await seen(ids.deviceB, snapB.id, minutesAgo(10), { localPortNumber: 3, localPortId: 'Gi1/0/3', remoteSystemName: 'ap-new', managementAddress: '10.250.1.60' });
+  const linkProposal = await prisma.topologyProposal.create({ data: { deviceId: ids.deviceA, snapshotId: snapA1.id, action: 'CONNECTION_ADD', proposalKey: `connection:${ids.deviceA}:${ids.deviceA2}`, confidence: 95, context: { observationId: uplink.id, siteId: ids.siteA, protocol: 'LLDP' }, observedValues: { siteId: ids.siteA, sourceDeviceId: ids.deviceA, targetDeviceId: ids.deviceA2 } } });
+  try {
+    const url = `/api/v1/snmp/discovery/jobs/${jobA.id}/neighbors`;
+    const admin = await request('GET', url, 'qa-admin');
+    assert.equal(admin.statusCode, 200, admin.body);
+    const body = json(admin);
+    assert.equal(body.siteId, ids.siteA);
+    assert.equal(body.windowDays, 7);
+    assert.deepEqual(body.results.map((item: any) => [item.address, item.resultId, item.status]), [['10.250.1.3', registered.id, 'PENDING'], ['10.250.1.60', candidate.id, 'PENDING']], '.61 was only seen 8 days ago; deviceB is on another Site');
+    const [linked, candidateRow] = body.results;
+    assert.equal(linked.neighbors.length, 1);
+    assert.deepEqual([linked.neighbors[0].resolution, linked.neighbors[0].current, linked.neighbors[0].observer.deviceId, linked.neighbors[0].observer.localPortId], ['RESOLVED', false, ids.deviceA, 'Te1/1/1'], 'seen in an older poll, not the latest');
+    assert.deepEqual(linked.neighbors[0].devices, [{ id: ids.deviceA2, name: 'HTTP Switch A2' }]);
+    assert.deepEqual([linked.neighbors[0].proposal.id, linked.neighbors[0].proposal.status, linked.neighbors[0].proposal.match], [linkProposal.id, 'PENDING', 'OBSERVATION']);
+    assert.deepEqual(candidateRow.neighbors.map((item: any) => [item.observationId, item.protocol, item.current, item.resolution, item.proposal]), [[apCdp.id, 'CDP', true, 'UNREGISTERED', null], [hidden.id, 'LLDP', true, 'UNREGISTERED', null]]);
+    assert.equal(candidateRow.neighbors[0].confidence, 90);
+    assert.deepEqual(candidateRow.neighbors[0].remote, { systemName: 'ap-new', portId: 'GigabitEthernet0', chassisId: null });
+
+    // Read-only users see room A only, so the sibling room's switch and its sighting are left out.
+    for (const persona of ['qa-readonly', 'qa-auditor']) {
+      const scoped = await request('GET', url, persona);
+      assert.equal(scoped.statusCode, 200, scoped.body);
+      assert.deepEqual(json(scoped).results.find((item: any) => item.address === '10.250.1.60').neighbors.map((item: any) => item.observer.deviceId), [ids.deviceA], persona);
+    }
+    assert.equal((await request('GET', url, 'qa-network-scoped')).statusCode, 200);
+    assert.ok([403, 404].includes((await request('GET', `/api/v1/snmp/discovery/jobs/${jobB.id}/neighbors`, 'qa-network-scoped')).statusCode), 'site B run is outside the scoped operator');
+    const missing = await request('GET', '/api/v1/snmp/discovery/jobs/99999999-0000-4000-8000-000000000099/neighbors', 'qa-admin');
+    assert.equal(missing.statusCode, 404, missing.body); assert.equal(json(missing).code, 'DISCOVERY_JOB_NOT_FOUND');
+    assert.equal((await request('GET', '/api/v1/snmp/discovery/jobs/not-a-uuid/neighbors', 'qa-admin')).statusCode, 400);
+    const siteBRun = json(await request('GET', `/api/v1/snmp/discovery/jobs/${jobB.id}/neighbors`, 'qa-admin'));
+    assert.deepEqual(siteBRun.results.map((item: any) => [item.address, item.neighbors.map((neighbor: any) => neighbor.observer.deviceId)]), [['10.250.1.60', [ids.deviceB]]], 'the same address on site B only shows site B sightings');
+
+    // The reverse link: each LLDP/CDP row carries the newest discovery result for its address on the same Site.
+    const observations = await request('GET', `/api/v1/snmp/devices/${ids.deviceA}/lldp-observations`, 'qa-network-scoped');
+    assert.equal(observations.statusCode, 200, observations.body);
+    const byId = new Map(json(observations).map((item: any) => [item.id, item]));
+    assert.deepEqual((byId.get(apCdp.id) as any).discoveryCandidate, { resultId: candidate.id, jobId: jobA.id, subnetId: ids.subnetA, status: 'PENDING', hostname: 'ap-new.example', icmpReachable: true, discoveredAt: candidate.createdAt.toISOString() });
+    assert.equal((byId.get(uplink.id) as any).discoveryCandidate.resultId, registered.id);
+
+    // Read-only: nothing was applied or created.
+    assert.equal(await prisma.topologyProposal.count({ where: { deviceId: { in: [ids.deviceA, ids.deviceA2, ids.deviceSibling] } } }), 1);
+    assert.equal((await prisma.topologyProposal.findUniqueOrThrow({ where: { id: linkProposal.id } })).status, 'PENDING');
+  } finally {
+    await prisma.topologyProposal.deleteMany({ where: { id: linkProposal.id } });
+    await prisma.lldpObservation.deleteMany({ where: { snapshotId: { in: [snapA1.id, snapA2.id, snapSibling.id, snapB.id] } } });
+    await prisma.snmpSnapshot.deleteMany({ where: { id: { in: [snapA1.id, snapA2.id, snapSibling.id, snapB.id] } } });
+    await prisma.snmpJob.deleteMany({ where: { id: { in: pollJobs } } });
+    await prisma.discoveryResult.deleteMany({ where: { jobId: { in: [jobA.id, jobB.id] } } });
+    await prisma.discoveryJob.deleteMany({ where: { id: { in: [jobA.id, jobB.id] } } });
+  }
+});
