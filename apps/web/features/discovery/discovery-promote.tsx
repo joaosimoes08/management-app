@@ -6,6 +6,7 @@ import { apiFetch } from '@/lib/api/client';
 import { AuthContext } from '@/lib/auth';
 import { useUiText } from '@/components/ui/use-ui-text';
 import type { DiscoveryResult } from './api';
+import { DiscoveryLikelyExistingHint } from './discovery-identity';
 
 /** Roles the API lets create a device (POST /api/v1/devices). */
 export const DEVICE_CREATE_ROLES = ['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR'] as const;
@@ -118,6 +119,8 @@ export function DiscoveryPromoteAction({ result, navigate = (href) => window.loc
     <button type="button" className="secondary-button" disabled={state.busy} aria-label={t('discoveryPromote.actionFor', undefined, { address: result.address })} onClick={() => void promote()}>
       {state.busy ? <Loader2 size={13} className="spin" aria-hidden="true" /> : <ServerCog size={13} aria-hidden="true" />} {t('discoveryPromote.action')}
     </button>
+    {/* D-P1c: a HIGH identity candidate is only a hint; the duplicate check on click stays as it is. */}
+    {!state.error && <DiscoveryLikelyExistingHint identity={result.identity} />}
     {state.error && <small className="form-error" role="alert">{state.error}</small>}
   </span>;
 }
