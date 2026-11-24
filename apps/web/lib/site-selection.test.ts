@@ -16,6 +16,16 @@ describe('resolveActiveSite', () => {
   it('keeps aggregate selection only when multiple Sites are accessible', () => {
     expect(resolveActiveSite(sites, null, null)).toBe('');
   });
+
+  it('ignores URL and stored placeholders such as a literal hash', () => {
+    expect(resolveActiveSite(sites, '#', null)).toBe('');
+    expect(resolveActiveSite(sites, null, '#')).toBe('');
+  });
+
+  it('accepts accessible UUID site IDs', () => {
+    const id = '550e8400-e29b-41d4-a716-446655440000';
+    expect(resolveActiveSite([{ id }], id, null)).toBe(id);
+  });
 });
 
 describe('siteUrl', () => {
