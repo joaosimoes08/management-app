@@ -1,4 +1,4 @@
-import { ArrayMaxSize, ArrayMinSize, ArrayUnique, IsArray, IsBoolean, IsIn, IsInt, IsIP, IsObject, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, ArrayUnique, IsArray, IsBoolean, IsIn, IsInt, IsIP, IsNumber, IsObject, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class UpsertSnmpConfigDto {
@@ -77,4 +77,17 @@ export class AcceptSnmpEnrollmentDto {
 export class BulkReviewSnmpDriftsDto {
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(200) @ArrayUnique() @IsUUID('all', { each: true }) ids!: string[];
   @IsIn(['ACCEPTED', 'IGNORED']) status!: 'ACCEPTED' | 'IGNORED';
+}
+
+/**
+ * SNMP Phase 2 step 9: health alert limits for one Site or Device. PUT replaces the whole override: a field that is
+ * null or left out inherits (device → site → default).
+ */
+export class UpsertSnmpHealthThresholdsDto {
+  @IsOptional() @IsNumber() @Min(1) @Max(100) cpuPercent?: number | null;
+  @IsOptional() @IsInt() @Min(1) @Max(60) cpuSustainMinutes?: number | null;
+  @IsOptional() @IsNumber() @Min(1) @Max(100) memoryPercent?: number | null;
+  @IsOptional() @IsNumber() @Min(-40) @Max(150) temperatureHighCelsius?: number | null;
+  @IsOptional() @IsNumber() @Min(-40) @Max(150) temperatureCriticalCelsius?: number | null;
+  @IsOptional() @IsNumber() @Min(0.1) @Max(1000000) interfaceErrorsPerMinute?: number | null;
 }
