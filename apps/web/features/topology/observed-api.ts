@@ -16,11 +16,14 @@ export interface SnmpInterfaceObservation {
 export interface SnmpDeviceOverview {
   latestSnapshot?: { id: string; observedAt: string; sysName?: string | null; sysDescr?: string | null; interfaces: SnmpInterfaceObservation[] } | null;
 }
+export type NeighborProtocol = 'LLDP' | 'CDP';
 export interface LldpObservation {
   id: string;
   deviceId: string;
   snapshotId?: string | null;
   source: string;
+  /** SNMP Phase 2 step 11 (#180): the neighbour protocol the row came from. Rows stored before #180 read as LLDP. */
+  protocol?: NeighborProtocol | null;
   observedAt: string;
   confidence: number;
   localPortNumber?: number | null;

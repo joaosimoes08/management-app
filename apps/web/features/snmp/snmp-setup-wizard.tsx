@@ -101,7 +101,7 @@ export function SnmpSetupWizard({ deviceId, deviceName, close, onDone }: Props) 
 
     {step === 3 && <div className="modal-form">
       {!polling.enabled ? <p className="form-help">O polling ficou desativado, por isso não há sincronização. Podes ativá-lo mais tarde no equipamento.</p> : <>
-        <p className="form-help">Recolhe agora o sistema, as interfaces e os vizinhos LLDP do equipamento.</p>
+        <p className="form-help">Recolhe agora o sistema, as interfaces e os vizinhos LLDP (ou CDP, nos Cisco) do equipamento.</p>
         {pollJob && <p className={`snmp-test-result ${pollJob.status === 'COMPLETED' ? 'ok' : running(pollJob) ? 'running' : 'failed'}`} role="status">{running(pollJob) ? <><Loader2 size={14} className="spin" /><strong>A sincronizar…</strong></> : pollJob.status === 'COMPLETED' ? <><Check size={14} /><strong>Primeira sincronização concluída</strong></> : <><X size={14} /><strong>A sincronização falhou</strong><span>{pollJob.errorCode || pollJob.status}</span></>}</p>}
       </>}
       <div className="modal-actions">{polling.enabled && <button type="button" className="secondary-button" disabled={busy || running(pollJob)} onClick={startPoll}><Activity size={14} /> {pollJobId ? 'Sincronizar de novo' : 'Sincronizar agora'}</button>}<button type="button" className="primary-button" onClick={finish}><Check size={14} /> Concluir</button></div>
