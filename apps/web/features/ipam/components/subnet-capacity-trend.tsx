@@ -25,7 +25,7 @@ export function SubnetCapacityTrend({ history, loading = false }: { history: Sub
             : 'IPv6: endereços geridos ao longo do tempo; não se estima capacidade livre nem esgotamento do prefixo.';
 
   return <section className="subnet-capacity-trend ipam-card" aria-labelledby="subnet-capacity-title">
-    <div className="panel-heading"><div><span className="section-kicker">CAPACIDADE DA SUBNET</span><h3 id="subnet-capacity-title">Tendência dos últimos 90 dias</h3><p className="panel-description">{ipv4 ? 'Alocação IPv4 face à capacidade utilizável.' : 'Endereços IPv6 registados no inventário; o prefixo não representa uma lista enumerável de endereços livres.'}</p></div></div>
+    <div className="panel-heading"><div><h3 id="subnet-capacity-title">Tendência dos últimos 90 dias</h3><p className="panel-description">{ipv4 ? 'Alocação IPv4 face à capacidade utilizável.' : 'Endereços IPv6 registados no inventário; o prefixo não representa uma lista enumerável de endereços livres.'}</p></div></div>
     {samples.length ? <>
       <div className="subnet-capacity-chart-wrap">
         <div className="subnet-capacity-value">{ipv4 ? `${formatIpamPercent(values.at(-1)!)} utilizado` : `${formatNumber(values.at(-1)!)} endereços registados`}</div>

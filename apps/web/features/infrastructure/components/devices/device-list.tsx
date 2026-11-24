@@ -173,7 +173,7 @@ export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire,
     } finally { setUpdating(false); }
   }
   return <>{confirmDialog}<section className="ipam-card">
-    <div className="panel-heading"><div><span className="section-kicker">INVENTÁRIO OPERACIONAL</span><h2>Equipamentos ativos</h2></div>{headingFilters}</div>
+    <div className="panel-heading"><div><h2>Equipamentos ativos</h2></div>{headingFilters}</div>
     {filterChips}
     {onTierFilterChange && <div className="summary-stats settings-audit-stats tier-filter" role="group" aria-label="Filtrar por criticidade">
       {([['', 'Todos', tierCounts ? tierCounts.T1 + tierCounts.T2 + tierCounts.T3 + tierCounts.none : undefined], ['T1', 'T1 · Vital', tierCounts?.T1], ['T2', 'T2 · Importante', tierCounts?.T2], ['T3', 'T3 · Padrão', tierCounts?.T3]] as const).map(([value, label, count]) => (

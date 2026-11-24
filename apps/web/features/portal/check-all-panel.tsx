@@ -97,7 +97,7 @@ export function CheckAllPanel({ onFinished, onBatch, close }: CheckAllPanelProps
 
   const progress = total !== null ? `${items.length} de ${total} verificadas` : `${items.length} verificadas`;
   return <section className="ipam-card" aria-labelledby="portal-check-all-title" data-testid="portal-check-all">
-    <div className="panel-heading"><div><span className="section-kicker">ADMINISTRAÇÃO</span><h2 id="portal-check-all-title">Verificar todas as aplicações</h2></div><button type="button" className="icon-button subtle" onClick={close} disabled={running} aria-label="Fechar"><X size={16} /></button></div>
+    <div className="panel-heading"><div><h2 id="portal-check-all-title">Verificar todas as aplicações</h2></div><button type="button" className="icon-button subtle" onClick={close} disabled={running} aria-label="Fechar"><X size={16} /></button></div>
     <div className="table-actions">
       <label>Âmbito <select value={all ? 'all' : 'checked'} disabled={running} onChange={(event) => setAll(event.target.value === 'all')}><option value="checked">Só com verificação de disponibilidade</option><option value="all">Todas as aplicações ativas</option></select></label>
       {running

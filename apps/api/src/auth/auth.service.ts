@@ -39,7 +39,11 @@ export class AuthService {
       user = await this.resolveUser(input);
     }
 
-    await this.prisma.$transaction(async (tx) => {
+    // Every authenticated request lands here. Skip the role rewrite when the stored set already matches
+    // (unknown stored roles, e.g. a freshly created user, still take the write path).
+    const storedRoles = user.roles?.map((entry) => entry.role);
+    const rolesUnchanged = storedRoles !== undefined && storedRoles.length === new Set(persistedRoles).size && new Set(persistedRoles).size === new Set([...storedRoles, ...persistedRoles]).size;
+    if (!rolesUnchanged) await this.prisma.$transaction(async (tx) => {
       await tx.userRole.deleteMany({
         where: {
           userId: user.id,
@@ -58,8 +62,12 @@ export class AuthService {
     return { id: user.id, externalId: user.externalId, username: user.username, roles };
   }
 
-  private async resolveUser(input: { externalId: string; username: string; displayName?: string; email?: string }) {
-    const userByExternalId = await this.prisma.user.findUnique({ where: { externalId: input.externalId } });
+  private async resolveUser(input: { externalId: string; username: string; displayName?: string; email?: string }): Promise<{ id: string; externalId: string; username: string; roles?: Array<{ role: string }> }> {
+    const userByExternalId = await this.prisma.user.findUnique({ where: { externalId: input.externalId }, include: { roles: { select: { role: true } } } });
+    // Same values as last time: no UPDATE (Prisma leaves undefined fields alone, so undefined counts as unchanged).
+    if (userByExternalId && userByExternalId.username === input.username
+      && (input.displayName === undefined || input.displayName === userByExternalId.displayName)
+      && (input.email === undefined || input.email === userByExternalId.email)) return userByExternalId;
     const userByUsername = userByExternalId
       ? null
       : await this.prisma.user.findUnique({ where: { username: input.username } });

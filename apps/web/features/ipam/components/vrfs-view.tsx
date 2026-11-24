@@ -106,7 +106,7 @@ export function VrfsView({ siteId, siteName, search, canCreate, canUpdate, canDe
     <DataTable rows={items} columns={columns} rowKey={(item) => item.id} label="VRFs do Site" loading={isLoading} skeletonRows={3} empty={!error && <Empty title={search ? 'Sem VRFs correspondentes' : 'Este Site ainda não tem VRFs'} text={search ? 'Experimenta outra pesquisa.' : canCreate ? 'Cria um VRF para separar tabelas de routing neste Site.' : 'Ainda não foram configurados VRFs neste Site.'} />} />
 
     {detailId && <aside className="host-panel" aria-label="Subnets do VRF">
-      <div className="host-panel-head"><div><span className="section-kicker">VRF</span><h2>{detail?.name ?? '…'}</h2><span>{detail?.routeDistinguisher || 'Sem route distinguisher'}</span></div><button className="icon-button" onClick={() => setDetailId('')} aria-label="Fechar"><X size={18} /></button></div>
+      <div className="host-panel-head"><div><h2>{detail?.name ?? '…'}</h2><span>{detail?.routeDistinguisher || 'Sem route distinguisher'}</span></div><button className="icon-button" onClick={() => setDetailId('')} aria-label="Fechar"><X size={18} /></button></div>
       {loadingDetail || !detail ? <div className="content-skeleton ip-table-skeleton-line" aria-label="A carregar VRF" aria-busy="true" /> : <>
         <div className="host-detail-grid">
           <div><span>Site</span><strong>{detail.site?.name ?? siteName}</strong></div>

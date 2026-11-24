@@ -1,6 +1,7 @@
 import { Prisma, PrismaClient } from '@simoes/database';
 import { SNMP_JOB_NAMES } from '@simoes/snmp-core';
 import { createSnmpSession, get, pollLldp, pollStandard, withDeadline } from './client';
+import { healthRecord, pollDeviceHealth } from './device-health';
 import { DeviceLocks } from './locks';
 import { log, publicErrorCode } from './log';
 
@@ -76,9 +77,10 @@ export class PollProcessor {
         await this.storeLldpObservations(job.deviceId, snapshot.id, job.device.siteId, lldp, existingInterfaces);
         await this.replaceDrifts(job.deviceId, snapshot.id, job.device, result, byName);
         await this.createTopologyProposals(job.deviceId, snapshot.id, result.interfaces, existingInterfaces, job.device.siteId);
+        const healthStatus = await this.storeHealth(job.deviceId, job.id, session, result.system);
         const nextPollAt = new Date(Date.now() + config.intervalMinutes * 60 * 1000);
         await this.prisma.$transaction([
-          this.prisma.snmpJob.update({ where: { id: job.id }, data: { status: 'COMPLETED', completedAt: new Date(), result: { snapshotId: snapshot.id, interfaceCount: result.interfaces.length } } }),
+          this.prisma.snmpJob.update({ where: { id: job.id }, data: { status: 'COMPLETED', completedAt: new Date(), result: { snapshotId: snapshot.id, interfaceCount: result.interfaces.length, healthStatus } } }),
           this.prisma.snmpDeviceConfig.update({ where: { id: config.id }, data: { lastPollAt: new Date(), nextPollAt, lastStatus: 'COMPLETED', lastErrorCode: null, consecutiveFailures: 0 } }),
           this.prisma.snmpCredential.update({ where: { id: job.credential!.id }, data: { lastUsedAt: new Date() } }),
           this.prisma.auditLog.create({ data: { userId: job.requestedBy, action: 'SNMP_POLL_COMPLETED', entityType: 'Device', entityId: job.deviceId, metadata: { jobId: job.id, credentialId: job.credential!.id, snapshotId: snapshot.id, interfaceCount: result.interfaces.length } } }),
@@ -95,6 +97,26 @@ export class PollProcessor {
         throw error;
       } finally { session?.close(); }
     });
+  }
+
+  /**
+   * SNMP Phase 2 step 8: health (inventory, CPU, memory, errors, environment, stack, reboot) after the standard poll.
+   * Best effort: a device without these MIBs, or a failed walk, never fails the standard poll; the last good reading
+   * stays in place. Returns the stored status, or null when nothing was stored.
+   */
+  private async storeHealth(deviceId: string, jobId: string, session: Parameters<typeof pollDeviceHealth>[0], system: Awaited<ReturnType<typeof pollStandard>>['system']): Promise<string | null> {
+    try {
+      const snapshot = await pollDeviceHealth(session, system);
+      const previous = await this.prisma.snmpDeviceHealth.findUnique({ where: { deviceId }, select: { uptimeTicks: true, observedAt: true, rebootDetectedAt: true, rebootCount: true } });
+      const record = healthRecord(previous, snapshot, jobId);
+      const data = { ...record, data: record.data as unknown as Prisma.InputJsonValue };
+      await this.prisma.snmpDeviceHealth.upsert({ where: { deviceId }, create: { deviceId, ...data }, update: data });
+      if (record.rebootDetectedAt && record.rebootDetectedAt.getTime() === record.observedAt.getTime()) log('warn', 'device reboot detected', { deviceId, jobId, bootedAt: record.bootedAt?.toISOString() ?? null });
+      return record.status;
+    } catch (error) {
+      log('warn', 'health poll failed', { deviceId, jobId, errorCode: publicErrorCode(error) });
+      return null;
+    }
   }
 
   private async storeLldpObservations(deviceId: string, snapshotId: string, siteId: string | null, entries: Awaited<ReturnType<typeof pollLldp>>, interfaces: any[]) {

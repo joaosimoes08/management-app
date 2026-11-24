@@ -83,7 +83,7 @@ export default function SetupPage() {
   };
 
   if (busy) return <div className="auth-loading"><div className="auth-spinner" /><span>{t('setup.preparing')}</span></div>;
-  if (!hasRole('ADMIN')) return <main className="auth-screen"><div className="auth-card"><div className="auth-logo error"><ShieldCheck size={26} /></div><span className="section-kicker">{t('shell.setup').toUpperCase()}</span><h1>{t('setup.adminTitle')}</h1><p>{t('setup.adminDescription')}</p></div></main>;
+  if (!hasRole('ADMIN')) return <main className="auth-screen"><div className="auth-card"><div className="auth-logo error"><ShieldCheck size={26} /></div><h1>{t('setup.adminTitle')}</h1><p>{t('setup.adminDescription')}</p></div></main>;
 
   const fields = (field: keyof SetupForm, label: string, placeholder: string, required = false) => <label className="setup-field">{label}{required && <b> *</b>}<input value={form[field]} onChange={(event) => update(field, event.target.value)} placeholder={placeholder} /></label>;
 

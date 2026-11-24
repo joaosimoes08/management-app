@@ -172,6 +172,28 @@ export class SnmpService implements OnModuleDestroy, OnModuleInit {
     return { config, credentials: credentials.map((item) => this.publicCredential(item)), latestSnapshot, jobs: closed, drifts, traps: traps.map((trap) => this.withTrapLabel(trap)), lastTrapReceivedAt: traps[0]?.receivedAt ?? null, setEnabled: process.env.SNMP_SET_ENABLED === 'true' };
   }
 
+  /**
+   * SNMP Phase 2 step 8: the latest health reading (inventory, CPU, memory, interface errors, environment, stack,
+   * reboot) for one device, read-only. `health` is null until a poll has produced one. BigInt columns are strings.
+   */
+  async health(deviceId: string, user: AuthenticatedUser) {
+    await this.device(deviceId, user);
+    const row = await this.prisma.snmpDeviceHealth.findUnique({ where: { deviceId } });
+    if (!row) return { deviceId, health: null };
+    const text = (value: bigint | null) => (value === null ? null : value.toString());
+    return {
+      deviceId,
+      health: {
+        vendor: row.vendor, status: row.status, observedAt: row.observedAt, jobId: row.jobId,
+        uptimeTicks: text(row.uptimeTicks), bootedAt: row.bootedAt, rebootDetectedAt: row.rebootDetectedAt, rebootCount: row.rebootCount,
+        cpu: { fiveSecondPercent: row.cpu5sPercent, oneMinutePercent: row.cpu1mPercent, fiveMinutePercent: row.cpu5mPercent },
+        memory: { usedPercent: row.memoryUsedPercent, usedBytes: text(row.memoryUsedBytes), totalBytes: text(row.memoryTotalBytes) },
+        issueCount: row.issueCount,
+        details: row.data,
+      },
+    };
+  }
+
   async metrics(deviceId: string, user: AuthenticatedUser, interfaceIndex?: number, days = 7) {
     if (![1, 7, 30].includes(days)) throw new BadRequestException('O período deve ser 1, 7 ou 30 dias.');
     if (interfaceIndex !== undefined && (!Number.isInteger(interfaceIndex) || interfaceIndex < 1)) throw new BadRequestException('O índice da interface é inválido.');

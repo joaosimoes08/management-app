@@ -117,7 +117,7 @@ export function HostPanel({ host, canEdit, close, reload, success, toastError }:
   </form>;
 
   return <>{confirmDialog}<aside className="host-panel" aria-label="Ficha do Host">
-    <div className="host-panel-head"><div><span className="section-kicker">FICHA OPERACIONAL</span><h2>{host.name}</h2><span>{host.hostname || host.observedHostname || 'Sem hostname'}</span></div><button className="icon-button" onClick={close} aria-label="Fechar"><X size={18} /></button></div>
+    <div className="host-panel-head"><div><h2>{host.name}</h2><span>{host.hostname || host.observedHostname || 'Sem hostname'}</span></div><button className="icon-button" onClick={close} aria-label="Fechar"><X size={18} /></button></div>
     <div className="host-status-line"><span>Manual: <strong>{hostStatusLabel(host.status)}</strong></span><span>Observado: <strong>{observedStatusLabel(host.observedStatus)}</strong></span><span>Origem: <strong>{sourceLabel(host.source)}</strong></span><span>Último avistamento: <strong>{host.lastSeenAt ? formatDateTime(host.lastSeenAt) : '—'}</strong></span></div>
     {editing ? <form className="modal-form host-edit-form" onSubmit={saveHost}>
       <label>Nome<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>

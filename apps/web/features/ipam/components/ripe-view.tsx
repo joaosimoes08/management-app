@@ -176,7 +176,7 @@ export function RipeView({ siteId, search, vlans, canPreview, canImport, success
 
   return <>{confirmDialog}<>
     <section className="ipam-card calculator-panel">
-      <div className="panel-heading"><div><span className="section-kicker">RIPE</span><h2>Importar prefixos RIPE</h2><p className="panel-description">Consulta o RIPEstat ou cola uma lista de prefixos, revê as diferenças calculadas pelo servidor e confirma a importação.</p></div><button className="secondary-button" onClick={() => { setPreviewError(''); setPasteOpen(true); }}><ClipboardList size={14} /> Colar ou carregar lista</button></div>
+      <div className="panel-heading"><div><h2>Importar prefixos RIPE</h2><p className="panel-description">Consulta o RIPEstat ou cola uma lista de prefixos, revê as diferenças calculadas pelo servidor e confirma a importação.</p></div><button className="secondary-button" onClick={() => { setPreviewError(''); setPasteOpen(true); }}><ClipboardList size={14} /> Colar ou carregar lista</button></div>
       <form className="calculator-form" onSubmit={(event) => void runPreview(event, 'ripestat')}>
         <label>Consulta RIPEstat<input required minLength={2} maxLength={160} placeholder="AS3243, 193.136.0.0/15 ou organização" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
         <label>Tipo<select value={queryType} onChange={(event) => setQueryType(event.target.value as RipeQueryType | '')}><option value="">Detetar automaticamente</option><option value="asn">ASN</option><option value="prefix">Prefixo</option><option value="organisation">Organização</option></select></label>
@@ -190,7 +190,7 @@ export function RipeView({ siteId, search, vlans, canPreview, canImport, success
     {preview && stale && <p className="ipam-scope-note" role="status">O Site ou o VRF de destino mudou depois da pré-visualização. Pré-visualiza novamente para atualizar as diferenças antes de importar.</p>}
 
     {preview && !stale && <section className="ipam-card">
-      <div className="panel-heading"><div><span className="section-kicker">{`PRÉ-VISUALIZAÇÃO · ${queryTypeLabel[preview.queryType] ?? preview.queryType}`}</span><h2>{preview.query}</h2></div></div>
+      <div className="panel-heading"><div><h2>{preview.query}</h2></div></div>
       {summary && <div className="usage-summary" aria-label="Resumo das diferenças"><strong>{`${summary.importable} importáveis`}</strong><span>{`${summary.new} novos · ${summary.changed} alterados · ${summary.exists} já existem · ${summary.conflict} em conflito`}</span><span>{`${summary.invalid} inválidos · ${summary.duplicates} duplicados`}</span></div>}
       {diff.length || preview.invalid?.length ? <div className="ip-table-wrap" role="region" aria-label="Diferenças RIPE" tabIndex={0}><table className="ip-table">
         <thead><tr><th>Importar</th><th>Prefixo</th><th>Resultado</th><th>Detalhe</th></tr></thead>
@@ -242,7 +242,7 @@ function RipeImportPanel({ item, vrfs, close }: { item: RipeImportRecord | null;
   const skipped = item?.result?.skipped ?? [];
   const diffByPrefix = new Map((item?.result?.diff ?? []).map((entry) => [entry.prefix, entry]));
   return <aside className="host-panel" aria-label="Detalhe da importação RIPE">
-    <div className="host-panel-head"><div><span className="section-kicker">IMPORTAÇÃO RIPE</span><h2>{item?.query ?? '…'}</h2><span>{item ? formatDate(item.createdAt) : ''}</span></div><button className="icon-button" onClick={close} aria-label="Fechar"><X size={18} /></button></div>
+    <div className="host-panel-head"><div><h2>{item?.query ?? '…'}</h2><span>{item ? formatDate(item.createdAt) : ''}</span></div><button className="icon-button" onClick={close} aria-label="Fechar"><X size={18} /></button></div>
     {!item ? <div className="content-skeleton ip-table-skeleton-line" aria-label="A carregar importação" aria-busy="true" /> : <>
       <div className="host-detail-grid">
         <div><span>Tipo</span><strong>{queryTypeLabel[item.queryType] ?? item.queryType}</strong></div>
