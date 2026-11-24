@@ -439,7 +439,7 @@ export function CriticalAssetsPage() {
     </section></div>
 
     {detail && <aside className="host-panel critical-assets-panel" aria-label={`Histórico de ${detail.name}`}>
-      <div className="host-panel-head"><div><span className="section-kicker">ATIVO CRÍTICO</span><h2>{detail.name}</h2><span>{detail.type} · {detail.owner?.name ?? 'Sem responsável'}</span></div><button ref={panelClose} className="icon-button" onClick={closeDetail} aria-label="Fechar"><X size={18} /></button></div>
+      <div className="host-panel-head"><div><h2>{detail.name}</h2><span>{detail.type} · {detail.owner?.name ?? 'Sem responsável'}</span></div><button ref={panelClose} className="icon-button" onClick={closeDetail} aria-label="Fechar"><X size={18} /></button></div>
       <div className="host-status-line">
         <span>Prazo: <strong>{dueLabels[detail.dueState]}</strong></span>
         <span>Último resultado: <strong>{detail.latestOutcome ? outcomeLabel(detail.latestOutcome) : 'Sem revisão'}</strong></span>

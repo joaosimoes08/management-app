@@ -33,7 +33,7 @@ export function CrossSiteMissingConfigList({ config, label }: { config: string; 
   const heading = `${total} equipamento${total === 1 ? '' : 's'} em falta · ${siteCount} Site${siteCount === 1 ? '' : 's'}`;
 
   return <section className="ipam-card cross-site-missing-config" aria-labelledby="cross-site-missing-config-heading">
-    <div className="panel-heading"><div><span className="section-kicker">TODOS OS SITES · {label.toUpperCase()}</span><h2 id="cross-site-missing-config-heading">{isLoading ? 'A carregar…' : heading}</h2></div></div>
+    <div className="panel-heading"><div><h2 id="cross-site-missing-config-heading">{isLoading ? 'A carregar…' : heading}</h2></div></div>
     {isError && <div role="status" className="ipam-alert error">Não foi possível carregar os equipamentos em falta.</div>}
     {items.map((item) => <a key={item.id} className="host-row infra-device-row cross-site-missing-config-row" href={item.href}>
       <span className="host-icon equipment-type-icon-frame"><EquipmentTypeIcon type={item.type} /></span>
