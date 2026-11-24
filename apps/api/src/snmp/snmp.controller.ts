@@ -1,16 +1,17 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Put, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { SnmpCredentialPurpose } from '@simoes/database';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { Roles } from '../auth/roles.decorator';
-import { AcceptSnmpEnrollmentDto, AcknowledgeSnmpWriteImpactDto, CreateSnmpCredentialDto, CreateSnmpTrapEnrollmentDto, CreateSnmpWritePreviewDto, IgnoreUnmatchedTrapsDto, ReviewSnmpDriftDto, BulkReviewSnmpDriftsDto, SnmpOnboardingDeviceDto, UpsertSnmpConfigDto } from './dto';
+import { AcceptSnmpEnrollmentDto, AcknowledgeSnmpWriteImpactDto, CreateSnmpCredentialDto, CreateSnmpTrapEnrollmentDto, CreateSnmpWritePreviewDto, IgnoreUnmatchedTrapsDto, ReviewSnmpDriftDto, BulkReviewSnmpDriftsDto, SnmpOnboardingDeviceDto, UpsertSnmpConfigDto, UpsertSnmpHealthThresholdsDto } from './dto';
 import { SnmpService } from './snmp.service';
 import { TopologyReconciliationService } from './topology-reconciliation.service';
 import { SnmpFleetService } from './snmp-fleet.service';
+import { SnmpHealthThresholdsService } from './snmp-health-thresholds.service';
 
 @ApiTags('snmp') @ApiBearerAuth() @Controller({ path: 'snmp', version: '1' })
 export class SnmpController {
-  constructor(private readonly service: SnmpService, private readonly reconciliation: TopologyReconciliationService, private readonly fleet: SnmpFleetService) {}
+  constructor(private readonly service: SnmpService, private readonly reconciliation: TopologyReconciliationService, private readonly fleet: SnmpFleetService, private readonly healthThresholds: SnmpHealthThresholdsService) {}
   @Get('fleet/summary') @Roles('ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY') fleetSummary(@Req() req: { user: AuthenticatedUser }, @Query('siteId') siteId?: string) { return this.fleet.fleetSummary(req.user, siteId); }
   @Get('drifts') @Roles('ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY') drifts(@Req() req: { user: AuthenticatedUser }, @Query('status') status?: string, @Query('siteId') siteId?: string, @Query('deviceId') deviceId?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) { return this.fleet.listDrifts(req.user, { status, siteId, deviceId, page, pageSize }); }
   @Post('drifts/bulk-review') @Roles('ADMIN', 'NETWORK_OPERATOR') bulkReviewDrifts(@Body() dto: BulkReviewSnmpDriftsDto, @Req() req: { user: AuthenticatedUser }) { return this.fleet.bulkReview(req.user, dto); }
@@ -24,6 +25,13 @@ export class SnmpController {
   @Post('traps/unmatched/ignore') @Roles('ADMIN') ignoreUnmatchedTraps(@Body() dto: IgnoreUnmatchedTrapsDto, @Req() req: { user: AuthenticatedUser }) { return this.service.ignoreUnmatchedTraps(dto.sourceAddress, req.user); }
   @Get('devices/:deviceId') @Roles('ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY') overview(@Param('deviceId') deviceId: string, @Req() req: { user: AuthenticatedUser }) { return this.service.overview(deviceId, req.user); }
   @Get('devices/:deviceId/health') @Roles('ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY') health(@Param('deviceId') deviceId: string, @Req() req: { user: AuthenticatedUser }) { return this.service.health(deviceId, req.user); }
+  // SNMP Phase 2 step 9: health alert limits (per Site / per Device) and the 30-day health history.
+  @Get('health-thresholds/defaults') @Roles('ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY') healthThresholdDefaults() { return this.healthThresholds.defaults(); }
+  @Get('sites/:siteId/health-thresholds') @Roles('ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY') siteHealthThresholds(@Param('siteId', ParseUUIDPipe) siteId: string, @Req() req: { user: AuthenticatedUser }) { return this.healthThresholds.site(req.user, siteId); }
+  @Put('sites/:siteId/health-thresholds') @Roles('ADMIN', 'NETWORK_OPERATOR') updateSiteHealthThresholds(@Param('siteId', ParseUUIDPipe) siteId: string, @Body() dto: UpsertSnmpHealthThresholdsDto, @Req() req: { user: AuthenticatedUser }) { return this.healthThresholds.updateSite(req.user, siteId, dto); }
+  @Get('devices/:deviceId/health-thresholds') @Roles('ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY') deviceHealthThresholds(@Param('deviceId', ParseUUIDPipe) deviceId: string, @Req() req: { user: AuthenticatedUser }) { return this.healthThresholds.device(req.user, deviceId); }
+  @Put('devices/:deviceId/health-thresholds') @Roles('ADMIN', 'NETWORK_OPERATOR') updateDeviceHealthThresholds(@Param('deviceId', ParseUUIDPipe) deviceId: string, @Body() dto: UpsertSnmpHealthThresholdsDto, @Req() req: { user: AuthenticatedUser }) { return this.healthThresholds.updateDevice(req.user, deviceId, dto); }
+  @Get('devices/:deviceId/health/history') @Roles('ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY') healthHistory(@Param('deviceId', ParseUUIDPipe) deviceId: string, @Query('hours') hours: string | undefined, @Req() req: { user: AuthenticatedUser }) { return this.healthThresholds.history(req.user, deviceId, hours); }
   @Get('devices/:deviceId/metrics') @Roles('ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY') metrics(@Param('deviceId') deviceId: string, @Query('interfaceIndex') interfaceIndex: string | undefined, @Query('days') days: string | undefined, @Req() req: { user: AuthenticatedUser }) { return this.service.metrics(deviceId, req.user, interfaceIndex === undefined ? undefined : Number(interfaceIndex), days === undefined ? 7 : Number(days)); }
   @Patch('devices/:deviceId/config') @Roles('ADMIN') config(@Param('deviceId') deviceId: string, @Body() dto: UpsertSnmpConfigDto, @Req() req: { user: AuthenticatedUser }) { return this.service.upsertConfig(deviceId, dto, req.user); }
   @Post('devices/:deviceId/credentials') @Roles('ADMIN') credential(@Param('deviceId') deviceId: string, @Body() dto: CreateSnmpCredentialDto, @Req() req: { user: AuthenticatedUser }) { return this.service.createCredential(deviceId, dto, req.user); }
