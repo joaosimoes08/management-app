@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { strict as assert } from 'node:assert';
 import { after, before, beforeEach, test } from 'node:test';
-import { PrismaClient } from '@simoes/database';
+import { Prisma, PrismaClient } from '@simoes/database';
 import { probesPerAddress, recordDiscoveryFailure, runDiscoveryScan, ScanDependencies } from '../src/discovery/discovery-scan';
 import { discoveryProcessSockets } from '../src/discovery/discovery-limiter';
 import { buildEnrichment, DiscoverySnmpEnricher, failedEnrichment, readEnrichment } from '../src/discovery/discovery-snmp';
@@ -279,7 +279,7 @@ test('SNMP enrichment off: no credential is loaded and no result carries SNMP da
   assert.deepEqual(fake.loads, []);
   const stored = await prisma.discoveryJob.findUniqueOrThrow({ where: { id: job.id } });
   assert.deepEqual([stored.snmpCredentialId, stored.snmpEnrichedCount, stored.snmpFailedCount, stored.snmpSkippedReason], [null, 0, 0, null]);
-  assert.equal(await prisma.discoveryResult.count({ where: { jobId: job.id, NOT: { snmp: { equals: null } } } }), 0);
+  assert.equal(await prisma.discoveryResult.count({ where: { jobId: job.id, NOT: { snmp: { equals: Prisma.DbNull } } } }), 0);
 });
 
 test('SNMP enrichment on: only hosts that answered are tried, with the one subnet credential, and provenance is stored', async () => {
