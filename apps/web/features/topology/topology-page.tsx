@@ -160,7 +160,7 @@ export function TopologyPage() {
   const nodeAlertSummaries = useMemo(() => summarizeTopologyDeviceAlerts(current?.nodes ?? [], operationalAlerts.data?.items ?? []), [current?.nodes, operationalAlerts.data?.items]);
   // SNMP Phase 2 step 10: one Site-wide health request for every node on the map.
   const snmpHealth = useSnmpHealthMap(siteId, Boolean(siteId) && Boolean(current));
-  const snmpHealthMap = snmpHealth.size ? snmpHealth : undefined;
+  const snmpHealthMap = snmpHealth?.size ? snmpHealth : undefined;
   const mapProblemCount = [...nodeAlertSummaries.values()].reduce((total, summary) => total + summary.count, 0);
   const searchMatch = current ? findTopologyNode(current.nodes, search) : undefined;
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);

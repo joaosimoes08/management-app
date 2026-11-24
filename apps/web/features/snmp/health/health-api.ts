@@ -58,10 +58,12 @@ export function useCanReadSnmpHealth() {
 
 /**
  * Health of every visible network device in a Site (or all visible Sites when siteId is empty), fetched once and
- * shared by the device list, the rack and the topology: one request per Site instead of one per row.
+ * shared by the device list, the rack and the topology: one request per Site instead of one per row. Undefined for
+ * users without the SNMP read role (the API would answer 403), so no badge is drawn for them.
  */
-export function useSnmpHealthMap(siteId: string | undefined, enabled = true): ReadonlyMap<string, SnmpHealthSummaryItem> {
+export function useSnmpHealthMap(siteId: string | undefined, enabled = true): ReadonlyMap<string, SnmpHealthSummaryItem> | undefined {
   const canRead = useCanReadSnmpHealth();
   const { data } = useQuery({ queryKey: snmpHealthSummaryKey(siteId), queryFn: () => getSnmpHealthSummary(siteId), enabled: enabled && canRead, staleTime: 30_000, refetchInterval: 60_000, retry: false });
-  return useMemo(() => new Map((data?.items ?? []).map((item) => [item.deviceId, item])), [data]);
+  // Without the SNMP read role there is no map at all, so lists, racks and pickers show no badge instead of "Sem dados".
+  return useMemo(() => (canRead ? new Map((data?.items ?? []).map((item) => [item.deviceId, item])) : undefined), [canRead, data]);
 }

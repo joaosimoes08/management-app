@@ -7,6 +7,12 @@ import { getAttachableChangePlans, linkSnmpWriteToChangePlan } from './api';
 /** Query key for the attachable plans of one device; invalidated after a SET is attached. */
 export const attachableChangePlansKey = (deviceId: string) => ['snmp', 'attachable-change-plans', deviceId] as const;
 
+/**
+ * The attachable plans of one device. The SNMP page also calls it as soon as a SET can be previewed, so the list is
+ * already cached when "Criar preview" returns and the prompt appears together with the preview, with no second round trip.
+ */
+export const useAttachableChangePlans = (deviceId: string, enabled = true) => useQuery({ queryKey: attachableChangePlansKey(deviceId), queryFn: () => getAttachableChangePlans(deviceId), enabled: enabled && Boolean(deviceId), staleTime: 30_000 });
+
 const statusLabels = { APPROVED: 'Aprovada', IN_PROGRESS: 'Em curso' } as const;
 
 /**
@@ -15,7 +21,7 @@ const statusLabels = { APPROVED: 'Aprovada', IN_PROGRESS: 'Em curso' } as const;
  * when no plan qualifies or the list cannot be read, so the SET flow is unchanged.
  */
 export function SnmpChangePlanAttach({ deviceId, value, onChange }: { deviceId: string; value: string; onChange: (planId: string) => void }) {
-  const { data, isError } = useQuery({ queryKey: attachableChangePlansKey(deviceId), queryFn: () => getAttachableChangePlans(deviceId), enabled: Boolean(deviceId) });
+  const { data, isError } = useAttachableChangePlans(deviceId);
   if (isError || !data?.length) return null;
   return <label>
     <span>Associar a uma alteração</span>

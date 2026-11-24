@@ -11,7 +11,7 @@ import { deleteSnmpCredential, executeSnmpWrite, getSnmpMetrics, getSnmpOverview
 import { formatDateTime, formatNumber } from '@/lib/format/date';
 import { SnmpFleetSummaryView } from './snmp-fleet';
 import { SnmpDriftsView } from './snmp-drifts';
-import { attachableChangePlansKey, executeAndAttach, SnmpChangePlanAttach } from './snmp-change-plan-attach';
+import { attachableChangePlansKey, executeAndAttach, SnmpChangePlanAttach, useAttachableChangePlans } from './snmp-change-plan-attach';
 import { snmpConfigBounds, snmpConfigError, snmpCredentialBounds, snmpCredentialError } from './snmp-bounds';
 import { describeCredentialTest, lastTestLabel, latestJob } from './snmp-setup';
 import { useRenderTick } from './use-render-tick';
@@ -66,6 +66,7 @@ export default function SnmpPage() {
   useEffect(() => { if (devicesData && !devices.some((item) => item.id === deviceId)) setDeviceId(devices[0]?.id ?? ''); }, [devices, devicesData, deviceId]);
   useEffect(() => { setCredential({ ...emptyCredential }); setTestJobs({}); setRotating(null); }, [deviceId]);
   const { data: overview, isFetching, refetch } = useQuery({ queryKey: ['snmp', 'overview', deviceId], queryFn: () => getSnmpOverview(deviceId), enabled: Boolean(deviceId) && view === 'device', refetchInterval: (query) => pendingJob(query.state.data) ? 2_000 : 15_000 });
+  useAttachableChangePlans(deviceId, admin && view === 'device' && Boolean(overview?.setEnabled));
   const { data: metrics, isFetching: metricsFetching, isError: metricsError } = useQuery({ queryKey: ['snmp', 'metrics', deviceId, metricInterface, metricDays], queryFn: () => getSnmpMetrics(deviceId, metricInterface, metricDays), enabled: Boolean(deviceId) && view === 'device', refetchInterval: 30_000 });
   useEffect(() => { setMetricInterface(undefined); }, [deviceId]);
   useEffect(() => { if (metrics?.selectedInterfaceIndex !== null && metricInterface === undefined) setMetricInterface(metrics?.selectedInterfaceIndex ?? undefined); }, [metrics?.selectedInterfaceIndex, metricInterface]);
