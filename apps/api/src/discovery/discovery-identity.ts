@@ -80,6 +80,27 @@ export function scoreDevice(hints: IdentityHints, device: IdentityDevice): Ident
 
 const RANK: Record<IdentityConfidence, number> = { HIGH: 3, MEDIUM: 2, LOW: 1 };
 
+/**
+ * matchIdentity for many results against one device list. scoreDevice only returns a candidate when the serial, the
+ * management IP or the first host-name label is equal, so the devices are indexed by those keys once and each result
+ * is scored only against the devices that share one of them (in their original order). Same output as calling
+ * matchIdentity(hints, devices) per result, without scoring every result against every device.
+ */
+export function identityMatcher(devices: IdentityDevice[]): (hints: IdentityHints) => DiscoveryIdentity {
+  const index = new Map<string, number[]>();
+  const add = (key: string | null, position: number) => { if (!key) return; const list = index.get(key); if (!list) index.set(key, [position]); else if (list[list.length - 1] !== position) list.push(position); };
+  devices.forEach((device, position) => {
+    add(device.managementIp ? `ip:${device.managementIp.trim()}` : null, position);
+    const serial = normaliseSerial(device.serialNumber); add(serial ? `serial:${serial}` : null, position);
+    for (const value of [device.hostname, device.name]) { const name = normaliseHostName(value); add(name ? `name:${name}` : null, position); }
+  });
+  return (hints) => {
+    const positions = new Set<number>();
+    for (const key of [`ip:${hints.address}`, hints.serial ? `serial:${hints.serial}` : null, hints.sysName ? `name:${hints.sysName}` : null]) for (const position of (key && index.get(key)) || []) positions.add(position);
+    return matchIdentity(hints, [...positions].sort((a, b) => a - b).map((position) => devices[position]));
+  };
+}
+
 /** Rank every device that matched at least one signal: confidence, then score, then name. */
 export function matchIdentity(hints: IdentityHints, devices: IdentityDevice[]): DiscoveryIdentity {
   const ranked = devices
