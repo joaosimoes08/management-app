@@ -1834,7 +1834,7 @@ const enUS: LegacyDictionary = {
   'Continuar': 'Continue',
   'Recolher dados automaticamente (polling)': 'Collect data automatically (polling)',
   'O polling ficou desativado, por isso não há sincronização. Podes ativá-lo mais tarde no equipamento.': 'Polling was left off, so there is no sync. You can turn it on later on the device.',
-  'Recolhe agora o sistema, as interfaces e os vizinhos LLDP do equipamento.': 'Collects the device\'s system, interfaces and LLDP neighbours now.',
+  'Recolhe agora o sistema, as interfaces e os vizinhos LLDP (ou CDP, nos Cisco) do equipamento.': 'Collects the device\'s system, interfaces and LLDP neighbours (or CDP on Cisco) now.',
   'A sincronizar…': 'Syncing…',
   'Primeira sincronização concluída': 'First sync completed',
   'A sincronização falhou': 'The sync failed',
