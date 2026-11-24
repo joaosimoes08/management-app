@@ -82,6 +82,54 @@ export class InfrastructureAccessService {
     if (device.rack) await this.assertRoom(user, action, device.rack.roomId, 'DEVICE', device.type); else if (device.siteId) await this.assertSite(user, action, device.siteId, 'DEVICE', device.type); else if (!user.roles.includes('ADMIN')) this.denied(action);
     return device;
   }
+  /**
+   * Batch form of `assertDevice(user, 'READ', id)`: the ids for which that call would succeed, i.e. the devices the caller
+   * may read. Missing and out-of-scope devices are simply left out. Same rules as assertDevice → assertRoom/assertSite,
+   * but a fixed number of queries instead of five or six per device (lists of up to thousands of devices use it).
+   */
+  async readableDeviceIds(user: AuthenticatedUser, ids: Iterable<string>): Promise<Set<string>> {
+    const unique = [...new Set(ids)];
+    const readable = new Set<string>();
+    // READ: roleAllows is canReadScoped for every device type, and an ADMIN is always canReadScoped.
+    if (!unique.length || !this.policy.canReadScoped(user)) return readable;
+    const devices = await this.prisma.device.findMany({ where: { id: { in: unique } }, select: { id: true, site: { select: { id: true } }, rack: { select: { room: { select: { id: true, buildingId: true, building: { select: { siteId: true } } } } } } } });
+    if (user.roles.includes('ADMIN')) {
+      // groups === null: every ACL allows. Racked → assertRoom passes; site → assertSite passes when the site exists; neither → admin passes.
+      for (const device of devices) readable.add(device.id);
+      return readable;
+    }
+    const rooms = devices.flatMap((device) => (device.rack ? [device.rack.room] : []));
+    const siteIds = [...new Set([...rooms.map((room) => room.building.siteId), ...devices.flatMap((device) => (!device.rack && device.site ? [device.site.id] : []))])];
+    if (!siteIds.length) return readable;
+    const groupsBySite = new Map<string, string[]>(siteIds.map((id) => [id, []]));
+    if (this.policy.hasApplicationRole(user)) {
+      const memberships = await this.prisma.accessGroupMember.findMany({ where: { userId: user.id, group: { siteAssignments: { some: { siteId: { in: siteIds } } } } }, select: { groupId: true, group: { select: { siteAssignments: { where: { siteId: { in: siteIds } }, select: { siteId: true } } } } } });
+      for (const membership of memberships) for (const { siteId } of membership.group.siteAssignments) groupsBySite.get(siteId)?.push(membership.groupId);
+    }
+    const roomIds = [...new Set(rooms.map((room) => room.id))];
+    const buildingIds = [...new Set(rooms.map((room) => room.buildingId))];
+    const rules = await this.prisma.infrastructurePermission.findMany({ where: { OR: [
+      { scopeType: 'SITE', scopeId: { in: siteIds } },
+      ...(buildingIds.length ? [{ scopeType: 'BUILDING', scopeId: { in: buildingIds } }] : []),
+      ...(roomIds.length ? [{ scopeType: 'ROOM', scopeId: { in: roomIds } }] : []),
+    ] } });
+    const scoped = (type: string, id: string) => rules.filter((rule) => rule.scopeType === type && rule.scopeId === id);
+    const visibleBuildings = new Map<string, Promise<boolean>>();
+    for (const device of devices) {
+      if (device.rack) {
+        const { room } = device.rack;
+        const roomRules = scoped('ROOM', room.id), buildingRules = scoped('BUILDING', room.buildingId);
+        const effective = roomRules.length ? roomRules : buildingRules.length ? buildingRules : scoped('SITE', room.building.siteId);
+        if (this.allowed(effective, 'READ', groupsBySite.get(room.building.siteId) ?? [])) readable.add(device.id);
+      } else if (device.site) {
+        const siteId = device.site.id;
+        if (this.allowed(scoped('SITE', siteId), 'READ', groupsBySite.get(siteId) ?? [])) { readable.add(device.id); continue; }
+        if (!visibleBuildings.has(siteId)) visibleBuildings.set(siteId, this.visibleBuildingIds(user, siteId).then((found) => found.length > 0));
+        if (await visibleBuildings.get(siteId)) readable.add(device.id);
+      }
+    }
+    return readable;
+  }
   async assertInterface(user: AuthenticatedUser, action: InfrastructureAction, interfaceId: string) {
     const item = await this.prisma.deviceInterface.findUnique({ where: { id: interfaceId }, select: { id: true, deviceId: true } });
     if (!item) throw new NotFoundException('Interface não encontrada'); await this.assertDevice(user, action, item.deviceId); return item;

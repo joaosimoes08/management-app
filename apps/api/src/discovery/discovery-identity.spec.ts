@@ -1,8 +1,15 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { NotFoundException } from '@nestjs/common';
+import { HttpException, NotFoundException } from '@nestjs/common';
 import { identityHints, IdentityDevice, matchIdentity, normaliseHostName, normaliseSerial } from './discovery-identity';
 import { DiscoveryIdentityService } from './discovery-identity.service';
+
+/** Stub of InfrastructureAccessService.readableDeviceIds with its contract: the ids whose assertDevice READ passes; scope errors hide, others raise. */
+const readableVia = (assertDevice: (user: unknown, action: string, id: string) => Promise<unknown>) => async (user: unknown, ids: Iterable<string>) => {
+  const readable = new Set<string>();
+  for (const id of new Set(ids)) { try { await assertDevice(user, 'READ', id); readable.add(id); } catch (error) { if (!(error instanceof HttpException)) throw error; } }
+  return readable;
+};
 
 const field = (value: string) => ({ value, oid: '1.3.6', source: 'SNMP' as const, credentialId: 'c1', observedAt: '2026-11-24T10:00:00.000Z' });
 const enriched = (fields: Record<string, string>, status = 'OK') => ({ status, credentialId: 'c1', observedAt: '2026-11-24T10:00:00.000Z', durationMs: 12, fields: Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, field(value)])) });
@@ -64,7 +71,8 @@ test('D-P1c service: devices the caller may not read are never suggested, and no
     get: (target, key) => { if (key in target) return target[key as keyof typeof target]; throw new Error(`unexpected prisma access: ${String(key)}`); },
   });
   const checked: string[] = [];
-  const infrastructure = { assertDevice: async (_user: unknown, action: string, id: string) => { checked.push(`${action}:${id}`); if (id === 'hidden') throw new NotFoundException(); return { id }; } };
+  const assertDevice = async (_user: unknown, action: string, id: string) => { checked.push(`${action}:${id}`); if (id === 'hidden') throw new NotFoundException(); return { id }; };
+  const infrastructure = { assertDevice, readableDeviceIds: readableVia(assertDevice) };
   const service = new DiscoveryIdentityService(prisma as never, infrastructure as never);
   const identities = await service.forResults({ id: 'u1', roles: ['NETWORK_OPERATOR'] } as never, [{ id: 'r1', address: '10.0.0.2', snmp: enriched({ entitySerial: 'FOC1' }) }]);
   assert.deepEqual(identities.get('r1')!.candidates.map((candidate) => [candidate.deviceId, candidate.confidence]), [['visible', 'MEDIUM']]);
@@ -77,6 +85,6 @@ test('D-P1c service: devices the caller may not read are never suggested, and no
 });
 
 test('D-P1c service: unexpected errors from the scope check are not swallowed', async () => {
-  const service = new DiscoveryIdentityService({ $queryRaw: async () => [device('a', { managementIp: '10.0.0.2' })] } as never, { assertDevice: async () => { throw new Error('db down'); } } as never);
+  const service = new DiscoveryIdentityService({ $queryRaw: async () => [device('a', { managementIp: '10.0.0.2' })] } as never, { readableDeviceIds: readableVia(async () => { throw new Error('db down'); }) } as never);
   await assert.rejects(service.forResults({ id: 'u1', roles: ['ADMIN'] } as never, [{ id: 'r1', address: '10.0.0.2', snmp: null }]), /db down/);
 });

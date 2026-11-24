@@ -1,4 +1,4 @@
-import { HttpException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@simoes/database';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { InfrastructureAccessService } from '../infrastructure/infrastructure-access.service';
@@ -38,12 +38,8 @@ export class DiscoveryIdentityService {
       LIMIT 2000`);
   }
 
-  /** The subset of `ids` the caller may read. Scope errors hide the device; any other error is raised. */
-  private async readableDevices(user: AuthenticatedUser, ids: Iterable<string>) {
-    const readable = new Set<string>();
-    for (const id of new Set(ids)) {
-      try { await this.infrastructure.assertDevice(user, 'READ', id); readable.add(id); } catch (error) { if (!(error instanceof HttpException)) throw error; }
-    }
-    return readable;
+  /** The subset of `ids` the caller may read (same rules as assertDevice READ, batched: a fixed number of queries). */
+  private readableDevices(user: AuthenticatedUser, ids: Iterable<string>) {
+    return this.infrastructure.readableDeviceIds(user, ids);
   }
 }
