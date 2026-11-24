@@ -10,6 +10,8 @@ import { PageToolbarPortal } from '@/components/layout/app-shell';
 import { SubnetCapacityTrend } from './subnet-capacity-trend';
 import { NextFreeIpModal } from './next-free-ip-modal';
 import { formatDateTime } from '@/lib/format/date';
+import { FilterChipBar, FilterChips } from '@/components/ui/filter-chips';
+import { CHIP_NONE, chipOptions, countBy } from '@/lib/filter-chips';
 import { DataTable, SavedViews, sortByColumns, useTableUrlState, type DataTableColumn, type TableStateConfig } from '@/components/data-table';
 import { setSubnetTags } from '@/features/tags/api';
 import { ManageTagsButton, TagChips, TagEditor, TagFilter, TagManager } from '@/features/tags/tag-components';
@@ -81,9 +83,13 @@ function SubnetTable({ items, loading, canEdit, siteId, openSubnet, editSubnet, 
     ...(canEdit ? [{ id: 'actions', header: 'Ações', className: 'table-actions', cell: (subnet: Subnet) => <><button className="icon-button subtle" title={`Editar subnet ${subnet.cidr}`} aria-label={`Editar subnet ${subnet.cidr}`} onClick={() => editSubnet(subnet)}><Edit3 size={14} /></button><button className="icon-button subtle danger" title={`Eliminar subnet ${subnet.cidr}`} aria-label={`Eliminar subnet ${subnet.cidr}`} onClick={() => removeSubnet(subnet)}><Trash2 size={14} /></button></> }] : []),
   ], [canEdit, editSubnet, openSubnet, removeSubnet]);
   const { band, tag } = table.filters;
-  const rows = useMemo(() => sortByColumns(items.filter((subnet) => (!band || (subnet.utilization?.band ?? '') === band) && hasAllTags(subnet, tag)), columns, table.sort), [band, columns, items, tag, table.sort]);
+  const tagged = useMemo(() => items.filter((subnet) => hasAllTags(subnet, tag)), [items, tag]);
+  const rows = useMemo(() => sortByColumns(tagged.filter((subnet) => !band || (subnet.utilization?.band || CHIP_NONE) === band), columns, table.sort), [band, columns, tagged, table.sort]);
+  // Band chips count the subnets the tag filter (and the page search) already let through.
+  const bandOptions = chipOptions(utilizationBandOptions, countBy(tagged, (subnet) => subnet.utilization?.band), { complete: true, selected: band, hideEmpty: true, extraLabel: (value) => (value === CHIP_NONE ? 'Sem dados' : value) });
   return <>
-    <PageToolbarPortal><div className="interface-toolbar-controls"><label><span className="toolbar-filter-label">Utilização</span><select aria-label="Filtrar subnets por utilização" title="Filtrar subnets por utilização" value={band} onChange={(event) => table.setFilter('band', event.target.value)}><option value="">Utilização</option>{utilizationBandOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label><span className="toolbar-filter-label">Etiqueta</span><TagFilter siteId={siteId} value={tag} onChange={(value) => table.setFilter('tag', value)} /></label>{canManageTags && <ManageTagsButton onClick={() => setManagingTags(true)} />}<SavedViews pageId="ipam-subnets" config={subnetTableConfig} table={table} /></div></PageToolbarPortal>
+    <PageToolbarPortal><div className="interface-toolbar-controls"><label><span className="toolbar-filter-label">Etiqueta</span><TagFilter siteId={siteId} value={tag} onChange={(value) => table.setFilter('tag', value)} /></label>{canManageTags && <ManageTagsButton onClick={() => setManagingTags(true)} />}<SavedViews pageId="ipam-subnets" config={subnetTableConfig} table={table} /></div></PageToolbarPortal>
+    {items.length > 0 && <FilterChipBar><FilterChips label="Utilização" value={band} options={bandOptions} total={tagged.length} allLabel="Todas" onChange={(value) => table.setFilter('band', value)} /></FilterChipBar>}
     <DataTable rows={rows} columns={columns} rowKey={(subnet) => subnet.id} label="Subnets do Site" sort={table.sort} onSortChange={table.setSort} defaultSort={table.defaultSort} loading={loading} empty={tag ? <Empty title="Sem subnets com esta etiqueta" text="Escolhe outra etiqueta ou limpa o filtro." /> : band ? <Empty title="Sem subnets nesta faixa de utilização" text="Escolhe outra faixa ou limpa o filtro." /> : null} />
     {managingTags && <TagManager siteId={siteId} canManage={canManageTags} close={() => setManagingTags(false)} onChanged={() => tagsChanged?.()} />}
   </>;

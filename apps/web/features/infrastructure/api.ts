@@ -280,6 +280,13 @@ export function listDevices(siteId: string, search: string, page = 1, filters?: 
   return apiFetch<DeviceListResponse>(`/api/v1/devices?siteId=${siteId}&search=${encodeURIComponent(search)}&page=${page}&pageSize=100${deviceFilterQuery(filters)}${missingConfig ? `&missingConfig=${encodeURIComponent(missingConfig)}` : ''}`);
 }
 
+/** Number of devices matching the search and filters (a one-row request; used for the filter chip counts). */
+export async function countDevices(siteId: string, search: string, filters?: Partial<DeviceUrlFilters> & { missingConfig?: string }): Promise<number> {
+  const missingConfig = filters?.missingConfig ?? '';
+  const response = await apiFetch<DeviceListResponse>(`/api/v1/devices?siteId=${siteId}&search=${encodeURIComponent(search)}&page=1&pageSize=1${deviceFilterQuery(filters)}${missingConfig ? `&missingConfig=${encodeURIComponent(missingConfig)}` : ''}`);
+  return response.total;
+}
+
 export async function listAllDevices(siteId: string, search: string): Promise<DeviceListResponse> {
   const first = await listDevices(siteId, search);
   if (first.totalPages <= 1) return first;

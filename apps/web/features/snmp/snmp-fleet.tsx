@@ -5,6 +5,9 @@ import { RadioTower, Settings2, X } from 'lucide-react';
 import { ApiRequestError } from '@/lib/api/errors';
 import { formatDateTime } from '@/lib/format/date';
 import { DataTable, type DataTableColumn } from '@/components/data-table/data-table';
+import { useTableUrlState } from '@/components/data-table/use-table-url-state';
+import { FilterChipBar, FilterChips } from '@/components/ui/filter-chips';
+import { applyChipFilters, chipOptions, facetCounts, type ChipAccessors } from '@/lib/filter-chips';
 import { getSnmpFleetSummary, type SnmpAttentionReason, type SnmpFleetSummary } from './api';
 
 const reasonBadges: Record<string, { tone: string; label: string }> = {
@@ -39,6 +42,11 @@ type Props = {
 };
 type AttentionRow = NonNullable<SnmpFleetSummary['attention']>[number];
 
+/** Reason chips over the attention list; the choice lives in `?attention.reason=`. */
+const attentionTableConfig = { filters: { reason: '' }, sortable: [] as string[], prefix: 'attention.' };
+const attentionAccessors: ChipAccessors<AttentionRow> = { reason: (row) => row.reason };
+const reasonChipLabels = Object.entries(reasonBadges).map(([value, badge]) => [value, badge.label] as const);
+
 const attentionColumns = (openDevice: Props['openDevice'], configureDevice?: Props['configureDevice']): DataTableColumn<AttentionRow>[] => [
   { id: 'device', header: 'Equipamento', cell: (item) => <><strong>{item.name}</strong>{item.lastStatus ? <small>{item.lastStatus}</small> : null}</> },
   { id: 'reason', header: 'Motivo', cell: (item) => <SnmpAttentionBadge reason={item.reason} /> },
@@ -60,6 +68,10 @@ function FleetSummaryContent({ data, openDevice, openDrifts, configureDevice }: 
   const byStatus = data.polling?.byStatus ?? {};
   const attention = data.attention ?? [];
   const attentionTotal = data.attentionTotal ?? attention.length;
+  const { filters, setFilter } = useTableUrlState(attentionTableConfig);
+  const reasonCounts = facetCounts(attention, filters, attentionAccessors, 'reason');
+  const reasonOptions = chipOptions(reasonChipLabels, reasonCounts, { complete: true, selected: filters.reason, hideEmpty: true });
+  const visibleAttention = applyChipFilters(attention, filters, attentionAccessors);
   return <>
     <div className="summary-stats" role="group" aria-label="Resumo da frota SNMP">
       <div><strong>{`${count(data.devices?.configured)} / ${count(data.devices?.total)}`}</strong><span>Equipamentos com SNMP configurado</span></div>
@@ -72,7 +84,8 @@ function FleetSummaryContent({ data, openDevice, openDrifts, configureDevice }: 
     <p className="ipam-scope-note">{`Último poll: ${data.polling?.lastPollAt ? formatDateTime(data.polling.lastPollAt) : '—'} · Poll mais antigo: ${data.polling?.oldestPollAt ? formatDateTime(data.polling.oldestPollAt) : '—'}`}{data.generatedAt ? ` · Gerado em ${formatDateTime(data.generatedAt)}` : ''}{data.scheduler?.ok === false ? ` · Agendamento do polling com falhas (${data.scheduler.errorCode ?? `${data.scheduler.failed} equipamento(s)`})` : ''}</p>
     <section className="ipam-card">
       <div className="panel-heading"><div><h2>Equipamentos que precisam de atenção</h2><p className="panel-description">{attentionTotal > attention.length ? `A mostrar ${attention.length} de ${attentionTotal} equipamentos.` : 'Polling falhado, bloqueado, desatualizado, nunca executado ou SNMP por configurar.'}</p></div>{count(data.drift?.pending) > 0 && <button type="button" className="secondary-button" onClick={openDrifts}>Rever divergências</button>}</div>
-      {attention.length ? <DataTable rows={attention} columns={attentionColumns(openDevice, configureDevice)} rowKey={(item) => item.deviceId} label="Equipamentos que precisam de atenção" /> : <div className="no-data">Nenhum equipamento precisa de atenção.</div>}
+      {attention.length > 0 && <FilterChipBar><FilterChips label="Motivo" value={filters.reason} options={reasonOptions} total={attention.length} onChange={(value) => setFilter('reason', value)} /></FilterChipBar>}
+      {visibleAttention.length ? <DataTable rows={visibleAttention} columns={attentionColumns(openDevice, configureDevice)} rowKey={(item) => item.deviceId} label="Equipamentos que precisam de atenção" /> : <div className="no-data">{attention.length ? 'Nenhum equipamento com este motivo.' : 'Nenhum equipamento precisa de atenção.'}</div>}
     </section>
   </>;
 }

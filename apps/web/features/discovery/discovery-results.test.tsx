@@ -41,6 +41,30 @@ describe('Discovery results', () => {
     expect(screen.queryByRole('button', { name: /Aprovar/ })).not.toBeInTheDocument();
   });
 
+  it('filters by review and IPAM chips with counts, kept in the URL', () => {
+    render(<DiscoveryResultsTable results={results} canEdit={false} review={vi.fn()} bulkDone={vi.fn()} />);
+    const table = () => within(screen.getByRole('region', { name: 'Resultados de sondas' }));
+    const review = screen.getByRole('group', { name: 'Revisão' });
+    const ipam = screen.getByRole('group', { name: 'IPAM' });
+    expect(within(review).getByRole('button', { name: /Pendentes\s*3/ })).toBeEnabled();
+    expect(within(review).getByRole('button', { name: /Ignorados\s*0/ })).toBeDisabled();
+    // Unknown IPAM states still get a chip; an active reservation counts as RESERVED.
+    expect(within(ipam).getByRole('button', { name: /SOMETHING_NEW\s*1/ })).toBeInTheDocument();
+    expect(within(ipam).getByRole('button', { name: /Reservados\s*1/ })).toBeInTheDocument();
+    expect(within(ipam).queryByRole('button', { name: /Livres/ })).not.toBeInTheDocument();
+
+    fireEvent.click(within(review).getByRole('button', { name: /Pendentes/ }));
+    expect(window.location.search).toBe('?resultsReview=PENDING');
+    expect(table().getAllByRole('row')).toHaveLength(4);
+    // IPAM counts follow the review filter (the approved result outside the IPAM drops out).
+    expect(within(ipam).queryByRole('button', { name: /Fora do IPAM/ })).not.toBeInTheDocument();
+
+    fireEvent.click(within(ipam).getByRole('button', { name: /Ocupados/ }));
+    expect(table().getAllByRole('row')).toHaveLength(2);
+    expect(table().getAllByRole('row')[1]).toHaveTextContent('10.0.0.10');
+    expect(new URLSearchParams(window.location.search).get('resultsIpam')).toBe('OCCUPIED');
+  });
+
   it('bulk approves the selected pending results and reports each item', async () => {
     const bulkDone = vi.fn();
     mockedFetch.mockResolvedValue({ status: 'APPROVED', total: 2, succeeded: 1, failed: 1, items: [{ id: 'r1', ok: true, status: 'APPROVED' }, { id: 'r2', ok: false, error: { statusCode: 404, code: 'DISCOVERY_RESULT_NOT_FOUND', message: 'Resultado não encontrado.' } }] });

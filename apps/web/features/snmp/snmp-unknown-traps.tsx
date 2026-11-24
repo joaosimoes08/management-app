@@ -6,6 +6,9 @@ import { Check, EyeOff, KeyRound, RadioTower, ShieldAlert, X } from 'lucide-reac
 import { formatDateTime, formatNumber } from '@/lib/format/date';
 import { DataTable, type DataTableColumn } from '@/components/data-table/data-table';
 import { useConfirm } from '@/components/ui/confirm-dialog';
+import { useTableUrlState } from '@/components/data-table/use-table-url-state';
+import { FilterChipBar, FilterChips } from '@/components/ui/filter-chips';
+import { applyChipFilters, chipOptions, CHIP_NONE, facetCounts, type ChipAccessors } from '@/lib/filter-chips';
 import { snmpTrapCategoryLabel } from './snmp-trap-labels';
 import { ignoreUnmatchedTraps, listUnmatchedTrapSources, unmatchedTrapSourcesKey, type UnmatchedTrapSource } from './api';
 
@@ -30,6 +33,12 @@ export function unknownTrapName(item: Pick<UnmatchedTrapSource, 'lastTrapLabel' 
   return item.lastTrapOid === APP_TEST_TRAP_OID ? snmpTrapCategoryLabel('SELF_TEST') : snmpTrapCategoryLabel('VENDOR');
 }
 
+/** Chips over the unknown sources: pre-registration state and SNMP version, kept in `?traps.registered=` / `?traps.version=`. */
+const trapsTableConfig = { filters: { registered: '', version: '' }, sortable: [] as string[], prefix: 'traps.' };
+const trapAccessors: ChipAccessors<UnmatchedTrapSource> = { registered: (item) => (item.preRegistered ? 'yes' : 'no'), version: (item) => item.version };
+const registeredChipLabels = [['no', 'Por registar'], ['yes', 'Pré-registado']] as const;
+const versionChipLabel = (value: string) => (value === CHIP_NONE ? 'Sem versão' : value);
+
 export function SnmpUnknownTrapsRestricted() {
   return <section className="ipam-card" aria-labelledby="snmp-unknown-restricted-title">
     <div className="empty-context"><ShieldAlert size={24} aria-hidden="true" /><strong id="snmp-unknown-restricted-title">Só administradores veem as traps de equipamentos desconhecidos.</strong><span>Estas traps vêm de IPs que ainda não estão no inventário. Pede a um administrador para as rever e pré-registar o equipamento em Descoberta.</span></div>
@@ -51,6 +60,10 @@ export function SnmpUnknownTrapsView() {
     ignore.mutate(item.sourceAddress);
   };
   const items = data?.items ?? [];
+  const { filters, setFilter } = useTableUrlState(trapsTableConfig);
+  const registeredOptions = chipOptions(registeredChipLabels, facetCounts(items, filters, trapAccessors, 'registered'), { complete: true, selected: filters.registered, hideEmpty: true });
+  const versionOptions = chipOptions([], facetCounts(items, filters, trapAccessors, 'version'), { complete: true, selected: filters.version, extraLabel: versionChipLabel });
+  const visibleItems = applyChipFilters(items, filters, trapAccessors);
   const columns: DataTableColumn<UnmatchedTrapSource>[] = [
     { id: 'source', header: 'IP de origem', cell: (item) => <><strong className="mono">{item.sourceAddress}</strong>{item.preRegistered ? <small>Pré-registado</small> : null}</> },
     { id: 'first', header: 'Primeira', cell: (item) => item.firstSeenAt ? formatDateTime(item.firstSeenAt) : '—' },
@@ -67,7 +80,13 @@ export function SnmpUnknownTrapsView() {
       {ignore.error && <div className="ipam-alert error" role="alert"><X size={15} />{ignore.error instanceof Error ? ignore.error.message : 'Não foi possível ocultar as traps.'}</div>}
       {error ? <div className="ipam-alert error" role="alert"><X size={15} />{error instanceof Error ? error.message : 'Não foi possível carregar as traps desconhecidas.'}</div>
         : isLoading ? <div className="empty-context" aria-busy="true"><RadioTower size={24} /><strong>A carregar traps desconhecidas…</strong></div>
-        : items.length ? <DataTable className="snmp-unknown-table" rows={items} columns={columns} rowKey={(item) => item.sourceAddress} label="Traps de equipamentos desconhecidos" />
+        : items.length ? <>
+          <FilterChipBar>
+            <FilterChips label="Registo" value={filters.registered} options={registeredOptions} total={items.length} onChange={(value) => setFilter('registered', value)} />
+            {(versionOptions.length > 1 || filters.version !== '') && <FilterChips label="Versão" value={filters.version} options={versionOptions} total={items.length} allLabel="Todas" onChange={(value) => setFilter('version', value)} />}
+          </FilterChipBar>
+          {visibleItems.length ? <DataTable className="snmp-unknown-table" rows={visibleItems} columns={columns} rowKey={(item) => item.sourceAddress} label="Traps de equipamentos desconhecidos" /> : <div className="no-data">Nenhuma origem com estes filtros.</div>}
+        </>
         : <div className="no-data">Nenhuma trap de origem desconhecida.</div>}
     </section>
   </>;

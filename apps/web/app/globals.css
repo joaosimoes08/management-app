@@ -3689,3 +3689,16 @@ small.alert-next-step::before { content:'→ '; }
   .app-shell .global-topbar:not(:has(.module-tabs-slot nav)) .topbar-globals { flex:1 1 auto; padding-left:0; border-left:0; }
   .app-shell .global-topbar:not(:has(.module-tabs-slot nav)) .topbar-search-trigger { flex:0 1 clamp(280px, 36vw, 640px); }
 }
+
+/* Shared FilterChips: segmented chip toggles with counts, one line, scrolls sideways when narrow. */
+.filter-chip-bar { display:flex; flex-wrap:nowrap; align-items:center; gap:16px; min-width:0; max-width:100%; margin:0 0 12px; padding:2px 2px 6px; overflow-x:auto; overscroll-behavior-x:contain; scrollbar-width:thin; -webkit-overflow-scrolling:touch; }
+.filter-chips { display:flex; flex:0 0 auto; flex-wrap:nowrap; align-items:center; gap:4px; }
+.filter-chips-label { margin-right:4px; color:#5f6672; font-size:11px; font-weight:650; white-space:nowrap; }
+.filter-chip { display:inline-flex; flex:0 0 auto; align-items:center; gap:6px; min-height:28px; padding:3px 10px; border:1px solid #dfe2e8; border-radius:999px; background:#fff; color:#2b3340; font:inherit; font-size:12px; font-weight:600; white-space:nowrap; cursor:pointer; transition:background-color .12s ease, border-color .12s ease, color .12s ease; }
+.filter-chip:hover:not(:disabled) { border-color:#b9c3d6; background:#f5f7fb; }
+.filter-chip:focus-visible { outline:2px solid #2c6bed; outline-offset:1px; }
+.filter-chip:disabled { color:#a2a7b0; cursor:not-allowed; }
+.filter-chip.active { border-color:#20334f; background:#20334f; color:#fff; }
+.filter-chip-count { min-width:18px; padding:0 5px; border-radius:999px; background:#eef0f4; color:#4b5361; font-size:11px; font-variant-numeric:tabular-nums; text-align:center; }
+.filter-chip.active .filter-chip-count { background:rgba(255,255,255,.18); color:#fff; }
+.filter-chip:disabled .filter-chip-count { background:#f3f4f6; color:#a2a7b0; }

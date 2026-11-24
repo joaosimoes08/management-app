@@ -133,7 +133,8 @@ describe('Subnet utilisation column', () => {
     expect(cidrs(table)).toEqual(['10.0.2.0/24', '10.0.3.0/24', '10.0.1.0/24', '2001:db8::/64']);
     expect(window.location.search).toContain('subnetssort');
 
-    fireEvent.change(screen.getByLabelText('Filtrar subnets por utilização'), { target: { value: 'CRITICAL' } });
+    fireEvent.click(within(screen.getByRole('group', { name: 'Utilização' })).getByRole('button', { name: /Crítica/ }));
+    expect(window.location.search).toContain('subnetsband=CRITICAL');
     expect(cidrs(screen.getByRole('region', { name: 'Subnets do Site' }))).toEqual(['10.0.2.0/24']);
   });
 
