@@ -13,8 +13,14 @@ vi.mock('@/lib/runtime-config', () => ({ getPublicRuntimeConfig: () => ({ apiUrl
 
 const device = { id: 'd1', name: 'core-sw-01', type: 'SWITCH', status: 'ACTIVE', siteId: 's1', isCritical: false, rack: null, model: null };
 
+const limits = { cpuPercent: 90, cpuSustainMinutes: 5, memoryPercent: 90, temperatureHighCelsius: null, temperatureCriticalCelsius: null, interfaceErrorsPerMinute: 10 };
+const thresholds = { deviceId: 'd1', siteId: 's1', defaults: limits, site: null, device: null, effective: limits, sources: Object.fromEntries(Object.keys(limits).map((key) => [key, 'DEFAULT'])) };
+
 function routeApi(overrides: Record<string, unknown> = {}, deviceBody: Record<string, unknown> = device) {
   vi.mocked(apiFetch).mockImplementation(async (url: string) => {
+    // SNMP P2-9 history and limits answer before the broad '/api/v1/snmp/devices/' overrides some tests use.
+    if (url.includes('/health/history')) return { deviceId: 'd1', from: '2026-11-23T10:00:00.000Z', to: '2026-11-24T10:00:00.000Z', retentionDays: 30, items: [] };
+    if (url.endsWith('/health-thresholds')) return thresholds;
     for (const [prefix, body] of Object.entries(overrides)) if (url.startsWith(prefix)) return body;
     if (url === '/api/v1/devices/d1') return deviceBody;
     if (url.startsWith('/api/v1/interfaces')) return [];

@@ -28,6 +28,13 @@ describe('Settings page structure', () => {
     }
   });
 
+  it('gives every SNMP health reader the health limits tab, with Save in the utility bar (P2-9 UI)', () => {
+    expect(settings).toContain("const healthReader = HEALTH_THRESHOLD_READ_ROLES.some((role) => hasRole(role));");
+    expect(settings).toContain(": healthReader ? [healthTab, ['appearance'");
+    expect(settings).toContain("tab === 'health' ? <SiteHealthThresholdsSettings sites={org?.sites ?? []}/>");
+    expect(read('features/snmp/health/health-limits-panels.tsx')).toContain('formId="settings-health-form" actionsInToolbar');
+  });
+
   it('puts site creation, single-user editing, and backup operations in utility actions', () => {
     expect(settings).toContain("tab === 'sites' && <PageToolbarPortal>");
     expect(settings).toContain("tab === 'users' && selectedUser && <PageToolbarPortal>");
