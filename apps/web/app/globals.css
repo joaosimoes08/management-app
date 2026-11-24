@@ -215,6 +215,8 @@ button { cursor:pointer; }
 
 /* Keep collapsed-menu labels hidden until the sidebar has finished expanding. */
 .nav-item-label { min-width:0; overflow:hidden; white-space:nowrap; }
+/* Sidebar entries are real links (<a>): keep them looking exactly like the former buttons. */
+.primary-nav a.nav-item { text-decoration:none; }
 .sidebar-collapsed .sidebar .nav-item { font-size:12px; }
 .sidebar-collapsed .sidebar .nav-item-label { max-width:0; visibility:hidden; opacity:0; }
 .sidebar-collapsed .sidebar:hover .nav-item-label { max-width:180px; visibility:visible; opacity:1; transition:max-width .2s ease, opacity .12s ease .22s, visibility 0s linear .22s; }

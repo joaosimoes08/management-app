@@ -1,7 +1,8 @@
 'use client';
 
 import { CircleHelp, PanelLeftClose, PanelLeftOpen, Settings, X } from 'lucide-react';
-import { usePathname, useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { useReducedMotion } from 'motion/react';
 import * as m from 'motion/react-m';
@@ -10,6 +11,11 @@ import { useI18n } from '@/lib/i18n';
 import { navigation, settingsNavigation, helpNavigation } from './navigation';
 import { UserMenu } from './user-menu';
 import { useUiText } from '@/components/ui/use-ui-text';
+
+/** Same rule the main items used for the `active` class: exact match, or a sub-route of a non-root entry. */
+function isActivePath(pathname: string, href: string) {
+  return pathname === href || (href !== '/' && pathname.startsWith(`${href}/`));
+}
 
 export interface AppSidebarProps {
   collapsed: boolean;
@@ -21,7 +27,6 @@ export interface AppSidebarProps {
 export function AppSidebar({ collapsed, onToggle, onClose }: AppSidebarProps) {
   const ui = useUiText();
   const pathname = usePathname();
-  const router = useRouter();
   const { t } = useI18n();
   const { hasRole } = useAuth();
   const prefersReducedMotion = useReducedMotion();
@@ -65,20 +70,21 @@ export function AppSidebar({ collapsed, onToggle, onClose }: AppSidebarProps) {
       <nav className="primary-nav" aria-label={ui('ui.mainNavigation')}>
         {visibleNavigation.map(({ label, key, href, icon: Icon }) => {
           const translated = t(key, label);
+          const active = isActivePath(pathname, href);
           return (
-            <button key={href} className={`nav-item ${pathname === href || (href !== '/' && pathname.startsWith(`${href}/`)) ? 'active' : ''}`} onClick={() => { router.push(href); onClose?.(); }} title={collapsed ? translated : undefined}>
+            <Link key={href} href={href} className={`nav-item ${active ? 'active' : ''}`} aria-current={active ? 'page' : undefined} onClick={() => onClose?.()} title={collapsed ? translated : undefined}>
               <Icon size={17} strokeWidth={1.8} /><span className="nav-item-label">{translated}</span>
-            </button>
+            </Link>
           );
         })}
         {(hasRole('ADMIN') || hasRole('AUDITOR')) && (
-          <button className="nav-item sidebar-settings-link" onClick={() => router.push(settingsNavigation.href)}>
+          <Link href={settingsNavigation.href} className="nav-item sidebar-settings-link" aria-current={isActivePath(pathname, settingsNavigation.href) ? 'page' : undefined}>
             <Settings size={17} strokeWidth={1.8} /><span className="nav-item-label">{t(settingsNavigation.key)}</span>
-          </button>
+          </Link>
         )}
-        <button className="nav-item sidebar-help-link" onClick={() => router.push(helpNavigation.href)}>
+        <Link href={helpNavigation.href} className="nav-item sidebar-help-link" aria-current={isActivePath(pathname, helpNavigation.href) ? 'page' : undefined}>
           <CircleHelp size={17} strokeWidth={1.8} /><span className="nav-item-label">{t(helpNavigation.key)}</span>
-        </button>
+        </Link>
       </nav>
       <div className="sidebar-spacer" />
       <div className="sidebar-bottom-row">
