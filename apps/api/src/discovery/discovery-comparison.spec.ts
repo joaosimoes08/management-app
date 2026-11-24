@@ -24,3 +24,18 @@ test('treats open ports as a set regardless of ordering', () => {
   );
   assert.deepEqual(result.changed, []);
 });
+
+test('identity fixtures: IP and hostname alone never correlate distinct discovery addresses', () => {
+  const existing = [
+    { address: '10.0.0.10', hostname: 'shared.example', icmpReachable: true, openPorts: [] },
+    { address: '10.0.0.11', hostname: 'unique.example', icmpReachable: true, openPorts: [] },
+  ];
+  const fresh = [
+    { address: '10.0.0.20', hostname: 'shared.example', icmpReachable: true, openPorts: [] },
+    { address: '10.0.0.21', hostname: 'unique.example', icmpReachable: true, openPorts: [] },
+  ];
+  const result = compareDiscoveryResults(existing, fresh);
+  assert.deepEqual(result.newlySeen.map(({ address }) => address), ['10.0.0.20', '10.0.0.21']);
+  assert.equal(result.changed.length, 0);
+  assert.equal(result.noLongerReachable.length, 2);
+});
