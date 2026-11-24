@@ -47,6 +47,8 @@ No macOS/Linux, usar `cp .env.example .env` em vez de `Copy-Item`.
 
 O frontend fica disponível em `http://localhost:3000` quando iniciado com `npm run web:dev`. Pode ser necessário criar `apps/web/.env.local` a partir de `apps/web/.env.example`.
 
+O servidor de desenvolvimento usa o Turbopack (`next dev --turbopack`): compila cada página 2 a 3 vezes mais depressa e usa menos memória do que o webpack. Se precisares do bundler antigo, usa `npm run dev:webpack --workspace=@simoes/web`. O build de produção (`next build`) continua a usar o webpack.
+
 O portal é dinâmico e as aplicações são geridas em `http://localhost:3000/portal` por um utilizador `ADMIN`. Cada ligação pode ter URL, descrição, categoria, ordem, roles autorizadas, estado ativo e verificação opcional de disponibilidade.
 
 Depois de concluído o onboarding, o IPAM fica disponível em `http://localhost:3000/ipam`. A sequência inicial recomendada é criar Site, VLAN, Subnet e só depois iniciar um discovery ICMP/TCP. Os resultados devem ser revistos antes de serem aprovados para o inventário.
