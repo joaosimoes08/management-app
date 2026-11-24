@@ -24,7 +24,7 @@ describe('SNMP action button styles', () => {
 
   it('gives every SNMP field a visible 3px focus ring that the shared form rules cannot remove', () => {
     const rule = styles.match(/:is\(\.snmp-workspace,\.snmp-wizard,\.snmp-setup-panel,\.snmp-enrollment-modal,\.snmp-topbar-controls\) :is\(input,select,textarea\):focus-visible\s*\{([^}]*)\}/)?.[1] ?? '';
-    expect(rule).toMatch(/outline:3px solid #4f66c5 !important/);
+    expect(rule).toMatch(/outline:3px solid (?:var\(--t-focus,\s*#4f66c5\)|#4f66c5) !important/);
     expect(rule).toMatch(/outline-offset:2px !important/);
     // #4f66c5 is 5.2:1 on white, above the 3:1 needed for a focus indicator.
     expect(contrast('#4f66c5', '#ffffff')).toBeGreaterThanOrEqual(3);

@@ -17,8 +17,8 @@ describe('Discovery selector styling', () => {
     const sharedRule = styles.match(/\.app-shell \.context-toolbar-selector\s*\{([^}]*)\}/)?.[1];
     expect(sharedRule).toBeDefined();
     expect(sharedRule).toMatch(/padding:\s*0 12px/);
-    expect(sharedRule).toMatch(/color:\s*#20334f/);
-    expect(sharedRule).toMatch(/border:\s*1px solid #dce4ef/);
+    expect(sharedRule).toMatch(/color:\s*(?:var\(--t-[a-z0-9-]+,\s*)?#20334f/);
+    expect(sharedRule).toMatch(/border:\s*1px solid (?:var\(--t-[a-z0-9-]+,\s*)?#dce4ef/);
     expect(sharedRule).toMatch(/height:\s*35px/);
     expect(sharedRule).toMatch(/border-radius:\s*8px/);
     expect(styles).toContain('.schedule-subnet-select select,.schedule-form select');
