@@ -30,6 +30,8 @@ describe('NotificationChannelsSettings', () => {
     const notice = await screen.findByText(/APP_PUBLIC_URL não está definido/);
     expect(notice).toHaveClass('ipam-alert', 'warning');
     expect(notice).toHaveAttribute('role', 'status');
+    expect(notice).toHaveTextContent('Quem instala o servidor define este endereço público');
+    expect(notice).toHaveTextContent('ficheiro .env do servidor e reinicia a API');
   });
 
   it('starts off, keeps the webhook write-only and saves only the channel that changed', async () => {

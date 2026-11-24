@@ -61,6 +61,13 @@ type AuditEvent = { id: string; action: string; createdAt: string; user?: { user
 /** Step 28b adds this to the device payload (#97); read defensively until then. */
 type FutureDeviceFields = { criticalityTier?: 'T1' | 'T2' | 'T3' | null };
 /** Same labels as the cadence settings (Step 28b). */
+/** SNMP polling state for the Device 360 summary: only an explicit true/false is known; anything else is shown as unknown, never as "Ativo". */
+export function snmpStateLabel(enabled?: boolean | null): string {
+  if (enabled === true) return 'Ativo';
+  if (enabled === false) return 'Desativado';
+  return 'Estado desconhecido';
+}
+
 const TIER_LABELS: Record<string, string> = { T1: 'T1 · Vital', T2: 'T2 · Importante', T3: 'T3 · Padrão' };
 /** Linux host inventory (Step 26): `GET /api/v1/linux-agents/hosts` and `/hosts/:id/services`. */
 type LinuxHost = { id: string; name: string; hostname?: string | null; operatingSystem?: string | null; device?: { id: string } | null; agent?: { state?: string; lastHeartbeatAt?: string | null } | null };
@@ -190,7 +197,7 @@ export function Device360Page({ deviceId }: { deviceId: string }) {
       </Section>
 
       {can('snmp') && <Section id="snmp" title="SNMP" fullHref={`/snmp${q({ deviceId: device.id })}`} fullLabel="Ver no SNMP">
-        <SectionBody query={snmp} empty={(r) => (r.config ? null : 'Sem SNMP configurado.')}>{(r) => { const drifts = driftCounts(r.drifts); return <dl className="device-360-facts"><dt>Estado</dt><dd>{r.config?.enabled === false ? 'Desativado' : 'Ativo'}</dd><dt>Última recolha</dt><dd>{fmt(r.latestSnapshot?.observedAt ?? r.latestSnapshot?.collectedAt ?? r.latestSnapshot?.createdAt)}</dd><dt>Divergências pendentes</dt><dd>{drifts.pending}</dd>{drifts.other.map(([status, count]) => <Fragment key={status}><dt>{`Divergências: ${snmpDriftStatusLabel(status)}`}</dt><dd>{count}</dd></Fragment>)}<dt>Traps recentes</dt><dd>{(r.traps ?? []).length}</dd></dl>; }}</SectionBody>
+        <SectionBody query={snmp} empty={(r) => (r.config ? null : 'Sem SNMP configurado.')}>{(r) => { const drifts = driftCounts(r.drifts); return <dl className="device-360-facts"><dt>Estado</dt><dd>{snmpStateLabel(r.config?.enabled)}</dd><dt>Última recolha</dt><dd>{fmt(r.latestSnapshot?.observedAt ?? r.latestSnapshot?.collectedAt ?? r.latestSnapshot?.createdAt)}</dd><dt>Divergências pendentes</dt><dd>{drifts.pending}</dd>{drifts.other.map(([status, count]) => <Fragment key={status}><dt>{`Divergências: ${snmpDriftStatusLabel(status)}`}</dt><dd>{count}</dd></Fragment>)}<dt>Traps recentes</dt><dd>{(r.traps ?? []).length}</dd></dl>; }}</SectionBody>
       </Section>}
 
       {can('hosts') && <Section id="host" title="Host e serviços" fullHref={`/infraestrutura${q({ tab: 'devices', type: 'SERVER', 'hosts-site': siteId })}`} fullLabel="Ver servidores em Equipamentos">

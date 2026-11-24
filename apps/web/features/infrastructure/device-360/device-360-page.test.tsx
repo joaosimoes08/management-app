@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/api/client';
 import { entityHref } from '@/components/data-table/entity-link';
-import { Device360Page, driftCounts, snmpDriftStatusLabel } from './device-360-page';
+import { Device360Page, driftCounts, snmpDriftStatusLabel, snmpStateLabel } from './device-360-page';
 
 vi.mock('@/components/layout/app-shell', () => ({ AppShell: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 const roles = vi.hoisted(() => ({ current: ['ADMIN'] as string[] }));
@@ -181,6 +181,22 @@ describe('Device360Page', () => {
     const label = await within(snmp).findByText('Divergências pendentes');
     expect(label.nextElementSibling).toHaveTextContent('3');
     expect(within(snmp).queryByText('Drifts abertos')).not.toBeInTheDocument();
+  });
+
+  it('shows "Estado desconhecido" when the SNMP config has no enabled state, instead of "Ativo"', async () => {
+    routeApi({ '/api/v1/snmp/devices/': { config: { id: 'c1' }, drifts: [], traps: [] } });
+    renderPage();
+    const snmp = await screen.findByRole('region', { name: 'SNMP' });
+    const label = await within(snmp).findByText('Estado');
+    expect(label.nextElementSibling).toHaveTextContent('Estado desconhecido');
+    expect(within(snmp).queryByText('Ativo')).not.toBeInTheDocument();
+  });
+
+  it('maps the SNMP enabled flag to Ativo, Desativado or Estado desconhecido', () => {
+    expect(snmpStateLabel(true)).toBe('Ativo');
+    expect(snmpStateLabel(false)).toBe('Desativado');
+    expect(snmpStateLabel(undefined)).toBe('Estado desconhecido');
+    expect(snmpStateLabel(null)).toBe('Estado desconhecido');
   });
 
   it('labels drift statuses in Portuguese and counts other statuses apart', () => {

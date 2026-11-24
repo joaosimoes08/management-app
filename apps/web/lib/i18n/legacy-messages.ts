@@ -1886,9 +1886,35 @@ const enUS: LegacyDictionary = {
   'Criar schedule pausado': 'Create paused schedule',
   'Na fila': 'Queued',
   'A preparar': 'Preparing',
+  // P2-10.1: SNMP credential rotate/delete, APP_PUBLIC_URL help
+  'Eliminar credencial SNMP': 'Delete SNMP credential',
+  'Eliminar mesmo assim': 'Delete anyway',
+  'Há uma tarefa SNMP em curso; aguarda que termine para eliminar.': 'An SNMP job is running; wait for it to finish before deleting.',
+  'Há uma tarefa SNMP em curso; só podes eliminar credenciais quando terminar.': 'An SNMP job is running; you can delete credentials once it finishes.',
+  'Cancelar rotação': 'Cancel rotation',
+  'Rodar': 'Rotate',
+  'A recolha SNMP deste equipamento está ativa e usa esta credencial: deixa de funcionar até guardares outra credencial READ.': 'SNMP polling is on for this device and uses this credential: it stops working until you save another READ credential.',
+  'Este equipamento já enviou traps: as próximas traps SNMPv3 deixam de ser validadas até guardares outra credencial TRAP.': 'This device has already sent traps: further SNMPv3 traps can no longer be validated until you save another TRAP credential.',
+  'As alterações SNMP (SET) estão ativas: deixam de poder ser executadas neste equipamento até guardares outra credencial WRITE.': 'SNMP changes (SET) are on: they can no longer run on this device until you save another WRITE credential.',
+  'deste equipamento': 'this device',
+  'Só esta credencial é removida; as outras credenciais e a configuração SNMP ficam como estão. Não é possível desfazer.': 'Only this credential is removed; the other credentials and the SNMP configuration stay as they are. This cannot be undone.',
+  'Atenção, esta credencial está em uso:': 'Warning, this credential is in use:',
+  'Quem instala o servidor define este endereço público (por exemplo, https://gestao.exemplo.pt) no ficheiro .env do servidor e reinicia a API; não se altera nesta página.': 'Whoever installs the server sets this public address (for example https://gestao.exemplo.pt) in the server .env file and restarts the API; it cannot be changed on this page.',
 };
 
 const substitutions: Array<[RegExp, string]> = [
+  // P2-10.1: SNMP credential rotate/delete (the confirmation is several lines, so these are unanchored)
+  [/Eliminar a credencial (READ|WRITE|TRAP) · (V2C|V3)( \([^)\n]*\))? deste equipamento\?/g, 'Delete the $1 · $2$3 credential of this device?'],
+  [/Eliminar a credencial (READ|WRITE|TRAP) · (V2C|V3)( \([^)\n]*\))? de ([^\n]+)\?/g, 'Delete the $1 · $2$3 credential of $4?'],
+  [/Só esta credencial é removida; as outras credenciais e a configuração SNMP ficam como estão\. Não é possível desfazer\./g, 'Only this credential is removed; the other credentials and the SNMP configuration stay as they are. This cannot be undone.'],
+  [/Atenção, esta credencial está em uso:/g, 'Warning, this credential is in use:'],
+  [/A recolha SNMP deste equipamento está ativa e usa esta credencial: deixa de funcionar até guardares outra credencial READ\./g, 'SNMP polling is on for this device and uses this credential: it stops working until you save another READ credential.'],
+  [/Este equipamento já enviou traps: as próximas traps SNMPv3 deixam de ser validadas até guardares outra credencial TRAP\./g, 'This device has already sent traps: further SNMPv3 traps can no longer be validated until you save another TRAP credential.'],
+  [/As alterações SNMP \(SET\) estão ativas: deixam de poder ser executadas neste equipamento até guardares outra credencial WRITE\./g, 'SNMP changes (SET) are on: they can no longer run on this device until you save another WRITE credential.'],
+  [/^Rodar a credencial (READ|WRITE|TRAP): introduz os novos segredos no formulário abaixo e carrega em Substituir credencial\. A credencial atual continua em uso até guardares\.$/g, 'Rotate the $1 credential: enter the new secrets in the form below and press Replace credential. The current credential stays in use until you save.'],
+  [/^Credencial (READ|WRITE|TRAP) eliminada\.$/g, '$1 credential deleted.'],
+  [/^Rodar credencial (READ|WRITE|TRAP)$/g, 'Rotate $1 credential'],
+  [/^Eliminar credencial (READ|WRITE|TRAP)$/g, 'Delete $1 credential'],
   // Step 36: tags
   [/^Etiquetas · (.+)$/g, 'Tags · $1'],
   [/^Eliminar a etiqueta "(.+)"\? Sai de (\d+) itens\.$/g, 'Delete the tag "$1"? It is removed from $2 items.'],
