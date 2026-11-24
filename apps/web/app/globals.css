@@ -3546,6 +3546,14 @@ small.alert-next-step::before { content:'→ '; }
 .schedule-form fieldset.schedule-limits { display:grid; grid-column:1 / -1; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; padding:8px 10px; }
 .schedule-form fieldset.schedule-limits label { display:grid!important; gap:6px!important; color:var(--muted)!important; font-size:10px!important; }
 .schedule-limits small { grid-column:1 / -1; color:var(--muted); font-size:9px; line-height:1.4; }
+/* SNMP enrichment sits outside .schedule-form, so it sizes itself: a fieldset defaults to min-inline-size:min-content and long
+   credential option labels would push it past a 360 px viewport. Keep it, its label and select inside the card; let the hint wrap. */
+.discovery-snmp-enrichment { display:grid; gap:8px; min-width:0; max-width:100%; box-sizing:border-box; margin:12px 0 0; padding:8px 10px; border:1px solid var(--line); border-radius:8px; }
+.discovery-snmp-enrichment legend { display:inline-flex; align-items:center; gap:4px; padding:0 3px; color:var(--t-text-3,#77737a); font-size:9px; }
+.discovery-snmp-enrichment label { display:grid; gap:6px; min-width:0; color:var(--muted); font-size:10px; }
+.discovery-snmp-enrichment select { width:100%; min-width:0; max-width:100%; text-overflow:ellipsis; }
+.discovery-snmp-enrichment small { min-width:0; overflow-wrap:anywhere; }
+.discovery-compare-select { min-width:0; }.discovery-compare-select select { width:100%; min-width:0; max-width:100%; text-overflow:ellipsis; }
 @media (max-width:780px) { .discovery-flow-steps { grid-template-columns:1fr; } .discovery-flow-steps li + li::before { content:none; } .schedule-form fieldset.schedule-limits { grid-template-columns:1fr; } }
 @media (prefers-reduced-motion:reduce) { .discovery-progress-fill { transition:none; } }
 /* SNMP plan step 1.3 rev. 4: version picker (v3 recommended, v2c with its trade-off note). Text colours are >= 4.5:1 on their backgrounds. */

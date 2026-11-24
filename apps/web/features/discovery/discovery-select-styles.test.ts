@@ -27,3 +27,26 @@ describe('Discovery selector styling', () => {
     expect(schedule).not.toContain('AUTOMAÇÃO');
   });
 });
+
+const enrichment = readFileSync(resolve(process.cwd(), 'features/discovery/discovery-snmp-enrichment.tsx'), 'utf8');
+/** Every declaration block whose whole selector is `selector`, joined, so a later override counts too. */
+const rule = (selector: string) => [...styles.matchAll(new RegExp(`(?:^|\\n|\\})${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{([^}]*)\\}`, 'g'))].map((match) => match[1]).join(';');
+
+describe('Discovery selects stay inside a 360 px viewport', () => {
+  it('constrains the SNMP enrichment fieldset, its credential select and lets the hint wrap', () => {
+    expect(enrichment).toMatch(/<fieldset className="[^"]*\bdiscovery-snmp-enrichment\b/);
+    expect(rule('.discovery-snmp-enrichment')).toMatch(/min-width:\s*0/);
+    expect(rule('.discovery-snmp-enrichment')).toMatch(/max-width:\s*100%/);
+    expect(rule('.discovery-snmp-enrichment label')).toMatch(/min-width:\s*0/);
+    const select = rule('.discovery-snmp-enrichment select');
+    expect(select).toMatch(/width:\s*100%/);
+    expect(select).toMatch(/min-width:\s*0/);
+    expect(select).toMatch(/max-width:\s*100%/);
+    expect(rule('.discovery-snmp-enrichment small')).toMatch(/overflow-wrap:\s*anywhere/);
+  });
+
+  it('constrains the run comparison select, whose options carry long run names', () => {
+    expect(rule('.discovery-compare-select select')).toMatch(/min-width:\s*0/);
+    expect(rule('.discovery-compare-select select')).toMatch(/max-width:\s*100%/);
+  });
+});
