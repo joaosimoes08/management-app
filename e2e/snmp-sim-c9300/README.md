@@ -83,3 +83,17 @@ The spec polls the healthy (udp 16161) and degraded (udp 16162) stack over SNMPv
 `walk-check.mjs` now fails (instead of passing the refusal checks) when the simulator is not answering valid credentials.
 
 The image pins snmpsim 1.1.7 and pysnmp 6.2.6, the same as `e2e/snmp-trap-lab/snmpsim`. Newer versions fail SNMPv3 privacy against net-snmp clients.
+
+## Health alert check (Phase 2 step 9)
+
+`alert-check.sh` starts the simulator, runs `apps/api/test/health-alerts.sim.spec.ts` and always stops it again. The spec polls
+the simulator over SNMPv3 with the worker's own code, stores each reading and history sample the way the worker does, and runs
+the API's health alert reconcile. It needs `DATABASE_URL` pointing at an isolated, migrated database whose name ends in `_test`:
+
+```sh
+DATABASE_URL=postgresql://…/simoes_test ./e2e/snmp-sim-c9300/alert-check.sh
+```
+
+Sequence: healthy (no alerts) → degraded (CPU, memory and temperature HIGH, PSU and fan CRITICAL, reboot HIGH) → degraded
+again (same alerts, no duplicates) → healthy (all resolved except the reboot, which is kept 24 h and resolves once that window has passed).
+The simulator's interface error counters are static, so the interface error-rate alert is covered by the unit and database tests instead.

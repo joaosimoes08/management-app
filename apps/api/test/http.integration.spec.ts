@@ -436,6 +436,56 @@ test('enforces SNMP roles, Site isolation and disabled SET over HTTP', async () 
   assert.equal((await request('GET', `/api/v1/snmp/devices/${ids.deviceA}/health`, 'qa-auditor')).statusCode, 200);
   assert.equal((await request('GET', `/api/v1/snmp/devices/${ids.deviceB}/health`, 'qa-network-scoped')).statusCode, 404);
   assert.equal((await request('GET', `/api/v1/snmp/devices/${ids.deviceA}/health`, 'qa-systems-scoped')).statusCode, 403);
+  // SNMP Phase 2 step 9: health alert limits per site and device, and the 30-day health history.
+  const healthDefaults = await request('GET', '/api/v1/snmp/health-thresholds/defaults', 'qa-readonly');
+  assert.equal(healthDefaults.statusCode, 200, healthDefaults.body);
+  assert.deepEqual(healthDefaults.json().defaults, { cpuPercent: 90, cpuSustainMinutes: 5, memoryPercent: 90, temperatureHighCelsius: null, temperatureCriticalCelsius: null, interfaceErrorsPerMinute: 10 });
+  assert.equal(healthDefaults.json().historyRetentionDays, 30);
+  const siteLimits = await request('GET', `/api/v1/snmp/sites/${ids.siteA}/health-thresholds`, 'qa-auditor');
+  assert.equal(siteLimits.statusCode, 200, siteLimits.body);
+  assert.equal(siteLimits.json().site, null);
+  assert.equal(siteLimits.json().effective.cpuPercent, 90);
+  assert.equal((await request('PUT', `/api/v1/snmp/sites/${ids.siteA}/health-thresholds`, 'qa-readonly', { cpuPercent: 80 })).statusCode, 403);
+  assert.equal((await request('PUT', `/api/v1/snmp/sites/${ids.siteA}/health-thresholds`, 'qa-auditor', { cpuPercent: 80 })).statusCode, 403);
+  assert.equal((await request('PUT', `/api/v1/snmp/sites/${ids.siteA}/health-thresholds`, 'qa-admin', { cpuPercent: 101 })).statusCode, 400);
+  assert.equal((await request('PUT', `/api/v1/snmp/sites/${ids.siteA}/health-thresholds`, 'qa-admin', { bogus: 1 })).statusCode, 400);
+  const badTemps = await request('PUT', `/api/v1/snmp/sites/${ids.siteA}/health-thresholds`, 'qa-admin', { temperatureHighCelsius: 60, temperatureCriticalCelsius: 50 });
+  assert.equal(badTemps.statusCode, 400);
+  assert.equal(badTemps.json().code, 'SNMP_HEALTH_THRESHOLD_INVALID');
+  const siteSaved = await request('PUT', `/api/v1/snmp/sites/${ids.siteA}/health-thresholds`, 'qa-admin', { cpuPercent: 80, memoryPercent: 85 });
+  assert.equal(siteSaved.statusCode, 200, siteSaved.body);
+  assert.equal(siteSaved.json().site.cpuPercent, 80);
+  assert.equal(siteSaved.json().sources.cpuPercent, 'SITE');
+  assert.equal(siteSaved.json().sources.cpuSustainMinutes, 'DEFAULT');
+  const networkWrite = await request('PUT', `/api/v1/snmp/devices/${ids.deviceA}/health-thresholds`, 'qa-network-scoped', { cpuPercent: 95, temperatureHighCelsius: 55 });
+  assert.equal(networkWrite.statusCode, 200, networkWrite.body);
+  const deviceLimits = await request('GET', `/api/v1/snmp/devices/${ids.deviceA}/health-thresholds`, 'qa-readonly');
+  assert.equal(deviceLimits.statusCode, 200);
+  assert.deepEqual(deviceLimits.json().effective, { cpuPercent: 95, cpuSustainMinutes: 5, memoryPercent: 85, temperatureHighCelsius: 55, temperatureCriticalCelsius: null, interfaceErrorsPerMinute: 10 });
+  assert.deepEqual(deviceLimits.json().sources, { cpuPercent: 'DEVICE', cpuSustainMinutes: 'DEFAULT', memoryPercent: 'SITE', temperatureHighCelsius: 'DEVICE', temperatureCriticalCelsius: 'DEFAULT', interfaceErrorsPerMinute: 'DEFAULT' });
+  assert.equal(deviceLimits.json().device.updatedById, ids.scoped);
+  // PUT replaces: omitted fields go back to inheriting.
+  const reset = await request('PUT', `/api/v1/snmp/devices/${ids.deviceA}/health-thresholds`, 'qa-network-scoped', { cpuPercent: 95 });
+  assert.equal(reset.json().sources.temperatureHighCelsius, 'DEFAULT');
+  assert.equal((await prisma.auditLog.count({ where: { action: 'SNMP_HEALTH_THRESHOLDS_UPDATED', entityId: { in: [ids.siteA, ids.deviceA] } } })), 3);
+  assert.equal((await request('PUT', `/api/v1/snmp/devices/${ids.deviceA}/health-thresholds`, 'qa-readonly', { cpuPercent: 95 })).statusCode, 403);
+  assert.equal((await request('GET', `/api/v1/snmp/devices/${ids.deviceB}/health-thresholds`, 'qa-network-scoped')).statusCode, 404);
+  assert.equal((await request('PUT', `/api/v1/snmp/devices/${ids.deviceB}/health-thresholds`, 'qa-network-scoped', { cpuPercent: 95 })).statusCode, 404);
+  assert.equal((await request('GET', `/api/v1/snmp/devices/${ids.deviceA}/health-thresholds`, 'qa-systems-scoped')).statusCode, 403);
+  assert.equal((await request('GET', `/api/v1/snmp/devices/not-a-uuid/health-thresholds`, 'qa-admin')).statusCode, 400);
+  await prisma.snmpDeviceHealthSample.createMany({ data: [
+    { deviceId: ids.deviceA, observedAt: new Date(Date.now() - 2 * 3_600_000), status: 'OK', cpu5sPercent: 20, memoryUsedPercent: 50, issueCount: 0, rebooted: false },
+    { deviceId: ids.deviceA, observedAt: new Date(Date.now() - 60_000), status: 'DEGRADED', cpu5sPercent: 97, memoryUsedPercent: 94, issueCount: 1, rebooted: true },
+  ] });
+  const lastHour = await request('GET', `/api/v1/snmp/devices/${ids.deviceA}/health/history?hours=1`, 'qa-readonly');
+  assert.equal(lastHour.statusCode, 200, lastHour.body);
+  assert.equal(lastHour.json().retentionDays, 30);
+  assert.deepEqual(lastHour.json().items.map((item: { cpu5sPercent: number; rebooted: boolean }) => [item.cpu5sPercent, item.rebooted]), [[97, true]]);
+  assert.equal((await request('GET', `/api/v1/snmp/devices/${ids.deviceA}/health/history`, 'qa-auditor')).json().items.length, 2);
+  const badRange = await request('GET', `/api/v1/snmp/devices/${ids.deviceA}/health/history?hours=721`, 'qa-readonly');
+  assert.equal(badRange.statusCode, 400);
+  assert.equal(badRange.json().code, 'SNMP_HEALTH_HISTORY_RANGE_INVALID');
+  assert.equal((await request('GET', `/api/v1/snmp/devices/${ids.deviceB}/health/history`, 'qa-network-scoped')).statusCode, 404);
 
   const config = { enabled: true, port: 161, intervalMinutes: 15, timeoutMs: 1000, retries: 1, compatibilitySha1: false };
   assert.equal((await request('PATCH', `/api/v1/snmp/devices/${ids.deviceA}/config`, 'qa-network-scoped', config)).statusCode, 403);

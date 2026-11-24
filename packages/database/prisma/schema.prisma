@@ -424,6 +424,7 @@ model Site {
   snmpTrapEnrollments       SnmpTrapEnrollment[]
   operationalAlerts         OperationalAlert[]
   alertRules                AlertRule[]
+  snmpHealthThreshold       SnmpHealthThreshold?
   maintenanceWindows        MaintenanceWindow[]
   dashboardLayouts          DashboardLayout[]
   dashboardPreferences      UserDashboardPreference[]
@@ -638,6 +639,8 @@ model Device {
   snmpJobs                  SnmpJob[]
   snmpSnapshots             SnmpSnapshot[]
   snmpHealth                SnmpDeviceHealth?
+  snmpHealthSamples         SnmpDeviceHealthSample[]
+  snmpHealthThreshold       SnmpHealthThreshold?
   snmpTraps                 SnmpTrapEvent[]
   snmpDrifts                SnmpDrift[]
   topologyProposals         TopologyProposal[]
@@ -1297,6 +1300,57 @@ model SnmpDeviceHealth {
   updatedAt         DateTime  @updatedAt
 
   @@index([status])
+}
+
+/// SNMP Phase 2 step 9: one health reading per device per successful health poll (every poll interval), kept 30 days
+/// (Joao's answer 13). The snmp worker deletes samples older than that; nothing else is ever deleted here.
+/// `interfaceErrors` is a compact list of cumulative IF-MIB error counters, so the error rate can be computed from two
+/// samples: [{ ifIndex, name, inErrors, outErrors }] with counters as decimal strings.
+model SnmpDeviceHealthSample {
+  id                    String   @id @default(uuid()) @db.Uuid
+  deviceId              String   @db.Uuid
+  observedAt            DateTime
+  status                String
+  cpu5sPercent          Float?
+  cpu1mPercent          Float?
+  cpu5mPercent          Float?
+  memoryUsedPercent     Float?
+  /// Hottest sensor reading, in degrees Celsius.
+  maxTemperatureCelsius Float?
+  issueCount            Int      @default(0)
+  rebooted              Boolean  @default(false)
+  interfaceErrors       Json?
+  device                Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  createdAt             DateTime @default(now())
+
+  @@index([deviceId, observedAt])
+  @@index([observedAt])
+}
+
+/// SNMP Phase 2 step 9: health alert limits overridden for one Site or one Device (exactly one of siteId/deviceId).
+/// A null field inherits: device override -> site override -> built-in default (Joao's answer 12).
+model SnmpHealthThreshold {
+  id                         String   @id @default(uuid()) @db.Uuid
+  siteId                     String?  @unique @db.Uuid
+  deviceId                   String?  @unique @db.Uuid
+  /// CPU busy above this percent for cpuSustainMinutes raises HIGH. Default 90.
+  cpuPercent                 Float?
+  /// Default 5.
+  cpuSustainMinutes          Int?
+  /// Memory used above this percent raises HIGH. Default 90.
+  memoryPercent              Float?
+  /// Sensor at or above this temperature raises HIGH. Default null: the device's own warning state.
+  temperatureHighCelsius     Float?
+  /// Sensor at or above this temperature raises CRITICAL. Default null: the device's own critical state.
+  temperatureCriticalCelsius Float?
+  /// Input + output errors per minute on one interface above this raises WARNING. Default 10.
+  interfaceErrorsPerMinute   Float?
+  /// User who last changed it (no FK, like audit metadata).
+  updatedById                String?  @db.Uuid
+  site                       Site?    @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  device                     Device?  @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
 }
 
 model SnmpInterfaceObservation {
