@@ -3237,3 +3237,46 @@ test('Discovery D-P1d: discovery candidates show their LLDP/CDP neighbour eviden
     await prisma.discoveryJob.deleteMany({ where: { id: { in: [jobA.id, jobB.id] } } });
   }
 });
+
+test('D-P1c identity candidates: suggestion-only, ranked with reasons, scoped to the devices the caller may read', async () => {
+  const visibleId = '92000000-0000-4000-8000-0000000d1c01', hiddenId = '92000000-0000-4000-8000-0000000d1c02';
+  await prisma.device.createMany({ data: [
+    { id: visibleId, name: 'DP1C Switch', hostname: 'dp1c-sw1.lab.local', serialNumber: 'FOCDP1C001', type: 'SWITCH', siteId: ids.siteA, rackId: ids.rackA },
+    { id: hiddenId, name: 'DP1C Hidden Switch', serialNumber: 'FOCDP1C002', type: 'SWITCH', siteId: ids.siteA, rackId: ids.rackSibling },
+  ] });
+  const job = await prisma.discoveryJob.create({ data: { name: 'D-P1c identity', subnetId: ids.subnetA, methods: ['ICMP'], tcpPorts: [], status: 'COMPLETED' } });
+  const snmp = (fields: Record<string, string>) => ({ status: 'OK', credentialId: '00000000-0000-4000-8000-00000000c0de', observedAt: new Date().toISOString(), durationMs: 5, fields: Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, { value, oid: '1.3.6.1', source: 'SNMP', credentialId: '00000000-0000-4000-8000-00000000c0de', observedAt: new Date().toISOString() }])) });
+  const bySerial = await prisma.discoveryResult.create({ data: { jobId: job.id, address: '10.250.1.150', icmpReachable: true, snmp: snmp({ entitySerial: 'focdp1c001', sysName: 'other-name' }) } });
+  const byIp = await prisma.discoveryResult.create({ data: { jobId: job.id, address: '10.250.1.2', icmpReachable: true } });
+  const hidden = await prisma.discoveryResult.create({ data: { jobId: job.id, address: '10.250.1.151', icmpReachable: true, snmp: snmp({ entitySerial: 'FOCDP1C002' }) } });
+  const conflict = await prisma.discoveryResult.create({ data: { jobId: job.id, address: '10.250.1.152', icmpReachable: true, snmp: snmp({ sysName: 'DP1C-SW1', entitySerial: 'FOCDP1C999' }) } });
+  const devicesBefore = await prisma.device.findMany({ where: { id: { in: [visibleId, hiddenId, ids.deviceA] } }, orderBy: { id: 'asc' } });
+  type Identity = { signals: string[]; ambiguous: boolean; candidates: { deviceId: string; confidence: string; reasons: { code: string }[] }[] };
+  const identities = async (actor: string) => {
+    const response = await request('GET', `/api/v1/discovery/jobs/${job.id}/results`, actor);
+    assert.equal(response.statusCode, 200, response.body);
+    return new Map((json(response) as { id: string; identity: Identity }[]).map((item) => [item.id, item.identity]));
+  };
+  try {
+    const scoped = await identities('qa-network-scoped');
+    const serialMatch = scoped.get(bySerial.id)!;
+    assert.deepEqual(serialMatch.signals, ['MANAGEMENT_IP', 'SERIAL', 'SYSNAME']);
+    assert.deepEqual(serialMatch.candidates.map((item) => [item.deviceId, item.confidence, item.reasons.map((reason) => reason.code).join('+')]), [[visibleId, 'HIGH', 'SERIAL_MATCH']]);
+    assert.deepEqual(scoped.get(byIp.id)!.candidates.map((item) => [item.deviceId, item.confidence]), [[ids.deviceA, 'MEDIUM']]);
+    assert.deepEqual(scoped.get(byIp.id)!.signals, ['MANAGEMENT_IP']);
+    assert.deepEqual(scoped.get(hidden.id)!.candidates, [], 'a device outside the caller scope is never suggested');
+    assert.deepEqual(scoped.get(conflict.id)!.candidates.map((item) => [item.deviceId, item.confidence, item.reasons.map((reason) => reason.code).join('+')]), [[visibleId, 'LOW', 'SYSNAME_MATCH+SERIAL_MISMATCH']]);
+
+    const admin = await identities('qa-admin');
+    assert.deepEqual(admin.get(hidden.id)!.candidates.map((item) => [item.deviceId, item.confidence]), [[hiddenId, 'HIGH']]);
+    assert.ok((await identities('qa-auditor')).get(bySerial.id)!.candidates.length, 'read roles see suggestions');
+
+    // Suggestion-only: listing never links, merges, reviews or edits anything.
+    assert.deepEqual(await prisma.device.findMany({ where: { id: { in: [visibleId, hiddenId, ids.deviceA] } }, orderBy: { id: 'asc' } }), devicesBefore);
+    assert.deepEqual((await prisma.discoveryResult.findMany({ where: { jobId: job.id } })).map((item) => item.status), ['PENDING', 'PENDING', 'PENDING', 'PENDING']);
+  } finally {
+    await prisma.discoveryResult.deleteMany({ where: { jobId: job.id } });
+    await prisma.discoveryJob.deleteMany({ where: { id: job.id } });
+    await prisma.device.deleteMany({ where: { id: { in: [visibleId, hiddenId] } } });
+  }
+});
