@@ -380,6 +380,21 @@ test('fix/discovery-scan-cancel-latency: a cancel ends a batch whose probes are 
   await new Promise((resolve) => setTimeout(resolve, hold)); // let the abandoned probes release their slots before the next test
 });
 
+test('fix/discovery-scan-cancel-latency: a cancel during slow reverse DNS ends the batch without waiting for the resolver', async () => {
+  let lookups = 0;
+  const slowReverse = async () => { lookups += 1; await new Promise((resolve) => setTimeout(resolve, 3_000)); return 'slow.example'; };
+  const job = await createJob({ reverseDns: true });
+  const scan = runDiscoveryScan(prisma, job.id, { probe, reverse: slowReverse, batchSize: 64, controlPollMs: 100 });
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  const requestedAt = await requestCancel(job.id);
+  assert.deepEqual(await scan, { status: 'CANCELLED', stopReason: 'CANCELLED' });
+  const latency = Date.now() - requestedAt;
+  assert.ok(latency < 600, `cancel took ${latency} ms after the request`);
+  assert.equal(lookups, 1, 'no further reverse lookups after the cancel');
+  assert.equal(await prisma.discoveryResult.count({ where: { jobId: job.id } }), 0);
+  await new Promise((resolve) => setTimeout(resolve, 3_000));
+});
+
 test('fix/discovery-scan-cancel-latency: a cancel while SNMP enrichment is in flight ends the batch without waiting for the SNMP timeout', async () => {
   await prisma.subnet.update({ where: { id: subnetId }, data: { discoverySnmpCredentialId: snmpCredentialId } });
   const hold = 3_000;
