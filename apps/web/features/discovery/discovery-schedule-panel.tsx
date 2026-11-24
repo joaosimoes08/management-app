@@ -21,8 +21,11 @@ export const MAX_SOCKETS_RANGE = [1, 1024] as const;
 
 const dateTime = (value: string | null, timeZone: string) => value ? formatDateTime(value, { dateStyle: 'medium', timeStyle: 'short', timeZone }) : '—';
 
-export function DiscoverySchedulePanel({ subnets, canEdit, onError }: { subnets: DiscoverySubnet[]; canEdit: boolean; onError: (message: string) => void }) {
-  const [subnetId, setSubnetId] = useState('');
+/** `subnetId`/`onSubnetChange` let the page pick the subnet (D-P2c overview row action); without them the panel keeps its own choice. */
+export function DiscoverySchedulePanel({ subnets, canEdit, onError, subnetId: selectedSubnetId, onSubnetChange }: { subnets: DiscoverySubnet[]; canEdit: boolean; onError: (message: string) => void; subnetId?: string; onSubnetChange?: (subnetId: string) => void }) {
+  const [ownSubnetId, setOwnSubnetId] = useState('');
+  const subnetId = selectedSubnetId ?? ownSubnetId;
+  const setSubnetId = onSubnetChange ?? setOwnSubnetId;
   const [form, setForm] = useState<DiscoveryScheduleInput>(freshForm);
   const [portsText, setPortsText] = useState('22, 80, 443, 3389');
   const [saving, setSaving] = useState(false);
@@ -34,8 +37,9 @@ export function DiscoverySchedulePanel({ subnets, canEdit, onError }: { subnets:
   const schedule = scheduleQuery.data;
 
   useEffect(() => {
-    if (!subnetId && subnets[0]) setSubnetId(subnets[0].id);
-  }, [subnets, subnetId]);
+    // Also when the Site changes and the chosen subnet is no longer in the list.
+    if (subnets[0] && !subnets.some((subnet) => subnet.id === subnetId)) setSubnetId(subnets[0].id);
+  }, [subnets, subnetId, setSubnetId]);
   useEffect(() => { setTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone || 'fuso local'); }, []);
   useEffect(() => {
     if (!schedule) return;
@@ -86,7 +90,7 @@ export function DiscoverySchedulePanel({ subnets, canEdit, onError }: { subnets:
     finally { setSaving(false); }
   };
 
-  return <section className="ipam-card discovery-schedule-card">
+  return <section id="discovery-schedule-panel" tabIndex={-1} className="ipam-card discovery-schedule-card">
     <div className="panel-heading"><div><h2>Schedules de Discovery</h2><p className="panel-description">Uma configuração por subnet. O intervalo permitido é de 1 a 168 horas.</p></div><CalendarClock size={18} /></div>
     {!subnets.length ? <div className="no-data">Não há subnets disponíveis neste Site.</div> : <>
       <label className="schedule-subnet-select">Subnet<select className="context-toolbar-selector" value={subnetId} onChange={(event) => setSubnetId(event.target.value)}>{subnets.map((subnet) => <option key={subnet.id} value={subnet.id}>{subnet.cidr}</option>)}</select></label>
@@ -108,7 +112,7 @@ export function DiscoverySchedulePanel({ subnets, canEdit, onError }: { subnets:
             <small id="schedule-limits-help">Aplicam-se a todas as execuções desta subnet, manuais e agendadas. Cada ping ou ligação TCP conta como uma sonda. Vazio usa o valor predefinido (em cinzento).</small>
           </fieldset>
           <label className="schedule-reverse-dns"><input type="checkbox" disabled={!canEdit} checked={form.reverseDns} onChange={(event) => setForm({ ...form, reverseDns: event.target.checked })} /> Resolver reverse DNS</label>
-          {canEdit && <div className="schedule-actions"><button type="button" className="secondary-button" onClick={() => void setEnabled()} disabled={saving}>{form.enabled ? <><Pause size={14} /> Pausar</> : <><Play size={14} /> Ativar</>}</button><button className="primary-button" type="submit" disabled={saving || scheduleQuery.isFetching}><Save size={14} />{saving ? 'A guardar…' : schedule?.subnetId ? 'Guardar alterações' : 'Criar schedule pausado'}</button></div>}
+          {canEdit && <div className="schedule-actions"><button type="button" className="secondary-button" onClick={() => void setEnabled()} disabled={saving}>{form.enabled ? <><Pause size={14} /> Pausar</> : <><Play size={14} /> Ativar</>}</button><button className="primary-button" type="submit" disabled={saving || scheduleQuery.isFetching}><Save size={14} />{saving ? 'A guardar…' : schedule?.id ? 'Guardar alterações' : 'Criar schedule pausado'}</button></div>}
         </form>
       </>}
     </>}

@@ -55,6 +55,8 @@ const operationalFiles = [
   'apps/web/features/discovery/discovery-status.ts',
   'apps/web/features/discovery/discovery-run-parts.tsx',
   'apps/web/features/discovery/discovery-schedule-panel.tsx',
+  // D-P2c discovery schedules overview
+  'apps/web/features/discovery/discovery-schedules-overview.tsx',
   'apps/web/features/snmp/snmp-fleet.tsx',
   'apps/web/features/snmp/snmp-page.tsx',
   'apps/web/features/snmp/snmp-drifts.tsx',
