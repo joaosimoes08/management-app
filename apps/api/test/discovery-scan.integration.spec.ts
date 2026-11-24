@@ -380,6 +380,43 @@ test('fix/discovery-scan-cancel-latency: a cancel ends a batch whose probes are 
   await new Promise((resolve) => setTimeout(resolve, hold)); // let the abandoned probes release their slots before the next test
 });
 
+test('fix/discovery-scan-cancel-latency: a cancel while SNMP enrichment is in flight ends the batch without waiting for the SNMP timeout', async () => {
+  await prisma.subnet.update({ where: { id: subnetId }, data: { discoverySnmpCredentialId: snmpCredentialId } });
+  const hold = 3_000;
+  let started = 0;
+  const slowSnmp: NonNullable<ScanDependencies['snmpEnricher']> = async (credentialId) => ({
+    enricher: (address, limiter) => limiter.run(async () => {
+      started += 1;
+      await new Promise((resolve) => setTimeout(resolve, hold));
+      return buildEnrichment({ sysObjectId: '1.3.6.1.4.1.9.1.2494', sysDescr: 'IOS XE', sysName: `sw-${address}`, entity: null }, credentialId, new Date(), 1);
+    }),
+  });
+  const job = await createJob();
+  const scan = runDiscoveryScan(prisma, job.id, { probe, batchSize: 16, controlPollMs: 100, snmpEnricher: slowSnmp });
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  const requestedAt = await requestCancel(job.id);
+  assert.deepEqual(await scan, { status: 'CANCELLED', stopReason: 'CANCELLED' });
+  const latency = Date.now() - requestedAt;
+  assert.ok(started > 0, 'SNMP requests were in flight when the cancel arrived');
+  assert.ok(latency < 600, `cancel took ${latency} ms after the request`);
+  const stored = await prisma.discoveryJob.findUniqueOrThrow({ where: { id: job.id } });
+  assert.deepEqual([stored.processedCount, stored.snmpEnrichedCount, await prisma.discoveryResult.count({ where: { jobId: job.id } })], [0, 0, 0], 'the unfinished batch is not saved');
+  await new Promise((resolve) => setTimeout(resolve, hold));
+});
+
+// D-P2a: structured per-host outcomes and per-run counts.
+const detailedProbe: ScanDependencies['probe'] = async (address, methods, tcpPorts) => {
+  const last = Number(address.split('.')[3]);
+  const answers = reachable(address);
+  const tcp = methods.includes('TCP') ? tcpPorts.map((port) => ({ port, state: (address.endsWith('.10') && port === 22 ? 'OPEN' : last % 2 ? 'TIMEOUT' : 'REFUSED') as 'OPEN' | 'REFUSED' | 'TIMEOUT' })) : undefined;
+  return { address, icmp: { reachable: methods.includes('ICMP') && answers, responseMs: answers ? 1 : undefined, status: answers ? 'REPLY' : last === 7 ? 'ERROR' : 'NO_REPLY' }, openPorts: tcp?.filter((item) => item.state === 'OPEN').map((item) => item.port) ?? [], tcp };
+};
+const fakeReverse = async (address: string) => {
+  if (address.endsWith('.5')) return 'sw5.example';
+  if (address.endsWith('.10')) throw Object.assign(new Error('queryPtr ETIMEOUT'), { code: 'ETIMEOUT' });
+  throw Object.assign(new Error('getHostByAddr ENOTFOUND'), { code: 'ENOTFOUND' });
+};
+
 test('fix/discovery-scan-cancel-latency: a cancel during slow reverse DNS ends the batch without waiting for the resolver', async () => {
   let lookups = 0;
   const slowReverse = async () => { lookups += 1; await new Promise((resolve) => setTimeout(resolve, 3_000)); return 'slow.example'; };
