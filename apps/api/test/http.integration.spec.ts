@@ -3258,7 +3258,8 @@ test('D-P1c identity candidates: suggestion-only, ranked with reasons, scoped to
     return new Map((json(response) as { id: string; identity: Identity }[]).map((item) => [item.id, item.identity]));
   };
   try {
-    const scoped = await identities('qa-network-scoped');
+    // qa-readonly and qa-auditor read room A only; the sibling room's switch must not be suggested to them.
+    const scoped = await identities('qa-readonly');
     const serialMatch = scoped.get(bySerial.id)!;
     assert.deepEqual(serialMatch.signals, ['MANAGEMENT_IP', 'SERIAL', 'SYSNAME']);
     assert.deepEqual(serialMatch.candidates.map((item) => [item.deviceId, item.confidence, item.reasons.map((reason) => reason.code).join('+')]), [[visibleId, 'HIGH', 'SERIAL_MATCH']]);
@@ -3267,9 +3268,11 @@ test('D-P1c identity candidates: suggestion-only, ranked with reasons, scoped to
     assert.deepEqual(scoped.get(hidden.id)!.candidates, [], 'a device outside the caller scope is never suggested');
     assert.deepEqual(scoped.get(conflict.id)!.candidates.map((item) => [item.deviceId, item.confidence, item.reasons.map((reason) => reason.code).join('+')]), [[visibleId, 'LOW', 'SYSNAME_MATCH+SERIAL_MISMATCH']]);
 
-    const admin = await identities('qa-admin');
-    assert.deepEqual(admin.get(hidden.id)!.candidates.map((item) => [item.deviceId, item.confidence]), [[hiddenId, 'HIGH']]);
-    assert.ok((await identities('qa-auditor')).get(bySerial.id)!.candidates.length, 'read roles see suggestions');
+    const auditor = await identities('qa-auditor');
+    assert.equal(auditor.get(bySerial.id)!.candidates[0].deviceId, visibleId);
+    assert.deepEqual(auditor.get(hidden.id)!.candidates, []);
+    // Callers whose scope covers the sibling room (site-wide write group, ADMIN) do get it.
+    for (const actor of ['qa-network-scoped', 'qa-admin']) assert.deepEqual((await identities(actor)).get(hidden.id)!.candidates.map((item) => [item.deviceId, item.confidence]), [[hiddenId, 'HIGH']], actor);
 
     // Suggestion-only: listing never links, merges, reviews or edits anything.
     assert.deepEqual(await prisma.device.findMany({ where: { id: { in: [visibleId, hiddenId, ids.deviceA] } }, orderBy: { id: 'asc' } }), devicesBefore);
