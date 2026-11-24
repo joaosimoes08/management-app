@@ -1,7 +1,9 @@
 #!/usr/bin/env node
-// Generates the two snmpsim data files for the simulated Cisco Catalyst C9300 2-member stack:
-//   data/c9300-healthy.snmprec   and   data/c9300-degraded.snmprec
-// Both come from one model so they stay structurally identical; the degraded variant only changes values.
+// Generates the snmpsim data files for the simulated Cisco Catalyst C9300 2-member stack:
+//   data/c9300-healthy.snmprec, data/c9300-degraded.snmprec and data/c9300-nolldp.snmprec
+// All come from one model so they stay structurally identical; the degraded variant only changes values, and the
+// nolldp variant is the healthy stack with LLDP-MIB absent (IOS XE default without `lldp run`), so only CDP
+// reports neighbours (Phase 2 step 11).
 // The data is synthetic (lab-only): names, serials, MACs and addresses are made up.
 //
 //   node e2e/snmp-sim-c9300/gen-snmprec.mjs          # rewrite both files
@@ -21,6 +23,7 @@ const ipHex = (ip) => ip.split('.').map((o) => Number(o).toString(16).padStart(2
 
 function model(variant) {
   const degraded = variant === 'degraded';
+  const lldp = variant !== 'nolldp';
   const rows = [];
   const add = (oid, type, value) => rows.push([oid, type, String(value)]);
 
@@ -234,6 +237,9 @@ function model(variant) {
     }
   }
 
+  // nolldp: the device has no LLDP-MIB at all, so the whole 1.0.8802 subtree is missing.
+  if (!lldp) for (let k = rows.length - 1; k >= 0; k -= 1) if (rows[k][0].startsWith('1.0.8802.')) rows.splice(k, 1);
+
   // snmpsim serves GETNEXT/GETBULK from the file order, so sort by numeric OID.
   const cmp = (a, b) => {
     const x = a[0].split('.').map(Number); const y = b[0].split('.').map(Number);
@@ -247,7 +253,7 @@ function model(variant) {
 
 const check = process.argv.includes('--check');
 let stale = false;
-for (const variant of ['healthy', 'degraded']) {
+for (const variant of ['healthy', 'degraded', 'nolldp']) {
   const file = join(here, 'data', `c9300-${variant}.snmprec`);
   const text = model(variant);
   if (check) {

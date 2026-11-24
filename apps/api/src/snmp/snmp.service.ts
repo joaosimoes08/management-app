@@ -416,7 +416,7 @@ export class SnmpService implements OnModuleDestroy, OnModuleInit {
         where: { OR: [{ sourceInterfaceId: iface.id }, { targetInterfaceId: iface.id }] },
         include: { sourceDevice: { select: { id: true, name: true, type: true } }, targetDevice: { select: { id: true, name: true, type: true } }, sourceInterface: { select: { name: true } }, targetInterface: { select: { name: true } } },
       }),
-      (this.prisma as any).lldpObservation.findMany({ where: { deviceId: iface.deviceId, OR: [{ localPortId: iface.name }, { localPortDescription: iface.name }] }, orderBy: { observedAt: 'desc' }, take: 20, select: { resolvedDeviceId: true, remoteSystemName: true, observedAt: true } }),
+      (this.prisma as any).lldpObservation.findMany({ where: { deviceId: iface.deviceId, OR: [{ localPortId: iface.name }, { localPortDescription: iface.name }] }, orderBy: { observedAt: 'desc' }, take: 20, select: { resolvedDeviceId: true, remoteSystemName: true, observedAt: true, protocol: true } }),
     ]);
     const knownImpacts: Array<{ id: string; name: string; type: string; href: string; source: string; observedAt?: string }> = [];
     let inaccessibleRelationships = 0;
@@ -432,7 +432,7 @@ export class SnmpService implements OnModuleDestroy, OnModuleInit {
       if (!observation.resolvedDeviceId || knownImpacts.some((item) => item.id === observation.resolvedDeviceId)) continue;
       try { await this.access.assertDevice(user, 'READ', observation.resolvedDeviceId); }
       catch { inaccessibleRelationships++; continue; }
-      knownImpacts.push({ id: observation.resolvedDeviceId, name: observation.remoteSystemName || 'Dispositivo observado por LLDP', type: 'NETWORK_DEVICE', href: `/infraestrutura?siteId=${encodeURIComponent(device.siteId ?? '')}&tab=devices&deviceId=${encodeURIComponent(observation.resolvedDeviceId)}`, source: 'LLDP_OBSERVATION', observedAt: observation.observedAt.toISOString() });
+      knownImpacts.push({ id: observation.resolvedDeviceId, name: observation.remoteSystemName || `Dispositivo observado por ${observation.protocol ?? 'LLDP'}`, type: 'NETWORK_DEVICE', href: `/infraestrutura?siteId=${encodeURIComponent(device.siteId ?? '')}&tab=devices&deviceId=${encodeURIComponent(observation.resolvedDeviceId)}`, source: 'LLDP_OBSERVATION', observedAt: observation.observedAt.toISOString() });
     }
     const snapshotAgeMs = snapshot ? now.getTime() - snapshot.observedAt.getTime() : null;
     const stale = snapshotAgeMs === null || snapshotAgeMs > 24 * 60 * 60 * 1000;

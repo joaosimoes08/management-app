@@ -1,6 +1,7 @@
 # Simulated Cisco Catalyst C9300 (2-member stack) for Phase 2 SNMP testing. LAB-ONLY.
 #   healthy  -> udp ${SIM_BIND:-127.0.0.1}:16161
 #   degraded -> udp ${SIM_BIND:-127.0.0.1}:16162
+#   nolldp   -> udp ${SIM_BIND:-127.0.0.1}:16163 (healthy, LLDP-MIB absent: CDP only)
 # Both answer SNMPv2c (community lab-public) and SNMPv3 authPriv: user labpoll, SHA "lab-poll-auth-pass",
 # AES-128 "lab-poll-priv-pass". These are test-only credentials; never reuse them on a real device.
 #   docker compose -f e2e/snmp-sim-c9300/docker-compose.yml up -d --build
@@ -34,3 +35,11 @@ services:
       SIM_VARIANT: degraded
     ports:
       - "${SIM_BIND:-127.0.0.1}:16162:1161/udp"
+
+  c9300-nolldp:
+    <<: *sim
+    environment:
+      <<: *sim-env
+      SIM_VARIANT: nolldp
+    ports:
+      - "${SIM_BIND:-127.0.0.1}:16163:1161/udp"
