@@ -14,4 +14,4 @@ for _ in $(seq 1 30); do
 done
 node "$root/e2e/snmp-sim-c9300/walk-check.mjs"
 cd "$root/apps/snmp"
-SNMP_SIM_C9300=1 TS_NODE_TRANSPILE_ONLY=true node --test -r ts-node/register src/neighbors.sim.spec.ts
+SNMP_SIM_C9300=1 TS_NODE_TRANSPILE_ONLY=true node --test -r ts-node/register src/neighbors.sim.spec.ts src/endpoints.sim.spec.ts

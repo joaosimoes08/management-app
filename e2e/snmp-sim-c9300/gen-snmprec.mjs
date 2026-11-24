@@ -237,6 +237,57 @@ function model(variant) {
     }
   }
 
+  // ---------- Endpoints (D-P1e): ARP (IP-MIB) and the bridge forwarding table (Q-BRIDGE/BRIDGE-MIB) ----------
+  // healthy/degraded expose the current tables (ipNetToPhysicalTable, dot1qTpFdbTable with an FDB-id -> VLAN map);
+  // nolldp exposes only the legacy ones (ipNetToMediaTable, dot1dTpFdbTable) so the parser's fallbacks are exercised.
+  // A laptop MAC is learned in two VLANs on purpose: MAC entries are keyed by VLAN, never merged into one identity.
+  // Degraded: uplink 2 is down, so core-sw-02 is gone from both tables.
+  const legacy = variant === 'nolldp';
+  const arp = [
+    { ifIndex: 1, ip: '10.250.70.31', mac: '00a3d1ab0031', type: 3 },
+    { ifIndex: 2, ip: '10.250.70.50', mac: '00a3d1ee0050', type: 3 },
+    { ifIndex: 49, ip: '10.250.70.1', mac: '00a3d1cc0001', type: 3 },
+    ...(degraded ? [] : [{ ifIndex: 50, ip: '10.250.70.2', mac: '00a3d1cc0002', type: 4 }]),
+  ];
+  const ipBytes = (ip) => ip.split('.').map(Number).join('.');
+  if (legacy) {
+    const media = '1.3.6.1.2.1.4.22.1'; // index: ifIndex.a.b.c.d
+    for (const a of arp) add(`${media}.2.${a.ifIndex}.${ipBytes(a.ip)}`, T.hex, a.mac);
+    for (const a of arp) add(`${media}.4.${a.ifIndex}.${ipBytes(a.ip)}`, T.int, a.type);
+  } else {
+    const phys = '1.3.6.1.2.1.4.35.1'; // index: ifIndex.addressType(ipv4=1).length(4).a.b.c.d
+    for (const a of arp) add(`${phys}.4.${a.ifIndex}.1.4.${ipBytes(a.ip)}`, T.hex, a.mac);
+    for (const a of arp) add(`${phys}.6.${a.ifIndex}.1.4.${ipBytes(a.ip)}`, T.int, a.type);
+  }
+  // Bridge port n -> ifIndex: 1-6 are the access ports, 7 and 8 the uplinks (ifIndex 49 and 50).
+  const bridgePorts = [1, 2, 3, 4, 5, 6, 49, 50];
+  bridgePorts.forEach((ifIndex, k) => add(`1.3.6.1.2.1.17.1.4.1.2.${k + 1}`, T.int, ifIndex));
+  const macBytes = (m) => m.match(/../g).map((h) => parseInt(h, 16)).join('.');
+  const fdb = [
+    { vlan: 70, port: 1, mac: '00a3d1ab0031', status: 3 },
+    { vlan: 70, port: 2, mac: '00a3d1ee0050', status: 3 },
+    { vlan: 70, port: 7, mac: '00a3d1cc0001', status: 3 },
+    ...(degraded ? [] : [{ vlan: 70, port: 8, mac: '00a3d1cc0002', status: 3 }]),
+    { vlan: 80, port: 3, mac: '00a3d1ee0050', status: 3 },
+    { vlan: 80, port: 0, mac: mac(0xa1), status: 4 },
+  ];
+  if (legacy) {
+    // BRIDGE-MIB has no VLAN in its index; keep the VLAN 70 rows (what a Cisco default context answers).
+    const tp = '1.3.6.1.2.1.17.4.3.1'; // index: mac (6 bytes)
+    const rowsV70 = fdb.filter((f) => f.vlan === 70);
+    for (const f of rowsV70) add(`${tp}.1.${macBytes(f.mac)}`, T.hex, f.mac);
+    for (const f of rowsV70) add(`${tp}.2.${macBytes(f.mac)}`, T.int, f.port);
+    for (const f of rowsV70) add(`${tp}.3.${macBytes(f.mac)}`, T.int, f.status);
+  } else {
+    // dot1qVlanFdbId: VLAN 70 uses FDB 2, VLAN 80 uses FDB 3 (index: timeMark.vlanIndex).
+    add('1.3.6.1.2.1.17.7.1.4.2.1.3.0.70', T.g32, 2);
+    add('1.3.6.1.2.1.17.7.1.4.2.1.3.0.80', T.g32, 3);
+    const fdbId = (vlan) => (vlan === 70 ? 2 : 3);
+    const q = '1.3.6.1.2.1.17.7.1.2.2.1'; // index: fdbId.mac (6 bytes)
+    for (const f of fdb) add(`${q}.2.${fdbId(f.vlan)}.${macBytes(f.mac)}`, T.int, f.port);
+    for (const f of fdb) add(`${q}.3.${fdbId(f.vlan)}.${macBytes(f.mac)}`, T.int, f.status);
+  }
+
   // nolldp: the device has no LLDP-MIB at all, so the whole 1.0.8802 subtree is missing.
   if (!lldp) for (let k = rows.length - 1; k >= 0; k -= 1) if (rows[k][0].startsWith('1.0.8802.')) rows.splice(k, 1);
 

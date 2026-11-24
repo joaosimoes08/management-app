@@ -9,10 +9,11 @@ import { TopologyReconciliationService } from './topology-reconciliation.service
 import { SnmpFleetService } from './snmp-fleet.service';
 import { SnmpHealthThresholdsService } from './snmp-health-thresholds.service';
 import { DiscoveryTopologyLinkService } from './discovery-topology-link.service';
+import { SnmpEndpointsService } from './snmp-endpoints.service';
 
 @ApiTags('snmp') @ApiBearerAuth() @Controller({ path: 'snmp', version: '1' })
 export class SnmpController {
-  constructor(private readonly service: SnmpService, private readonly reconciliation: TopologyReconciliationService, private readonly fleet: SnmpFleetService, private readonly healthThresholds: SnmpHealthThresholdsService, private readonly discoveryLink: DiscoveryTopologyLinkService) {}
+  constructor(private readonly service: SnmpService, private readonly reconciliation: TopologyReconciliationService, private readonly fleet: SnmpFleetService, private readonly healthThresholds: SnmpHealthThresholdsService, private readonly discoveryLink: DiscoveryTopologyLinkService, private readonly endpoints: SnmpEndpointsService) {}
   @Get('fleet/summary') @Roles('ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY') fleetSummary(@Req() req: { user: AuthenticatedUser }, @Query('siteId') siteId?: string) { return this.fleet.fleetSummary(req.user, siteId); }
   @Get('health') @Roles('ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY') healthSummary(@Req() req: { user: AuthenticatedUser }, @Query('siteId') siteId?: string, @Query('deviceIds') deviceIds?: string) { return this.fleet.healthSummary(req.user, { siteId, deviceIds }); }
   @Get('drifts') @Roles('ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY') drifts(@Req() req: { user: AuthenticatedUser }, @Query('status') status?: string, @Query('siteId') siteId?: string, @Query('deviceId') deviceId?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) { return this.fleet.listDrifts(req.user, { status, siteId, deviceId, page, pageSize }); }
@@ -21,6 +22,9 @@ export class SnmpController {
   @Get('devices/:deviceId/lldp-observations') @Roles('ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY') async lldpObservations(@Param('deviceId') deviceId: string, @Req() req: { user: AuthenticatedUser }) { return this.discoveryLink.withDiscoveryCandidates(req.user, await this.reconciliation.observations(deviceId, req.user)); }
   /** Discovery D-P1d: LLDP/CDP neighbour evidence and link proposals for the addresses a discovery job found. Read-only. */
   @Get('discovery/jobs/:jobId/neighbors') @Roles('ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY') discoveryJobNeighbors(@Param('jobId', ParseUUIDPipe) jobId: string, @Req() req: { user: AuthenticatedUser }) { return this.discoveryLink.jobNeighbors(req.user, jobId); }
+  // Discovery D-P1e: ARP and MAC forwarding sightings (read-only, device-scoped).
+  @Get('devices/:deviceId/endpoints') @Roles('ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY') deviceEndpoints(@Param('deviceId', ParseUUIDPipe) deviceId: string, @Req() req: { user: AuthenticatedUser }) { return this.endpoints.deviceEndpoints(req.user, deviceId); }
+  @Get('endpoints') @Roles('ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY') endpointLookup(@Query('mac') mac: string | undefined, @Query('ip') ip: string | undefined, @Req() req: { user: AuthenticatedUser }) { return this.endpoints.lookup(req.user, { mac, ip }); }
   @Post('topology-proposals/:id/apply') @Roles('ADMIN', 'NETWORK_OPERATOR') applyProposal(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.reconciliation.apply(id, req.user); }
   @Post('topology-proposals/:id/reject') @Roles('ADMIN', 'NETWORK_OPERATOR') rejectProposal(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.reconciliation.reject(id, req.user); }
   @Post('topology-proposals/:id/undo') @Roles('ADMIN', 'NETWORK_OPERATOR') undoProposal(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.reconciliation.undo(id, req.user); }

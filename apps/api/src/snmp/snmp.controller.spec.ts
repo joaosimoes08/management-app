@@ -32,6 +32,12 @@ describe('SNMP endpoint authorization policy', () => {
   });
 });
 
+describe('D-P1e endpoint sightings', () => {
+  it('are read-only and open to the read roles', () => {
+    for (const method of ['deviceEndpoints', 'endpointLookup'] as const) assert.deepEqual(roles(method), ['ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY']);
+  });
+});
+
 describe('fix F2: credential delete force flag', () => {
   it('accepts only true/false and defaults to not forced', () => {
     assert.equal(parseForce(undefined), false);

@@ -2,6 +2,7 @@ import { Prisma, PrismaClient } from '@simoes/database';
 import { SNMP_JOB_NAMES } from '@simoes/snmp-core';
 import { createSnmpSession, get, pollLldp, pollStandard, withDeadline } from './client';
 import { healthRecord, healthSample, pollDeviceHealth } from './device-health';
+import { EndpointTables, pollEndpoints } from './endpoints';
 import { DeviceLocks } from './locks';
 import { ObservedNeighbor, observedNeighbors, pollFallbackNeighbors } from './neighbors';
 import { log, publicErrorCode } from './log';
@@ -83,9 +84,10 @@ export class PollProcessor {
         await this.replaceDrifts(job.deviceId, snapshot.id, job.device, result, byName);
         await this.createTopologyProposals(job.deviceId, snapshot.id, result.interfaces, existingInterfaces, job.device.siteId);
         const healthStatus = await this.storeHealth(job.deviceId, job.id, session, result.system);
+        const endpoints = await this.storeEndpoints(job.deviceId, job.id, session, result.interfaces);
         const nextPollAt = new Date(Date.now() + config.intervalMinutes * 60 * 1000);
         await this.prisma.$transaction([
-          this.prisma.snmpJob.update({ where: { id: job.id }, data: { status: 'COMPLETED', completedAt: new Date(), result: { snapshotId: snapshot.id, interfaceCount: result.interfaces.length, healthStatus } } }),
+          this.prisma.snmpJob.update({ where: { id: job.id }, data: { status: 'COMPLETED', completedAt: new Date(), result: { snapshotId: snapshot.id, interfaceCount: result.interfaces.length, healthStatus, endpoints } } }),
           this.prisma.snmpDeviceConfig.update({ where: { id: config.id }, data: { lastPollAt: new Date(), nextPollAt, lastStatus: 'COMPLETED', lastErrorCode: null, consecutiveFailures: 0 } }),
           this.prisma.snmpCredential.update({ where: { id: job.credential!.id }, data: { lastUsedAt: new Date() } }),
           this.prisma.auditLog.create({ data: { userId: job.requestedBy, action: 'SNMP_POLL_COMPLETED', entityType: 'Device', entityId: job.deviceId, metadata: { jobId: job.id, credentialId: job.credential!.id, snapshotId: snapshot.id, interfaceCount: result.interfaces.length } } }),
@@ -127,6 +129,53 @@ export class PollProcessor {
       log('warn', 'health poll failed', { deviceId, jobId, errorCode: publicErrorCode(error) });
       return null;
     }
+  }
+
+  /**
+   * Discovery D-P1e: ARP and MAC forwarding sightings, after health. Best effort like health: a device without these
+   * MIBs, or a failed walk or write, never fails the standard poll. Rows are upserted on their keys (first seen kept,
+   * last seen and port moved forward); rows not seen this poll stay until the 30-day retention removes them.
+   * Returns the counts stored, or null when nothing was stored.
+   */
+  private async storeEndpoints(deviceId: string, jobId: string, session: Parameters<typeof pollEndpoints>[0], interfaces: Awaited<ReturnType<typeof pollStandard>>['interfaces']) {
+    try {
+      const tables = await pollEndpoints(session);
+      if (!tables.arp.length && !tables.mac.length) return null;
+      await this.writeEndpoints(deviceId, jobId, tables, new Map(interfaces.map((item) => [item.ifIndex, item.name ?? item.description ?? null])), new Date());
+      return { arp: tables.arp.length, mac: tables.mac.length, arpSource: tables.arpSource, macSource: tables.macSource, truncated: tables.truncated };
+    } catch (error) {
+      log('warn', 'endpoint poll failed', { deviceId, jobId, errorCode: publicErrorCode(error) });
+      return null;
+    }
+  }
+
+  /** One statement per table (unnest + ON CONFLICT), so a 20 000-row forwarding table is two round trips. */
+  async writeEndpoints(deviceId: string, jobId: string, tables: EndpointTables, names: Map<number, string | null>, seenAt: Date) {
+    const name = (ifIndex: number | null) => (ifIndex === null ? null : names.get(ifIndex) ?? null);
+    const writes: Prisma.PrismaPromise<number>[] = [];
+    if (tables.arp.length) {
+      const a = tables.arp;
+      writes.push(this.prisma.$executeRaw`
+        INSERT INTO "SnmpArpEntry" ("id", "deviceId", "ipAddress", "macAddress", "ifIndex", "interfaceName", "entryType", "source", "firstSeenAt", "lastSeenAt", "jobId")
+        SELECT gen_random_uuid(), ${deviceId}::uuid, r.ip, r.mac, r.if_index, r.if_name, r.entry_type, ${tables.arpSource}, ${seenAt}, ${seenAt}, ${jobId}::uuid
+        FROM unnest(${a.map((x) => x.ipAddress)}::text[], ${a.map((x) => x.macAddress)}::text[], ${a.map((x) => x.ifIndex)}::int[], ${a.map((x) => name(x.ifIndex))}::text[], ${a.map((x) => x.type)}::text[])
+          AS r(ip, mac, if_index, if_name, entry_type)
+        ON CONFLICT ("deviceId", "ipAddress", "macAddress") DO UPDATE SET
+          "ifIndex" = EXCLUDED."ifIndex", "interfaceName" = EXCLUDED."interfaceName", "entryType" = EXCLUDED."entryType",
+          "source" = EXCLUDED."source", "lastSeenAt" = EXCLUDED."lastSeenAt", "jobId" = EXCLUDED."jobId"`);
+    }
+    if (tables.mac.length) {
+      const m = tables.mac;
+      writes.push(this.prisma.$executeRaw`
+        INSERT INTO "SnmpMacEntry" ("id", "deviceId", "vlanId", "macAddress", "bridgePort", "ifIndex", "interfaceName", "status", "source", "firstSeenAt", "lastSeenAt", "jobId")
+        SELECT gen_random_uuid(), ${deviceId}::uuid, r.vlan, r.mac, r.bridge_port, r.if_index, r.if_name, r.status, ${tables.macSource}, ${seenAt}, ${seenAt}, ${jobId}::uuid
+        FROM unnest(${m.map((x) => x.vlanId ?? 0)}::int[], ${m.map((x) => x.macAddress)}::text[], ${m.map((x) => x.bridgePort)}::int[], ${m.map((x) => x.ifIndex)}::int[], ${m.map((x) => name(x.ifIndex))}::text[], ${m.map((x) => x.status)}::text[])
+          AS r(vlan, mac, bridge_port, if_index, if_name, status)
+        ON CONFLICT ("deviceId", "vlanId", "macAddress") DO UPDATE SET
+          "bridgePort" = EXCLUDED."bridgePort", "ifIndex" = EXCLUDED."ifIndex", "interfaceName" = EXCLUDED."interfaceName", "status" = EXCLUDED."status",
+          "source" = EXCLUDED."source", "lastSeenAt" = EXCLUDED."lastSeenAt", "jobId" = EXCLUDED."jobId"`);
+    }
+    await this.prisma.$transaction(writes);
   }
 
   /**

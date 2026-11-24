@@ -119,3 +119,21 @@ DATABASE_URL=postgresql://…/simoes_test ./e2e/snmp-sim-c9300/alert-check.sh
 Sequence: healthy (no alerts) → degraded (CPU, memory and temperature HIGH, PSU and fan CRITICAL, reboot HIGH) → degraded
 again (same alerts, no duplicates) → healthy (all resolved except the reboot, which is kept 24 h and resolves once that window has passed).
 The simulator's interface error counters are static, so the interface error-rate alert is covered by the unit and database tests instead.
+
+## Endpoint tables (Discovery D-P1e)
+
+The data files also carry ARP and bridge forwarding (MAC -> port) tables, read-only, for the endpoint collection:
+
+| Variant | ARP | Forwarding table |
+|---|---|---|
+| `healthy` | IP-MIB `ipNetToPhysicalTable` (4 rows) | Q-BRIDGE `dot1qTpFdbTable` (6 rows; FDB 2 = VLAN 70, FDB 3 = VLAN 80 via `dot1qVlanFdbId`) |
+| `degraded` | as healthy, without core-sw-02 (uplink 2 down) | as healthy, without core-sw-02 |
+| `nolldp` | legacy RFC1213 `ipNetToMediaTable` only | legacy BRIDGE-MIB `dot1dTpFdbTable` only (no VLAN) |
+
+Bridge ports 1-6 map to ifIndex 1-6 and ports 7/8 to the uplinks (ifIndex 49/50) through `dot1dBasePortIfIndex`.
+One laptop MAC (`00:a3:d1:ee:00:50`) is learned in VLAN 70 and VLAN 80: it is stored as two sightings, never merged.
+`cdp-check.sh` also runs `apps/snmp/src/endpoints.sim.spec.ts`, which polls `nolldp` then `healthy` with the real poll job
+and reads the stored rows back.
+
+Not simulated: Cisco's per-VLAN community/context indexing (`community@vlan`, v3 `context vlan-<id>`) for BRIDGE-MIB.
+The poller reads the default context only.
