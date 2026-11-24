@@ -38,6 +38,20 @@ test('never more probes in flight than the socket cap, even when 64 hosts × 64 
   assert.equal(limiter.peakInFlight, 8);
 });
 
+test('4096-host load profile holds both the configured rate and socket cap with a fake prober', async () => {
+  const { clock, at } = fakeClock();
+  const limiter = new ProbeLimiter({ probesPerSecond: 20, maxSockets: 7 }, clock);
+  let active = 0; let peak = 0; const starts: number[] = [];
+  await Promise.all(Array.from({ length: 4096 }, (_, i) => limiter.run(async () => {
+    starts.push(at()); active++; peak = Math.max(peak, active); active--; return i;
+  })));
+  assert.equal(starts.length, 4096);
+  assert.ok(peak <= 7);
+  starts.sort((a, b) => a - b);
+  const elapsed = starts.at(-1)! - starts[0];
+  assert.ok(elapsed >= (4096 - 7) * 50, `4096 starts took ${elapsed} ms; minimum after socket concurrency is ${(4096 - 7) * 50} ms`);
+});
+
 test('probes are spaced evenly at the configured rate (10/s = one every 100 ms)', async () => {
   const { clock, at } = fakeClock();
   const limiter = new ProbeLimiter({ probesPerSecond: 10, maxSockets: 1 }, clock);

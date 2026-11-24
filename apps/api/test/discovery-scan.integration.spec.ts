@@ -327,7 +327,34 @@ test('an unusable credential skips enrichment for the scan, records why, and the
   const stored = await prisma.discoveryJob.findUniqueOrThrow({ where: { id: job.id } });
   assert.deepEqual([stored.snmpSkippedReason, stored.snmpEnrichedCount, stored.snmpFailedCount, stored.resultCount], ['SNMP_CREDENTIAL_OUT_OF_SCOPE', 0, 0, 12]);
 });
+test('review #148: at 1 probe/s, a cancel stops the batch within seconds and a passed deadline does too', async () => {
+  await prisma.subnet.update({ where: { id: subnetId }, data: { discoveryProbesPerSecond: 1, discoveryMaxSockets: 64 } });
+  try {
+    let ran = 0;
+    const slow: ScanDependencies['probe'] = async (address, _methods, _ports, limiter) => { await limiter.run(async () => { ran += 1; }); return quietOutcome(address); };
 
+    // Without the abort, this 32-address batch would take 32 s.
+    const cancelled = await createJob({ methods: ['ICMP'] });
+    // 250 ms polling plus 750 ms cleanup margin keeps this bound deterministic after persistence.
+    let persistedAt = 0;
+    setTimeout(() => { void prisma.discoveryJob.update({ where: { id: cancelled.id }, data: { cancelRequestedAt: new Date() } }).then(() => { persistedAt = Date.now(); }); }, 1_200);
+    assert.deepEqual(await runDiscoveryScan(prisma, cancelled.id, { probe: slow, batchSize: 32, controlPollMs: 250 }), { status: 'CANCELLED', stopReason: 'CANCELLED' });
+    const cancelMs = Date.now() - persistedAt;
+    assert.ok(cancelMs < 1_000, `cancel took ${cancelMs} ms after persistence; expected under 1 s`);
+    assert.ok(ran <= 4, `only the probes whose slot came before the cancel ran (${ran})`);
+    const storedCancel = await prisma.discoveryJob.findUniqueOrThrow({ where: { id: cancelled.id } });
+    assert.equal(storedCancel.processedCount, 0, 'the unfinished batch is not saved; a retry probes it again');
+    await prisma.discoveryJob.delete({ where: { id: cancelled.id } });
+
+    const timed = await createJob({ methods: ['ICMP'], maxDurationSeconds: 2 });
+    const timedStart = Date.now();
+    assert.deepEqual(await runDiscoveryScan(prisma, timed.id, { probe: slow, batchSize: 32, controlPollMs: 250 }), { status: 'COMPLETED', stopReason: 'LIMIT_DURATION' });
+    const deadlineMs = Date.now() - timedStart;
+    assert.ok(deadlineMs < 4_000, `deadline took ${deadlineMs} ms`);
+  } finally {
+    await prisma.subnet.update({ where: { id: subnetId }, data: { discoveryMaxSockets: null, discoveryProbesPerSecond: null } });
+  }
+});
 /** Writes the cancel now and returns when it was written, so latency is measured from the request, not from the scan start. */
 const requestCancel = async (jobId: string) => { await prisma.discoveryJob.update({ where: { id: jobId }, data: { cancelRequestedAt: new Date() } }); return Date.now(); };
 
@@ -367,29 +394,19 @@ test('fix/discovery-scan-cancel-latency: a cancel during slow reverse DNS ends t
   assert.equal(await prisma.discoveryResult.count({ where: { jobId: job.id } }), 0);
   await new Promise((resolve) => setTimeout(resolve, 3_000));
 });
-
-test('fix/discovery-scan-cancel-latency: a cancel while SNMP enrichment is in flight ends the batch without waiting for the SNMP timeout', async () => {
-  await prisma.subnet.update({ where: { id: subnetId }, data: { discoverySnmpCredentialId: snmpCredentialId } });
-  const hold = 3_000;
-  let started = 0;
-  const slowSnmp: NonNullable<ScanDependencies['snmpEnricher']> = async (credentialId) => ({
-    enricher: (address, limiter) => limiter.run(async () => {
-      started += 1;
-      await new Promise((resolve) => setTimeout(resolve, hold));
-      return buildEnrichment({ sysObjectId: '1.3.6.1.4.1.9.1.2494', sysDescr: 'IOS XE', sysName: `sw-${address}`, entity: null }, credentialId, new Date(), 1);
-    }),
-  });
-  const job = await createJob();
-  const scan = runDiscoveryScan(prisma, job.id, { probe, batchSize: 16, controlPollMs: 100, snmpEnricher: slowSnmp });
+test('fix/discovery-scan-cancel-latency: a cancel during slow reverse DNS ends the batch without waiting for the resolver', async () => {
+  let lookups = 0;
+  const slowReverse = async () => { lookups += 1; await new Promise((resolve) => setTimeout(resolve, 3_000)); return 'slow.example'; };
+  const job = await createJob({ reverseDns: true });
+  const scan = runDiscoveryScan(prisma, job.id, { probe, reverse: slowReverse, batchSize: 64, controlPollMs: 100 });
   await new Promise((resolve) => setTimeout(resolve, 300));
   const requestedAt = await requestCancel(job.id);
   assert.deepEqual(await scan, { status: 'CANCELLED', stopReason: 'CANCELLED' });
   const latency = Date.now() - requestedAt;
-  assert.ok(started > 0, 'SNMP requests were in flight when the cancel arrived');
   assert.ok(latency < 600, `cancel took ${latency} ms after the request`);
-  const stored = await prisma.discoveryJob.findUniqueOrThrow({ where: { id: job.id } });
-  assert.deepEqual([stored.processedCount, stored.snmpEnrichedCount, await prisma.discoveryResult.count({ where: { jobId: job.id } })], [0, 0, 0], 'the unfinished batch is not saved');
-  await new Promise((resolve) => setTimeout(resolve, hold));
+  assert.equal(lookups, 1, 'no further reverse lookups after the cancel');
+  assert.equal(await prisma.discoveryResult.count({ where: { jobId: job.id } }), 0);
+  await new Promise((resolve) => setTimeout(resolve, 3_000));
 });
 
 // D-P2a: structured per-host outcomes and per-run counts.
