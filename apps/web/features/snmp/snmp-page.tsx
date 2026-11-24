@@ -5,6 +5,7 @@ import { Activity, Check, GitCompareArrows, KeyRound, RotateCw, Trash2, LayoutDa
 import { AppShell } from '@/components/layout/app-shell';
 import { useAuth } from '@/lib/auth';
 import { useSiteContext } from '@/lib/site-context';
+import { ApiRequestError } from '@/lib/api/errors';
 import { listAllDevices } from '@/features/infrastructure/api';
 import { deleteSnmpCredential, executeSnmpWrite, getSnmpMetrics, getSnmpOverview, getSnmpReceiverSettings, snmpReceiverKey, previewSnmpWrite, reviewSnmpDrift, runSnmpPoll, saveSnmpConfig, saveSnmpCredential, testSnmpCredential, type SnmpCredentialPurpose, type SnmpCredentialSummary, type SnmpImpactPreview, type SnmpMetrics, type SnmpOverview, type SnmpVersion } from './api';
 import { formatDateTime, formatNumber } from '@/lib/format/date';
@@ -90,7 +91,8 @@ export default function SnmpPage() {
     if (credentialBusy) return;
     const usage = snmpCredentialUsage(item.purpose, overview);
     if (!await confirm({ title: 'Eliminar credencial SNMP', message: snmpCredentialDeleteMessage(item, deviceName, usage), confirmLabel: usage.length ? 'Eliminar mesmo assim' : 'Eliminar', destructive: true })) return;
-    action.mutate(() => deleteSnmpCredential(deviceId, item.purpose), { onSuccess: () => { if (rotating === item.purpose) cancelRotate(); setNotice(`Credencial ${item.purpose} eliminada.`); } });
+    // Force only on the confirmed in-use path; on 409 (in use / job running) reload the overview so the warning and the disabled state catch up with the server.
+    action.mutate(() => deleteSnmpCredential(deviceId, item.purpose, usage.length > 0), { onSuccess: () => { if (rotating === item.purpose) cancelRotate(); setNotice(`Credencial ${item.purpose} eliminada.`); }, onError: (reason) => { setNotice(''); if (reason instanceof ApiRequestError && reason.status === 409) void queryClient.invalidateQueries({ queryKey: ['snmp', 'overview', deviceId] }); } });
   };
   const trapCredential = overview?.credentials.find((item) => item.purpose === 'TRAP') ?? overview?.credentials.find((item) => item.purpose === 'READ');
   // Every reader sees the Traps desconhecidas tab; non-admins get a plain explanation there instead of no tab at all.

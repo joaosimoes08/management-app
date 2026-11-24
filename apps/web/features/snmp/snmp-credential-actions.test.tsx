@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/api/client';
+import { ApiRequestError, apiErrorMessage, localizedApiErrors } from '@/lib/api/errors';
 import SnmpPage from './snmp-page';
 import { snmpCredentialBusy, snmpCredentialDeleteMessage, snmpCredentialUsage } from './snmp-credential-usage';
 
@@ -45,8 +46,51 @@ describe('SNMP credentials: delete', () => {
     expect(dialog).toHaveTextContent('A recolha SNMP deste equipamento está ativa');
     expect(deleteCalls()).toHaveLength(0);
     fireEvent.click(within(dialog).getByRole('button', { name: 'Eliminar mesmo assim' }));
-    await waitFor(() => expect(deleteCalls()).toEqual([['/api/v1/snmp/devices/d1/credentials/READ', { method: 'DELETE' }]]));
+    await waitFor(() => expect(deleteCalls()).toEqual([['/api/v1/snmp/devices/d1/credentials/READ?force=true', { method: 'DELETE' }]]));
     expect(await screen.findByText('Credencial READ eliminada.')).toBeInTheDocument();
+  });
+
+  it('sends a plain delete (no force) when the credential is not in use', async () => {
+    api(overview());
+    wrap(<SnmpPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Eliminar credencial TRAP' }));
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Eliminar' }));
+    await waitFor(() => expect(deleteCalls()).toEqual([['/api/v1/snmp/devices/d1/credentials/TRAP', { method: 'DELETE' }]]));
+    expect(await screen.findByText('Credencial TRAP eliminada.')).toBeInTheDocument();
+  });
+
+  it('explains a 409 SNMP_CREDENTIAL_IN_USE on a plain delete and reloads the overview', async () => {
+    api(overview());
+    const fallback = mockedFetch.getMockImplementation()!;
+    const payload = { code: 'SNMP_CREDENTIAL_IN_USE', message: 'in use', details: { usages: [{ type: 'POLL_SCHEDULE', deviceId: 'd1', deviceName: 'core-sw-01' }] } };
+    mockedFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'DELETE') throw new ApiRequestError(apiErrorMessage(payload, 'pt-PT'), 409, payload);
+      return fallback(url, init);
+    });
+    wrap(<SnmpPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Eliminar credencial READ' }));
+    const overviewCalls = () => mockedFetch.mock.calls.filter(([url]) => url === '/api/v1/snmp/devices/d1').length;
+    const before = overviewCalls();
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Eliminar' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(localizedApiErrors['pt-PT'].SNMP_CREDENTIAL_IN_USE);
+    expect(deleteCalls()).toEqual([['/api/v1/snmp/devices/d1/credentials/READ', { method: 'DELETE' }]]);
+    await waitFor(() => expect(overviewCalls()).toBeGreaterThan(before));
+    expect(screen.queryByText('Credencial READ eliminada.')).not.toBeInTheDocument();
+  });
+
+  it('explains a 409 SNMP_CREDENTIAL_BUSY (job running) even on the forced path', async () => {
+    api(overview({ config }));
+    const fallback = mockedFetch.getMockImplementation()!;
+    const payload = { code: 'SNMP_CREDENTIAL_BUSY', message: 'busy', details: { jobs: [{ id: 'j1', type: 'POLL', status: 'RUNNING', createdAt: '2026-11-24T10:00:00.000Z' }] } };
+    mockedFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'DELETE') throw new ApiRequestError(apiErrorMessage(payload, 'pt-PT'), 409, payload);
+      return fallback(url, init);
+    });
+    wrap(<SnmpPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Eliminar credencial READ' }));
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Eliminar mesmo assim' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(localizedApiErrors['pt-PT'].SNMP_CREDENTIAL_BUSY);
+    expect(deleteCalls()).toEqual([['/api/v1/snmp/devices/d1/credentials/READ?force=true', { method: 'DELETE' }]]);
   });
 
   it('does nothing when the confirmation is cancelled', async () => {
@@ -99,5 +143,14 @@ describe('snmpCredentialUsage', () => {
 
   it('names exactly one credential in the confirmation text', () => {
     expect(snmpCredentialDeleteMessage({ purpose: 'TRAP', version: 'V3', username: null, label: null }, undefined, [])).toBe('Eliminar a credencial TRAP · V3 deste equipamento?\nSó esta credencial é removida; as outras credenciais e a configuração SNMP ficam como estão. Não é possível desfazer.');
+  });
+});
+
+describe('SNMP credential delete conflicts (#176)', () => {
+  it('has a clear pt-PT and en-US message for both 409 codes', () => {
+    expect(apiErrorMessage({ code: 'SNMP_CREDENTIAL_IN_USE', message: 'x' }, 'pt-PT')).toMatch(/^A credencial não foi eliminada: está em uso/);
+    expect(apiErrorMessage({ code: 'SNMP_CREDENTIAL_IN_USE', message: 'x' }, 'en-US')).toMatch(/^The credential was not deleted: it is in use/);
+    expect(apiErrorMessage({ code: 'SNMP_CREDENTIAL_BUSY', message: 'x' }, 'pt-PT')).toMatch(/tarefa SNMP em curso/);
+    expect(apiErrorMessage({ code: 'SNMP_CREDENTIAL_BUSY', message: 'x' }, 'en-US')).toMatch(/SNMP job that uses it is still running/);
   });
 });
