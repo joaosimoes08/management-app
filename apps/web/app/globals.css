@@ -3639,3 +3639,13 @@ small.alert-next-step::before { content:'→ '; }
 }
 .snmp-v2c-pending { margin:0; padding:9px 12px; color:var(--muted); border:1px dashed var(--line); border-radius:9px; font-size:12px; line-height:1.45; }
 .snmp-version-options label.pending { opacity:.75; cursor:progress; }
+
+/* Shell width (fix/topbar-full-width): the topbar, utility bar and page workspace share the full content width on every page. */
+.app-shell-content .module-page,
+.app-shell-content .aligned-workspace { width:100%; max-width:none; }
+.app-shell .global-topbar .topbar-globals { justify-content:flex-end; }
+@media (min-width:781px) {
+  .app-shell .global-topbar:not(:has(.module-tabs-slot nav)) .module-tabs-slot { display:none; }
+  .app-shell .global-topbar:not(:has(.module-tabs-slot nav)) .topbar-globals { flex:1 1 auto; padding-left:0; border-left:0; }
+  .app-shell .global-topbar:not(:has(.module-tabs-slot nav)) .topbar-search-trigger { flex:0 1 clamp(280px, 36vw, 640px); }
+}
