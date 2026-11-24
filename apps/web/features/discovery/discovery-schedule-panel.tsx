@@ -7,6 +7,7 @@ import { getDiscoverySchedule, updateDiscoverySchedule, type DiscoveryScheduleIn
 import { formatDateTime } from '@/lib/format/date';
 import { discoveryIntervalChoices, formatDiscoveryInterval } from './discovery-intervals';
 import { describeDiscoveryError, discoveryStatusLabel } from './discovery-status';
+import { DiscoverySnmpEnrichmentPanel } from './discovery-snmp-enrichment';
 
 const freshForm = (): DiscoveryScheduleInput => ({ enabled: false, intervalHours: 12, methods: ['ICMP', 'TCP'], tcpPorts: [22, 80, 443, 3389], reverseDns: true });
 /** Discovery P0: '' keeps the default; otherwise a whole number inside [min, max]. Returns undefined when invalid. */
@@ -114,6 +115,7 @@ export function DiscoverySchedulePanel({ subnets, canEdit, onError, subnetId: se
           <label className="schedule-reverse-dns"><input type="checkbox" disabled={!canEdit} checked={form.reverseDns} onChange={(event) => setForm({ ...form, reverseDns: event.target.checked })} /> Resolver reverse DNS</label>
           {canEdit && <div className="schedule-actions"><button type="button" className="secondary-button" onClick={() => void setEnabled()} disabled={saving}>{form.enabled ? <><Pause size={14} /> Pausar</> : <><Play size={14} /> Ativar</>}</button><button className="primary-button" type="submit" disabled={saving || scheduleQuery.isFetching}><Save size={14} />{saving ? 'A guardar…' : schedule?.id ? 'Guardar alterações' : 'Criar schedule pausado'}</button></div>}
         </form>
+        <DiscoverySnmpEnrichmentPanel subnetId={subnetId} onError={onError} />
       </>}
     </>}
   </section>;

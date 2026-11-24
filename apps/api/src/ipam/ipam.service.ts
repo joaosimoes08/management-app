@@ -8,7 +8,7 @@ import * as net from 'node:net';
 import { Queue } from 'bullmq';
 import { AuditService } from '../audit/audit.service';
 import { AuthenticatedUser } from '../auth/auth.service';
-import { CreateDiscoveryJobDto, CreateHostDto, CreateIpDto, CreateServiceDto, CreateSiteDto, CreateSubnetDto, CreateVlanDto, ReviewDiscoveryResultDto, UpdateDiscoveryScheduleDto, UpdateHostDto, UpdateIpDto, UpdateServiceDto, UpdateSiteDto, UpdateSubnetDto, UpdateVlanDto } from './dto';
+import { CreateDiscoveryJobDto, CreateHostDto, CreateIpDto, CreateServiceDto, CreateSiteDto, CreateSubnetDto, CreateVlanDto, ReviewDiscoveryResultDto, UpdateDiscoveryScheduleDto, UpdateDiscoverySnmpDto, UpdateHostDto, UpdateIpDto, UpdateServiceDto, UpdateSiteDto, UpdateSubnetDto, UpdateVlanDto } from './dto';
 import { IpamAccessService } from './ipam-access.service';
 import { parseTagFilter, subnetTagWhere, tagsInclude, withFlatTags } from '../tags/tag-rules';
 import { assertDiscoveryAllowed, DiscoveryPolicyError, normalizeDiscoveryPorts, parseNetwork } from '../discovery/discovery-policy';
@@ -26,6 +26,12 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 export function discoveryLimitsView(subnet: { discoveryProbesPerSecond: number | null; discoveryMaxSockets: number | null } | null) {
   const effective = resolveDiscoveryLimits(subnet);
   return { probesPerSecond: subnet?.discoveryProbesPerSecond ?? null, maxSockets: subnet?.discoveryMaxSockets ?? null, effective };
+}
+
+/** D-P1a: what the API shows about a credential used for discovery enrichment (never the secret). */
+const discoverySnmpCredentialSelect = { id: true, deviceId: true, purpose: true, version: true, label: true, username: true, enabled: true, device: { select: { id: true, name: true, siteId: true, managementIp: true } } } as const;
+function discoverySnmpCredentialView(item: { id: string; deviceId: string; version: string; label: string | null; username: string | null; device: { name: string; managementIp: string | null } }) {
+  return { id: item.id, deviceId: item.deviceId, deviceName: item.device.name, managementIp: item.device.managementIp, version: item.version, label: item.label, username: item.username };
 }
 
 function ipv4ToNumber(ip: string) { return ip.split('.').reduce((value, part) => (value * 256) + Number(part), 0) >>> 0; }
@@ -200,8 +206,8 @@ export class IpamService implements OnModuleDestroy {
     if (currentJob.subnetId !== previousJob.subnetId) throw new BadRequestException('Só é possível comparar execuções da mesma subnet.');
     if (currentJob.status !== 'COMPLETED' || previousJob.status !== 'COMPLETED') throw new BadRequestException('As duas execuções têm de estar concluídas.');
     const [previousResults, currentResults] = await Promise.all([
-      this.prisma.discoveryResult.findMany({ where: { jobId: previousId }, select: { address: true, hostname: true, icmpReachable: true, openPorts: true } }),
-      this.prisma.discoveryResult.findMany({ where: { jobId: currentId }, select: { address: true, hostname: true, icmpReachable: true, openPorts: true } }),
+      this.prisma.discoveryResult.findMany({ where: { jobId: previousId }, select: { address: true, hostname: true, icmpReachable: true, openPorts: true, snmp: true } }),
+      this.prisma.discoveryResult.findMany({ where: { jobId: currentId }, select: { address: true, hostname: true, icmpReachable: true, openPorts: true, snmp: true } }),
     ]);
     return {
       previous: { id: previousJob.id, name: previousJob.name, completedAt: previousJob.completedAt },
@@ -283,6 +289,39 @@ export class IpamService implements OnModuleDestroy {
 
   async getDiscoverySchedule(user: AuthenticatedUser, subnetId: string) { await this.access.assertSubnet(user, 'READ', subnetId); const [existing, settings, subnet] = await Promise.all([this.prisma.discoverySchedule.findUnique({ where: { subnetId } }), this.prisma.systemSettings.findFirst(), this.prisma.subnet.findUnique({ where: { id: subnetId }, select: { discoveryProbesPerSecond: true, discoveryMaxSockets: true } })]); const limits = discoveryLimitsView(subnet); return existing ? { ...existing, limits } : { subnetId, enabled: false, intervalHours: settings?.discoveryDefaultIntervalHours ?? 12, methods: settings?.discoveryDefaultMethods ?? ['ICMP', 'TCP'], tcpPorts: settings?.discoveryDefaultTcpPorts ?? [22, 80, 443, 3389], reverseDns: settings?.discoveryDefaultReverseDns ?? true, lastRunAt: null, nextRunAt: null, lastStatus: null, lastError: null, limits }; }
   async updateDiscoverySchedule(subnetId: string, dto: UpdateDiscoveryScheduleDto, user: AuthenticatedUser) { const [subnet, defaults] = await Promise.all([this.access.assertSubnet(user, 'DISCOVER', subnetId), this.prisma.systemSettings.findFirst()]); const fullSubnet = await this.prisma.subnet.findUniqueOrThrow({ where: { id: subnet.id } }); const methods = [...new Set(dto.methods)].filter((method) => method === 'ICMP' || method === 'TCP'); let tcpPorts: number[]; try { tcpPorts = normalizeDiscoveryPorts(dto.tcpPorts ?? []); const target = assertDiscoveryAllowed(fullSubnet.cidr, defaults?.discoveryAllowedCidrs); if (target.version !== 4) throw new DiscoveryPolicyError('DISCOVERY_IPV6_UNSUPPORTED', 'A enumeração de subnets IPv6 ainda não é suportada.'); } catch (error) { if (error instanceof DiscoveryPolicyError) throw new BadRequestException({ code: error.code, message: error.message }); throw error; } if (!methods.length) throw new BadRequestException('Escolhe pelo menos um método'); if (methods.includes('TCP') && !tcpPorts.length) throw new BadRequestException('Define pelo menos uma porta TCP'); const intervalHours = dto.intervalHours ?? defaults?.discoveryDefaultIntervalHours ?? 12; const reverseDns = dto.reverseDns ?? defaults?.discoveryDefaultReverseDns ?? true; const every = intervalHours * 60 * 60 * 1000; const nextRunAt = dto.enabled ? new Date(Date.now() + every) : null; const limitData = { ...(dto.probesPerSecond !== undefined ? { discoveryProbesPerSecond: dto.probesPerSecond } : {}), ...(dto.maxSockets !== undefined ? { discoveryMaxSockets: dto.maxSockets } : {}) }; const [schedule, limitedSubnet] = await this.prisma.$transaction([this.prisma.discoverySchedule.upsert({ where: { subnetId }, create: { subnetId, enabled: dto.enabled, intervalHours, methods, tcpPorts, reverseDns, nextRunAt }, update: { enabled: dto.enabled, intervalHours, methods, tcpPorts, reverseDns, nextRunAt, lastError: null } }), this.prisma.subnet.update({ where: { id: subnetId }, data: limitData, select: { discoveryProbesPerSecond: true, discoveryMaxSockets: true } })]); const limits = discoveryLimitsView(limitedSubnet); if (dto.enabled) await this.discoveryQueue.upsertJobScheduler(`subnet-${subnetId}`, { every }, { name: 'scheduled-subnet-scan', data: { subnetId }, opts: DISCOVERY_JOB_OPTIONS }); else await this.discoveryQueue.removeJobScheduler(`subnet-${subnetId}`); await this.auditChange(user, 'DISCOVERY_SCHEDULE_UPDATED', 'DiscoverySchedule', schedule.id, { subnetId, enabled: dto.enabled, intervalHours, reverseDns, probesPerSecond: limits.probesPerSecond, maxSockets: limits.maxSockets }); return { ...schedule, limits }; }
+  /**
+   * D-P1a: a subnet's SNMP enrichment setting and the credentials it may use: READ credentials that are enabled and
+   * belong to a device on the subnet's Site. Secrets are never returned.
+   */
+  async getDiscoverySnmp(user: AuthenticatedUser, subnetId: string) {
+    await this.access.assertSubnet(user, 'READ', subnetId);
+    const subnet = await this.prisma.subnet.findUnique({ where: { id: subnetId }, select: { id: true, siteId: true, discoverySnmpCredentialId: true } });
+    if (!subnet) throw new NotFoundException('Subnet não encontrada');
+    const candidates = subnet.siteId ? await this.prisma.snmpCredential.findMany({ where: { purpose: 'READ', enabled: true, device: { siteId: subnet.siteId } }, select: discoverySnmpCredentialSelect, orderBy: [{ device: { name: 'asc' } }] }) : [];
+    const current = subnet.discoverySnmpCredentialId ? await this.prisma.snmpCredential.findUnique({ where: { id: subnet.discoverySnmpCredentialId }, select: discoverySnmpCredentialSelect }) : null;
+    return { subnetId, enabled: Boolean(current), credentialId: subnet.discoverySnmpCredentialId, credential: current ? discoverySnmpCredentialView(current) : null, candidates: candidates.map(discoverySnmpCredentialView) };
+  }
+
+  /** D-P1a: sets or clears the subnet's enrichment credential (ADMIN, checked by the route). Every change is audited. */
+  async updateDiscoverySnmp(subnetId: string, dto: UpdateDiscoverySnmpDto, user: AuthenticatedUser) {
+    await this.access.assertSubnet(user, 'DISCOVER', subnetId);
+    const subnet = await this.prisma.subnet.findUnique({ where: { id: subnetId }, select: { id: true, cidr: true, siteId: true, discoverySnmpCredentialId: true } });
+    if (!subnet) throw new NotFoundException('Subnet não encontrada');
+    const credential = dto.credentialId ? await this.prisma.snmpCredential.findUnique({ where: { id: dto.credentialId }, select: discoverySnmpCredentialSelect }) : null;
+    if (dto.credentialId) {
+      if (!credential) throw new BadRequestException({ code: 'DISCOVERY_SNMP_CREDENTIAL_NOT_FOUND', message: 'A credencial SNMP escolhida não existe.' });
+      if (credential.purpose !== 'READ') throw new BadRequestException({ code: 'DISCOVERY_SNMP_CREDENTIAL_NOT_READ', message: 'O enriquecimento SNMP só pode usar uma credencial de leitura (READ).' });
+      if (!credential.enabled) throw new BadRequestException({ code: 'DISCOVERY_SNMP_CREDENTIAL_DISABLED', message: 'A credencial SNMP escolhida está desativada.' });
+      if (!subnet.siteId || credential.device.siteId !== subnet.siteId) throw new BadRequestException({ code: 'DISCOVERY_SNMP_CREDENTIAL_OUT_OF_SCOPE', message: 'A credencial SNMP tem de pertencer a um equipamento do mesmo Site da subnet.' });
+    }
+    const previous = subnet.discoverySnmpCredentialId;
+    const next = credential?.id ?? null;
+    if (previous !== next) {
+      await this.prisma.subnet.update({ where: { id: subnetId }, data: { discoverySnmpCredentialId: next } });
+      await this.auditChange(user, 'DISCOVERY_SNMP_ENRICHMENT_UPDATED', 'Subnet', subnetId, { subnet: subnet.cidr, enabled: Boolean(next), previousCredentialId: previous, credentialId: next, deviceId: credential?.deviceId ?? null, version: credential?.version ?? null });
+    }
+    return this.getDiscoverySnmp(user, subnetId);
+  }
   async runScheduledDiscovery(subnetId: string, user: AuthenticatedUser) { const schedule = await this.prisma.discoverySchedule.findUnique({ where: { subnetId } }); if (!schedule || !schedule.enabled) throw new ConflictException('O auto-discovery está desligado para esta subnet'); const methods = Array.isArray(schedule.methods) ? schedule.methods.filter((value): value is string => typeof value === 'string') : ['ICMP']; const tcpPorts = Array.isArray(schedule.tcpPorts) ? schedule.tcpPorts.filter((value): value is number => typeof value === 'number') : []; const job = await this.runDiscovery({ name: `Discovery agendado · ${new Date().toISOString()}`, subnetId, methods, tcpPorts, reverseDns: schedule.reverseDns }, user); await this.prisma.discoverySchedule.update({ where: { subnetId }, data: { lastRunAt: new Date(), nextRunAt: new Date(Date.now() + schedule.intervalHours * 60 * 60 * 1000), lastStatus: 'QUEUED' } }); return job; }
 
   private async executeDiscovery(jobId: string, cidr: string, methods: string[], tcpPorts: number[]) {

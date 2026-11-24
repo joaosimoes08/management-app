@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req } from '@
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { Roles } from '../auth/roles.decorator';
-import { CalculatorDto, CreateDiscoveryJobDto, CreateHostDto, CreateIpDto, CreateIpReservationDto, CreateNatRuleDto, CreateServiceDto, CreateSiteDto, CreateSubnetDto, CreateVlanDto, CreateVrfDto, RipeImportDto, RipePreviewDto, ReviewDiscoveryResultDto, ReserveNextIpsDto, BulkReviewDiscoveryResultsDto, UpdateDiscoveryScheduleDto, UpdateHostDto, UpdateIpDto, UpdateNatRuleDto, UpdateServiceDto, UpdateSiteDto, UpdateSubnetDto, UpdateSubnetScanDto, UpdateVlanDto, UpdateVrfDto } from './dto';
+import { CalculatorDto, CreateDiscoveryJobDto, CreateHostDto, CreateIpDto, CreateIpReservationDto, CreateNatRuleDto, CreateServiceDto, CreateSiteDto, CreateSubnetDto, CreateVlanDto, CreateVrfDto, RipeImportDto, RipePreviewDto, ReviewDiscoveryResultDto, ReserveNextIpsDto, BulkReviewDiscoveryResultsDto, UpdateDiscoveryScheduleDto, UpdateDiscoverySnmpDto, UpdateHostDto, UpdateIpDto, UpdateNatRuleDto, UpdateServiceDto, UpdateSiteDto, UpdateSubnetDto, UpdateSubnetScanDto, UpdateVlanDto, UpdateVrfDto } from './dto';
 import { IpamService } from './ipam.service';
 import { IpamAdvancedService } from './ipam-advanced.service';
 import { IpReservationService } from './ip-reservation.service';
@@ -86,6 +86,8 @@ export class IpamController {
   @Post('discovery/jobs') @Roles('ADMIN', 'NETWORK_OPERATOR') createJob(@Body() dto: CreateDiscoveryJobDto, @Req() req: { user: AuthenticatedUser }) { return this.service.runDiscovery(dto, req.user); }
   @Get('subnets/:id/discovery-schedule') schedule(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.service.getDiscoverySchedule(req.user, id); }
   @Patch('subnets/:id/discovery-schedule') @Roles('ADMIN', 'NETWORK_OPERATOR') updateSchedule(@Param('id') id: string, @Body() dto: UpdateDiscoveryScheduleDto, @Req() req: { user: AuthenticatedUser }) { return this.service.updateDiscoverySchedule(id, dto, req.user); }
+  @Get('subnets/:id/discovery-snmp') discoverySnmp(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.service.getDiscoverySnmp(req.user, id); }
+  @Patch('subnets/:id/discovery-snmp') @Roles('ADMIN') updateDiscoverySnmp(@Param('id') id: string, @Body() dto: UpdateDiscoverySnmpDto, @Req() req: { user: AuthenticatedUser }) { return this.service.updateDiscoverySnmp(id, dto, req.user); }
   @Post('subnets/:id/discovery-schedule/run') @Roles('ADMIN', 'NETWORK_OPERATOR') runSchedule(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.service.runScheduledDiscovery(id, req.user); }
   @Post('discovery/results/bulk-review') @Roles('ADMIN', 'NETWORK_OPERATOR') bulkReview(@Body() dto: BulkReviewDiscoveryResultsDto, @Req() req: { user: AuthenticatedUser }) { return this.workflows.bulkReview(req.user, dto); }
   @Post('discovery/results/:id/review') @Roles('ADMIN', 'NETWORK_OPERATOR') review(@Param('id') id: string, @Body() dto: ReviewDiscoveryResultDto, @Req() req: { user: AuthenticatedUser }) { return this.service.reviewResult(id, dto, req.user); }

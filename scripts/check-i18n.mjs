@@ -13,6 +13,7 @@ const operationalFiles = [
   'apps/web/features/snmp/health/health-limits-panels.tsx',
   'apps/web/features/snmp/health/health-history-chart.tsx',
   'apps/web/features/discovery/discovery-page.tsx',
+  'apps/web/features/discovery/discovery-snmp-enrichment.tsx',
   'apps/web/features/portal/portal-page.tsx',
   'apps/web/features/operations/inventory-quality-page.tsx',
   'apps/web/features/operations/quality-bulk-dialog.tsx',

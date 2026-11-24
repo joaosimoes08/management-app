@@ -315,15 +315,18 @@ export class SnmpService implements OnModuleDestroy, OnModuleInit {
   /**
    * Fix F2: what would break if this credential were deleted now (one entry per usage; empty = not in use).
    * Mirrors what each purpose is used for: READ by the polling schedule, TRAP to validate SNMPv3 traps from the device,
-   * WRITE by SNMP SET. Credentials are per device; discovery and discovery schedules do not reference them.
+   * WRITE by SNMP SET. A READ credential is also used by every subnet that picked it for discovery SNMP enrichment
+   * (D-P1a, Subnet.discoverySnmpCredentialId): one DISCOVERY_ENRICHMENT entry per subnet.
    */
-  private async credentialUsages(deviceId: string, purpose: SnmpCredentialPurpose) {
+  private async credentialUsages(deviceId: string, purpose: SnmpCredentialPurpose, credentialId: string) {
     const device = await this.prisma.device.findUnique({ where: { id: deviceId }, select: { name: true } });
     const base = { deviceId, deviceName: device?.name ?? null };
-    const usages: Array<Record<string, unknown> & { type: 'POLL_SCHEDULE' | 'TRAP_VALIDATION' | 'SNMP_SET' }> = [];
+    const usages: Array<Record<string, unknown> & { type: 'POLL_SCHEDULE' | 'TRAP_VALIDATION' | 'SNMP_SET' | 'DISCOVERY_ENRICHMENT' }> = [];
     if (purpose === 'READ') {
       const config = await this.prisma.snmpDeviceConfig.findUnique({ where: { deviceId }, select: { enabled: true, intervalMinutes: true, nextPollAt: true } });
       if (config?.enabled) usages.push({ type: 'POLL_SCHEDULE', ...base, intervalMinutes: config.intervalMinutes, nextPollAt: config.nextPollAt });
+      const subnets = await this.prisma.subnet.findMany({ where: { discoverySnmpCredentialId: credentialId }, select: { id: true, cidr: true }, orderBy: { cidr: 'asc' } });
+      for (const subnet of subnets) usages.push({ type: 'DISCOVERY_ENRICHMENT', ...base, subnetId: subnet.id, subnetCidr: subnet.cidr });
     }
     if (purpose === 'TRAP') {
       const trap = await this.prisma.snmpTrapEvent.findFirst({ where: { deviceId }, orderBy: { receivedAt: 'desc' }, select: { receivedAt: true } });
@@ -347,7 +350,7 @@ export class SnmpService implements OnModuleDestroy, OnModuleInit {
       select: { id: true, type: true, status: true, createdAt: true }, orderBy: { createdAt: 'desc' },
     });
     if (jobs.length) throw new ConflictException({ code: 'SNMP_CREDENTIAL_BUSY', message: 'Há uma tarefa SNMP em curso com esta credencial; aguarda que termine para a eliminar.', details: { jobs } });
-    const usages = await this.credentialUsages(deviceId, purpose);
+    const usages = await this.credentialUsages(deviceId, purpose, credential.id);
     if (usages.length && !force) throw new ConflictException({ code: 'SNMP_CREDENTIAL_IN_USE', message: 'Esta credencial está em uso. Confirma a eliminação com force=true.', details: { usages } });
     const item = await this.prisma.snmpCredential.delete({ where: { id: credential.id } }).catch(() => { throw new NotFoundException('Credencial SNMP não encontrada'); });
     if (usages.length) await this.log(user, 'SNMP_CREDENTIAL_FORCE_DELETED', 'SnmpCredential', item.id, { deviceId, purpose, forced: true, usages });

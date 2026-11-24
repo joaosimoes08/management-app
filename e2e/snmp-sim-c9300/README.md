@@ -82,6 +82,16 @@ All `data/*.snmprec` files are generated from `gen-snmprec.mjs`, so the variants
 
 The spec polls the healthy (udp 16161) and degraded (udp 16162) stack over SNMPv2c and SNMPv3 authPriv with the app's own session and parsers, and checks that the healthy -> degraded sequence is recorded as a reboot (sysUpTime drop). It is skipped in the normal unit run unless `SNMP_SIM_C9300=1`.
 
+## Discovery enrichment check (D-P1a)
+
+`discovery-enrichment-check.sh` starts the simulator, runs `apps/api/src/discovery/discovery-snmp.sim.spec.ts` against it, and always stops it again:
+
+```sh
+./e2e/snmp-sim-c9300/discovery-enrichment-check.sh
+```
+
+The spec runs the discovery SNMP enricher (the code a scan uses on hosts that answered ping or TCP) through the real per-subnet probe limiter, over SNMPv2c and SNMPv3 authPriv. It expects sysObjectID, sysDescr, sysName and the chassis (entPhysicalIndex 1000) model `C9300-48P` and serial `FOC2601LAB1`, each with SNMP provenance; a wrong v2c community as a per-target `TIMEOUT`; a wrong v3 auth key as `AUTH_FAILED`; and at most one limiter slot per target. Discovery refuses loopback targets, so the check calls the enricher directly instead of scanning 127.0.0.1. It is skipped in the normal unit run unless `SNMP_SIM_C9300=1`.
+
 `walk-check.mjs` now fails (instead of passing the refusal checks) when the simulator is not answering valid credentials.
 
 ## CDP fallback check (Phase 2 step 11)

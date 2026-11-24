@@ -151,6 +151,10 @@ export class UpdateDiscoveryScheduleDto {
   /** Discovery P0: probes (TCP sockets plus pings) in flight at once. null resets to the default; omitted keeps it. */
   @IsOptional() @IsInt() @Min(DISCOVERY_MIN_SOCKETS) @Max(DISCOVERY_MAX_SOCKETS) maxSockets?: number | null;
 }
+/** D-P1a: the READ credential this subnet's scans use for SNMP enrichment. null switches enrichment off. */
+export class UpdateDiscoverySnmpDto {
+  @ValidateIf((_, value) => value !== null) @IsUUID() credentialId!: string | null;
+}
 export class ReviewDiscoveryResultDto {
   @IsIn(['APPROVED', 'IGNORED']) status!: string;
 }

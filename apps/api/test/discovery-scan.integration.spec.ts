@@ -1,9 +1,11 @@
 import 'reflect-metadata';
 import { strict as assert } from 'node:assert';
 import { after, before, beforeEach, test } from 'node:test';
-import { PrismaClient } from '@simoes/database';
+import { Prisma, PrismaClient } from '@simoes/database';
 import { probesPerAddress, recordDiscoveryFailure, runDiscoveryScan, ScanDependencies } from '../src/discovery/discovery-scan';
 import { discoveryProcessSockets } from '../src/discovery/discovery-limiter';
+import { buildEnrichment, DiscoverySnmpEnricher, failedEnrichment, readEnrichment } from '../src/discovery/discovery-snmp';
+import { encryptCredential, parseKeyring } from '@simoes/snmp-core';
 
 // Round 2 #10/#11: discovery saves progress per batch, cancels, resumes idempotently and stops at limits.
 const databaseUrl = process.env.DATABASE_URL ?? '';
@@ -21,21 +23,32 @@ const probe: ScanDependencies['probe'] = async (address, methods) => {
 };
 
 let settingsCreated = false;
+const snmpDeviceId = 'd1000000-0000-4000-8000-000000000003';
+const otherSnmpDeviceId = 'd1000000-0000-4000-8000-000000000004';
+const snmpCredentialId = 'd1000000-0000-4000-8000-000000000005';
+const otherSnmpCredentialId = 'd1000000-0000-4000-8000-000000000006';
 before(async () => {
+  await prisma.device.deleteMany({ where: { id: { in: [snmpDeviceId, otherSnmpDeviceId] } } });
   // A previous run that stopped early leaves the subnet behind (deleting the site does not delete it).
   await prisma.discoveryJob.deleteMany({ where: { subnetId } });
   await prisma.subnet.deleteMany({ where: { id: subnetId } });
   await prisma.site.deleteMany({ where: { id: siteId } });
   await prisma.site.create({ data: { id: siteId, name: 'R2-10 Discovery Site', code: 'R2-10-DISC' } });
   await prisma.subnet.create({ data: { id: subnetId, cidr: '10.251.0.0/26', version: 4, siteId } });
+  const envelope = encryptCredential({ community: 'integration-only' }, parseKeyring(JSON.stringify({ activeKeyId: 'k', keys: { k: Buffer.alloc(32, 3).toString('base64') } })));
+  for (const [deviceId, credentialId] of [[snmpDeviceId, snmpCredentialId], [otherSnmpDeviceId, otherSnmpCredentialId]]) {
+    await prisma.device.create({ data: { id: deviceId, name: `D-P1a ${deviceId.slice(-1)}`, type: 'SWITCH', siteId } });
+    await prisma.snmpCredential.create({ data: { id: credentialId, deviceId, purpose: 'READ', version: 'V2C', ...envelope, ciphertext: Buffer.from(envelope.ciphertext), iv: Buffer.from(envelope.iv), authTag: Buffer.from(envelope.authTag), wrappedDek: Buffer.from(envelope.wrappedDek), wrapIv: Buffer.from(envelope.wrapIv), wrapAuthTag: Buffer.from(envelope.wrapAuthTag) } });
+  }
   const settings = await prisma.systemSettings.findFirst();
   if (!settings) { await prisma.systemSettings.create({ data: { organizationName: 'R2-10', organizationCode: 'R2-10', setupCompleted: true, discoveryAllowedCidrs: ['10.251.0.0/16'] } }); settingsCreated = true; }
   else if (Array.isArray(settings.discoveryAllowedCidrs) && !(settings.discoveryAllowedCidrs as string[]).includes('10.251.0.0/16')) await prisma.systemSettings.update({ where: { id: settings.id }, data: { discoveryAllowedCidrs: [...settings.discoveryAllowedCidrs as string[], '10.251.0.0/16'] } });
 });
-beforeEach(async () => { probed = []; await prisma.discoveryJob.deleteMany({ where: { subnetId } }); });
+beforeEach(async () => { probed = []; await prisma.discoveryJob.deleteMany({ where: { subnetId } }); await prisma.subnet.update({ where: { id: subnetId }, data: { discoverySnmpCredentialId: null } }); });
 after(async () => {
   await prisma.discoveryJob.deleteMany({ where: { subnetId } });
   await prisma.subnet.deleteMany({ where: { id: subnetId } });
+  await prisma.device.deleteMany({ where: { id: { in: [snmpDeviceId, otherSnmpDeviceId] } } });
   await prisma.site.deleteMany({ where: { id: siteId } });
   if (settingsCreated) await prisma.systemSettings.deleteMany({ where: { organizationCode: 'R2-10' } });
   await prisma.$disconnect();
@@ -238,4 +251,79 @@ test('review #148: at 1 probe/s, a cancel stops the batch within seconds and a p
   } finally {
     await prisma.subnet.update({ where: { id: subnetId }, data: { discoveryMaxSockets: null, discoveryProbesPerSecond: null } });
   }
+});
+
+// D-P1a: optional SNMP enrichment per subnet.
+type EnricherCall = { credentialId: string; address: string };
+function fakeSnmp(outcome: (address: string) => 'OK' | 'AUTH' | 'TIMEOUT' = () => 'OK') {
+  const calls: EnricherCall[] = []; const loads: string[] = [];
+  const snmpEnricher: NonNullable<ScanDependencies['snmpEnricher']> = async (credentialId, subnetSiteId) => {
+    loads.push(`${credentialId}@${subnetSiteId}`);
+    const enricher: DiscoverySnmpEnricher = (address, limiter) => limiter.run(async () => {
+      calls.push({ credentialId, address });
+      const at = new Date('2026-11-24T12:00:00.000Z');
+      const kind = outcome(address);
+      if (kind === 'AUTH') return failedEnrichment(new Error('Authentication failure: wrong digest'), credentialId, at, 4);
+      if (kind === 'TIMEOUT') return failedEnrichment(new Error('Request timed out'), credentialId, at, 9);
+      return buildEnrichment({ sysObjectId: '1.3.6.1.4.1.9.1.2494', sysDescr: 'IOS XE', sysName: `sw-${address}`, entity: { index: 1000, model: 'C9300-48P', serial: `FOC-${address}` } }, credentialId, at, 3);
+    });
+    return { enricher };
+  };
+  return { snmpEnricher, calls, loads };
+}
+
+test('SNMP enrichment off: no credential is loaded and no result carries SNMP data', async () => {
+  const fake = fakeSnmp();
+  const job = await createJob();
+  assert.equal((await runDiscoveryScan(prisma, job.id, { probe, batchSize: 16, snmpEnricher: fake.snmpEnricher })).status, 'COMPLETED');
+  assert.deepEqual(fake.loads, []);
+  const stored = await prisma.discoveryJob.findUniqueOrThrow({ where: { id: job.id } });
+  assert.deepEqual([stored.snmpCredentialId, stored.snmpEnrichedCount, stored.snmpFailedCount, stored.snmpSkippedReason], [null, 0, 0, null]);
+  assert.equal(await prisma.discoveryResult.count({ where: { jobId: job.id, NOT: { snmp: { equals: Prisma.DbNull } } } }), 0);
+});
+
+test('SNMP enrichment on: only hosts that answered are tried, with the one subnet credential, and provenance is stored', async () => {
+  await prisma.subnet.update({ where: { id: subnetId }, data: { discoverySnmpCredentialId: snmpCredentialId } });
+  const fake = fakeSnmp((address) => address.endsWith('.10') ? 'AUTH' : address.endsWith('.15') ? 'TIMEOUT' : 'OK');
+  const job = await createJob();
+  const outcome = await runDiscoveryScan(prisma, job.id, { probe, batchSize: 16, snmpEnricher: fake.snmpEnricher });
+  assert.equal(outcome.status, 'COMPLETED', 'per-target SNMP failures never fail the scan');
+  assert.deepEqual(fake.loads, [`${snmpCredentialId}@${siteId}`]);
+  assert.equal(fake.calls.length, 12, 'one attempt per answered host, none for silent addresses');
+  assert.ok(fake.calls.every((call) => call.credentialId === snmpCredentialId && reachable(call.address)));
+  assert.equal(new Set(fake.calls.map((call) => call.address)).size, 12);
+  const stored = await prisma.discoveryJob.findUniqueOrThrow({ where: { id: job.id } });
+  assert.deepEqual({ credential: stored.snmpCredentialId, ok: stored.snmpEnrichedCount, failed: stored.snmpFailedCount, skipped: stored.snmpSkippedReason, probes: stored.probeCount },
+    { credential: snmpCredentialId, ok: 10, failed: 2, skipped: null, probes: 62 * probesPerAddress(['ICMP'], []) + 12 });
+  const rows = await prisma.discoveryResult.findMany({ where: { jobId: job.id } });
+  const byAddress = new Map(rows.map((row) => [row.address, readEnrichment(row.snmp)]));
+  assert.deepEqual(byAddress.get('10.251.0.5')?.fields.entitySerial, { value: 'FOC-10.251.0.5', oid: '1.3.6.1.2.1.47.1.1.1.1.11.1000', source: 'SNMP', credentialId: snmpCredentialId, observedAt: '2026-11-24T12:00:00.000Z' });
+  assert.deepEqual([byAddress.get('10.251.0.10')?.status, byAddress.get('10.251.0.10')?.errorCode], ['AUTH_FAILED', 'SNMP_AUTHENTICATION_FAILED']);
+  assert.equal(byAddress.get('10.251.0.15')?.status, 'TIMEOUT');
+});
+
+test('the credential is fixed when the job first starts; a retry keeps it even if the subnet setting changed', async () => {
+  await prisma.subnet.update({ where: { id: subnetId }, data: { discoverySnmpCredentialId: snmpCredentialId } });
+  const fake = fakeSnmp();
+  const job = await createJob();
+  let calls = 0;
+  const crashing: ScanDependencies['probe'] = async (...args) => { calls += 1; if (calls > 16) throw Object.assign(new Error('worker lost'), { code: 'ECONNRESET' }); return probe(...args); };
+  await assert.rejects(runDiscoveryScan(prisma, job.id, { probe: crashing, batchSize: 16, snmpEnricher: fake.snmpEnricher }), /worker lost/);
+  await recordDiscoveryFailure(prisma, job.id, Object.assign(new Error('x'), { code: 'ECONNRESET' }), false);
+  await prisma.subnet.update({ where: { id: subnetId }, data: { discoverySnmpCredentialId: otherSnmpCredentialId } });
+  assert.equal((await runDiscoveryScan(prisma, job.id, { probe, batchSize: 16, snmpEnricher: fake.snmpEnricher })).status, 'COMPLETED');
+  assert.ok(fake.calls.length > 0);
+  assert.ok(fake.calls.every((call) => call.credentialId === snmpCredentialId), 'never switches to the newly selected credential mid-job');
+  const stored = await prisma.discoveryJob.findUniqueOrThrow({ where: { id: job.id } });
+  assert.equal(stored.snmpCredentialId, snmpCredentialId);
+  assert.equal(stored.snmpEnrichedCount, 12);
+});
+
+test('an unusable credential skips enrichment for the scan, records why, and the scan still completes', async () => {
+  await prisma.subnet.update({ where: { id: subnetId }, data: { discoverySnmpCredentialId: snmpCredentialId } });
+  const job = await createJob();
+  const outcome = await runDiscoveryScan(prisma, job.id, { probe, batchSize: 16, snmpEnricher: async () => ({ skipped: 'SNMP_CREDENTIAL_OUT_OF_SCOPE' }) });
+  assert.equal(outcome.status, 'COMPLETED');
+  const stored = await prisma.discoveryJob.findUniqueOrThrow({ where: { id: job.id } });
+  assert.deepEqual([stored.snmpSkippedReason, stored.snmpEnrichedCount, stored.snmpFailedCount, stored.resultCount], ['SNMP_CREDENTIAL_OUT_OF_SCOPE', 0, 0, 12]);
 });
