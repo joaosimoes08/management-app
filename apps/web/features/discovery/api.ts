@@ -108,6 +108,8 @@ export interface DiscoverySubnet {
 }
 
 export interface DiscoverySchedule {
+  /** Absent while the subnet has no saved schedule: the API then answers with the defaults. */
+  id?: string;
   subnetId: string;
   enabled: boolean;
   intervalHours: number;

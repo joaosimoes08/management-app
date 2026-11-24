@@ -17,6 +17,7 @@ import {
   type DiscoveryComparison, type DiscoveryComparisonItem, type DiscoveryDefaults, type DiscoveryJobPayload, type DiscoveryResult, type SnmpPreRegistration, type SnmpPreRegistrationInput,
 } from './api';
 import { DiscoverySchedulePanel } from './discovery-schedule-panel';
+import { DiscoverySchedulesOverview } from './discovery-schedules-overview';
 import { DiscoveryMissingSection } from './discovery-missing';
 import { DiscoveryResultsTable } from './discovery-results';
 import { DiscoveryFailureReason, DiscoveryFlowHeader, DiscoveryRunProgress, DiscoveryRunRow } from './discovery-run-parts';
@@ -68,6 +69,9 @@ export default function DiscoveryPage() {
   const snmpDevices = useMemo(() => (deviceData?.items ?? []).filter((item) => ['SWITCH', 'ROUTER', 'FIREWALL'].includes(item.type)).filter((item) => !normalized || `${item.name} ${item.hostname ?? ''} ${item.managementIp ?? ''} ${item.type}`.toLowerCase().includes(normalized)), [deviceData?.items, normalized]);
   const waiting = visibleEnrollments.filter((item) => item.status === 'WAITING'); const discovered = visibleEnrollments.filter((item) => item.status === 'DISCOVERED');
 
+  const [scheduleSubnetId, setScheduleSubnetId] = useState('');
+  /** D-P2c: an overview row opens that subnet in the schedule panel below and moves focus there. */
+  const openSchedule = (subnetId: string) => { setScheduleSubnetId(subnetId); const panel = document.getElementById('discovery-schedule-panel'); panel?.scrollIntoView({ behavior: 'smooth', block: 'start' }); panel?.focus({ preventScroll: true }); };
   const switchTab = (next: 'network' | 'snmp') => { setTab(next); setSearch(''); const url = new URL(location.href); url.searchParams.set('tab', next); history.replaceState({}, '', `${url.pathname}${url.search}`); };
   const refresh = async () => { setBusy(true); try { if (tab === 'snmp') await Promise.all([refetchEnrollments(), refetchDevices()]); else await refetchJobs(); } finally { setBusy(false); } };
   const createNetwork = async (event: FormEvent) => { event.preventDefault(); try { const payload: DiscoveryJobPayload = { name: networkForm.name, subnetId: networkForm.subnetId, profileId: networkForm.profileId, methods: networkForm.methods, tcpPorts: networkForm.tcpPorts.split(',').map(Number).filter(Boolean), reverseDns: networkForm.reverseDns }; await createDiscoveryJob(payload); setNetworkModal(false); await refetchJobs(); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Não foi possível criar a descoberta.'); } };
@@ -88,7 +92,7 @@ export default function DiscoveryPage() {
     {error && <div className="ipam-alert error"><X size={15} />{error}</div>}
     {tab === 'network' && jobsError && <div className="ipam-alert error" role="alert"><X size={15} />{jobsError instanceof Error ? jobsError.message : 'Não foi possível carregar as execuções.'}</div>}
     {tab === 'network' && jobStatus && <p className="ipam-scope-note" role="status">Filtros aplicados: <strong>Estado: {jobStatus.split(',').map((value) => discoveryStatusLabels[value.trim().toUpperCase()] ?? value.trim()).join(', ')}</strong> <button type="button" className="text-button" onClick={clearJobStatus}><X size={12} /> Limpar filtros</button></p>}
-    {tab === 'network' ? <><NetworkDiscovery jobs={visibleJobs} allJobs={jobs} results={results} selectedJob={selectedJob} selectJob={setSelectedJob} canEdit={canEdit} review={review} bulkDone={bulkDone} searching={Boolean(normalized)} jobAction={jobAction} /><DiscoveryMissingSection siteId={siteId} canEdit={canEdit} searching={Boolean(normalized)} search={normalized} /><DiscoverySchedulePanel subnets={subnets} canEdit={canEdit} onError={setError} /></> : <SnmpDiscovery devices={snmpDevices} siteId={siteId} waiting={waiting} discovered={discovered} admin={admin} canEdit={canEdit} renew={renew} cancel={cancel} accept={openCandidate} searching={Boolean(normalized)} />}
+    {tab === 'network' ? <><NetworkDiscovery jobs={visibleJobs} allJobs={jobs} results={results} selectedJob={selectedJob} selectJob={setSelectedJob} canEdit={canEdit} review={review} bulkDone={bulkDone} searching={Boolean(normalized)} jobAction={jobAction} /><DiscoveryMissingSection siteId={siteId} canEdit={canEdit} searching={Boolean(normalized)} search={normalized} /><DiscoverySchedulesOverview subnets={subnets} search={normalized} onOpen={openSchedule} /><DiscoverySchedulePanel subnets={subnets} canEdit={canEdit} onError={setError} subnetId={scheduleSubnetId} onSubnetChange={setScheduleSubnetId} /></> : <SnmpDiscovery devices={snmpDevices} siteId={siteId} waiting={waiting} discovered={discovered} admin={admin} canEdit={canEdit} renew={renew} cancel={cancel} accept={openCandidate} searching={Boolean(normalized)} />}
     {networkModal && <NetworkModal form={networkForm} setForm={setNetworkForm} subnets={subnets} profiles={defaults?.profiles ?? []} close={() => setNetworkModal(false)} submit={createNetwork} />}
     {enrollmentModal && <EnrollmentModal form={enrollmentForm} setForm={setEnrollmentForm} close={() => setEnrollmentModal(false)} submit={saveEnrollment} admin={admin} />}
     {candidate && <AcceptModal candidate={candidate} form={acceptForm} setForm={setAcceptForm} models={models.filter((model) => model.type === acceptForm.type)} close={() => setCandidate(null)} submit={accept} />}
