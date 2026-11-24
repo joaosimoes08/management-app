@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { observeLegacyDom, translateLegacyDom } from './i18n';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { loadLegacyMessages, observeLegacyDom, translateLegacyDom } from './i18n';
 import { legacyEnglishMessages, translateLegacyText } from './legacy-messages';
 
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ authenticated: false, loading: false }) }));
@@ -9,6 +9,9 @@ const en = (text: string) => translateLegacyText('en-US', text);
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 /** Subtree walks made by the translation layer (jsdom's querySelector also uses tree walkers, with other filters). */
 const layerWalks = (spy: { mock: { calls: unknown[][] } }) => spy.mock.calls.filter((call) => call[1] === (NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT)).length;
+
+// The English legacy table loads on demand; load it once so the translations below are synchronous.
+beforeAll(async () => { await loadLegacyMessages(); });
 
 afterEach(() => {
   vi.restoreAllMocks();
