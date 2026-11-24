@@ -214,7 +214,8 @@ export class InventoryQualityService {
       this.prisma.device.findMany({ where: { siteId: siteId ?? { in: siteIds } }, select: { id: true } }),
     ]);
     const visible = await this.filterVisibleFindings(user, findingCandidates);
-    const visibleDevices = user.roles.includes('ADMIN') ? deviceCandidates : (await Promise.all(deviceCandidates.map(async (device) => { try { await this.access.assertDevice(user, 'READ', device.id); return device; } catch { return null; } }))).filter((item): item is { id: string } => Boolean(item));
+    let visibleDevices = deviceCandidates;
+    if (!user.roles.includes('ADMIN')) { const readable = await this.access.readableDeviceIds(user, deviceCandidates.map(({ id }) => id)); visibleDevices = deviceCandidates.filter(({ id }) => readable.has(id)); }
     const visibleDeviceIds = new Set(visibleDevices.map(({ id }) => id));
     const deviceIdsByEntity = new Map<string, Set<string>>();
     const addDevice = (entityType: string, entityId: string, deviceId: string | null | undefined) => {
