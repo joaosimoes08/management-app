@@ -11,6 +11,7 @@ import { UpsertSnmpHealthThresholdsDto } from './dto';
 
 /** Kept in step with HEALTH_HISTORY_RETENTION_DAYS in apps/snmp (the worker prunes; the API only reads). */
 export const HEALTH_HISTORY_RETENTION_DAYS = 30;
+export const HEALTH_HISTORY_MAX_ROWS = 10_000;
 const NETWORK_TYPES = ['SWITCH', 'ROUTER', 'FIREWALL'];
 
 /** Fixed severities per condition (Joao's Phase 2 answer 12); only the limits are configurable. */
@@ -96,10 +97,12 @@ export class SnmpHealthThresholdsService {
     await this.networkDevice(user, deviceId, 'READ');
     const to = new Date();
     const from = new Date(to.getTime() - span * 3_600_000);
-    const items = await this.prisma.snmpDeviceHealthSample.findMany({
-      where: { deviceId, observedAt: { gte: from } }, orderBy: { observedAt: 'asc' }, take: 10_000,
+    // Newest HEALTH_HISTORY_MAX_ROWS rows when the window holds more, returned oldest first.
+    const newestFirst = await this.prisma.snmpDeviceHealthSample.findMany({
+      where: { deviceId, observedAt: { gte: from } }, orderBy: { observedAt: 'desc' }, take: HEALTH_HISTORY_MAX_ROWS,
       select: { observedAt: true, status: true, cpu5sPercent: true, cpu1mPercent: true, cpu5mPercent: true, memoryUsedPercent: true, maxTemperatureCelsius: true, issueCount: true, rebooted: true },
     });
+    const items = newestFirst.reverse();
     return { deviceId, from, to, retentionDays: HEALTH_HISTORY_RETENTION_DAYS, items };
   }
 }

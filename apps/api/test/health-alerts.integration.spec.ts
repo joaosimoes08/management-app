@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { strict as assert } from 'node:assert';
 import { after, before, test } from 'node:test';
-import { PrismaClient } from '@simoes/database';
+import { PrismaClient, type OperationalAlert } from '@simoes/database';
 import { collectHealthAlerts, HEALTH_ALERT_SOURCE } from '../src/operations/health-alerts';
 import { OperationsService } from '../src/operations/operations.service';
 
@@ -53,7 +53,7 @@ before(async () => {
 after(async () => { await cleanup(); await prisma.$disconnect(); });
 
 const pass = async () => { const plan = await collectHealthAlerts(prisma); await operations.reconcileSource(HEALTH_ALERT_SOURCE, plan.candidates, undefined, false, plan.resolveKeys); return plan; };
-const alerts = async () => Object.fromEntries((await prisma.operationalAlert.findMany({ where: { source: HEALTH_ALERT_SOURCE, entityId: { in: [deviceId, quietId] } } })).map((item) => [item.dedupKey.split(':').pop(), item]));
+const alerts = async (): Promise<Record<string, OperationalAlert>> => Object.fromEntries((await prisma.operationalAlert.findMany({ where: { source: HEALTH_ALERT_SOURCE, entityId: { in: [deviceId, quietId] } } })).map((item) => [item.dedupKey.split(':').pop(), item]));
 
 test('a degraded device raises one alert per condition with Joao\'s severities; overrides apply per site and device', async () => {
   await pass();

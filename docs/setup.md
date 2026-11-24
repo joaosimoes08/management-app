@@ -113,7 +113,7 @@ Invoke-RestMethod http://localhost:3001/api/v1/health
    ```
 
 2. Aplica a migração aditiva com `npm run db:migrate`.
-3. Por omissão, o container reutiliza `POSTGRES_USER`, `POSTGRES_PASSWORD` e `POSTGRES_DB`. Em produção, aplica `scripts/snmp-database-grants.sql`, associa o utilizador de login ao role `simoes_snmp_runtime` e define `SNMP_DATABASE_URL` com o hostname `postgres`. O role não pode criar schema nem executar migrações.
+3. Por omissão, o container reutiliza `POSTGRES_USER`, `POSTGRES_PASSWORD` e `POSTGRES_DB`. Em produção, aplica `scripts/snmp-database-grants.sql`, associa o utilizador de login ao role `simoes_snmp_runtime` e define `SNMP_DATABASE_URL` com o hostname `postgres`. O role não pode criar schema nem executar migrações. Volta a aplicar o script depois de cada atualização que acrescente tabelas SNMP (ver "Atualizações, migrações e recuperação" no `README.md`).
 
 4. **Engine ID e versões SNMP.** O engine ID SNMPv3 é gerado uma vez por instalação pela aplicação e guardado na base de dados; não precisas de o configurar. `SNMP_ENGINE_ID` é apenas um override explícito: se estiver definido (e não for o valor partilhado antigo), tem prioridade sobre o valor guardado e não o substitui na base de dados. O engine ID em uso aparece na secção **Engine ID da app** de **Configurar o switch**, na vista do equipamento SNMP.
    - **SNMPv3 (authPriv) é o recomendado.** SNMPv1 é sempre recusado.
