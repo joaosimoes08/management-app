@@ -109,8 +109,21 @@ function nolldp(m, h, label) {
   const cdpNames = sub(m, '1.3.6.1.4.1.9.9.23.1.2.1.1.6').map((k) => m.get(k)).sort();
   expect(JSON.stringify(cdpNames) === JSON.stringify(['ap-floor1-01', 'core-sw-01', 'core-sw-02']), `${label} CDP neighbours = ap-floor1-01, core-sw-01, core-sw-02`);
   expect(m.get('1.3.6.1.4.1.9.9.23.1.2.1.1.7.50.1') === 'TenGigabitEthernet1/0/1', `${label} CDP port of core-sw-02 on uplink 2`);
-  const same = [...h].filter(([k]) => !k.startsWith('1.0.8802.') && k !== '1.3.6.1.2.1.1.3.0').every(([k, v]) => m.get(k) === v);
-  expect(same, `${label} equals healthy apart from LLDP-MIB`);
+  const same = [...h].filter(([k]) => !k.startsWith('1.0.8802.') && !ENDPOINT_TABLES.some((t) => k.startsWith(`${t}.`)) && k !== '1.3.6.1.2.1.1.3.0').every(([k, v]) => m.get(k) === v);
+  expect(same, `${label} equals healthy apart from LLDP-MIB and the endpoint tables`);
+  // D-P1e: nolldp answers the legacy endpoint MIBs only.
+  expect(sub(m, '1.3.6.1.2.1.4.35.1').length === 0 && sub(m, '1.3.6.1.2.1.17.7.1').length === 0, `${label} no IP-MIB ARP and no Q-BRIDGE`);
+  expect(sub(m, '1.3.6.1.2.1.4.22.1.2').length === 4, `${label} 4 RFC1213 ARP rows`);
+  expect(sub(m, '1.3.6.1.2.1.17.4.3.1.2').length === 4, `${label} 4 BRIDGE-MIB forwarding rows`);
+}
+
+// D-P1e: endpoint tables on the healthy stack (IP-MIB ARP, Q-BRIDGE FDB with the FDB-id -> VLAN map, bridge ports).
+const ENDPOINT_TABLES = ['1.3.6.1.2.1.4.35.1', '1.3.6.1.2.1.4.22.1', '1.3.6.1.2.1.17.7.1', '1.3.6.1.2.1.17.4.3.1'];
+function endpoints(m, label) {
+  expect(sub(m, '1.3.6.1.2.1.4.35.1.4').length === 4, `${label} 4 IP-MIB ARP rows`);
+  expect(sub(m, '1.3.6.1.2.1.17.7.1.2.2.1.2').length === 6, `${label} 6 Q-BRIDGE forwarding rows`);
+  expect(num(m, '1.3.6.1.2.1.17.7.1.4.2.1.3.0.80') === 3, `${label} VLAN 80 uses FDB 3`);
+  expect(num(m, '1.3.6.1.2.1.17.1.4.1.2.7') === 49, `${label} bridge port 7 is ifIndex 49`);
 }
 
 async function snmpget(args) {
@@ -152,6 +165,7 @@ for (const auth of ['v2c', 'v3']) {
   if (h && d) { console.log(`degraded checks ${auth}`); degraded(d, h, `degraded/${auth}`); }
   const n = walks[`nolldp/${auth}`];
   if (h && n) { console.log(`nolldp checks ${auth}`); nolldp(n, h, `nolldp/${auth}`); }
+  if (h) { console.log(`endpoint checks ${auth}`); endpoints(h, `healthy/${auth}`); }
 }
 console.log('v2c and v3 return the same data');
 for (const variant of ['healthy', 'degraded', 'nolldp']) {

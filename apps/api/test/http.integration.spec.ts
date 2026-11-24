@@ -3237,3 +3237,44 @@ test('Discovery D-P1d: discovery candidates show their LLDP/CDP neighbour eviden
     await prisma.discoveryJob.deleteMany({ where: { id: { in: [jobA.id, jobB.id] } } });
   }
 });
+
+test('D-P1e: ARP and MAC forwarding sightings are read-only, device-scoped and never hidden-device leaks', async () => {
+  const at = (minutes: number) => new Date(Date.now() - minutes * 60_000);
+  const laptop = '00:a3:d1:ee:00:50';
+  const arpRow = (deviceId: string, ipAddress: string, macAddress: string, lastSeenAt: Date) => ({ deviceId, ipAddress, macAddress, ifIndex: 2, interfaceName: 'Gi1/0/2', entryType: 'DYNAMIC', source: 'IP-MIB', firstSeenAt: at(600), lastSeenAt });
+  const macRow = (deviceId: string, vlanId: number, macAddress: string, lastSeenAt: Date) => ({ deviceId, vlanId, macAddress, bridgePort: 2, ifIndex: 2, interfaceName: 'Gi1/0/2', status: 'LEARNED', source: vlanId ? 'Q-BRIDGE-MIB' : 'BRIDGE-MIB', firstSeenAt: at(600), lastSeenAt });
+  const now = at(1), older = at(90);
+  await prisma.snmpArpEntry.createMany({ data: [arpRow(ids.deviceA, '10.250.1.50', laptop, now), arpRow(ids.deviceA, '10.250.1.51', '00:a3:d1:ee:00:51', older), arpRow(ids.deviceSibling, '10.250.1.50', laptop, now)] });
+  await prisma.snmpMacEntry.createMany({ data: [macRow(ids.deviceA, 70, laptop, now), macRow(ids.deviceA, 80, laptop, now), macRow(ids.deviceA, 0, '00:a3:d1:ee:00:51', older), macRow(ids.deviceSibling, 70, laptop, now)] });
+  try {
+    const own = await request('GET', `/api/v1/snmp/devices/${ids.deviceA}/endpoints`, 'qa-readonly');
+    assert.equal(own.statusCode, 200, own.body);
+    const body = json(own);
+    assert.equal(body.truncated, false);
+    assert.deepEqual(body.arp.map((row: any) => [row.ipAddress, row.macAddress, row.interfaceName, row.current]), [['10.250.1.50', laptop, 'Gi1/0/2', true], ['10.250.1.51', '00:a3:d1:ee:00:51', 'Gi1/0/2', false]]);
+    assert.deepEqual(body.mac.map((row: any) => [row.vlanId, row.macAddress, row.current]), [[70, laptop, true], [80, laptop, true], [null, '00:a3:d1:ee:00:51', false]], 'one MAC in two VLANs is two sightings; VLAN 0 is reported as unknown');
+    assert.equal((await request('GET', `/api/v1/snmp/devices/${ids.deviceA}/endpoints`, 'qa-auditor')).statusCode, 200);
+    assert.ok([403, 404].includes((await request('GET', `/api/v1/snmp/devices/${ids.deviceSibling}/endpoints`, 'qa-readonly')).statusCode), 'hidden device');
+    assert.equal((await request('GET', '/api/v1/snmp/devices/not-a-uuid/endpoints', 'qa-admin')).statusCode, 400);
+
+    const scoped = json(await request('GET', `/api/v1/snmp/endpoints?mac=00A3.D1EE.0050`, 'qa-readonly'));
+    assert.deepEqual(scoped.query, { mac: laptop });
+    assert.deepEqual([...new Set([...scoped.arp, ...scoped.mac].map((row: any) => row.deviceId))], [ids.deviceA], 'the sibling room device is left out');
+    const admin = json(await request('GET', `/api/v1/snmp/endpoints?mac=${laptop}`, 'qa-admin'));
+    assert.deepEqual(new Set(admin.arp.map((row: any) => row.deviceId)), new Set([ids.deviceA, ids.deviceSibling]));
+    assert.equal(admin.mac.length, 3);
+    const byIp = json(await request('GET', '/api/v1/snmp/endpoints?ip=10.250.1.50', 'qa-readonly'));
+    assert.deepEqual(byIp.arp.map((row: any) => row.macAddress), [laptop]);
+    assert.deepEqual(byIp.mac.map((row: any) => row.vlanId).sort(), [70, 80], 'the IP leads to its MAC in the forwarding table');
+    for (const query of ['', '?mac=nope', '?ip=10.250.1', '?ip=fe80::1', `?mac=${laptop}&ip=10.250.1.50`]) {
+      const refused = await request('GET', `/api/v1/snmp/endpoints${query}`, 'qa-readonly');
+      assert.equal(refused.statusCode, 400, query);
+      assert.equal(json(refused).code, 'SNMP_ENDPOINT_QUERY_INVALID');
+    }
+    assert.ok([404, 405].includes((await request('POST', `/api/v1/snmp/devices/${ids.deviceA}/endpoints`, 'qa-admin', {})).statusCode), 'no write route');
+    assert.equal(await prisma.device.count({ where: { managementIp: '10.250.1.50' } }), 0, 'a sighting never becomes a Device');
+  } finally {
+    await prisma.snmpArpEntry.deleteMany({ where: { deviceId: { in: [ids.deviceA, ids.deviceSibling] } } });
+    await prisma.snmpMacEntry.deleteMany({ where: { deviceId: { in: [ids.deviceA, ids.deviceSibling] } } });
+  }
+});

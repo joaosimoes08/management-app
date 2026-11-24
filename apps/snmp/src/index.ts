@@ -10,6 +10,7 @@ import { log, publicErrorCode } from './log';
 import { startHealthServer, SnmpMetrics } from './health';
 import { metricsRetentionDays } from './metrics-retention';
 import { HEALTH_HISTORY_RETENTION_DAYS, healthHistoryCutoff } from './device-health';
+import { ENDPOINT_RETENTION_DAYS } from './endpoints';
 import type { Server } from 'node:http';
 
 if (process.env.SNMP_DATABASE_URL) process.env.DATABASE_URL = process.env.SNMP_DATABASE_URL;
@@ -71,6 +72,13 @@ async function start() {
       // SNMP Phase 2 step 9: health history older than 30 days (Joao's answer 13). The only rows this job removes.
       const health = await prisma.snmpDeviceHealthSample.deleteMany({ where: { observedAt: { lt: healthHistoryCutoff() } } });
       if (health.count) log('info', 'expired SNMP health history removed', { count: health.count, retentionDays: HEALTH_HISTORY_RETENTION_DAYS });
+      // Discovery D-P1e: ARP/MAC sightings not seen again for 30 days.
+      const endpointCutoff = new Date(Date.now() - ENDPOINT_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+      const [arp, mac] = await prisma.$transaction([
+        prisma.snmpArpEntry.deleteMany({ where: { lastSeenAt: { lt: endpointCutoff } } }),
+        prisma.snmpMacEntry.deleteMany({ where: { lastSeenAt: { lt: endpointCutoff } } }),
+      ]);
+      if (arp.count || mac.count) log('info', 'expired SNMP endpoint sightings removed', { arp: arp.count, mac: mac.count, retentionDays: ENDPOINT_RETENTION_DAYS });
     };
     await pruneMetrics();
     const metricsRetentionTimer = setInterval(() => void pruneMetrics().catch((error) => log('error', 'SNMP metric retention failed', { errorCode: publicErrorCode(error) })), 60 * 60 * 1000);

@@ -645,6 +645,8 @@ model Device {
   snmpDrifts                SnmpDrift[]
   topologyProposals         TopologyProposal[]
   lldpObservations          LldpObservation[]
+  snmpArpEntries            SnmpArpEntry[]
+  snmpMacEntries            SnmpMacEntry[]
   snmpWriteRequests         SnmpWriteRequest[]
   topologyNodes             TopologyMapNode[]
   criticalAssetAttestations CriticalAssetAttestation[]
@@ -1328,6 +1330,55 @@ model SnmpDeviceHealthSample {
 
   @@index([deviceId, observedAt])
   @@index([observedAt])
+}
+
+/// Discovery D-P1e: an ARP sighting on a polled device (IP-MIB/RFC1213), one row per (device, IP, MAC) with first and
+/// last seen. An endpoint sighting, never a Device identity: nothing here creates or matches a Device.
+model SnmpArpEntry {
+  id            String   @id @default(uuid()) @db.Uuid
+  deviceId      String   @db.Uuid
+  ipAddress     String
+  /// Lowercase, colon-separated.
+  macAddress    String
+  ifIndex       Int?
+  interfaceName String?
+  /// OTHER, DYNAMIC, STATIC or LOCAL.
+  entryType     String
+  /// IP-MIB or RFC1213-MIB.
+  source        String
+  firstSeenAt   DateTime
+  lastSeenAt    DateTime
+  jobId         String?  @db.Uuid
+  device        Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, ipAddress, macAddress])
+  @@index([macAddress])
+  @@index([ipAddress])
+  @@index([lastSeenAt])
+}
+
+/// Discovery D-P1e: a bridge forwarding (MAC -> port) sighting on a polled device, keyed by VLAN. vlanId 0 means the
+/// device answered BRIDGE-MIB only, which has no VLAN in its index. The same MAC in two VLANs is two rows.
+model SnmpMacEntry {
+  id            String   @id @default(uuid()) @db.Uuid
+  deviceId      String   @db.Uuid
+  vlanId        Int      @default(0)
+  macAddress    String
+  bridgePort    Int?
+  ifIndex       Int?
+  interfaceName String?
+  /// OTHER, LEARNED, SELF or MGMT.
+  status        String
+  /// Q-BRIDGE-MIB or BRIDGE-MIB.
+  source        String
+  firstSeenAt   DateTime
+  lastSeenAt    DateTime
+  jobId         String?  @db.Uuid
+  device        Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, vlanId, macAddress])
+  @@index([macAddress])
+  @@index([lastSeenAt])
 }
 
 /// SNMP Phase 2 step 9: health alert limits overridden for one Site or one Device (exactly one of siteId/deviceId).

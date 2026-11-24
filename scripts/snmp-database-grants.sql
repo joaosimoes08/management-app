@@ -44,7 +44,9 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   "SnmpWriteRequest",
   "SnmpListenerInterface",
   "SnmpDeviceHealth",
-  "SnmpDeviceHealthSample"
+  "SnmpDeviceHealthSample",
+  "SnmpArpEntry",
+  "SnmpMacEntry"
 TO simoes_snmp_runtime;
 
 GRANT SELECT ON TABLE "SnmpListenerConfig" TO simoes_snmp_runtime;
