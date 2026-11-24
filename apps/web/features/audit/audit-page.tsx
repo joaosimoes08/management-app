@@ -116,7 +116,7 @@ export default function AuditPage() {
     </section></div>
 
     {detail && <aside className="host-panel" aria-label={`Detalhe de ${detail.action}`}>
-      <div className="host-panel-head"><div><span className="section-kicker">EVENTO DE AUDITORIA</span><h2>{detail.action}</h2><span>{`${dateTime(detail.createdAt)} · ${actorName(detail)}`}</span></div><button ref={panelClose} className="icon-button" onClick={closeDetail} aria-label="Fechar"><X size={18} /></button></div>
+      <div className="host-panel-head"><div><h2>{detail.action}</h2><span>{`${dateTime(detail.createdAt)} · ${actorName(detail)}`}</span></div><button ref={panelClose} className="icon-button" onClick={closeDetail} aria-label="Fechar"><X size={18} /></button></div>
       <div className="host-detail-grid">
         <div><span>Tipo de registo</span><strong>{detail.entityType ?? 'Sistema'}</strong></div>
         <div><span>Registo</span><strong className="mono">{detail.entityId || '—'}</strong></div>

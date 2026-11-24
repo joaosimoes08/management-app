@@ -16,7 +16,7 @@ afterEach(() => cleanup());
 
 describe('one <main> landmark per page', () => {
   it('a ModulePage inside the real AppShell renders exactly one main', () => {
-    render(<ModulePage kind="settings" title="Definições" eyebrow="SISTEMA" description="Configuração"><p>Corpo</p></ModulePage>);
+    render(<ModulePage kind="settings" title="Definições" description="Configuração"><p>Corpo</p></ModulePage>);
     expect(screen.getAllByRole('main')).toHaveLength(1);
     expect(document.querySelectorAll('main')).toHaveLength(1);
   });

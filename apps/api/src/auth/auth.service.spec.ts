@@ -115,3 +115,47 @@ test('syncUser still surfaces errors that are not unique violations, and does no
   await assert.rejects(() => service.syncUser({ externalId: 'x', username: 'x', roles: [] }), /db down/);
   assert.equal(calls, 1);
 });
+
+/** A returning user: stored row with its roles, counting every write syncUser makes. */
+function returningUserPrisma(stored: StoredUser & { roles: Array<{ role: string }> }) {
+  const writes = { update: 0, transaction: 0 };
+  const prisma = {
+    user: {
+      findUnique: async ({ where }: { where: { externalId?: string } }) => (where.externalId === stored.externalId ? { ...stored, roles: [...stored.roles] } : null),
+      update: async ({ data }: { data: Partial<StoredUser> }) => { writes.update += 1; Object.assign(stored, data); return { ...stored }; },
+      upsert: async () => { throw new Error('returning users are never upserted'); },
+    },
+    $transaction: async (operation: (tx: unknown) => Promise<void>) => { writes.transaction += 1; return operation({ userRole: { deleteMany: async () => ({ count: 0 }), createMany: async () => ({ count: 1 }) } }); },
+  };
+  return { prisma, writes };
+}
+
+test('a returning user with unchanged profile and roles causes no User or UserRole writes, but is still audited', async () => {
+  const database = returningUserPrisma({ id: 'user-1', externalId: 'kc-1', username: 'ana', displayName: 'Ana', email: 'ana@example.test', roles: [{ role: 'ADMIN' }, { role: 'READ_ONLY' }] });
+  const audited: string[] = [];
+  const service = new AuthService(database.prisma as never, { record: async ({ action }: { action: string }) => { audited.push(action); } } as never);
+
+  const result = await service.syncUser({ externalId: 'kc-1', username: 'ana', displayName: 'Ana', email: 'ana@example.test', roles: ['READ_ONLY', 'ADMIN', 'ADMIN', 'offline_access'] });
+
+  assert.deepEqual(database.writes, { update: 0, transaction: 0 });
+  assert.deepEqual(result, { id: 'user-1', externalId: 'kc-1', username: 'ana', roles: ['READ_ONLY', 'ADMIN'] });
+  assert.deepEqual(audited, ['AUTHENTICATED']);
+});
+
+test('a returning user is updated when a profile field changes, and roles are rewritten when the role set changes', async () => {
+  const emailChanged = returningUserPrisma({ id: 'user-1', externalId: 'kc-1', username: 'ana', displayName: 'Ana', email: 'old@example.test', roles: [{ role: 'ADMIN' }] });
+  await new AuthService(emailChanged.prisma as never, { record: async () => undefined } as never).syncUser({ externalId: 'kc-1', username: 'ana', displayName: 'Ana', email: 'new@example.test', roles: ['ADMIN'] });
+  assert.deepEqual(emailChanged.writes, { update: 1, transaction: 0 });
+
+  const roleRemoved = returningUserPrisma({ id: 'user-1', externalId: 'kc-1', username: 'ana', roles: [{ role: 'ADMIN' }, { role: 'READ_ONLY' }] });
+  await new AuthService(roleRemoved.prisma as never, { record: async () => undefined } as never).syncUser({ externalId: 'kc-1', username: 'ana', roles: ['ADMIN'] });
+  assert.deepEqual(roleRemoved.writes, { update: 0, transaction: 1 });
+
+  const roleAdded = returningUserPrisma({ id: 'user-1', externalId: 'kc-1', username: 'ana', roles: [{ role: 'READ_ONLY' }] });
+  await new AuthService(roleAdded.prisma as never, { record: async () => undefined } as never).syncUser({ externalId: 'kc-1', username: 'ana', roles: ['READ_ONLY', 'ADMIN'] });
+  assert.deepEqual(roleAdded.writes, { update: 0, transaction: 1 });
+
+  const allRolesRevoked = returningUserPrisma({ id: 'user-1', externalId: 'kc-1', username: 'ana', roles: [{ role: 'READ_ONLY' }] });
+  await new AuthService(allRolesRevoked.prisma as never, { record: async () => undefined } as never).syncUser({ externalId: 'kc-1', username: 'ana', roles: [] });
+  assert.deepEqual(allRolesRevoked.writes, { update: 0, transaction: 1 });
+});

@@ -17,5 +17,6 @@ describe('SNMP endpoint authorization policy', () => {
     assert.deepEqual(roles('reviewDrift'), ['ADMIN', 'NETWORK_OPERATOR']);
     assert.deepEqual(roles('overview'), ['ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY']);
     assert.deepEqual(roles('metrics'), ['ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY']);
+    assert.deepEqual(roles('health'), ['ADMIN', 'NETWORK_OPERATOR', 'AUDITOR', 'READ_ONLY']);
   });
 });
