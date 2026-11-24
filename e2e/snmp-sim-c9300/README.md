@@ -70,7 +70,7 @@ All `data/*.snmprec` files are generated from `gen-snmprec.mjs`, so the variants
 
 1. Rewrite all files (sorted by OID, as snmpsim needs): `node e2e/snmp-sim-c9300/gen-snmprec.mjs`
 2. Confirm they are current (exits non-zero if a committed file is stale): `node e2e/snmp-sim-c9300/gen-snmprec.mjs --check`
-3. Re-run the checks below (`walk-check.mjs`, `poll-check.sh` and `cdp-check.sh`) with the simulator rebuilt: `docker compose -f e2e/snmp-sim-c9300/docker-compose.yml up -d --build`
+3. Re-run the checks below (`walk-check.mjs`, `poll-check.sh`, `alert-check.sh` and `cdp-check.sh`) with the simulator rebuilt: `docker compose -f e2e/snmp-sim-c9300/docker-compose.yml up -d --build`
 
 ## Health polling check (Phase 2 step 8)
 
