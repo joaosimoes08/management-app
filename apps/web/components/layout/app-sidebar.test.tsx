@@ -129,12 +129,25 @@ describe('AppSidebar navigation entries', () => {
     expect(document.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
   });
 
-  it('marks Help as the current page on /ajuda without adding the active style', () => {
-    routeState.pathname = '/ajuda';
+  it('gives Help the active style and aria-current on /ajuda and its sub-pages', () => {
+    routeState.pathname = '/ajuda/snmp';
     render(<AppSidebar collapsed={false} onToggle={vi.fn()} />);
     const help = screen.getByRole('link', { name: 'nav.help' });
     expect(help).toHaveAttribute('aria-current', 'page');
-    expect(help).not.toHaveClass('active');
+    expect(help).toHaveClass('active');
+    expect(document.querySelectorAll('.primary-nav .nav-item.active')).toHaveLength(1);
+  });
+
+  it('keeps the active style and aria-current on the same single entry for every route', () => {
+    for (const pathname of ['/', '/infraestrutura/racks', '/snmp', '/ajuda', '/portal']) {
+      routeState.pathname = pathname;
+      const { container, unmount } = render(<AppSidebar collapsed={false} onToggle={vi.fn()} />);
+      const active = Array.from(container.querySelectorAll('.primary-nav .nav-item.active'));
+      const current = Array.from(container.querySelectorAll('.primary-nav [aria-current="page"]'));
+      expect(active).toHaveLength(1);
+      expect(current).toEqual(active);
+      unmount();
+    }
   });
 
   it('still closes the mobile drawer when a main entry is clicked', () => {

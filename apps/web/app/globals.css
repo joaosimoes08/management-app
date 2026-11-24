@@ -1795,7 +1795,7 @@ body { color:var(--ink); background:var(--t-canvas,#e9eef5); }
 .app-shell .workspace-switcher > svg { color:var(--t-sb-muted,#9fb0c8); }
 .app-shell .nav-item { color:var(--t-sb-muted,#c3cee0); border-radius:10px; }
 .app-shell .nav-item:hover { color:var(--t-sb-text,#fff); background:#203754; }
-.app-shell .nav-item.active { color:var(--t-sb-text,#fff); background:var(--t-sb-active,#315fc5); box-shadow:0 5px 15px rgba(10,25,52,.22); }
+.app-shell .nav-item.active { color:#fff; background:var(--t-sb-active,#315fc5); box-shadow:0 5px 15px rgba(10,25,52,.22); }
 .app-shell .sidebar-note-button { color:var(--t-sb-muted,#f7dca6); background:var(--t-sb-raised,#3c3327); border-color:var(--t-sb-line,#635136); }
 .app-shell .sidebar-note-button small { color:var(--t-sb-muted,#e2c991); }
 .app-shell .sidebar .user-menu-label,.app-shell .sidebar .profile-mini { color:var(--t-sb-text,#e7edf8); }
@@ -1998,7 +1998,9 @@ body { color:var(--ink); background:var(--t-canvas,#e9eef5); }
 .app-shell .sidebar.app-sidebar .primary-nav { gap:15px; }
 .app-shell .sidebar.app-sidebar .nav-group-label { color:var(--t-sb-muted,#95a7c1); }
 .app-shell .sidebar.app-sidebar .nav-item { min-height:39px; color:var(--t-sb-muted,#c3cee0); }
-.app-shell .sidebar.app-sidebar .nav-item.active { color:var(--t-sb-text,#fff); background:var(--t-sb-active,#315fc5); }
+.app-shell .sidebar.app-sidebar .nav-item.active { color:#fff; background:var(--t-sb-active,#315fc5); }
+/* Active sidebar entry: the accent fill alone is under 3:1 against some light sidebars, so a left bar and heavier label mark it too (same tokens in light and dark). */
+.app-shell .sidebar.app-sidebar .nav-item.active { font-weight:600; box-shadow:inset 3px 0 0 var(--t-sb-text,#fff), 0 5px 15px rgba(10,25,52,.22); }
 .app-shell .sidebar-spacer { flex:1 1 auto; min-height:18px; }
 .app-shell .sidebar.app-sidebar .user-menu-label,.app-shell .sidebar.app-sidebar .profile-mini { color:var(--t-sb-text,#e7edf8); }
 .app-shell .sidebar.app-sidebar .profile-mini { margin-top:8px; }

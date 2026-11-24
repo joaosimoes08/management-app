@@ -30,6 +30,9 @@ export function AppSidebar({ collapsed, onToggle, onClose }: AppSidebarProps) {
   const { t } = useI18n();
   const { hasRole } = useAuth();
   const prefersReducedMotion = useReducedMotion();
+  // Settings and Help use the same active style as the main entries, so the current page is always visible.
+  const settingsActive = isActivePath(pathname, settingsNavigation.href);
+  const helpActive = isActivePath(pathname, helpNavigation.href);
   const [expandedWidth, setExpandedWidth] = useState(248);
   const [focusWithin, setFocusWithin] = useState(false);
   const keyboardNavigation = useRef(false);
@@ -78,11 +81,11 @@ export function AppSidebar({ collapsed, onToggle, onClose }: AppSidebarProps) {
           );
         })}
         {(hasRole('ADMIN') || hasRole('AUDITOR')) && (
-          <Link href={settingsNavigation.href} className="nav-item sidebar-settings-link" aria-current={isActivePath(pathname, settingsNavigation.href) ? 'page' : undefined}>
+          <Link href={settingsNavigation.href} className={`nav-item sidebar-settings-link ${settingsActive ? 'active' : ''}`} aria-current={settingsActive ? 'page' : undefined}>
             <Settings size={17} strokeWidth={1.8} /><span className="nav-item-label">{t(settingsNavigation.key)}</span>
           </Link>
         )}
-        <Link href={helpNavigation.href} className="nav-item sidebar-help-link" aria-current={isActivePath(pathname, helpNavigation.href) ? 'page' : undefined}>
+        <Link href={helpNavigation.href} className={`nav-item sidebar-help-link ${helpActive ? 'active' : ''}`} aria-current={helpActive ? 'page' : undefined}>
           <CircleHelp size={17} strokeWidth={1.8} /><span className="nav-item-label">{t(helpNavigation.key)}</span>
         </Link>
       </nav>
