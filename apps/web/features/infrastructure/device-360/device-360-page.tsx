@@ -15,6 +15,8 @@ import { ImpactPanel } from '@/features/topology/impact-panel';
 import { useUiText } from '@/components/ui/use-ui-text';
 import { isSnmpNetworkDevice } from '@/features/snmp/health/health-api';
 import { SnmpDeviceHealthBadge, SnmpHealthPanel } from '@/features/snmp/health/health-panel';
+import { HealthHistoryChart } from '@/features/snmp/health/health-history-chart';
+import { DeviceHealthThresholdsPanel } from '@/features/snmp/health/health-limits-panels';
 import { getDevice, listDeviceIpAddresses, listInterfaces } from '../api';
 import type { Device } from '../types';
 import { assetFileUrl } from '../utils';
@@ -205,6 +207,10 @@ export function Device360Page({ deviceId }: { deviceId: string }) {
 
       {showHealth && <Section id="saude" title={t('snmpHealth.panel.title')} fullHref={`/snmp${q({ deviceId: device.id })}`} fullLabel={t('snmpHealth.panel.full')}>
         <SnmpHealthPanel deviceId={device.id} />
+        <HealthHistoryChart deviceId={device.id} />
+      </Section>}
+      {showHealth && <Section id="limites" title={t('healthLimits.deviceSection')} fullHref="/definicoes?tab=health" fullLabel={t('healthLimits.siteLink')}>
+        <DeviceHealthThresholdsPanel deviceId={device.id} />
       </Section>}
       {can('snmp') && <Section id="snmp" title="SNMP" fullHref={`/snmp${q({ deviceId: device.id })}`} fullLabel="Ver no SNMP">
         <SectionBody query={snmp} empty={(r) => (r.config ? null : 'Sem SNMP configurado.')}>{(r) => { const drifts = driftCounts(r.drifts); return <dl className="device-360-facts"><dt>Estado</dt><dd>{snmpStateLabel(r.config?.enabled)}</dd><dt>Última recolha</dt><dd>{fmt(r.latestSnapshot?.observedAt ?? r.latestSnapshot?.collectedAt ?? r.latestSnapshot?.createdAt)}</dd><dt>Divergências pendentes</dt><dd>{drifts.pending}</dd>{drifts.other.map(([status, count]) => <Fragment key={status}><dt>{`Divergências: ${snmpDriftStatusLabel(status)}`}</dt><dd>{count}</dd></Fragment>)}<dt>Traps recentes</dt><dd>{(r.traps ?? []).length}</dd></dl>; }}</SectionBody>

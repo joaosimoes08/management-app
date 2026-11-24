@@ -3784,3 +3784,60 @@ small.alert-next-step::before { content:'→ '; }
   .device-360-facts.snmp-health-facts { grid-template-columns:1fr; gap:2px; }
   .device-360-facts.snmp-health-facts dt { margin-top:8px; }
 }
+
+/* SNMP Phase 2 step 9 UI: health alert limits (Settings, Device 360) and the Device 360 health history */
+.health-limits { display:grid; grid-template-columns:minmax(0,1fr); gap:12px; min-width:0; }
+.health-limits-site { display:grid; gap:4px; max-width:320px; margin-bottom:12px; color:var(--t-text-2,#344761); font-size:11px; font-weight:600; }
+.health-limits-site select { padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:var(--t-panel,#fff); color:var(--t-text,#161416); font-size:12px; }
+.health-limits-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(260px,100%),1fr)); gap:12px 16px; }
+.health-limit-row { display:grid; gap:4px; align-content:start; min-width:0; }
+.health-limit-row > label { color:var(--t-text-2,#344761); font-size:11px; font-weight:600; }
+.health-limit-unit { color:var(--muted); font-weight:500; }
+.health-limit-control { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.health-limit-control input { flex:1 1 120px; min-width:0; min-height:36px; padding:7px 10px; border:1px solid var(--line); border-radius:8px; background:var(--t-panel,#fff); color:var(--t-text,#161416); font-size:12px; font-variant-numeric:tabular-nums; }
+.health-limit-control input::placeholder { color:var(--t-text-3,#586982); }
+.health-limit-control input[aria-invalid="true"] { border-color:var(--t-red-text,#b42318); }
+.health-limit-control input:focus-visible { outline:2px solid var(--t-focus,#4d79bd); outline-offset:1px; }
+.health-limit-reset { display:inline-flex; align-items:center; gap:4px; min-height:36px; white-space:nowrap; }
+.health-limit-hint { color:var(--t-text-3,#586982); font-size:10px; line-height:1.45; }
+.health-limit-error { color:var(--t-red-text,#b42318); font-size:10px; font-weight:600; }
+.health-limits-note { margin:0; }
+.health-limits-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; }
+.health-limits-table-wrap { max-width:100%; overflow-x:auto; }
+.health-limits-table { width:100%; border-collapse:collapse; font-size:11px; font-variant-numeric:tabular-nums; }
+.health-limits-table th,.health-limits-table td { padding:7px 8px; border-bottom:1px solid var(--t-line,#e7e4e3); text-align:left; white-space:nowrap; }
+.health-limits-table thead th { color:var(--t-text-3,#586982); font-size:10px; font-weight:700; }
+.health-limits-table tbody th { color:var(--t-text-2,#344761); font-weight:600; }
+.health-history { display:grid; grid-template-columns:minmax(0,1fr); gap:10px; min-width:0; margin-top:14px; padding-top:12px; border-top:1px solid var(--t-line,#e7e4e3); }
+.health-history-head { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; }
+.health-history-head h3 { margin:0; font-size:12px; }
+.health-history-ranges { display:inline-flex; gap:2px; padding:3px; border-radius:9px; background:var(--t-panel-3,#eeecec); }
+.health-history-ranges button { min-height:32px; min-width:44px; padding:4px 10px; border:0; border-radius:7px; background:transparent; color:var(--t-text-2,#344761); font-size:11px; font-weight:600; cursor:pointer; }
+.health-history-ranges button.is-active { background:var(--t-panel,#fff); color:var(--t-text,#161416); box-shadow:0 1px 4px rgba(20,18,18,.12); }
+.health-history-ranges button:focus-visible { outline:2px solid var(--t-focus,#4d79bd); outline-offset:1px; }
+.health-history-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr)); gap:12px; transition:opacity .15s; }
+.health-history-grid.is-updating { opacity:.6; }
+.health-history-metric { display:grid; gap:4px; margin:0; min-width:0; }
+.health-history-metric figcaption { display:flex; justify-content:space-between; gap:8px; color:var(--t-text-2,#344761); font-size:11px; }
+.health-history-metric figcaption span { color:var(--t-text,#161416); font-weight:600; font-variant-numeric:tabular-nums; }
+.health-history-plot { position:relative; padding-left:38px; }
+.health-history-axis { position:absolute; left:0; color:var(--t-text-3,#586982); font-size:9px; font-variant-numeric:tabular-nums; line-height:1; }
+.health-history-axis.top { top:4px; transform:translateY(-50%); }
+.health-history-axis.bottom { bottom:4px; transform:translateY(50%); }
+.health-history-chart { display:block; width:100%; height:84px; overflow:visible; }
+.health-history-chart .grid { stroke:var(--t-line,#e7e4e3); stroke-width:1; }
+.health-history-chart polyline { fill:none; stroke:var(--t-accent,#315fc5); stroke-width:1.75; stroke-linejoin:round; }
+.health-history-chart .dot { stroke:var(--t-accent,#315fc5); stroke-width:5; stroke-linecap:round; }
+.health-history-chart .limit { stroke:var(--t-red-text,#b42318); stroke-width:1; stroke-dasharray:4 3; }
+.health-history-chart .reboot { stroke:var(--t-amber-text,#946528); stroke-width:1; stroke-dasharray:1 3; }
+.health-history-limit { position:absolute; right:0; transform:translateY(-120%); padding:0 3px; border-radius:3px; background:var(--t-panel,#fff); color:var(--t-red-text,#b42318); font-size:9px; font-weight:600; line-height:1.3; pointer-events:none; }
+.health-history-dates { display:flex; justify-content:space-between; gap:8px; margin:0; font-variant-numeric:tabular-nums; }
+.health-history-numbers summary { color:var(--t-text-2,#344761); font-size:11px; font-weight:600; cursor:pointer; }
+.health-history-numbers[open] summary { margin-bottom:6px; }
+@media (max-width: 640px) {
+  .health-limits-site { max-width:none; }
+  .health-limits-grid { grid-template-columns:1fr; }
+  .health-history-grid { grid-template-columns:1fr; }
+  .health-limits-actions { justify-content:stretch; }
+  .health-limits-actions > button { flex:1 1 auto; justify-content:center; }
+}
