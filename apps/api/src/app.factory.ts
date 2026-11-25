@@ -2,12 +2,19 @@ import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import helmet from '@fastify/helmet';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { ApiExceptionFilter } from './api-exception.filter';
 import { trustProxyHops, trustProxyOptions } from './common/trust-proxy';
+import { setupSwagger, swaggerEnabledFromEnv, SwaggerSetupOptions } from './docs/swagger';
 
-export type ConfigureAppOptions = { swagger?: boolean };
+/** Request headers browsers may send cross-origin. Test-only headers must never be listed here. */
+export const CORS_ALLOWED_HEADERS = ['Content-Type', 'Authorization', 'Accept-Language'] as const;
+
+export type ConfigureAppOptions = {
+  /** Mount Swagger (UI + spec). Defaults to SWAGGER_ENABLED (on outside production, off in production). */
+  swagger?: boolean;
+  swaggerSetup?: SwaggerSetupOptions;
+};
 
 export async function configureApp(app: NestFastifyApplication, options: ConfigureAppOptions = {}) {
   await app.register(helmet, { contentSecurityPolicy: false });
@@ -20,7 +27,7 @@ export async function configureApp(app: NestFastifyApplication, options: Configu
   app.enableCors({
     origin: configuredCorsOrigins,
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept-Language', 'X-Test-User'],
+    allowedHeaders: [...CORS_ALLOWED_HEADERS],
     // Lets the browser read the audit CSV export's row count / truncation headers.
     exposedHeaders: ['X-Export-Row-Count', 'X-Export-Truncated', 'Content-Disposition'],
     credentials: true,
@@ -32,15 +39,7 @@ export async function configureApp(app: NestFastifyApplication, options: Configu
     validationError: { target: false, value: false },
   }));
   app.useGlobalFilters(new ApiExceptionFilter());
-  if (options.swagger !== false) {
-    const swaggerConfig = new DocumentBuilder()
-      .setTitle('SIMOES Management API')
-      .setDescription('API da plataforma de gestão de infraestrutura e ciberdefesa')
-      .setVersion('1.0')
-      .addBearerAuth()
-      .build();
-    SwaggerModule.setup('api', app, SwaggerModule.createDocument(app, swaggerConfig));
-  }
+  if (options.swagger ?? swaggerEnabledFromEnv()) setupSwagger(app, options.swaggerSetup);
   return app;
 }
 
