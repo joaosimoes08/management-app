@@ -6,7 +6,7 @@
     "test": "node --test -r ts-node/register src/**/*.spec.ts",
     "test:http": "node --test --test-concurrency=1 -r ts-node/register test/**/*.spec.ts",
     "start": "node dist/main.js",
-    "start:dev": "nest start --watch",
+    "start:dev": "nest start --watch --builder swc --type-check",
     "worker:dev": "ts-node -r tsconfig-paths/register src/discovery/discovery.worker.ts"
   },
   "dependencies": {
@@ -37,6 +37,8 @@
     "@nestjs/cli": "^12.0.15",
     "@nestjs/schematics": "^11.0.0",
     "@nestjs/testing": "^11.0.0",
+    "@swc/cli": "^0.8.2",
+    "@swc/core": "^1.16.22",
     "@types/net-snmp": "^3.23.0",
     "@types/node": "^22.0.0",
     "ts-node": "^10.9.2",
