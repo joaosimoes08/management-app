@@ -91,4 +91,4 @@ pnpm db:migrate
 pnpm start:dev
 ```
 
-Noutro terminal, execute `pnpm web:dev`. Para a arquitetura, endpoints, segurança e restantes tarefas operacionais, consulte [docs/README.md](docs/README.md).
+Noutro terminal, execute `pnpm web:dev`. O fluxo de trabalho com pnpm, worktrees e dependências está em [docs/development-workflow.md](docs/development-workflow.md). Para a arquitetura, endpoints, segurança e restantes tarefas operacionais, consulte [docs/README.md](docs/README.md).
