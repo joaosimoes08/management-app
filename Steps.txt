@@ -3,12 +3,12 @@ Instala previamente:
 Git
 Node.js
 Docker Desktop
-npm ou pnpm
+npm (incluído no Node.js)
 Depois clona o projeto:
 git clone https://github.com/UTILIZADOR/NOME-DO-REPOSITORIO.git
 cd NOME-DO-REPOSITORIO
 Instala as dependências:
-npm install
+npm ci
 Copia os ficheiros privados da pasta private-config do bundle antigo:
 transfer/private-config/root.env        → .env
 transfer/private-config/apps-web.env.local → apps/web/.env.local
@@ -22,5 +22,5 @@ O contexto técnico está em:
 context.md
 Para obter alterações futuras do GitHub:
 git pull
-npm install
+npm ci
 npm run dev

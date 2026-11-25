@@ -91,3 +91,5 @@ npm run start:dev
 ```
 
 Noutro terminal, execute `npm run web:dev`. Para a arquitetura, endpoints, segurança e restantes tarefas operacionais, consulte [docs/README.md](docs/README.md).
+
+Para trabalhar com uma git worktree por branch, consulte [docs/development-workflow.md](docs/development-workflow.md).
