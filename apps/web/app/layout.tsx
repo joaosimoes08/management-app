@@ -19,7 +19,7 @@ export const metadata: Metadata = {
 // QueryProvider and SiteProvider sit above AuthGate: the accessible-site list starts loading as soon
 // as Keycloak reports a session (in parallel with the identity check), and the query cache survives
 // gate state changes. SiteProvider only fetches when authenticated; AuthGate still decides what renders.
-// The per-request CSP nonce (middleware.ts) goes on the inline theme boot script; reading it renders
+// The per-request CSP nonce (proxy.ts) goes on the inline theme boot script; reading it renders
 // pages per request, which is what lets Next.js put the same nonce on its own inline scripts.
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const nonce = (await headers()).get('x-nonce') ?? undefined;

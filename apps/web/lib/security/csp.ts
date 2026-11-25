@@ -1,5 +1,5 @@
 /**
- * Content-Security-Policy for the web app, built per request by `middleware.ts`.
+ * Content-Security-Policy for the web app, built per request by `proxy.ts`.
  *
  * It is built at request time (not in `next.config.ts` `headers()`, which `next start` freezes into
  * the build's routes manifest) because a Docker deployment sets the API and Keycloak origins when

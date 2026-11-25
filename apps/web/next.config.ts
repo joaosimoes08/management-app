@@ -1,7 +1,7 @@
 import type { NextConfig } from 'next';
 
 // Headers that never depend on the deployment. The Content-Security-Policy and HSTS depend on
-// runtime origins and the request scheme, so middleware.ts sets those per request.
+// runtime origins and the request scheme, so proxy.ts sets those per request.
 const commonHeaders = [
   { key: 'X-Content-Type-Options', value: 'nosniff' },
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },

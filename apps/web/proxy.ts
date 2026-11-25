@@ -2,8 +2,9 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { buildCsp } from '@/lib/security/csp';
 
 /**
- * Per-request security headers that depend on the deployment: the Content-Security-Policy (fresh
- * script nonce, API and Keycloak origins from the container's environment) and HSTS (only over TLS).
+ * Next.js proxy (the Next 16 name for middleware). Per-request security headers that depend on the
+ * deployment: the Content-Security-Policy (fresh script nonce, API and Keycloak origins from the
+ * container's environment) and HSTS (only over TLS).
  * Constant headers live in next.config.ts.
  */
 
@@ -13,7 +14,7 @@ const runtimeEnv = (name: string): string | undefined => process.env[name];
 
 const HSTS = 'max-age=31536000; includeSubDomains';
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const nonce = btoa(crypto.randomUUID());
   const csp = buildCsp({
     nonce,
