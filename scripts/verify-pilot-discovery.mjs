@@ -1,11 +1,12 @@
 import dotenv from 'dotenv';
+import { PrismaPg } from '@prisma/adapter-pg';
 import client from '../packages/database/generated/client/index.js';
 
 dotenv.config({ path: '.env' });
 dotenv.config({ path: '.env.qa', override: true });
 
 const { PrismaClient } = client;
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }) });
 const result = await prisma.discoveryResult.findFirst({
   where: { job: { name: 'QA Pilot Review Evidence' }, address: '10.254.250.2' },
 });

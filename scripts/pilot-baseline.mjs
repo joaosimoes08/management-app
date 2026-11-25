@@ -1,7 +1,8 @@
+import { PrismaPg } from '@prisma/adapter-pg';
 import client from '../packages/database/generated/client/index.js';
 
 const { PrismaClient } = client;
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }) });
 const percent = (part, total) => total ? Math.round((part / total) * 10000) / 100 : 0;
 
 async function main() {

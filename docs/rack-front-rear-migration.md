@@ -35,7 +35,7 @@ so the mismatch is visible at once and an admin who "fixes" it in the editor wou
    ```sh
    docker compose pull api web snmp
    docker compose run --rm --no-deps api sh -c '
-     npx prisma migrate deploy --schema packages/database/prisma/schema.prisma &&
+     npx prisma migrate deploy --config packages/database/prisma.config.ts &&
      node apps/api/dist/scripts/migrate-rack-faces.js --dry-run &&
      node apps/api/dist/scripts/migrate-rack-faces.js'
    ```
@@ -46,7 +46,7 @@ so the mismatch is visible at once and an admin who "fixes" it in the editor wou
 5. If the script printed `WARNING: N model(s) already had both images`, review those models by hand: their images
    were left in place, and their port map is now on the rear face.
 
-From a dev checkout: `DATABASE_URL=... npx prisma migrate deploy --schema packages/database/prisma/schema.prisma &&
+From a dev checkout: `DATABASE_URL=... npx prisma migrate deploy --config packages/database/prisma.config.ts &&
 DATABASE_URL=... npx ts-node apps/api/src/scripts/migrate-rack-faces.ts`.
 
 The data migration runs in one transaction and moves, only where the rear is still empty:
