@@ -1,2 +1,2 @@
-export { I18nProvider, useI18n } from './i18n';
+export { I18nProvider, useI18n, useOptionalI18n, translateMessage } from './i18n';
 export type { AppLocale } from './i18n';

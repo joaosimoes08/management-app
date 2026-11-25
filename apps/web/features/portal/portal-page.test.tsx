@@ -140,3 +140,35 @@ describe('PortalPage check-all', () => {
     expect(mocks.checkAllApplicationLinks).toHaveBeenLastCalledWith(false, {});
   });
 });
+
+describe('PortalPage link URL schemes', () => {
+  it('renders a stored non-http(s) URL as plain text instead of a link', async () => {
+    const unsafe: ApplicationLink = { ...link, id: 'link-2', name: 'Legacy', description: 'Antiga', url: 'javascript:alert(document.cookie)' };
+    mocks.listApplicationLinks.mockResolvedValue([link, unsafe]);
+    renderPage();
+    expect(await screen.findByTestId('portal-unsafe-url')).toHaveTextContent('javascript:alert(document.cookie)');
+    const links = screen.getAllByRole('link', { name: /Abrir aplicação/ });
+    expect(links).toHaveLength(1);
+    expect(links[0]).toHaveAttribute('href', 'https://zabbix.interno');
+    expect(document.querySelector('a[href^="javascript:"]')).toBeNull();
+  });
+
+  it('shows a form error and does not save when the URL is not http or https', async () => {
+    mocks.listApplicationLinks.mockResolvedValue([link]);
+    mocks.updateApplicationLink.mockResolvedValue(link);
+    renderPage();
+    fireEvent.click(await screen.findByTitle('Editar'));
+    const input = screen.getByPlaceholderText('https://zabbix.interno');
+    fireEvent.change(input, { target: { value: 'javascript:alert(1)' } });
+    fireEvent.click(screen.getByRole('button', { name: /Guardar/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('O URL tem de começar por http:// ou https://.');
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(input).toHaveAttribute('aria-describedby', 'portal-url-error');
+    expect(mocks.updateApplicationLink).not.toHaveBeenCalled();
+
+    fireEvent.change(input, { target: { value: 'https://zabbix.interno/novo' } });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Guardar/ }));
+    await waitFor(() => expect(mocks.updateApplicationLink).toHaveBeenCalledWith('link-1', expect.objectContaining({ url: 'https://zabbix.interno/novo' })));
+  });
+});

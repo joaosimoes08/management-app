@@ -411,6 +411,7 @@ const messages: Record<AppLocale, Record<string, string>> = {
     'devicePicker.toggle': 'Mostrar equipamentos',
     'devicePicker.results.one': '{count} equipamento encontrado',
     'devicePicker.results.other': '{count} equipamentos encontrados',
+    'portal.urlScheme': 'O URL tem de começar por http:// ou https://.',
   },
   'en-US': {
     'filterChips.all': 'All', 'filterChips.bar': 'Quick filters',
@@ -817,6 +818,7 @@ const messages: Record<AppLocale, Record<string, string>> = {
     'devicePicker.toggle': 'Show devices',
     'devicePicker.results.one': '{count} device found',
     'devicePicker.results.other': '{count} devices found',
+    'portal.urlScheme': 'The URL must start with http:// or https://.',
   },
 };
 

@@ -212,6 +212,9 @@ button { cursor:pointer; }
 /* Phase E: red tier of the % used bars (NetApp capacity >= 90 %), same red as .state-badge.excluded i. */
 .bar-track i.red { background:#df8068; }
 .portal-form select { display:block; width:100%; margin-top:5px; padding:10px; color:var(--t-text,#222); border:1px solid var(--line); border-radius:8px; outline:0; background:var(--t-panel,#fff); font-size:11px; }.form-checks { display:flex; flex-wrap:wrap; gap:18px; margin:4px 0 16px; }.form-checks label { display:flex; align-items:center; gap:7px; margin:0; }.form-checks input { width:14px; height:14px; margin:0; }.inactive-card { opacity:.58; }.inactive-card .portal-card-foot a { pointer-events:none; color:var(--t-text-4,#999); }
+.portal-form .form-error { display:block; margin-top:5px; color:var(--t-red-text,#b3261e); font-size:12px; font-weight:500; }
+.portal-form input[aria-invalid="true"] { border-color:#b3261e; box-shadow:0 0 0 1px #b3261e inset; }
+.portal-unsafe-url { overflow:hidden; color:var(--muted); font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
 
 /* Keep collapsed-menu labels hidden until the sidebar has finished expanding. */
 .nav-item-label { min-width:0; overflow:hidden; white-space:nowrap; }
