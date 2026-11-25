@@ -10,12 +10,12 @@ export interface PublicRuntimeConfig {
 
 declare global {
   interface Window {
-    __COCIBER_CONFIG__?: PublicRuntimeConfig;
+    __CIVERNODE_CONFIG__?: PublicRuntimeConfig;
   }
 }
 
 export function getPublicRuntimeConfig(): Required<PublicRuntimeConfig> {
-  const runtime = typeof window === 'undefined' ? undefined : window.__COCIBER_CONFIG__;
+  const runtime = typeof window === 'undefined' ? undefined : window.__CIVERNODE_CONFIG__;
   const configuredApiUrl = runtime?.apiUrl || process.env.NEXT_PUBLIC_API_URL;
   const hostname = typeof window === 'undefined' ? '' : window.location.hostname;
   const localApiUrl = ['localhost', '127.0.0.1', '::1'].includes(hostname) ? 'http://localhost:3001' : '';

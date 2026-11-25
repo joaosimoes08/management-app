@@ -3,7 +3,7 @@
  *
  * It is built at request time (not in `next.config.ts` `headers()`, which `next start` freezes into
  * the build's routes manifest) because a Docker deployment sets the API and Keycloak origins when
- * the container starts: `docker-entrypoint.sh` writes them into `window.__COCIBER_CONFIG__`
+ * the container starts: `docker-entrypoint.sh` writes them into `window.__CIVERNODE_CONFIG__`
  * (public/runtime-config.js) from the same NEXT_PUBLIC_* variables read here.
  */
 

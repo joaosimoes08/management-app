@@ -4,7 +4,7 @@ import { apiFetch, setApiTokenProvider } from './client';
 
 describe('API client runtime configuration', () => {
   afterEach(() => {
-    delete window.__COCIBER_CONFIG__;
+    delete window.__CIVERNODE_CONFIG__;
     setApiTokenProvider(null);
     vi.restoreAllMocks();
   });
@@ -12,7 +12,7 @@ describe('API client runtime configuration', () => {
   it('uses a runtime API URL assigned after the client module was imported', async () => {
     expect(getPublicRuntimeConfig().apiUrl).toBe('http://localhost:3001');
 
-    window.__COCIBER_CONFIG__ = { apiUrl: 'https://api.example.com' };
+    window.__CIVERNODE_CONFIG__ = { apiUrl: 'https://api.example.com' };
     setApiTokenProvider(async () => 'test-token');
     const fetchMock = vi.fn().mockResolvedValue(new Response('{"ok":true}', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);

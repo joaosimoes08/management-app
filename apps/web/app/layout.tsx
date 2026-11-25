@@ -32,7 +32,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       <head>
         <style id="app-themes" dangerouslySetInnerHTML={{ __html: themeCss() }} />
         <script id="app-theme-boot" nonce={nonce} suppressHydrationWarning dangerouslySetInnerHTML={{ __html: appearanceBootScript }} />
-        {/* Must run before any app code reads window.__COCIBER_CONFIG__, as beforeInteractive did. */}
+        {/* Must run before any app code reads window.__CIVERNODE_CONFIG__, as beforeInteractive did. */}
         {/* eslint-disable-next-line @next/next/no-sync-scripts */}
         <script src="/runtime-config.js" />
       </head>
