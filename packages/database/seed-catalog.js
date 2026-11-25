@@ -1,6 +1,7 @@
+const { PrismaPg } = require('@prisma/adapter-pg');
 const { PrismaClient } = require('./generated/client');
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }) });
 const devices = [
   ['Cisco','Catalyst 2960-X','SWITCH',24,true,24,'ethernet'], ['Cisco','Catalyst 9200','SWITCH',24,true,24,'ethernet'], ['Cisco','Catalyst 9300','SWITCH',48,true,48,'ethernet'], ['Cisco','Catalyst 9500','SWITCH',24,true,24,'sfp'], ['Cisco','Nexus 9300','SWITCH',48,true,48,'qsfp/sfp'],
   ['Cisco','ISR 4321','ROUTER',3,true,3,'ethernet'], ['Cisco','ISR 4331','ROUTER',3,true,3,'ethernet'], ['Cisco','ISR 4351','ROUTER',3,true,3,'ethernet'], ['Cisco','ISR 4431','ROUTER',4,true,4,'ethernet'], ['Cisco','ISR 4451-X','ROUTER',4,true,4,'ethernet'], ['Cisco','Catalyst 8300','ROUTER',8,true,8,'ethernet'], ['Cisco','ASR 1001-X','ROUTER',6,true,6,'ethernet'],

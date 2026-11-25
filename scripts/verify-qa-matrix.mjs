@@ -1,10 +1,11 @@
 import dotenv from 'dotenv';
+import { PrismaPg } from '@prisma/adapter-pg';
 import client from '../packages/database/generated/client/index.js';
 
 dotenv.config({ path: '.env' });
 dotenv.config({ path: '.env.qa', override: true });
 const { PrismaClient } = client;
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }) });
 
 const definitions = [
   ['ADMIN', 'qa-admin', process.env.QA_ADMIN_PASSWORD],

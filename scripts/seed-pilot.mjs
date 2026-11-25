@@ -1,7 +1,8 @@
+import { PrismaPg } from '@prisma/adapter-pg';
 import client from '../packages/database/generated/client/index.js';
 
 const { PrismaClient } = client;
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }) });
 
 async function upsertDevice(name, data) {
   const current = await prisma.device.findFirst({ where: { name } });

@@ -1,3 +1,8 @@
+-- Prisma 7 runs each statement of a migration in its own transaction. This file
+-- relies on CREATE TEMP TABLE ... ON COMMIT DROP living until the end of the
+-- migration, so it is wrapped in one explicit transaction (as Prisma 6 ran it).
+BEGIN;
+
 -- Preserve existing groups and memberships while moving grants to Site links.
 ALTER TABLE "IpamGroup" RENAME TO "AccessGroup";
 ALTER TABLE "IpamGroupMember" RENAME TO "AccessGroupMember";
@@ -107,3 +112,5 @@ CREATE TABLE "InfrastructurePermission" (
 CREATE INDEX "InfrastructurePermission_scopeType_scopeId_idx" ON "InfrastructurePermission"("scopeType", "scopeId");
 CREATE UNIQUE INDEX "InfrastructurePermission_groupId_scopeType_scopeId_permissi_key" ON "InfrastructurePermission"("groupId", "scopeType", "scopeId", "permission");
 ALTER TABLE "InfrastructurePermission" ADD CONSTRAINT "InfrastructurePermission_groupId_fkey" FOREIGN KEY ("groupId") REFERENCES "AccessGroup"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+COMMIT;

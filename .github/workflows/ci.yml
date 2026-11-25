@@ -63,13 +63,13 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Generate Prisma client
-        run: npx prisma generate --schema packages/database/prisma/schema.prisma
+        run: npx prisma generate --config packages/database/prisma.config.ts
       - name: Build shared packages
         run: |
           npm run build --workspace=@simoes/database
           npm run build --workspace=@simoes/snmp-core
       - name: Apply migrations to isolated PostgreSQL
-        run: npx prisma migrate deploy --schema packages/database/prisma/schema.prisma
+        run: npx prisma migrate deploy --config packages/database/prisma.config.ts
       - name: Check translations
         run: npm run i18n:check
       - name: Frontend typecheck

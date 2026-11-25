@@ -18,7 +18,7 @@ RUN npm ci --include=dev
 RUN test -n "$VCS_REF"
 
 COPY . .
-RUN npx prisma generate --schema=packages/database/prisma/schema.prisma \
+RUN npx prisma generate --config packages/database/prisma.config.ts \
  && npm run build --workspace=@simoes/database \
  && npm run build --workspace=@simoes/snmp-core \
  && npm run build --workspace=@simoes/api \
@@ -27,4 +27,4 @@ RUN npx prisma generate --schema=packages/database/prisma/schema.prisma \
 
 USER node
 EXPOSE 3001
-CMD ["sh", "-c", "npx prisma migrate deploy --schema packages/database/prisma/schema.prisma && npm run start --workspace=@simoes/api"]
+CMD ["sh", "-c", "npx prisma migrate deploy --config packages/database/prisma.config.ts && npm run start --workspace=@simoes/api"]
