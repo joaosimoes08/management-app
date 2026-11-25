@@ -38,16 +38,16 @@ describe('I18nProvider organization locale', () => {
 
     expect(log).toEqual(['en-US']);
     expect(screen.getByTestId('locale').textContent).toBe('en-US');
-    expect(window.localStorage.getItem('cociber.locale')).toBe('en-US');
+    expect(window.localStorage.getItem('civernode.locale')).toBe('en-US');
     expect(mocks.apiFetch).not.toHaveBeenCalled();
   });
 
   it('keeps the user locale when setup has not saved an organization locale', () => {
-    window.localStorage.setItem('cociber.locale', 'en-US');
+    window.localStorage.setItem('civernode.locale', 'en-US');
     mocks.auth = { setupStatus: { setupCompleted: false, organizationName: null, locale: 'pt-PT' } };
     render(<I18nProvider><LocaleLog log={[]} /></I18nProvider>);
     expect(screen.getByTestId('locale').textContent).toBe('en-US');
-    expect(window.localStorage.getItem('cociber.locale')).toBe('en-US');
+    expect(window.localStorage.getItem('civernode.locale')).toBe('en-US');
   });
 
   it('never replaces the app with a loading screen while the locale resolves', () => {

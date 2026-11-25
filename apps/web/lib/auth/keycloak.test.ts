@@ -17,17 +17,17 @@ vi.mock('keycloak-js', () => ({
 
 describe('Keycloak runtime configuration', () => {
   afterEach(() => {
-    delete window.__COCIBER_CONFIG__;
+    delete window.__CIVERNODE_CONFIG__;
     vi.resetModules();
     adapter.init.mockClear().mockResolvedValue(false);
     adapter.instance = null;
   });
 
   it('uses the HTTPS deployment URL supplied after the auth module was imported', async () => {
-    delete window.__COCIBER_CONFIG__;
+    delete window.__CIVERNODE_CONFIG__;
     const auth = await import('./keycloak');
 
-    window.__COCIBER_CONFIG__ = {
+    window.__CIVERNODE_CONFIG__ = {
       keycloakUrl: 'https://sso.example.test',
       keycloakRealm: 'production',
       keycloakClientId: 'web-client',
@@ -51,13 +51,13 @@ describe('Keycloak runtime configuration', () => {
 
 describe('Keycloak third-party cookie probe', () => {
   afterEach(() => {
-    delete window.__COCIBER_CONFIG__;
+    delete window.__CIVERNODE_CONFIG__;
     vi.resetModules();
     adapter.instance = null;
   });
 
   it('drops only the third-party cookie probe endpoint when Keycloak is on the page host', async () => {
-    window.__COCIBER_CONFIG__ = { keycloakUrl: `http://${window.location.hostname}:4080`, keycloakRealm: 'r', keycloakClientId: 'c' };
+    window.__CIVERNODE_CONFIG__ = { keycloakUrl: `http://${window.location.hostname}:4080`, keycloakRealm: 'r', keycloakClientId: 'c' };
     const auth = await import('./keycloak');
     await auth.initializeKeycloak();
     const instance = adapter.instance as unknown as { endpoints?: Record<string, unknown> };
@@ -66,7 +66,7 @@ describe('Keycloak third-party cookie probe', () => {
   });
 
   it('leaves the adapter alone when Keycloak is on another host', async () => {
-    window.__COCIBER_CONFIG__ = { keycloakUrl: 'https://sso.example.test', keycloakRealm: 'r', keycloakClientId: 'c' };
+    window.__CIVERNODE_CONFIG__ = { keycloakUrl: 'https://sso.example.test', keycloakRealm: 'r', keycloakClientId: 'c' };
     const auth = await import('./keycloak');
     await auth.initializeKeycloak();
     const instance = adapter.instance as unknown as { endpoints?: Record<string, unknown> };

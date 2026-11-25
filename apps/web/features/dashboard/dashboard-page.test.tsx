@@ -116,7 +116,7 @@ describe('DashboardPage role-gated toolbar action', () => {
     expect(container.querySelector('.section-kicker')).toBeNull();
     expect(container.querySelector('.lucide-sparkles')).toBeNull();
     expect(container.querySelector('.dashboard-footer')).toBeNull();
-    expect(screen.queryByText(/COCiber Management Platform/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Civernode Management Platform/)).not.toBeInTheDocument();
   });
 
   it('shows useful cross-module shortcuts according to the current role', async () => {

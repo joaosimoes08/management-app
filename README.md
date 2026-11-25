@@ -1,6 +1,14 @@
-# SIMOES Management App
+# Civernode
 
 Plataforma de gestão de infraestrutura, IPAM e ciberdefesa.
+
+### Nome do produto
+
+O produto chama-se Civernode (antes COCiber). O nome da organização mostrado na aplicação vem das definições da organização; no ecrã de login, que ainda não as consegue ler, vem de `NEXT_PUBLIC_ORGANIZATION_NAME` ou, sem ele, do nome do realm Keycloak. Não é fixo no código.
+
+- As preferências guardadas no browser passaram de `cociber.*` para `civernode.*` (idioma, Site ativo, menu lateral, contexto de infraestrutura, aparência e vista do bastidor). Na primeira leitura, um valor antigo é copiado para a chave nova e a chave antiga é apagada.
+- A configuração de runtime do frontend é `window.__CIVERNODE_CONFIG__`, escrita pelo `docker-entrypoint.sh` da imagem web.
+- Mantêm-se com o nome antigo, para não quebrar instalações existentes: o realm Keycloak `COCiber`, os ficheiros `realm-cociber*.json` e os clients `simoes-api`/`simoes-web` (mudar o realm termina as sessões e invalida tokens), os nomes das bases de dados e as migrações, e os nomes das imagens no Docker Hub.
 
 ## Deploy com Docker Compose
 

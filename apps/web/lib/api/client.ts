@@ -1,5 +1,6 @@
 import { ApiRequestError, apiErrorMessage, type ApiErrorPayload } from './errors';
 import { getPublicRuntimeConfig } from '@/lib/runtime-config';
+import { STORAGE_KEYS, getLocalItem } from '@/lib/storage-keys';
 
 type TokenProvider = () => Promise<string>;
 
@@ -29,7 +30,7 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
   const headers = {
     ...init.headers,
     Authorization: `Bearer ${accessToken}`,
-    'Accept-Language': typeof window !== 'undefined' ? (window.localStorage.getItem('cociber.locale') ?? 'pt-PT') : 'pt-PT',
+    'Accept-Language': typeof window !== 'undefined' ? (getLocalItem(STORAGE_KEYS.locale) ?? 'pt-PT') : 'pt-PT',
     ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
   };
   const response = await fetch(`${getPublicRuntimeConfig().apiUrl}${path}`, {
@@ -45,7 +46,7 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
     let payload: ApiErrorPayload | undefined;
     try {
       payload = await response.json() as ApiErrorPayload;
-      const locale = window.localStorage.getItem('cociber.locale') === 'en-US' ? 'en-US' : 'pt-PT';
+      const locale = getLocalItem(STORAGE_KEYS.locale) === 'en-US' ? 'en-US' : 'pt-PT';
       detail = apiErrorMessage(payload, locale);
     } catch {
       // Keep the status as a useful fallback when the API did not return JSON.
@@ -60,7 +61,7 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
 export async function apiDownload(path: string, filename: string): Promise<Headers> {
   if (!tokenProvider) throw new Error('O cliente da API não está inicializado.');
   const accessToken = await tokenProvider();
-  const response = await fetch(`${getPublicRuntimeConfig().apiUrl}${path}`, { headers: { Authorization: `Bearer ${accessToken}`, 'Accept-Language': window.localStorage.getItem('cociber.locale') ?? 'pt-PT' } });
+  const response = await fetch(`${getPublicRuntimeConfig().apiUrl}${path}`, { headers: { Authorization: `Bearer ${accessToken}`, 'Accept-Language': getLocalItem(STORAGE_KEYS.locale) ?? 'pt-PT' } });
   if (!response.ok) throw new Error(`Export falhou (${response.status})`);
   const url = URL.createObjectURL(await response.blob()); const link = document.createElement('a'); link.href = url; link.download = filename; link.click();
   // Some browsers start the download after the click returns: keep the URL alive for a moment.

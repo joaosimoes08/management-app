@@ -13,7 +13,7 @@ import { parseTableState, serializeTableState, type TableFilters, type TableStat
  */
 export type SavedView = { name: string; query: string };
 
-const EVENT = 'cociber:saved-views';
+const EVENT = 'civernode:saved-views';
 export const SAVED_VIEWS_LIMIT = 20;
 export const savedViewsKey = (userId: string | undefined, pageId: string) => `management-app:saved-views:${userId || 'local'}:${pageId}`;
 

@@ -20,7 +20,7 @@ const pages = [
   ['snmp', site('/snmp'), ['snmp/fleet/summary'], '[aria-label="Resumo da frota SNMP"]'],
   ['global-search', site('/'), ['dashboard/search'], '.command-palette .command-result,.command-palette [role="option"]', '.command-palette .command-empty'],
 ];
-const runtime = `window.__COCIBER_CONFIG__={apiUrl:"http://localhost:4001",keycloakUrl:"http://localhost:4080",keycloakRealm:"COCiber",keycloakClientId:"simoes-web",organizationName:"Benchmark QA",locale:"pt-PT"};\n${probe}`;
+const runtime = `window.__CIVERNODE_CONFIG__={apiUrl:"http://localhost:4001",keycloakUrl:"http://localhost:4080",keycloakRealm:"COCiber",keycloakClientId:"simoes-web",organizationName:"Benchmark QA",locale:"pt-PT"};\n${probe}`;
 let samples = [];
 const resultIds = new Set();
 const options = (response, headers = {}) => { response.writeHead(200, { 'Cache-Control': 'no-store', ...headers }); };

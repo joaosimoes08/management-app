@@ -123,7 +123,7 @@ it('refreshes the badge immediately when a notification read state changes', asy
   }).mockResolvedValueOnce({ ...state, notificationUnreadCount: 1 });
   render(<AppHeader section="Perfil" onOpenSidebar={vi.fn()} onOpenGlobalSearch={vi.fn()} />);
   expect(await screen.findByRole('button', { name: '2 alertas ativos' })).toBeInTheDocument();
-  window.dispatchEvent(new Event('cociber:notifications-changed'));
+  window.dispatchEvent(new Event('civernode:notifications-changed'));
   expect(await screen.findByRole('button', { name: '1 alerta ativo' })).toBeInTheDocument();
 });
 

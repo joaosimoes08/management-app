@@ -102,11 +102,11 @@ describe('HealthThresholdsEditor', () => {
   });
 
   it('follows the English locale', () => {
-    window.localStorage.setItem('cociber.locale', 'en-US');
+    window.localStorage.setItem('civernode.locale', 'en-US');
     render(<I18nProvider><HealthThresholdsEditor data={siteData()} canEdit={false} onSave={vi.fn()} /></I18nProvider>);
     expect(screen.getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual(expect.arrayContaining(['Limit', 'In effect', 'Source', 'Default']));
     expect(screen.getByRole('note')).toHaveTextContent('read-only access');
-    window.localStorage.removeItem('cociber.locale');
+    window.localStorage.removeItem('civernode.locale');
   });
 });
 

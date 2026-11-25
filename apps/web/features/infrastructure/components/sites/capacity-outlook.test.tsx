@@ -49,7 +49,7 @@ describe('Site capacity outlook', () => {
   });
 
   it('renders translated labels and the chosen critical threshold', async () => {
-    localStorage.setItem('cociber.locale', 'en-US');
+    localStorage.setItem('civernode.locale', 'en-US');
     render(<I18nProvider><CapacityOutlookCard siteName="Site A" data={{ ...data, thresholds: { warningPercent: 70, criticalPercent: 85 } }} onRefresh={() => undefined} /></I18nProvider>);
     expect(await screen.findByRole('heading', { name: 'Capacity' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Estimate at 85%/ })).toBeInTheDocument();

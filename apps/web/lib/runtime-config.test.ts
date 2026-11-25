@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { getConfiguredLocale, getPublicOrganizationName, getPublicRuntimeConfig, hasSavedOrganizationLocale, resolveOrganizationLocale } from './runtime-config';
 
 describe('public runtime branding configuration', () => {
-  afterEach(() => { delete window.__COCIBER_CONFIG__; });
+  afterEach(() => { delete window.__CIVERNODE_CONFIG__; });
 
   it('keeps the direct API port for local development', () => {
     expect(getPublicRuntimeConfig().apiUrl).toBe('http://localhost:3001');
@@ -12,7 +12,7 @@ describe('public runtime branding configuration', () => {
     const originalLocation = window.location;
     try {
       Object.defineProperty(window, 'location', { configurable: true, value: { ...originalLocation, hostname: 'management.example.com' } });
-      window.__COCIBER_CONFIG__ = {};
+      window.__CIVERNODE_CONFIG__ = {};
 
       expect(getPublicRuntimeConfig().apiUrl).toBe('');
     } finally {
@@ -21,31 +21,31 @@ describe('public runtime branding configuration', () => {
   });
 
   it('honors an explicitly configured API URL', () => {
-    window.__COCIBER_CONFIG__ = { apiUrl: 'https://api.example.com' };
+    window.__CIVERNODE_CONFIG__ = { apiUrl: 'https://api.example.com' };
     expect(getPublicRuntimeConfig().apiUrl).toBe('https://api.example.com');
   });
 
   it('uses deployment branding and locale when configured', () => {
-    window.__COCIBER_CONFIG__ = { keycloakRealm: 'SIMONEDA', organizationName: 'SIMONEDA', locale: 'en-US' };
+    window.__CIVERNODE_CONFIG__ = { keycloakRealm: 'SIMONEDA', organizationName: 'SIMONEDA', locale: 'en-US' };
     expect(getPublicOrganizationName()).toBe('SIMONEDA');
     expect(getConfiguredLocale()).toBe('en-US');
   });
 
   it('falls back to the realm name and Portuguese locale', () => {
-    window.__COCIBER_CONFIG__ = { keycloakRealm: 'SIMONEDA', locale: 'fr-FR' };
+    window.__CIVERNODE_CONFIG__ = { keycloakRealm: 'SIMONEDA', locale: 'fr-FR' };
     expect(getPublicOrganizationName()).toBe('SIMONEDA');
     expect(getConfiguredLocale()).toBe('pt-PT');
     expect(getPublicRuntimeConfig().keycloakRealm).toBe('SIMONEDA');
   });
 
   it('preserves existing default branding and locale when no deployment values are supplied', () => {
-    window.__COCIBER_CONFIG__ = {};
+    window.__CIVERNODE_CONFIG__ = {};
     expect(getPublicOrganizationName()).toBe('COCiber');
     expect(getConfiguredLocale()).toBe('pt-PT');
   });
 
   it('uses deployment locale until a new organization is saved, then keeps persisted organization locale', () => {
-    window.__COCIBER_CONFIG__ = { locale: 'en-US' };
+    window.__CIVERNODE_CONFIG__ = { locale: 'en-US' };
     const freshInstall = { setupCompleted: false, organizationName: null, locale: 'pt-PT' };
     const savedOrganization = { setupCompleted: false, organizationName: 'SIMONEDA', locale: 'en-US' };
     const completedOrganization = { setupCompleted: true, organizationName: null, locale: 'pt-PT' };

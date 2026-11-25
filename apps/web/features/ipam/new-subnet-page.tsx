@@ -5,6 +5,7 @@ import { ArrowLeft, Check, Network } from 'lucide-react';
 import { AppShell } from '@/components/layout/app-shell';
 import { listSites, listVlans, createSubnet } from './api';
 import type { Site, SubnetInput, Vlan } from './types';
+import { STORAGE_KEYS, getLocalItem } from '@/lib/storage-keys';
 
 export default function NewSubnetPage() {
   const [sites, setSites] = useState<Site[]>([]);
@@ -15,7 +16,7 @@ export default function NewSubnetPage() {
 
   useEffect(() => {
     const query = new URLSearchParams(location.search);
-    const id = query.get('siteId') || localStorage.getItem('cociber.siteId') || '';
+    const id = query.get('siteId') || getLocalItem(STORAGE_KEYS.siteId) || '';
     setSiteId(id);
     void listSites().then((response) => setSites(response.items ?? []));
     if (id) void listVlans(id).then((response) => setVlans(response.items ?? []));

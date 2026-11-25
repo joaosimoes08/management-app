@@ -24,7 +24,7 @@ export function submitRoleRequest(roles: string[]): Promise<unknown> {
   return apiFetch('/api/v1/settings/role-requests', { method: 'POST', body: JSON.stringify({ roles }) });
 }
 
-export const NOTIFICATIONS_CHANGED = 'cociber:notifications-changed';
+export const NOTIFICATIONS_CHANGED = 'civernode:notifications-changed';
 
 export async function markNotificationsRead(): Promise<void> {
   await apiFetch('/api/v1/dashboard/notifications/read-all', { method: 'PATCH' });
