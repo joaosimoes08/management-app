@@ -52,11 +52,16 @@ describe('NetApp site workspace', () => {
   });
 
   it('shows an explicit missing-configuration state for the selected Site', async () => {
-    vi.mocked(getNetAppIntegration).mockRejectedValue(new Error('NETAPP_INTEGRATION_NOT_CONFIGURED'));
+    vi.mocked(getNetAppIntegration).mockResolvedValue({ siteId: 'site-a', configured: false });
     renderPage();
     expect(await screen.findByText('Este Site ainda não tem integração NetApp')).toBeInTheDocument();
     expect(getNetAppIntegration).toHaveBeenCalledWith('site-a');
     expect(screen.getByRole('heading', { name: 'Configurar integração' })).toBeInTheDocument();
+    expect(screen.getByText('NÃO CONFIGURADO')).toBeInTheDocument();
+    // The answer is a normal 200, not a request error.
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByText('Não foi possível carregar os dados NetApp deste Site.')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Atualizar snapshot' })).toBeNull();
   });
 
   it('retains and displays the last-known snapshot after a failed manual refresh', async () => {
@@ -80,7 +85,8 @@ describe('NetApp site workspace', () => {
   });
 
   it('sends configuration only for the selected Site and clears the password after save', async () => {
-    vi.mocked(getNetAppIntegration).mockRejectedValue(new Error('NETAPP_INTEGRATION_NOT_CONFIGURED'));
+    // Not configured on first load; after the save the refetch sees the saved integration, as the API would.
+    vi.mocked(getNetAppIntegration).mockResolvedValueOnce({ siteId: 'site-a', configured: false }).mockResolvedValue(knownIntegration);
     vi.mocked(configureNetAppIntegration).mockResolvedValue(knownIntegration);
     renderPage();
     await screen.findByText('Este Site ainda não tem integração NetApp');

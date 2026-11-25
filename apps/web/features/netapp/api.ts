@@ -23,9 +23,12 @@ export interface NetAppIntegration {
   updatedAt: string;
 }
 
+/** GET answer for a Site without a NetApp integration (200, not an error). */
+export interface NetAppNotConfigured { siteId: string; configured: false }
+
 export interface NetAppIntegrationInput { endpointUrl: string; username: string; password: string }
 
-export const getNetAppIntegration = (siteId: string) => apiFetch<NetAppIntegration>(`/api/v1/netapp/sites/${encodeURIComponent(siteId)}`);
+export const getNetAppIntegration = (siteId: string) => apiFetch<NetAppIntegration | NetAppNotConfigured>(`/api/v1/netapp/sites/${encodeURIComponent(siteId)}`);
 export const configureNetAppIntegration = (siteId: string, body: NetAppIntegrationInput) => apiFetch<NetAppIntegration>(`/api/v1/netapp/sites/${encodeURIComponent(siteId)}/integration`, { method: 'PUT', body: JSON.stringify(body) });
 export const refreshNetAppSnapshot = (siteId: string) => apiFetch<NetAppIntegration>(`/api/v1/netapp/sites/${encodeURIComponent(siteId)}/refresh`, { method: 'POST' });
 
