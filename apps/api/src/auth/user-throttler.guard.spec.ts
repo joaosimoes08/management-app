@@ -121,6 +121,17 @@ test('hops=1 ignores a spoofed extra left-most X-Forwarded-For entry', async () 
   assert.equal(await call('public', { xff: '203.0.113.20, 203.0.113.21' }), 200);
 });
 
+test('hops=2 (two proxies) keys anonymous clients by the address two hops back, not a client-supplied one', async () => {
+  const target = await buildApp('2');
+  try {
+    // [peer, outer proxy, client]: X-Forwarded-For is "<spoof>, client, outer proxy".
+    await call('public', { target, xff: '6.6.6.1, 203.0.113.40, 10.9.0.1' });
+    await call('public', { target, xff: '6.6.6.2, 203.0.113.40, 10.9.0.1' });
+    assert.equal(await call('public', { target, xff: '6.6.6.3, 203.0.113.40, 10.9.0.1' }), 429);
+    assert.equal(await call('public', { target, xff: '203.0.113.41, 10.9.0.1' }), 200);
+  } finally { await target.close(); }
+});
+
 test('hops=1 still keys signed-in users by user id, not by forwarded address', async () => {
   const [frank, grace] = await Promise.all([sign('frank'), sign('grace')]);
   await call('private', { token: frank, xff: '203.0.113.30' });
@@ -136,7 +147,7 @@ test('TRUST_PROXY_HOPS parsing: default 0, exact hop count, never true, rejects 
   assert.equal(trustProxyHops(' 1 '), 1);
   assert.equal(trustProxyHops('2'), 2);
   assert.deepEqual(trustProxyOptions(0), {});
-  assert.deepEqual(trustProxyOptions(1), { trustProxy: 1 });
+  assert.equal(typeof trustProxyOptions(1).trustProxy, 'function'); // first-N-hops function, see trust-proxy.spec.ts
   for (const bad of ['true', '-1', '1.5', 'abc']) assert.throws(() => trustProxyHops(bad), /non-negative integer/);
 });
 
