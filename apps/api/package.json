@@ -31,7 +31,7 @@
     "net-snmp": "^3.26.3",
     "nodemailer": "10.6.1",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.2"
   },
   "devDependencies": {
     "@nestjs/cli": "^12.0.15",
