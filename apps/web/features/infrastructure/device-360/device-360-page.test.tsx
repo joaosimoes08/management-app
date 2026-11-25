@@ -3,11 +3,12 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/api/client';
 import { entityHref } from '@/components/data-table/entity-link';
+import { clearAssetBlobCache } from '../components/asset-image';
 import { Device360Page, driftCounts, snmpDriftStatusLabel, snmpStateLabel } from './device-360-page';
 
 vi.mock('@/components/layout/app-shell', () => ({ AppShell: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 const roles = vi.hoisted(() => ({ current: ['ADMIN'] as string[] }));
-vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: (role: string) => roles.current.includes(role), user: { id: 'u1' } }) }));
+vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: (role: string) => roles.current.includes(role), user: { id: 'u1' }, token: 'test-token' }) }));
 vi.mock('@/lib/api/client', () => ({ apiFetch: vi.fn() }));
 vi.mock('@/lib/runtime-config', () => ({ getPublicRuntimeConfig: () => ({ apiUrl: '' }) }));
 
@@ -36,6 +37,44 @@ beforeEach(() => { roles.current = ['ADMIN']; vi.mocked(apiFetch).mockReset(); }
 afterEach(cleanup);
 
 describe('Device360Page', () => {
+  it('loads the device photo with the Bearer token and shows it from a blob URL, never the API URL directly', async () => {
+    clearAssetBlobCache();
+    const fetchMock = vi.fn(async () => new Response(new Blob(['png'], { type: 'image/png' })));
+    vi.stubGlobal('fetch', fetchMock);
+    const createObjectURL = vi.fn(() => 'blob:http://localhost:3000/photo-1');
+    const revokeObjectURL = vi.fn();
+    Object.assign(URL, { createObjectURL, revokeObjectURL });
+    try {
+      routeApi({}, { ...device, frontAsset: { id: 'asset-1', filename: 'front.png', mimeType: 'image/png' } });
+      renderPage();
+      const image = await screen.findByRole('img', { name: 'Frente de core-sw-01' });
+      expect(image).toHaveAttribute('src', 'blob:http://localhost:3000/photo-1');
+      expect(image).toHaveClass('device-360-image');
+      expect(fetchMock).toHaveBeenCalledWith('/api/v1/assets/asset-1/file', { headers: { Authorization: 'Bearer test-token' } });
+      // A plain <img src> to the API cannot send the token and is blocked by the API's Cross-Origin-Resource-Policy.
+      expect(document.querySelector('img[src*="/api/v1/assets/"]')).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+      clearAssetBlobCache();
+    }
+  });
+
+  it('shows no device photo and requests none when neither the device nor its model has one', async () => {
+    clearAssetBlobCache();
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      routeApi();
+      renderPage();
+      await screen.findByRole('heading', { level: 1, name: 'core-sw-01' });
+      expect(document.querySelector('.device-360-image')).toBeNull();
+      expect(screen.queryByText('Imagem indisponível')).toBeNull();
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('remembers the device page in recently viewed items', async () => {
     window.localStorage.clear();
     routeApi();
