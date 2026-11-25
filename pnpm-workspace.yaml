@@ -1,0 +1,28 @@
+packages:
+  - apps/*
+  - packages/*
+
+# Dependencies allowed to run install scripts (pnpm blocks all others).
+# @scarf/scarf is install telemetry, so it stays off.
+allowBuilds:
+  '@prisma/engines': true
+  '@scarf/scarf': false
+  '@swc/core': true
+  msgpackr-extract: true
+  prisma: true
+
+# Versions the lockfile already pins that are newer than pnpm's minimum release age.
+minimumReleaseAgeExclude:
+  - '@nestjs/platform-fastify@11.2.12'
+  - '@types/react@19.3.2'
+
+# Moved from the npm "overrides" field in package.json.
+overrides:
+  '@prisma/config>effect': ^3.22.5
+  '@swc/cli>minimatch': ^11.0.9
+  rxjs: 7.8.2
+
+# dotenv asks to install agent skills; not needed.
+permissions:
+  dotenv:
+    skills: false

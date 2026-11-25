@@ -1,4 +1,4 @@
-# SNMP trap lab (PLAN.md Phase 1 step 6). Run it with `npm run test:snmp-lab` from the repo root.
+# SNMP trap lab (PLAN.md Phase 1 step 6). Run it with `pnpm test:snmp-lab` from the repo root.
 # Fully isolated: own project name (snmplab), own bridge network, no host ports, throwaway volumes.
 name: snmplab
 

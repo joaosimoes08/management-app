@@ -4,6 +4,10 @@ LABEL org.opencontainers.image.source="https://github.com/joaosimoes08/managemen
       org.opencontainers.image.revision=$VCS_REF
 WORKDIR /app
 RUN test -n "$VCS_REF"
+# pnpm comes from corepack, pinned by "packageManager" in package.json. COREPACK_HOME is shared and
+# prepared at build time so the non-root runtime user can run pnpm without downloading it.
+ENV COREPACK_HOME=/usr/local/share/corepack COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+RUN corepack enable && corepack install -g pnpm@12.23.0 && chmod -R a+rX "$COREPACK_HOME"
 
 ARG NEXT_PUBLIC_API_URL=
 ARG NEXT_PUBLIC_KEYCLOAK_URL=http://localhost:8080
@@ -24,15 +28,15 @@ ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
     NEXT_PUBLIC_ROCKETCHAT_URL=$NEXT_PUBLIC_ROCKETCHAT_URL \
     NEXT_PUBLIC_ANSIBLE_URL=$NEXT_PUBLIC_ANSIBLE_URL
 
-COPY package.json package-lock.json ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json ./apps/api/package.json
 COPY apps/snmp/package.json ./apps/snmp/package.json
 COPY apps/web/package.json ./apps/web/package.json
 COPY packages/database/package.json ./packages/database/package.json
 COPY packages/snmp-core/package.json ./packages/snmp-core/package.json
-RUN npm ci
+RUN pnpm install --frozen-lockfile
 COPY . .
-RUN npm run build --workspace=@simoes/web
+RUN pnpm --filter @simoes/web build
 RUN chown -R node:node /app/apps/web/.next /app/apps/web/public
 
 ENV NODE_ENV=production
@@ -40,4 +44,4 @@ USER node
 EXPOSE 3000
 COPY --chown=node:node apps/web/docker-entrypoint.sh /app/docker-entrypoint.sh
 ENTRYPOINT ["sh", "/app/docker-entrypoint.sh"]
-CMD ["npm", "run", "start", "--workspace=@simoes/web"]
+CMD ["pnpm", "--filter", "@simoes/web", "start"]

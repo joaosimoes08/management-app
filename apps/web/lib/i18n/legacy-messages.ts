@@ -911,7 +911,7 @@ const enUS: LegacyDictionary = {
   'Resumo da infraestrutura': 'Infrastructure summary',
   'reverse DNS não encontrado': 'reverse DNS not found',
   'não disponível': 'not available',
-  'Se discovery ficar pendente, confirma que npm run worker:dev está ativo.': 'If discovery remains pending, confirm that npm run worker:dev is running.',
+  'Se discovery ficar pendente, confirma que pnpm worker:dev está ativo.': 'If discovery remains pending, confirm that pnpm worker:dev is running.',
   'Se o Docker não ligar, confirma o Docker Desktop e docker info.': 'If Docker does not start, check Docker Desktop and docker info.',
   'Se o frontend não autenticar, confirma Keycloak, realm COCiber e client simoes-web.': 'If the frontend cannot authenticate, check Keycloak, the COCiber realm, and the simoes-web client.',
   'Se o Prisma não encontrar DATABASE_URL, confirma o .env na raiz.': 'If Prisma cannot find DATABASE_URL, check the root .env.',

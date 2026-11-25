@@ -1,18 +1,22 @@
 FROM node:22-alpine AS build
 WORKDIR /app
-COPY package.json package-lock.json ./
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json ./apps/api/package.json
 COPY apps/snmp/package.json ./apps/snmp/package.json
 COPY apps/web/package.json ./apps/web/package.json
 COPY packages/database/package.json ./packages/database/package.json
 COPY packages/snmp-core/package.json ./packages/snmp-core/package.json
-RUN npm ci
+RUN pnpm install --frozen-lockfile
 COPY . .
-RUN npm run db:generate
-RUN npm run build --workspace=@simoes/database \
- && npm run build --workspace=@simoes/snmp-core \
- && npm run build --workspace=@simoes/snmp
+RUN pnpm db:generate
+RUN pnpm --filter @simoes/database build \
+ && pnpm --filter @simoes/snmp-core build \
+ && pnpm --filter @simoes/snmp build
 
+# The runtime image keeps its own small npm lockfile (apps/snmp/runtime) with only the production
+# packages the receiver loads, so it does not need pnpm or the workspace.
 FROM node:22-alpine AS dependencies
 WORKDIR /runtime
 COPY apps/snmp/runtime/package.json apps/snmp/runtime/package-lock.json ./

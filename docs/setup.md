@@ -1,11 +1,11 @@
 # Desenvolvimento local: arranque, utilização e paragem
 
-Este guia é para executar a API e o frontend a partir do código-fonte. Para uma instalação apenas com Docker e imagens publicadas, segue o [guia de deploy no README](../README.md#deploy-com-docker-compose). Aqui o Compose inicia apenas as dependências locais PostgreSQL, Redis e Keycloak; a API e o frontend são iniciados pelos comandos npm abaixo.
+Este guia é para executar a API e o frontend a partir do código-fonte. Para uma instalação apenas com Docker e imagens publicadas, segue o [guia de deploy no README](../README.md#deploy-com-docker-compose). Aqui o Compose inicia apenas as dependências locais PostgreSQL, Redis e Keycloak; a API e o frontend são iniciados pelos comandos pnpm abaixo.
 
 ## Pré-requisitos
 
 - Docker Desktop com o Docker Engine ativo.
-- Node.js LTS e npm.
+- Node.js LTS e pnpm (via `corepack enable`; a versão está fixada em `packageManager` no `package.json`).
 - PowerShell, macOS Terminal ou shell compatível.
 
 ## Primeira instalação
@@ -14,17 +14,17 @@ Na raiz do projeto, copiar `.env.example` para `.env` e definir as passwords loc
 
 ```powershell
 docker compose up -d postgres redis keycloak-db keycloak snmp
-npm install
-npm run db:generate
-npm run db:migrate:dev
-npm run start:dev
-npm run web:dev
+pnpm install
+pnpm db:generate
+pnpm db:migrate:dev
+pnpm start:dev
+pnpm web:dev
 ```
 
 Para processar discovery ICMP/TCP, abrir um terminal adicional e executar:
 
 ```powershell
-npm run worker:dev
+pnpm worker:dev
 ```
 
 O worker usa as filas `discovery` e `maintenance` no Redis da porta `6379`. A segunda executa diariamente a retenção configurada da auditoria. Se o worker estiver desligado, os jobs ficam pendentes e serão processados quando voltar a arrancar.
@@ -45,9 +45,9 @@ No macOS/Linux, usar `cp .env.example .env` em vez de `Copy-Item`.
 | PostgreSQL | localhost:5432 |
 | Redis | localhost:6379 |
 
-O frontend fica disponível em `http://localhost:3000` quando iniciado com `npm run web:dev`. Pode ser necessário criar `apps/web/.env.local` a partir de `apps/web/.env.example`.
+O frontend fica disponível em `http://localhost:3000` quando iniciado com `pnpm web:dev`. Pode ser necessário criar `apps/web/.env.local` a partir de `apps/web/.env.example`.
 
-O servidor de desenvolvimento usa o Turbopack (`next dev --turbopack`): compila cada página 2 a 3 vezes mais depressa e usa menos memória do que o webpack. Se precisares do bundler antigo, usa `npm run dev:webpack --workspace=@simoes/web`. O build de produção (`next build`) continua a usar o webpack.
+O servidor de desenvolvimento usa o Turbopack (`next dev --turbopack`): compila cada página 2 a 3 vezes mais depressa e usa menos memória do que o webpack. Se precisares do bundler antigo, usa `pnpm --filter @simoes/web dev:webpack`. O build de produção (`next build`) continua a usar o webpack.
 
 O portal é dinâmico e as aplicações são geridas em `http://localhost:3000/portal` por um utilizador `ADMIN`. Cada ligação pode ter URL, descrição, categoria, ordem, roles autorizadas, estado ativo e verificação opcional de disponibilidade.
 
@@ -72,7 +72,7 @@ Abrir `http://localhost:8080/admin`, entrar com `KEYCLOAK_ADMIN_USERNAME` e `KEY
 A gestão de roles em `/definicoes?tab=users` usa o client confidencial `simoes-settings-admin`. Em instalações novas, o realm importado já contém esse client. Para provisionar ou atualizar uma instalação existente sem usar a consola, definir `KEYCLOAK_ADMIN_CLIENT_SECRET` e executar:
 
 ```powershell
-npm run keycloak:provision-settings
+pnpm keycloak:provision-settings
 ```
 
 O backend precisa de `KEYCLOAK_ADMIN_URL`, `KEYCLOAK_ADMIN_REALM`, `KEYCLOAK_ADMIN_CLIENT_ID` e `KEYCLOAK_ADMIN_CLIENT_SECRET`. O service account recebe `realm-management/manage-users` e `realm-management/query-users` para gerir roles e proteger o último ADMIN. A configuração LDAP acrescenta `realm-management/manage-realm`, uma permissão ampla necessária pela API administrativa do Keycloak para gerir providers e mapeadores; avalia este impacto antes de ativar a configuração num realm de produção.
@@ -97,7 +97,7 @@ O reset abaixo apaga os dados locais das bases de dados, incluindo utilizadores/
 docker compose down -v --remove-orphans
 ```
 
-Não é necessário apagar migrações nem `node_modules`. Depois, segue novamente a secção **Primeira instalação**: o `npm run db:migrate:dev` recria o schema e o primeiro login ADMIN inicia o walkthrough.
+Não é necessário apagar migrações nem `node_modules`. Depois, segue novamente a secção **Primeira instalação**: o `pnpm db:migrate:dev` recria o schema e o primeiro login ADMIN inicia o walkthrough.
 
 ## Verificação
 
@@ -111,10 +111,10 @@ Invoke-RestMethod http://localhost:3001/api/v1/health
 1. Gera o keyring local, que é criado com permissões restritas e nunca é commitado:
 
    ```bash
-   npm run snmp:keyring
+   pnpm snmp:keyring
    ```
 
-2. Aplica a migração aditiva com `npm run db:migrate`.
+2. Aplica a migração aditiva com `pnpm db:migrate`.
 3. Por omissão, o container reutiliza `POSTGRES_USER`, `POSTGRES_PASSWORD` e `POSTGRES_DB`. Em produção, aplica `scripts/snmp-database-grants.sql`, associa o utilizador de login ao role `simoes_snmp_runtime` e define `SNMP_DATABASE_URL` com o hostname `postgres`. O role não pode criar schema nem executar migrações. Volta a aplicar o script depois de cada atualização que acrescente tabelas SNMP (ver "Atualizações, migrações e recuperação" no `README.md`).
 
 4. **Engine ID e versões SNMP.** O engine ID SNMPv3 é gerado uma vez por instalação pela aplicação e guardado na base de dados; não precisas de o configurar. `SNMP_ENGINE_ID` é apenas um override explícito: se estiver definido (e não for o valor partilhado antigo), tem prioridade sobre o valor guardado e não o substitui na base de dados. O engine ID em uso aparece na secção **Engine ID da app** de **Configurar o switch**, na vista do equipamento SNMP.
@@ -136,7 +136,7 @@ Invoke-RestMethod http://localhost:3001/api/v1/health
 
    ```bash
    docker compose build snmp
-   npm run snmp:host-agent
+   pnpm snmp:host-agent
    ```
 
    Em produção, executa o segundo comando através do gestor de serviços do sistema. Deve existir apenas um agente por projeto Compose e a seleção não pode misturar interfaces de hosts diferentes. O agente cria `.runtime/snmp-listeners.compose.yml` e inicia/reconcilia o container; PostgreSQL e Redis devem estar previamente disponíveis.
@@ -154,7 +154,7 @@ O utilitário `snmptrap` incluído em versões antigas do macOS interpreta `-a S
 Para testar um pré-registo SNMPv3 local sem expor a credencial na shell nem depender da versão de Net-SNMP instalada, executa:
 
 ```bash
-npm run snmp:test-trap -- <enrollment-id>
+pnpm snmp:test-trap <enrollment-id>
 ```
 
 O comando recusa pré-registos expirados, SNMPv2c e endereços esperados que não sejam uma interface recente e selecionada do próprio host. A trap é emitida dentro do container apenas para o seu loopback, na porta interna `SNMP_TRAP_PORT`; valida autenticação, persistência e associação, mas não substitui um teste externo de reachability à porta UDP 162. O evento fica identificado como `SELF_TEST`. Equipamentos reais continuam a enviar para o IP selecionado do host e porta UDP 162.
@@ -162,5 +162,5 @@ O comando recusa pré-registos expirados, SNMPv2c e endereços esperados que nã
 Com `SNMP_SELF_TEST_ALLOW_TRANSLATED_SOURCE=true`, o mesmo pacote pode ser enviado a partir do host para validar também o encaminhamento UDP/162, sem colocar a credencial na linha de comandos:
 
 ```bash
-npm run snmp:test-trap:host -- <enrollment-id>
+pnpm snmp:test-trap:host <enrollment-id>
 ```

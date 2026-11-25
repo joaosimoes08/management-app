@@ -10,9 +10,9 @@ Usar `docker compose logs -f postgres`, `docker compose logs -f keycloak` ou `do
 
 ## `DATABASE_URL` não encontrada
 
-Confirmar que existe `.env` na raiz e contém uma `DATABASE_URL` PostgreSQL com a password correta. Os scripts Prisma usam `dotenv-cli` para carregar o `.env` da raiz através de npm workspaces.
+Confirmar que existe `.env` na raiz e contém uma `DATABASE_URL` PostgreSQL com a password correta. Os scripts Prisma usam `dotenv-cli` para carregar o `.env` da raiz através do workspace pnpm.
 
-Os scripts usam `-o` para que uma variável `DATABASE_URL` herdada do terminal não substitua a configuração local. Se a API já estiver em execução, pará-la e arrancá-la novamente com `npm run start:dev`.
+Os scripts usam `-o` para que uma variável `DATABASE_URL` herdada do terminal não substitua a configuração local. Se a API já estiver em execução, pará-la e arrancá-la novamente com `pnpm start:dev`.
 
 ## Realm não aparece
 
@@ -24,4 +24,4 @@ Confirmar `AUTH_DISABLED=false`, `OIDC_ISSUER_URL=http://localhost:8080/realms/C
 
 ## Dependências novas
 
-Depois das alterações desta fase, executar `npm install`, `npm run build` e reiniciar a API.
+Depois das alterações desta fase, executar `pnpm install`, `pnpm build` e reiniciar a API.

@@ -57,44 +57,46 @@ jobs:
       NEXT_PUBLIC_KEYCLOAK_CLIENT_ID: simoes-web
     steps:
       - uses: actions/checkout@v4
+      # pnpm version comes from "packageManager" in package.json.
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-      - run: npm ci
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - name: Generate Prisma client
-        run: npx prisma generate --config packages/database/prisma.config.ts
+        run: pnpm --filter @simoes/database db:generate
       - name: Build shared packages
         run: |
-          npm run build --workspace=@simoes/database
-          npm run build --workspace=@simoes/snmp-core
+          pnpm --filter @simoes/database build
+          pnpm --filter @simoes/snmp-core build
       - name: Apply migrations to isolated PostgreSQL
-        run: npx prisma migrate deploy --config packages/database/prisma.config.ts
+        run: pnpm --filter @simoes/database db:migrate
       - name: Check translations
-        run: npm run i18n:check
+        run: pnpm i18n:check
       - name: Frontend typecheck
-        run: npm run typecheck --workspace=@simoes/web
+        run: pnpm --filter @simoes/web typecheck
       - name: Frontend lint
-        run: npm run lint --workspace=@simoes/web
+        run: pnpm --filter @simoes/web lint
       - name: Backend typecheck
         run: |
-          npx tsc -p packages/snmp-core/tsconfig.json --noEmit
-          npx tsc -p apps/api/tsconfig.json --noEmit
-          npx tsc -p apps/snmp/tsconfig.json --noEmit
+          pnpm --filter @simoes/snmp-core exec tsc -p tsconfig.json --noEmit
+          pnpm --filter @simoes/api exec tsc -p tsconfig.json --noEmit
+          pnpm --filter @simoes/snmp exec tsc -p tsconfig.json --noEmit
       # Types are checked once above, so ts-node only transpiles each spec file (about 5x faster).
       - name: Unit tests
         env:
           TS_NODE_TRANSPILE_ONLY: "true"
         run: |
-          npm test --workspace=@simoes/snmp-core
-          npm test --workspace=@simoes/api
-          npm test --workspace=@simoes/snmp
+          pnpm --filter @simoes/snmp-core test
+          pnpm --filter @simoes/api test
+          pnpm --filter @simoes/snmp test
       - name: HTTP integration tests
         env:
           TS_NODE_TRANSPILE_ONLY: "true"
-        run: npm run test:http
+        run: pnpm test:http
       - name: Build API and web
-        run: npm run build
+        run: pnpm build
       - name: Check Bash deployment scripts and guided-flow fixtures
         run: |
           bash -n deploy.sh scripts/test-deploy.sh

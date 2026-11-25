@@ -4,8 +4,8 @@ End-to-end proof of the trap path (PLAN.md Phase 1 step 6, acceptance steps 1–
 net-snmp packet → trap receiver → `SnmpTrapEvent` → API reconciler → `OperationalAlert` → `GET /api/v1/operations/alerts`.
 
 ```bash
-npm run test:snmp-lab            # build, start, run every case, tear down (docker compose -p snmplab down -v)
-SNMPLAB_KEEP=1 npm run test:snmp-lab   # leave the lab running to inspect it; then: docker compose -p snmplab down -v
+pnpm test:snmp-lab            # build, start, run every case, tear down (docker compose -p snmplab down -v)
+SNMPLAB_KEEP=1 pnpm test:snmp-lab   # leave the lab running to inspect it; then: docker compose -p snmplab down -v
 ```
 
 Needs Docker with Compose v2 and Node 22 (only to generate the throwaway keyring). CI: `.github/workflows/snmp-trap-lab.yml` (ubuntu-latest).

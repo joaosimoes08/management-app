@@ -11,8 +11,8 @@
     "test": "node --test -r ts-node/register src/**/*.spec.ts"
   },
   "dependencies": {
-    "@simoes/database": "*",
-    "@simoes/snmp-core": "*",
+    "@simoes/database": "workspace:*",
+    "@simoes/snmp-core": "workspace:*",
     "bullmq": "^5.58.5",
     "ioredis": "^5.11.1",
     "net-snmp": "^3.26.3"

@@ -74,7 +74,7 @@ A API, web, PostgreSQL e Redis têm verificações de saúde; o assistente apres
 
 ### Gate de segurança para a beta
 
-Antes de permitir acesso de funcionários, confirme que todas as palavras-passe e segredos foram substituídos, `AUTH_DISABLED=false`, `SNMP_SELF_TEST_ENABLED=false` e `SNMP_SELF_TEST_ALLOW_TRANSLATED_SOURCE=false`. O lockfile atual ainda reporta dependências runtime vulneráveis em `npm audit --omit=dev` (incluindo alertas críticos); faça a atualização e validação dessas dependências antes de expor o serviço.
+Antes de permitir acesso de funcionários, confirme que todas as palavras-passe e segredos foram substituídos, `AUTH_DISABLED=false`, `SNMP_SELF_TEST_ENABLED=false` e `SNMP_SELF_TEST_ALLOW_TRANSLATED_SOURCE=false`. O lockfile atual ainda reporta dependências runtime vulneráveis em `pnpm audit --prod` (incluindo alertas críticos); faça a atualização e validação dessas dependências antes de expor o serviço.
 
 ## Desenvolvimento local sem containers de aplicação
 
@@ -84,10 +84,11 @@ Para executar API e frontend no host, mantendo PostgreSQL, Redis e Keycloak no D
 cp .env.example .env
 node deploy/configure-install.mjs --template deploy/realm-cociber.json --realm-file ./deploy/realm-cociber.generated.json --organization COCiber --locale pt-PT --client-secret change-me-settings-admin-secret --public-base-url http://localhost:8080
 docker compose up -d postgres redis keycloak-db keycloak snmp
-npm install
-npm run db:generate
-npm run db:migrate
-npm run start:dev
+corepack enable   # uma vez: ativa o pnpm fixado em package.json (packageManager)
+pnpm install
+pnpm db:generate
+pnpm db:migrate
+pnpm start:dev
 ```
 
-Noutro terminal, execute `npm run web:dev`. Para a arquitetura, endpoints, segurança e restantes tarefas operacionais, consulte [docs/README.md](docs/README.md).
+Noutro terminal, execute `pnpm web:dev`. Para a arquitetura, endpoints, segurança e restantes tarefas operacionais, consulte [docs/README.md](docs/README.md).

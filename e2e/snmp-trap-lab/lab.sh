@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SNMP trap lab: build, start, run the packet -> alert cases, tear down.
-# Usage: npm run test:snmp-lab   (SNMPLAB_KEEP=1 keeps the lab running afterwards for debugging)
+# Usage: pnpm test:snmp-lab   (SNMPLAB_KEEP=1 keeps the lab running afterwards for debugging)
 set -euo pipefail
 cd "$(dirname "$0")"
 project="${SNMPLAB_PROJECT:-snmplab}"

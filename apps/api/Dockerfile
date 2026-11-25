@@ -6,25 +6,30 @@ LABEL org.opencontainers.image.source="https://github.com/joaosimoes08/managemen
 
 WORKDIR /app
 ENV NODE_ENV=production
+# pnpm comes from corepack, pinned by "packageManager" in package.json. COREPACK_HOME is shared and
+# prepared at build time so the non-root runtime user can run pnpm without downloading it.
+ENV COREPACK_HOME=/usr/local/share/corepack COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+RUN corepack enable && corepack install -g pnpm@12.23.0 && chmod -R a+rX "$COREPACK_HOME"
 
-COPY package.json package-lock.json ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json ./apps/api/package.json
 COPY apps/snmp/package.json ./apps/snmp/package.json
 COPY apps/web/package.json ./apps/web/package.json
 COPY packages/database/package.json ./packages/database/package.json
 COPY packages/snmp-core/package.json ./packages/snmp-core/package.json
-RUN npm ci --include=dev
+# NODE_ENV=production would make pnpm skip devDependencies, which the build needs.
+RUN pnpm install --frozen-lockfile --prod=false
 
 RUN test -n "$VCS_REF"
 
 COPY . .
-RUN npx prisma generate --config packages/database/prisma.config.ts \
- && npm run build --workspace=@simoes/database \
- && npm run build --workspace=@simoes/snmp-core \
- && npm run build --workspace=@simoes/api \
+RUN pnpm --filter @simoes/database db:generate \
+ && pnpm --filter @simoes/database build \
+ && pnpm --filter @simoes/snmp-core build \
+ && pnpm --filter @simoes/api build \
  && mkdir -p /app/data/assets \
  && chown -R node:node /app/data
 
 USER node
 EXPOSE 3001
-CMD ["sh", "-c", "npx prisma migrate deploy --config packages/database/prisma.config.ts && npm run start --workspace=@simoes/api"]
+CMD ["sh", "-c", "pnpm --filter @simoes/database db:migrate && pnpm --filter @simoes/api start"]

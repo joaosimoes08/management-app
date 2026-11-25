@@ -7,7 +7,7 @@ async function main() {
   const external = process.argv.includes('--external');
   const enrollmentId = process.argv.slice(2).find((value) => !value.startsWith('--'))?.trim();
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(enrollmentId ?? '')) {
-    throw new Error('Uso: npm run snmp:test-trap -- <enrollment-id>');
+    throw new Error('Uso: pnpm snmp:test-trap <enrollment-id>');
   }
 
   const prisma = new PrismaClient();

@@ -9,7 +9,9 @@ on:
       - packages/**
       - e2e/snmp-trap-lab/**
       - package.json
-      - package-lock.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - apps/snmp/runtime/package-lock.json
       - .github/workflows/snmp-trap-lab.yml
   push:
     branches: [main]
@@ -28,11 +30,14 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      # pnpm version comes from "packageManager" in package.json.
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: pnpm
       - name: Run the SNMP trap lab (build, cases, teardown)
-        run: npm run test:snmp-lab
+        run: pnpm test:snmp-lab
       - name: Upload lab logs
         if: always()
         uses: actions/upload-artifact@v4

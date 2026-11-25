@@ -39,7 +39,7 @@ for (const [username, passwordKey] of identities) {
 
 const sites = await api(adminToken, '/sites?search=QA-PILOT&pageSize=20');
 const site = sites.items.find((item) => item.code === 'QA-PILOT');
-if (!site) throw new Error('QA-PILOT Site not found. Run npm run pilot:seed first.');
+if (!site) throw new Error('QA-PILOT Site not found. Run pnpm pilot:seed first.');
 const subnets = await api(adminToken, `/subnets?siteId=${encodeURIComponent(site.id)}&search=${encodeURIComponent('10.254.250.0/30')}`);
 const subnet = subnets.items.find((item) => item.cidr === '10.254.250.0/30');
 if (!subnet) throw new Error('QA pilot subnet not found.');
