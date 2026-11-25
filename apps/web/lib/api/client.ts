@@ -19,18 +19,11 @@ export function setApiUnauthorizedHandler(handler: (() => void) | null): void {
   onUnauthorized = handler;
 }
 
-declare global {
-  interface Window {
-    __cociberApiFetch?: typeof apiFetch;
-  }
-}
-
 /**
  * Typed fetch against the backend API. The response type is the
  * caller's contract: domain API wrappers pass the concrete entity type.
  */
 export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
-  if (typeof window !== 'undefined') window.__cociberApiFetch = apiFetch;
   if (!tokenProvider) throw new Error('O cliente da API não está inicializado.');
   const accessToken = await tokenProvider();
   const headers = {
