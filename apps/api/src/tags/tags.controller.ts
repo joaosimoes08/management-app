@@ -4,6 +4,7 @@ import { ArrayMaxSize, IsArray, IsIn, IsOptional, IsString, IsUUID, MaxLength } 
 import { Roles } from '../auth/roles.decorator';
 import { AuthenticatedUser } from '../auth/auth.service';
 import { TagsService } from './tags.service';
+import { ApiBodyExamples, ApiCreatedExamples, ApiOkExamples } from '../docs/api-examples.decorator';
 import { TAG_CATALOG_ROLES, TAG_COLORS, TAG_NAME_MAX_LENGTH, TAGS_PER_ITEM_LIMIT } from './tag-rules';
 
 export class CreateTagDto {
@@ -34,8 +35,8 @@ export class SetTagsDto {
 export class TagsController {
   constructor(private readonly service: TagsService) {}
 
-  @Get('tags') list(@Req() req: { user: AuthenticatedUser }, @Query('siteId') siteId?: string) { return this.service.list(req.user, siteId); }
-  @Post('tags') @Roles(...TAG_CATALOG_ROLES) create(@Body() dto: CreateTagDto, @Req() req: { user: AuthenticatedUser }) { return this.service.create(req.user, dto); }
+  @Get('tags') @ApiOkExamples(['tags.list']) list(@Req() req: { user: AuthenticatedUser }, @Query('siteId') siteId?: string) { return this.service.list(req.user, siteId); }
+  @Post('tags') @Roles(...TAG_CATALOG_ROLES) @ApiBodyExamples(CreateTagDto, 'tags.create.request') @ApiCreatedExamples(['tags.create.response']) create(@Body() dto: CreateTagDto, @Req() req: { user: AuthenticatedUser }) { return this.service.create(req.user, dto); }
   @Patch('tags/:id') @Roles(...TAG_CATALOG_ROLES) update(@Param('id') id: string, @Body() dto: UpdateTagDto, @Req() req: { user: AuthenticatedUser }) { return this.service.update(req.user, id, dto); }
   @Delete('tags/:id') @Roles(...TAG_CATALOG_ROLES) remove(@Param('id') id: string, @Req() req: { user: AuthenticatedUser }) { return this.service.remove(req.user, id); }
   @Put('devices/:id/tags') @Roles('ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR') setDeviceTags(@Param('id') id: string, @Body() dto: SetTagsDto, @Req() req: { user: AuthenticatedUser }) { return this.service.setDeviceTags(req.user, id, dto.tagIds); }

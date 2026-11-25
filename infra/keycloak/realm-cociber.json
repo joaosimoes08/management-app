@@ -25,8 +25,8 @@
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": false,
-      "redirectUris": ["http://localhost:3000/*"],
-      "webOrigins": ["http://localhost:3000"],
+      "redirectUris": ["http://localhost:3000/*", "http://localhost:3001/api/oauth2-redirect.html"],
+      "webOrigins": ["http://localhost:3000", "http://localhost:3001"],
       "attributes": { "post.logout.redirect.uris": "http://localhost:3000/*" },
       "protocolMappers": [
         {
