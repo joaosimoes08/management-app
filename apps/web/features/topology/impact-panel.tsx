@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { Modal } from '@/components/ui/modal';
+import { safeHref } from '@/lib/safe-href';
 import { getTopologyImpact, getTopologyPath, topologyImpactHref, type ImpactDevice, type ImpactTarget, type TopologyImpact, type TopologyPath } from './impact-api';
 
 /**
@@ -100,7 +101,7 @@ export function ImpactPanel({ target, siteId, onMap = false, onResult, headingId
         <ul className="device-360-list">{data.hosts.slice(0, LIST_LIMIT).map((host) => <li key={host.id}><strong>{host.name}</strong>{host.services.length ? <span className="impact-meta">{host.services.map((service) => `${service.name}${service.port ? `:${service.port}` : ''}`).join(', ')}</span> : <span className="impact-meta">Sem serviços</span>}</li>)}{data.hosts.length > LIST_LIMIT && <li className="impact-meta">+{data.hosts.length - LIST_LIMIT}</li>}</ul>
       </Group>
       <Group title="Aplicações do Portal" count={data.applications.length}>
-        <ul className="device-360-list">{data.applications.map((app) => <li key={app.id}><a href={app.url} target="_blank" rel="noreferrer">{app.name}</a><span className="impact-meta">{app.matchedHost}</span></li>)}</ul>
+        <ul className="device-360-list">{data.applications.map((app) => { const href = safeHref(app.url); return <li key={app.id}>{href ? <a href={href} target="_blank" rel="noreferrer">{app.name}</a> : <span data-testid="impact-unsafe-url">{app.name}</span>}<span className="impact-meta">{app.matchedHost}</span></li>; })}</ul>
       </Group>
       <Group title="Ativos críticos por tier" count={data.critical.T1.length + data.critical.T2.length + data.critical.T3.length + data.critical.untiered.length}>
         <dl className="device-360-facts impact-tiers">

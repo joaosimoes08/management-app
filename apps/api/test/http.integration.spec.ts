@@ -3324,3 +3324,26 @@ test('D-P1c identity candidates: suggestion-only, ranked with reasons, scoped to
     await prisma.device.deleteMany({ where: { id: { in: [visibleId, hiddenId] } } });
   }
 });
+
+test('portal links: only http and https URLs are accepted on create and update; other schemes are a 400', async () => {
+  const name = 'Scheme check';
+  const existing = await prisma.applicationLink.create({ data: { name: `${name} existing`, url: 'https://existing.example' } });
+  try {
+    for (const url of ['javascript:alert(document.cookie)', 'JavaScript:alert(1)', 'data:text/html,<script>alert(1)</script>', 'vbscript:msgbox(1)', 'file:///etc/passwd']) {
+      const created = await request('POST', '/api/v1/application-links', 'qa-admin', { name, url });
+      assert.equal(created.statusCode, 400, `POST ${url}`);
+      assert.equal((await request('PATCH', `/api/v1/application-links/${existing.id}`, 'qa-admin', { url })).statusCode, 400, `PATCH ${url}`);
+    }
+    const rejected = json(await request('POST', '/api/v1/application-links', 'qa-admin', { name, url: 'javascript:alert(1)' }));
+    assert.equal(rejected.code, 'VALIDATION_ERROR');
+    assert.ok(rejected.details.errors.some((error: string) => /url must be an http:\/\/ or https:\/\/ URL/.test(error)), JSON.stringify(rejected));
+    assert.equal(await prisma.applicationLink.count({ where: { name } }), 0, 'no rejected link was stored');
+    assert.equal((await prisma.applicationLink.findUniqueOrThrow({ where: { id: existing.id } })).url, 'https://existing.example', 'a rejected update leaves the row unchanged');
+
+    const ok = await request('POST', '/api/v1/application-links', 'qa-admin', { name, url: 'https://zabbix.interno/' });
+    assert.equal(ok.statusCode, 201);
+    assert.equal((await request('PATCH', `/api/v1/application-links/${existing.id}`, 'qa-admin', { url: 'http://grafana.interno:3000' })).statusCode, 200);
+  } finally {
+    await prisma.applicationLink.deleteMany({ where: { name: { startsWith: name } } });
+  }
+});

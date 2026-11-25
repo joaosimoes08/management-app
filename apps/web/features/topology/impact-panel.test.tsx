@@ -32,6 +32,17 @@ describe('ImpactPanel', () => {
     expect(mocks.getTopologyImpact).toHaveBeenCalledWith({ kind: 'DEVICE', id: 'core' }, { includeLogical: false });
   });
 
+  it('shows a Portal app with a non-http(s) URL as plain text, never as a link', async () => {
+    mocks.getTopologyImpact.mockResolvedValue(impactFixture({ applications: [
+      { id: 'a1', name: 'Intranet', url: 'https://app-host.local', category: null, matchedHost: 'app-host.local' },
+      { id: 'a2', name: 'Legacy', url: 'javascript:alert(1)', category: null, matchedHost: 'app-host.local' },
+    ] }));
+    render(<ImpactPanel target={{ kind: 'DEVICE', id: 'core' }} siteId="site-1" />);
+    expect(await screen.findByRole('link', { name: 'Intranet' })).toHaveAttribute('href', 'https://app-host.local');
+    expect(screen.getByTestId('impact-unsafe-url')).toHaveTextContent('Legacy');
+    expect(screen.queryByRole('link', { name: 'Legacy' })).not.toBeInTheDocument();
+  });
+
   it('warns when the search hit the depth limit, counts hidden devices and re-runs with logical links', async () => {
     mocks.getTopologyImpact.mockResolvedValue(impactFixture({ truncated: true, hiddenCount: 3 }));
     render(<ImpactPanel target={{ kind: 'DEVICE', id: 'core' }} onMap />);
