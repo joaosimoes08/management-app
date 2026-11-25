@@ -1355,6 +1355,7 @@ model SnmpArpEntry {
   @@index([macAddress])
   @@index([ipAddress])
   @@index([lastSeenAt])
+  @@index([deviceId, lastSeenAt])
 }
 
 /// Discovery D-P1e: a bridge forwarding (MAC -> port) sighting on a polled device, keyed by VLAN. vlanId 0 means the
@@ -1379,6 +1380,7 @@ model SnmpMacEntry {
   @@unique([deviceId, vlanId, macAddress])
   @@index([macAddress])
   @@index([lastSeenAt])
+  @@index([deviceId, lastSeenAt])
 }
 
 /// SNMP Phase 2 step 9: health alert limits overridden for one Site or one Device (exactly one of siteId/deviceId).

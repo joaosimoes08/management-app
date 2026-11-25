@@ -3263,6 +3263,7 @@ test('D-P1e: ARP and MAC forwarding sightings are read-only, device-scoped and n
     const admin = json(await request('GET', `/api/v1/snmp/endpoints?mac=${laptop}`, 'qa-admin'));
     assert.deepEqual(new Set(admin.arp.map((row: any) => row.deviceId)), new Set([ids.deviceA, ids.deviceSibling]));
     assert.equal(admin.mac.length, 3);
+    assert.deepEqual([...admin.arp, ...admin.mac].map((row: any) => row.current), [true, true, true, true, true], 'each sighting is from its device\'s newest poll');
     const byIp = json(await request('GET', '/api/v1/snmp/endpoints?ip=10.250.1.50', 'qa-readonly'));
     assert.deepEqual(byIp.arp.map((row: any) => row.macAddress), [laptop]);
     assert.deepEqual(byIp.mac.map((row: any) => row.vlanId).sort(), [70, 80], 'the IP leads to its MAC in the forwarding table');

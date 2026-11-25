@@ -19,8 +19,9 @@ describe('D-P1e endpoint lookup', () => {
   it('drops sightings on devices the caller cannot read, and raises errors that are not about scope', async () => {
     const row = (deviceId: string) => ({ id: deviceId, deviceId, ipAddress: '10.0.0.5', macAddress: '00:a3:d1:ee:00:50', ifIndex: 1, interfaceName: 'Gi1/0/1', entryType: 'DYNAMIC', vlanId: 70, bridgePort: 1, status: 'LEARNED', source: 'x', firstSeenAt: new Date(0), lastSeenAt: new Date(1), device: { name: deviceId } });
     const prisma = {
-      snmpArpEntry: { findMany: async () => [row('a'), row('b')], groupBy: async () => [{ deviceId: 'a', _max: { lastSeenAt: new Date(1) } }] },
-      snmpMacEntry: { findMany: async () => [row('a'), row('b')], groupBy: async () => [] },
+      snmpArpEntry: { findMany: async () => [row('a'), row('b')] },
+      snmpMacEntry: { findMany: async () => [row('a'), row('b')] },
+      $queryRaw: async (query: { sql: string }) => (query.sql.includes('"SnmpArpEntry"') ? [{ deviceId: 'a', lastSeenAt: new Date(1) }] : [{ deviceId: 'a', lastSeenAt: null }]),
     };
     let fail: Error | null = null;
     const assertDevice = async (_user: unknown, action: string, id: string) => { assert.equal(action, 'READ'); if (fail) throw fail; if (id === 'b') throw new ForbiddenException(); };
