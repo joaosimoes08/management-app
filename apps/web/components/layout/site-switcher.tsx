@@ -18,7 +18,9 @@ const emptyForm: SiteForm = { name: '', code: '', address: '', city: '', region:
 
 export function SiteSwitcher() {
   const ui = useUiText();
-  const { hasRole } = useAuth();
+  const { hasRole, setupStatus } = useAuth();
+  // The organization's own name, from its saved settings; never a hardcoded brand.
+  const organizationName = setupStatus?.organizationName?.trim();
   const pathname = usePathname();
   const { t } = useI18n();
   const { sites, siteId, activeSite, activateSite, reloadSites } = useSiteContext();
@@ -45,7 +47,7 @@ export function SiteSwitcher() {
     <div className="site-switcher-root" ref={rootRef} onMouseLeave={() => setOpen(false)}>
       <button className="workspace-switcher" type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-haspopup="menu">
         <ShieldCheck className="workspace-switcher-shield" size={19} aria-hidden="true" />
-        <span className="workspace-switcher-copy" key={siteId || 'all-sites'}><small>COCIBER — Site Ativo</small><strong><MapPin size={12} aria-hidden="true" />{activeSite?.name ?? t('shell.allSites')}</strong></span>
+        <span className="workspace-switcher-copy" key={siteId || 'all-sites'}><small>{organizationName ? `${organizationName.toLocaleUpperCase()} — Site Ativo` : 'Site Ativo'}</small><strong><MapPin size={12} aria-hidden="true" />{activeSite?.name ?? t('shell.allSites')}</strong></span>
         <ChevronDown className="workspace-switcher-chevron" size={15} aria-hidden="true" />
       </button>
       {open && <div className="site-switcher-menu" role="menu" aria-label={ui('ui.selectSite')}>

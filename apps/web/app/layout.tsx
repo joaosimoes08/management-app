@@ -12,7 +12,7 @@ import { appearanceBootScript } from '@/lib/theme/appearance-core';
 import { themeCss } from '@/lib/theme/themes';
 
 export const metadata: Metadata = {
-  title: 'COCiber · Gestão de Infraestrutura',
+  title: 'Civernode · Gestão de Infraestrutura',
   description: 'Centro de operações para infraestrutura e ciberdefesa.',
 };
 

@@ -121,7 +121,7 @@ function withAlpha(hex: string, alpha: number) {
 
 export const themes: ThemeDefinition[] = [
   {
-    id: 'default', source: 'COCiber',
+    id: 'default', source: 'Civernode',
     light: null,
     dark: token({ gray: navyDark, sidebar: navyDark, status: radixStatusDark, accent: { soft: '#15284a', line: '#2f4f8a', text: '#9dbaf7', focus: '#6f94ec', solid: '#3767d4' } }, 'dark'),
   },

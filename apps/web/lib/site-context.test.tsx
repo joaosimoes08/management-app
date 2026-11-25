@@ -16,7 +16,8 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(navigation.search || window.location.search),
 }));
 
-vi.mock('./auth', () => ({ useAuth: () => ({ authenticated: true, hasRole: () => false }) }));
+const auth = vi.hoisted(() => ({ setupStatus: null as null | { setupCompleted: boolean; organizationName?: string | null } }));
+vi.mock('./auth', () => ({ useAuth: () => ({ authenticated: true, hasRole: () => false, setupStatus: auth.setupStatus }) }));
 vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string) => key === 'shell.activeSite' ? 'Site ativo' : key === 'shell.allSites' ? 'Todos os Sites' : key }) }));
 vi.mock('@/lib/api/client', () => ({
   apiFetch: () => Promise.resolve({ items: [{ id: 'alpha', name: 'Alpha', code: 'ALP' }, { id: 'beta', name: 'Beta', code: 'BET' }] }),
@@ -66,12 +67,12 @@ describe('SiteProvider', () => {
     view.rerender(tree());
 
     await waitFor(() => expect(screen.getByTestId('active-site')).toHaveTextContent('Beta'));
-    expect(window.localStorage.getItem('cociber.siteId')).toBe('beta');
+    expect(window.localStorage.getItem('civernode.siteId')).toBe('beta');
     expect(window.location.search).toBe('?siteId=beta');
     expect(navigation.replace).not.toHaveBeenCalledWith('/ipam?siteId=alpha', expect.anything());
   });
 
-  it('shows and changes the active Site in the combined COCIBER selector', async () => {
+  it('shows and changes the active Site in the combined site selector', async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(createElement(QueryClientProvider, { client: queryClient }, createElement(SiteProvider, null, createElement(SiteSwitcher))));
 
@@ -93,6 +94,17 @@ describe('SiteProvider', () => {
     expect(window.location.search).toBe('?siteId=beta');
     expect(navigation.replace).toHaveBeenCalledWith('/ipam?siteId=beta', { scroll: false });
     expect(within(switcher).queryByText('Todos os Sites')).not.toBeInTheDocument();
+  });
+
+  it('labels the selector with the organization name from its settings, and nothing hardcoded without one', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(createElement(QueryClientProvider, { client: queryClient }, createElement(SiteProvider, null, createElement(SiteSwitcher))));
+    const switcher = screen.getByRole('button', { name: /Site ativo/i });
+    expect(switcher.querySelector('small')).toHaveTextContent(/^Site Ativo$/);
+    auth.setupStatus = { setupCompleted: true, organizationName: 'Acme Ops' };
+    view.rerender(createElement(QueryClientProvider, { client: queryClient }, createElement(SiteProvider, null, createElement(SiteSwitcher))));
+    expect(switcher.querySelector('small')).toHaveTextContent('ACME OPS — Site Ativo');
+    auth.setupStatus = null;
   });
 
   it('reports the site as resolved only together with the resolved siteId', async () => {

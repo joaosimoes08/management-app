@@ -2198,7 +2198,7 @@ body { color:var(--ink); background:var(--t-canvas,#e9eef5); }
   .app-shell .sidebar.app-sidebar { height:100dvh; min-height:0; }
 }
 
-/* Final COCIBER polish: keep shared controls aligned without changing shell behavior. */
+/* Final Civernode polish: keep shared controls aligned without changing shell behavior. */
 @media (min-width:781px) {
   .app-shell .global-topbar .module-tabs-slot nav { gap:6px; }
   .app-shell .global-topbar .module-tabs-slot nav button { gap:0; padding-right:10px; padding-left:10px; }
