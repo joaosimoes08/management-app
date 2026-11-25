@@ -2,7 +2,6 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/lib/auth';
-import { translateLegacyText } from './legacy-messages';
 import { getConfiguredLocale, hasSavedOrganizationLocale } from '@/lib/runtime-config';
 import { setFormatLocale } from '@/lib/format/date';
 
@@ -844,11 +843,42 @@ const legacyTranslationCacheLimit = 5000;
 /** True once an English pass has changed the page, so switching back to Portuguese knows it must restore. */
 let legacyDomTranslated = false;
 
+/**
+ * The English table for legacy hard-coded Portuguese text (about 160 kB) is only needed in en-US, so it
+ * loads on demand instead of shipping with every page. Portuguese, the default, never downloads it.
+ */
+type LegacyTranslator = (locale: AppLocale, input: string) => string;
+let legacyTranslator: LegacyTranslator | null = null;
+let legacyTranslatorLoad: Promise<LegacyTranslator> | null = null;
+
+export function loadLegacyMessages(): Promise<LegacyTranslator> {
+  if (legacyTranslator) return Promise.resolve(legacyTranslator);
+  legacyTranslatorLoad ??= import('./legacy-messages').then((module) => {
+    legacyTranslator = module.translateLegacyText;
+    return legacyTranslator;
+  }).catch((error: unknown) => {
+    legacyTranslatorLoad = null;
+    throw error;
+  });
+  return legacyTranslatorLoad;
+}
+
+// Start the download as soon as this module runs when the browser is already known to use English,
+// so the table is usually ready before the first screen that needs it.
+if (typeof window !== 'undefined') {
+  try {
+    const stored = window.localStorage.getItem('cociber.locale');
+    if (stored === 'en-US' || (stored !== 'pt-PT' && getConfiguredLocale() === 'en-US')) void loadLegacyMessages().catch(() => undefined);
+  } catch {
+    // Storage can be unavailable (privacy mode); the provider loads the table when it switches to English.
+  }
+}
+
 function translateLegacy(locale: AppLocale, input: string) {
-  if (locale === 'pt-PT') return input;
+  if (locale === 'pt-PT' || !legacyTranslator) return input;
   let translated = legacyTranslationCache.get(input);
   if (translated === undefined) {
-    translated = translateLegacyText(locale, input);
+    translated = legacyTranslator(locale, input);
     if (legacyTranslationCache.size >= legacyTranslationCacheLimit) legacyTranslationCache.clear();
     legacyTranslationCache.set(input, translated);
   }
@@ -972,7 +1002,11 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     return () => window.cancelAnimationFrame(frame);
   }, [locale]);
   useEffect(() => {
-    return observeLegacyDom(locale, document.body);
+    if (locale === 'pt-PT' || legacyTranslator) return observeLegacyDom(locale, document.body);
+    let cancelled = false;
+    let disconnect: (() => void) | undefined;
+    void loadLegacyMessages().then(() => { if (!cancelled) disconnect = observeLegacyDom(locale, document.body); }).catch(() => undefined);
+    return () => { cancelled = true; disconnect?.(); };
   }, [locale]);
   // Keep the shared date/number formatters on the active language before children render.
   setFormatLocale(locale);
