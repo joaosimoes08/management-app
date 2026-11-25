@@ -19,19 +19,19 @@ afterEach(() => { cleanup(); localStorage.clear(); });
 
 describe('AppShell sidebar preference', () => {
   it('starts expanded when storage has no saved preference', async () => {
-    localStorage.removeItem('cociber.sidebar.collapsed');
+    localStorage.removeItem('civernode.sidebar.collapsed');
     const { container } = render(<AppShell section="Infraestrutura"><p>Content</p></AppShell>);
     await waitFor(() => expect(container.querySelector('.app-shell')).not.toHaveClass('sidebar-collapsed'));
     expect(screen.getByRole('button', { name: 'Recolher' })).toBeInTheDocument();
   });
 
   it('honors a saved collapsed state and keeps the manual toggle functional', async () => {
-    localStorage.setItem('cociber.sidebar.collapsed', 'true');
+    localStorage.setItem('civernode.sidebar.collapsed', 'true');
     const { container } = render(<AppShell section="Infraestrutura"><p>Content</p></AppShell>);
     await waitFor(() => expect(container.querySelector('.app-shell')).toHaveClass('sidebar-collapsed'));
     fireEvent.click(screen.getByRole('button', { name: 'Expandir' }));
     await waitFor(() => expect(container.querySelector('.app-shell')).not.toHaveClass('sidebar-collapsed'));
-    expect(localStorage.getItem('cociber.sidebar.collapsed')).toBe('false');
+    expect(localStorage.getItem('civernode.sidebar.collapsed')).toBe('false');
   });
 });
 

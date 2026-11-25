@@ -17,6 +17,7 @@ import {
   type AssetPage, type AssetRow, type Attestation, type ComplianceCell, type CriticalAssetsResult, type Correction, type Filters, type Group, type Outcome, complianceCells,
 } from './workbench';
 import { useUiText } from '@/components/ui/use-ui-text';
+import { STORAGE_KEYS, getLocalItem } from '@/lib/storage-keys';
 
 type View = 'assets' | 'corrections' | 'compliance';
 type Connection = { id: string; label?: string | null; type?: string; sourceDevice: { id: string; name: string }; targetDevice: { id: string; name: string } };
@@ -90,7 +91,7 @@ export function CriticalAssetsPage() {
   const loading = hydrated ? (view === 'assets' ? pageLoading : isLoading) : true;
   const error = hydrated ? queryError ?? (view === 'assets' ? pageError : null) : null;
   const groups = (hydrated && queryGroups) || noGroups;
-  const locale = hydrated && window.localStorage.getItem('cociber.locale') === 'en-US' ? 'en-US' : 'pt-PT';
+  const locale = hydrated && getLocalItem(STORAGE_KEYS.locale) === 'en-US' ? 'en-US' : 'pt-PT';
   const formatDate = useCallback((value?: string | null, withTime = false) => {
     if (!value) return '—';
     const date = new Date(value.length === 10 ? `${value}T00:00:00.000Z` : value);

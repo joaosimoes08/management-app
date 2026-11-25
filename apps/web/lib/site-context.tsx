@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from './auth';
 import { apiFetch } from '@/lib/api/client';
 import { resolveActiveSite, siteUrl } from './site-selection';
+import { STORAGE_KEYS, getLocalItem, removeLocalItem } from '@/lib/storage-keys';
 
 export type ActiveSite = { id: string; name: string; code: string };
 /** `resolved` turns true once siteId reflects the URL, the stored choice and the accessible sites (or the site list failed). Before that an empty siteId means "not known yet", not "all sites". */
@@ -33,8 +34,8 @@ export function SiteProvider({ children }: { children: React.ReactNode }) {
   }, [routerReplace]);
   const choose = useCallback((nextSiteId: string, syncUrl = true) => {
     setSiteId(nextSiteId);
-    if (nextSiteId) window.localStorage.setItem('cociber.siteId', nextSiteId); else window.localStorage.removeItem('cociber.siteId');
-    window.localStorage.removeItem('cociber.infrastructureContext');
+    if (nextSiteId) window.localStorage.setItem(STORAGE_KEYS.siteId, nextSiteId); else removeLocalItem(STORAGE_KEYS.siteId);
+    removeLocalItem(STORAGE_KEYS.infrastructureContext);
     if (syncUrl) updateUrl(nextSiteId);
   }, [updateUrl]);
   const reloadSites = useCallback(async () => {
@@ -44,7 +45,7 @@ export function SiteProvider({ children }: { children: React.ReactNode }) {
     if (!authenticated) { setSiteId(''); setResolved(false); return; }
     if (sitesQuery.isError && !sitesQuery.data) { setResolved(true); return; }
     if (!sitesQuery.data) return;
-    const querySite = new URLSearchParams(window.location.search).get('siteId'); const stored = window.localStorage.getItem('cociber.siteId');
+    const querySite = new URLSearchParams(window.location.search).get('siteId'); const stored = getLocalItem(STORAGE_KEYS.siteId);
     const supportsAggregate = ['/', '/portal', '/auditoria', '/definicoes', '/ajuda', '/perfil'].some((path) => pathname === path || (path !== '/' && pathname.startsWith(`${path}/`)));
     const resolved = resolveActiveSite(sites, querySite, stored);
     const next = !supportsAggregate && !resolved && sites.length ? sites[0].id : resolved;

@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore } from 'react';
 import { APPEARANCE_STORAGE_KEY, darkQuery, defaultAppearance, parseAppearance, resolveMode, userAppearanceKey, type Appearance } from './appearance-core';
+import { readStorageItem } from '@/lib/storage-keys';
 
 export { APPEARANCE_STORAGE_KEY, appearanceBootScript, parseAppearance, resolveMode, userAppearanceKey, type Appearance } from './appearance-core';
 
@@ -23,7 +24,7 @@ function storage() { try { return window.localStorage; } catch { return null; } 
 function ensureInitialised() {
   if (initialised || typeof window === 'undefined') return;
   initialised = true;
-  current = parseAppearance(storage()?.getItem(APPEARANCE_STORAGE_KEY)) ?? defaultAppearance;
+  current = parseAppearance(readStorageItem(storage(), APPEARANCE_STORAGE_KEY)) ?? defaultAppearance;
 }
 
 function emit() { for (const listener of listeners) listener(); }
@@ -47,7 +48,7 @@ export function loadAppearanceForUser(userId: string | null) {
   ensureInitialised();
   currentUserId = userId;
   if (!userId) return;
-  const saved = parseAppearance(storage()?.getItem(userAppearanceKey(userId)));
+  const saved = parseAppearance(readStorageItem(storage(), userAppearanceKey(userId)));
   if (saved && (saved.theme !== current.theme || saved.mode !== current.mode)) {
     current = saved;
     storage()?.setItem(APPEARANCE_STORAGE_KEY, JSON.stringify(saved));

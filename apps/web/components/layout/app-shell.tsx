@@ -16,6 +16,7 @@ import { ResponsiveToolbarActions } from './responsive-overflow';
 import { contextToolbarHasControls, contextToolbarOverflows } from './context-toolbar-fit';
 import { helpArticle, helpArticleForPath } from '@/features/help/articles';
 import { useI18n } from '@/lib/i18n';
+import { STORAGE_KEYS, getLocalItem } from '@/lib/storage-keys';
 
 export type TopbarSearchConfig = LocalSearchContext;
 export type AppShellProps = { children: ReactNode; section: string; context?: string[]; search?: TopbarSearchConfig; rackSearch?: RackSearchContext; globalSearch?: boolean; moduleTabs?: ReactNode; toolbar?: ReactNode; toolbarKey?: string; actions?: ReactNode; /** false when the page's own h1 already shows the section name, so the toolbar does not repeat it. */ showSectionTitle?: boolean; /** Help article slug for the "?" link when the path alone is not enough (e.g. a tab). */ helpTopic?: string };
@@ -106,7 +107,7 @@ export function AppShell({ children, section, context, search, rackSearch, modul
   }, [controlsOpen]);
 
   useEffect(() => {
-    setCollapsed(window.localStorage.getItem('cociber.sidebar.collapsed') === 'true');
+    setCollapsed(getLocalItem(STORAGE_KEYS.sidebarCollapsed) === 'true');
   }, []);
 
   useEffect(() => {
@@ -127,7 +128,7 @@ export function AppShell({ children, section, context, search, rackSearch, modul
 
   const toggleCollapsed = () => setCollapsed((value) => {
     const next = !value;
-    window.localStorage.setItem('cociber.sidebar.collapsed', String(next));
+    window.localStorage.setItem(STORAGE_KEYS.sidebarCollapsed, String(next));
     return next;
   });
 

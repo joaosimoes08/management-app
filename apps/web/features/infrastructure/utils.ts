@@ -1,5 +1,6 @@
 import type { AssetFile, Device, DeviceInterface, DeviceModel, PortLayout, PortLayoutFace, PortLayoutPort, PortLayoutV2, RackFace, RackView, Vlan } from './types';
 import { getPublicRuntimeConfig } from '@/lib/runtime-config';
+import { STORAGE_KEYS, getLocalItem, getSessionItem } from '@/lib/storage-keys';
 
 export const FIXED_RACK_IMAGE = '/assets/rack-empty-42u.png?v=2';
 export const RACK_UNITS = 42;
@@ -56,11 +57,11 @@ export interface InfrastructureContext {
   roomId: string;
 }
 
-const INFRASTRUCTURE_CONTEXT_KEY = 'cociber.infrastructureContext';
+const INFRASTRUCTURE_CONTEXT_KEY = STORAGE_KEYS.infrastructureContext;
 
 export function readInfrastructureContext(): InfrastructureContext | null {
   try {
-    const value = localStorage.getItem(INFRASTRUCTURE_CONTEXT_KEY);
+    const value = getLocalItem(INFRASTRUCTURE_CONTEXT_KEY);
     return value ? (JSON.parse(value) as InfrastructureContext) : null;
   } catch {
     return null;
@@ -226,14 +227,14 @@ export function deviceFaceImage(device: Pick<Device, 'frontAsset' | 'backAsset' 
   return device?.frontAsset ?? device?.model?.frontAsset ?? null;
 }
 
-export const RACK_VIEW_STORAGE_KEY = 'cociber.rackView';
+export const RACK_VIEW_STORAGE_KEY = STORAGE_KEYS.rackView;
 /** Width from which the rack opens with both faces side by side. */
 export const RACK_BOTH_MIN_WIDTH = 1280;
 
 /** Rack view remembered for this browser session; otherwise both faces on wide screens and the front below that. */
 export function readRackView(viewportWidth: number): RackView {
   try {
-    const stored = sessionStorage.getItem(RACK_VIEW_STORAGE_KEY);
+    const stored = getSessionItem(RACK_VIEW_STORAGE_KEY);
     if (stored === 'front' || stored === 'rear' || stored === 'both') return stored === 'both' && viewportWidth < RACK_BOTH_MIN_WIDTH ? 'front' : stored;
   } catch {
     // Sem armazenamento de sessão, usa a vista por omissão.

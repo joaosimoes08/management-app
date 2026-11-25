@@ -33,6 +33,6 @@ describe('RootLayout provider order', () => {
     expect(head).toContain('[data-theme="slate-blue"][data-mode="dark"]');
     expect(head).toContain('id="app-theme-boot"');
     expect(head).toMatch(/<script id="app-theme-boot" nonce="test-nonce"/);
-    expect(head).toContain('localStorage.getItem(&quot;cociber.appearance&quot;)'.replaceAll('&quot;', '"'));
+    expect(head).toContain('localStorage.getItem(&quot;civernode.appearance&quot;)'.replaceAll('&quot;', '"'));
   });
 });

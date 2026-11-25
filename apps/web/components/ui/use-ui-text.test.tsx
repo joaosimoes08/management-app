@@ -24,7 +24,7 @@ describe('useUiText shared labels', () => {
   });
 
   it('follows the active language inside the provider', () => {
-    window.localStorage.setItem('cociber.locale', 'en-US');
+    window.localStorage.setItem('civernode.locale', 'en-US');
     render(<I18nProvider><Paging /><ConfirmDialog message="Remover?" destructive onResolve={() => undefined} /></I18nProvider>);
     expect(screen.getByText('Page 2 of 5')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Confirm deletion' })).toBeInTheDocument();

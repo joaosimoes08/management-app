@@ -4,7 +4,7 @@ import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import { hasTableFilters, parseTableState, serializeTableState, type SortState, type TableFilters, type TableState, type TableStateConfig } from './table-state';
 
 /** Fired after this hook rewrites the URL; `popstate` covers back/forward. */
-const URL_EVENT = 'cociber:table-url';
+const URL_EVENT = 'civernode:table-url';
 
 function subscribe(onChange: () => void) {
   window.addEventListener('popstate', onChange);
