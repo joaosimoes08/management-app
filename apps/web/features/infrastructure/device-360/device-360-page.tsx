@@ -19,7 +19,7 @@ import { HealthHistoryChart } from '@/features/snmp/health/health-history-chart'
 import { DeviceHealthThresholdsPanel } from '@/features/snmp/health/health-limits-panels';
 import { getDevice, listDeviceIpAddresses, listInterfaces } from '../api';
 import type { Device } from '../types';
-import { assetFileUrl } from '../utils';
+import { AssetImage } from '../components/asset-image';
 
 /**
  * Step 29 — read-first Device 360 page.
@@ -143,7 +143,6 @@ export function Device360Page({ deviceId }: { deviceId: string }) {
   const rack = device.rack;
   const location = [device.site?.name, rack?.room?.building?.name, rack?.room?.name, rack?.name, device.rackUnitStart ? `U${device.rackUnitStart}${device.rackUnitSize && device.rackUnitSize > 1 ? `–${device.rackUnitStart + device.rackUnitSize - 1}` : ''}` : null].filter(Boolean).join(' · ');
   const imageAsset = device.frontAsset ?? device.model?.frontAsset;
-  const image = imageAsset ? assetFileUrl(imageAsset) : null;
   const modelName = device.model ? `${device.model.manufacturer} ${device.model.model}`.trim() : '';
   const tier = device.criticalityTier;
   const rackHref = rack ? `/infraestrutura${q({ siteId, buildingId: rack.room?.building?.id, roomId: rack.room?.id, rackId: rack.id })}` : null;
@@ -151,8 +150,7 @@ export function Device360Page({ deviceId }: { deviceId: string }) {
 
   return <AppShell section="Mapa físico"><div className="module-page device-360">
     <header className="workspace-head device-360-head">
-      {/* eslint-disable-next-line @next/next/no-img-element -- API asset URL, same as the rack views */}
-      {image && <img className="device-360-image" src={image} alt={`Frente de ${modelName || device.name}`} />}
+      {imageAsset && <AssetImage asset={imageAsset} className="device-360-image" alt={`Frente de ${modelName || device.name}`} loading="eager" fallback={false} />}
       <div>
         <h1>{device.name}</h1>
         <p>{[device.type, modelName, location || 'Sem localização'].filter(Boolean).join(' · ')}</p>
