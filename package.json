@@ -38,6 +38,9 @@
     "@prisma/config": {
       "effect": "^3.22.5"
     },
+    "@swc/cli": {
+      "minimatch": "^11.0.9"
+    },
     "rxjs": "7.8.2"
   }
 }
