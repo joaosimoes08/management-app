@@ -1,7 +1,14 @@
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, HttpException } from '@nestjs/common';
 import { parseMac, SnmpEndpointsService } from './snmp-endpoints.service';
+
+/** Stub of InfrastructureAccessService.readableDeviceIds with its contract: the ids whose assertDevice READ passes; scope errors hide, others raise. */
+const readableVia = (assertDevice: (user: unknown, action: string, id: string) => Promise<unknown>) => async (user: unknown, ids: Iterable<string>) => {
+  const readable = new Set<string>();
+  for (const id of new Set(ids)) { try { await assertDevice(user, 'READ', id); readable.add(id); } catch (error) { if (!(error instanceof HttpException)) throw error; } }
+  return readable;
+};
 
 describe('D-P1e endpoint lookup', () => {
   it('normalises colon, dash, Cisco dot and bare forms, and refuses anything else', () => {
@@ -16,7 +23,8 @@ describe('D-P1e endpoint lookup', () => {
       snmpMacEntry: { findMany: async () => [row('a'), row('b')], groupBy: async () => [] },
     };
     let fail: Error | null = null;
-    const access = { assertDevice: async (_user: unknown, action: string, id: string) => { assert.equal(action, 'READ'); if (fail) throw fail; if (id === 'b') throw new ForbiddenException(); } };
+    const assertDevice = async (_user: unknown, action: string, id: string) => { assert.equal(action, 'READ'); if (fail) throw fail; if (id === 'b') throw new ForbiddenException(); };
+    const access = { assertDevice, readableDeviceIds: readableVia(assertDevice) };
     const service = new SnmpEndpointsService(prisma as never, access as never);
     const result = await service.lookup({ id: 'u' } as never, { mac: '00a3d1ee0050' });
     assert.deepEqual(result.arp.map((item) => [item.deviceId, item.current]), [['a', true]]);
