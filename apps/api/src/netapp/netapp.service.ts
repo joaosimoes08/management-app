@@ -51,7 +51,8 @@ export class NetAppService {
   async get(siteId: string, user: AuthenticatedUser) {
     await this.access.assertSite(user, 'READ', siteId);
     const integration = await this.prisma.netAppIntegration.findUnique({ where: { siteId } });
-    if (!integration) throw new NotFoundException({ code: 'NETAPP_INTEGRATION_NOT_CONFIGURED', message: 'A integração NetApp não está configurada neste site.' });
+    // A site without an integration is a normal state, not an error: 200 with an explicit body (no audit, nothing was read).
+    if (!integration) return { siteId, configured: false as const };
     await this.audit.record({ userId: user.id, action: 'NETAPP_SNAPSHOT_READ', entityType: 'NetAppIntegration', entityId: integration.id, metadata: { siteId } });
     return this.public(integration);
   }

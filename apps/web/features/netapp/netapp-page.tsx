@@ -36,9 +36,9 @@ export default function NetAppPage() {
     onSuccess: async (updated) => { setActionError(''); setNotice('Snapshot atualizado a partir do ONTAP.'); queryClient.setQueryData(queryKey, updated); await queryClient.invalidateQueries({ queryKey }); },
     onError: async (error) => { setNotice(''); setActionError(messageOf(error)); await queryClient.invalidateQueries({ queryKey }); },
   });
-  const integration = integrationQuery.data;
+  const integration = integrationQuery.data?.configured ? integrationQuery.data : undefined;
   const snapshot = integration?.snapshot ?? null;
-  const missingConfiguration = integrationQuery.isError && /NETAPP_INTEGRATION_NOT_CONFIGURED|não está configurada|not configured/i.test(messageOf(integrationQuery.error));
+  const missingConfiguration = integrationQuery.data?.configured === false;
 
   useEffect(() => { setForm(emptyForm); setActionError(''); setNotice(''); }, [siteId]);
 

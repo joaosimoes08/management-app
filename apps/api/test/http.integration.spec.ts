@@ -2179,6 +2179,13 @@ test('Step 16 NetApp trend: each refresh appends history, trend per aggregate/vo
   assert.equal((await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend?kind=DISK&key=x`, 'qa-readonly')).statusCode, 400);
   assert.equal((await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend?days=401`, 'qa-readonly')).statusCode, 400);
   assert.equal((await request('GET', `/api/v1/netapp/sites/${ids.siteB}/trend`, 'qa-admin')).statusCode, 404);
+  // A Site without an integration: the GET answers 200 with an explicit body, refresh keeps its 404.
+  const unconfigured = await request('GET', `/api/v1/netapp/sites/${ids.siteB}`, 'qa-admin');
+  assert.equal(unconfigured.statusCode, 200, unconfigured.body);
+  assert.deepEqual(json(unconfigured), { siteId: ids.siteB, configured: false });
+  assert.equal((await request('POST', `/api/v1/netapp/sites/${ids.siteB}/refresh`, 'qa-admin')).statusCode, 404);
+  // Site access is still checked first: no access to the Site stays 404, whatever the integration state.
+  assert.equal((await request('GET', `/api/v1/netapp/sites/${ids.siteA}`, 'qa-network-legacy')).statusCode, 404);
   assert.equal((await request('GET', `/api/v1/netapp/sites/${ids.siteA}/trend`, 'qa-network-legacy')).statusCode, 404);
 });
 
