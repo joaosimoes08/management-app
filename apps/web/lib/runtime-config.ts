@@ -1,3 +1,5 @@
+import { PRODUCT_NAME } from '@/lib/brand';
+
 export interface PublicRuntimeConfig {
   apiUrl?: string;
   keycloakUrl?: string;
@@ -30,9 +32,13 @@ export function getPublicRuntimeConfig(): Required<PublicRuntimeConfig> {
   };
 }
 
+/**
+ * Organization name shown before sign-in: runtime config, then NEXT_PUBLIC_ORGANIZATION_NAME, then the product name.
+ * The Keycloak realm is an identity setting, never a display name, so it is not used here.
+ */
 export function getPublicOrganizationName() {
-  const config = getPublicRuntimeConfig();
-  return config.organizationName.trim() || config.keycloakRealm;
+  const runtime = typeof window === 'undefined' ? undefined : window.__CIVERNODE_CONFIG__;
+  return runtime?.organizationName?.trim() || process.env.NEXT_PUBLIC_ORGANIZATION_NAME?.trim() || PRODUCT_NAME;
 }
 
 export function getConfiguredLocale(): 'pt-PT' | 'en-US' {

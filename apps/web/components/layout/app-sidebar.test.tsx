@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppSidebar } from './app-sidebar';
 import { helpNavigation, navigation, settingsNavigation } from './navigation';
+import { translateMessage } from '@/lib/i18n/i18n';
 
 const motionPreference = vi.hoisted(() => ({ reduced: false }));
 const routeState = vi.hoisted(() => ({ pathname: '/infraestrutura' }));
@@ -20,7 +21,7 @@ vi.mock('motion/react-m', async () => {
   return { aside: MotionAside };
 });
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: () => true }) }));
-vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }));
+vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string, _fallback?: string, params?: Record<string, unknown>) => (params?.year ? `${key} ${params.year}` : key) }) }));
 vi.mock('./user-menu', async () => {
   const React = await import('react');
   return {
@@ -81,16 +82,24 @@ describe('AppSidebar footer controls', () => {
   });
 
   it('shows a muted copyright line below the account controls, shortened when collapsed', () => {
+    const year = new Date().getFullYear();
     const { container, rerender } = render(<AppSidebar collapsed={false} onToggle={vi.fn()} />);
     const copyright = container.querySelector('.sidebar-copyright') as HTMLElement;
     expect(copyright).toBeInTheDocument();
     expect(container.querySelector('.sidebar-bottom-row')?.nextElementSibling).toBe(copyright);
-    expect(copyright.querySelector('.sidebar-copyright-full')).toHaveTextContent('shell.copyright');
+    expect(copyright.querySelector('.sidebar-copyright-full')).toHaveTextContent(`shell.copyright ${year}`);
     expect(copyright.querySelector('.sidebar-copyright-short')).toHaveAttribute('aria-hidden', 'true');
-    expect(copyright).toHaveAttribute('title', 'shell.copyright');
+    expect(copyright).toHaveAttribute('title', `shell.copyright ${year}`);
     rerender(<AppSidebar collapsed onToggle={vi.fn()} />);
-    expect(container.querySelector('.sidebar-copyright-full')).toHaveTextContent('shell.copyright');
-    expect(container.querySelector('.sidebar-copyright-short')).toHaveTextContent('shell.copyrightShort');
+    expect(container.querySelector('.sidebar-copyright-full')).toHaveTextContent(`shell.copyright ${year}`);
+    expect(container.querySelector('.sidebar-copyright-short')).toHaveTextContent(`shell.copyrightShort ${year}`);
+  });
+
+  it('brands the copyright as Civernode with the year from the clock, in both locales', () => {
+    for (const locale of ['pt-PT', 'en-US'] as const) {
+      expect(translateMessage(locale, 'shell.copyright', undefined, { year: 2031 })).toBe('© 2031 Civernode');
+      expect(translateMessage(locale, 'shell.copyrightShort', undefined, { year: 2031 })).toBe('© 2031');
+    }
   });
 
   it('disables sidebar width motion when reduced motion is preferred', () => {

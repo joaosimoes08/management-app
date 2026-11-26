@@ -1,8 +1,8 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getConfiguredLocale, getPublicOrganizationName, getPublicRuntimeConfig, hasSavedOrganizationLocale, resolveOrganizationLocale } from './runtime-config';
 
 describe('public runtime branding configuration', () => {
-  afterEach(() => { delete window.__CIVERNODE_CONFIG__; });
+  afterEach(() => { delete window.__CIVERNODE_CONFIG__; vi.unstubAllEnvs(); });
 
   it('keeps the direct API port for local development', () => {
     expect(getPublicRuntimeConfig().apiUrl).toBe('http://localhost:3001');
@@ -31,17 +31,41 @@ describe('public runtime branding configuration', () => {
     expect(getConfiguredLocale()).toBe('en-US');
   });
 
-  it('falls back to the realm name and Portuguese locale', () => {
+  it('never uses the realm as the organization name and falls back to Portuguese locale', () => {
     window.__CIVERNODE_CONFIG__ = { keycloakRealm: 'SIMONEDA', locale: 'fr-FR' };
-    expect(getPublicOrganizationName()).toBe('SIMONEDA');
+    expect(getPublicOrganizationName()).toBe('Civernode');
     expect(getConfiguredLocale()).toBe('pt-PT');
     expect(getPublicRuntimeConfig().keycloakRealm).toBe('SIMONEDA');
   });
 
   it('preserves existing default branding and locale when no deployment values are supplied', () => {
     window.__CIVERNODE_CONFIG__ = {};
-    expect(getPublicOrganizationName()).toBe('COCiber');
+    expect(getPublicOrganizationName()).toBe('Civernode');
+    expect(getPublicRuntimeConfig().keycloakRealm).toBe('COCiber');
     expect(getConfiguredLocale()).toBe('pt-PT');
+  });
+
+  it('prefers the runtime organization name over the build-time environment', () => {
+    vi.stubEnv('NEXT_PUBLIC_ORGANIZATION_NAME', 'Env Org');
+    window.__CIVERNODE_CONFIG__ = { organizationName: '  Runtime Org  ', keycloakRealm: 'COCiber' };
+    expect(getPublicOrganizationName()).toBe('Runtime Org');
+  });
+
+  it('uses NEXT_PUBLIC_ORGANIZATION_NAME when the runtime value is missing or blank', () => {
+    vi.stubEnv('NEXT_PUBLIC_ORGANIZATION_NAME', 'Env Org');
+    window.__CIVERNODE_CONFIG__ = { keycloakRealm: 'COCiber' };
+    expect(getPublicOrganizationName()).toBe('Env Org');
+    window.__CIVERNODE_CONFIG__ = { organizationName: '   ', keycloakRealm: 'COCiber' };
+    expect(getPublicOrganizationName()).toBe('Env Org');
+  });
+
+  it('falls back to the product name, never the realm, when no organization name is configured', () => {
+    vi.stubEnv('NEXT_PUBLIC_ORGANIZATION_NAME', '  ');
+    vi.stubEnv('NEXT_PUBLIC_KEYCLOAK_REALM', 'COCiber');
+    window.__CIVERNODE_CONFIG__ = { organizationName: '', keycloakRealm: 'COCiber' };
+    expect(getPublicOrganizationName()).toBe('Civernode');
+    delete window.__CIVERNODE_CONFIG__;
+    expect(getPublicOrganizationName()).toBe('Civernode');
   });
 
   it('uses deployment locale until a new organization is saved, then keeps persisted organization locale', () => {

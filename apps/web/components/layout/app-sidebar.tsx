@@ -33,6 +33,8 @@ export function AppSidebar({ collapsed, onToggle, onClose }: AppSidebarProps) {
   // Settings and Help use the same active style as the main entries, so the current page is always visible.
   const settingsActive = isActivePath(pathname, settingsNavigation.href);
   const helpActive = isActivePath(pathname, helpNavigation.href);
+  // Copyright year comes from the visitor's clock, so the footer never needs a yearly edit.
+  const copyrightYear = new Date().getFullYear();
   const [expandedWidth, setExpandedWidth] = useState(248);
   const [focusWithin, setFocusWithin] = useState(false);
   const keyboardNavigation = useRef(false);
@@ -96,7 +98,7 @@ export function AppSidebar({ collapsed, onToggle, onClose }: AppSidebarProps) {
           {collapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
         </button>
       </div>
-      <small className="sidebar-copyright" title={t('shell.copyright')}><span className="sidebar-copyright-full">{t('shell.copyright')}</span><span className="sidebar-copyright-short" aria-hidden="true">{t('shell.copyrightShort')}</span></small>
+      <small className="sidebar-copyright" title={t('shell.copyright', undefined, { year: copyrightYear })}><span className="sidebar-copyright-full">{t('shell.copyright', undefined, { year: copyrightYear })}</span><span className="sidebar-copyright-short" aria-hidden="true">{t('shell.copyrightShort', undefined, { year: copyrightYear })}</span></small>
       <button className="mobile-close icon-button" onClick={() => onClose?.()} aria-label={ui('ui.closeMenu')}><X size={17} /></button>
     </m.aside>
   );
