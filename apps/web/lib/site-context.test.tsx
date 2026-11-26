@@ -80,6 +80,8 @@ describe('SiteProvider', () => {
     await waitFor(() => expect(within(switcher).getByText('Alpha')).toBeInTheDocument());
     expect(switcher).toHaveAttribute('aria-expanded', 'false');
     expect(switcher.querySelector('.workspace-switcher-shield')).toHaveAttribute('aria-hidden', 'true');
+    expect(switcher.querySelector('img.workspace-switcher-shield')).toHaveAttribute('src', '/brand/civernode-mark.png');
+    expect(switcher.querySelector('img.workspace-switcher-shield')).toHaveAttribute('alt', '');
     expect(switcher.querySelector('.workspace-avatar')).not.toBeInTheDocument();
     fireEvent.click(switcher);
     expect(switcher).toHaveAttribute('aria-expanded', 'true');

@@ -11,9 +11,10 @@ import { useSiteContext } from '@/lib/site-context';
 import { formatDateTime } from '@/lib/format/date';
 import { bulkInventoryFindings, getInventoryQualityAssignees, getInventoryQualityFacets, listInventoryFindings, type BulkFindingAction, type InventoryFinding } from './api';
 import { QualityBulkDialog, type BulkParams } from './quality-bulk-dialog';
+import { useUiText } from '@/components/ui/use-ui-text';
 import {
   ALL, BULK_LIMIT, bulkOutcome, findingDeviceId, findingQueryFrom, findingSeverities, findingStatuses, groupByRule, hasQualityFilters, isActionable,
-  personName, qualityTableConfig, ruleLabel, severityLabels, severityRank, statusCount, statusLabels, statusTabLabels, visibleSelection, type BulkOutcome,
+  personName, qualityTableConfig, ruleLabel, ruleLabels, severityLabels, severityRank, statusCount, statusLabels, statusTabLabels, visibleSelection, type BulkOutcome,
 } from './quality-workspace';
 
 const shortDateTime = (value: string) => formatDateTime(value, { dateStyle: 'short', timeStyle: 'short' });
@@ -25,6 +26,7 @@ function useDebounced<T>(value: T, delay = 300): T {
 }
 
 export function InventoryQualityPage() {
+  const tx = useUiText();
   const { siteId } = useSiteContext();
   const { hasRole, user } = useAuth();
   const canAct = hasRole('ADMIN') || hasRole('NETWORK_OPERATOR') || hasRole('SYSTEMS_OPERATOR');
@@ -136,6 +138,9 @@ export function InventoryQualityPage() {
   const myCount = facetData?.byAssignee.find((item) => item.userId && item.userId === user?.id)?.total;
   const unassignedCount = facetData?.byAssignee.find((item) => item.userId === null)?.total;
   const withCount = (label: string, count?: number) => (count === undefined ? label : `${label} (${count})`);
+  // "Label (count)" options are one text each, so their labels are translated by key, not by the page-wide pass.
+  const severityText = (severity: (typeof findingSeverities)[number]) => tx(`quality.severity.${severity}`, severityLabels[severity]);
+  const ruleText = (rule: string) => (rule in ruleLabels ? tx(`quality.rule.${rule}`, ruleLabel(rule)) : rule);
   const statusTabs: Array<{ value: string; label: string; count: number }> = [
     ...findingStatuses.map((status) => ({ value: status, label: statusTabLabels[status], count: statusCount(facetData, status) })),
     { value: ALL, label: 'Todos', count: statusCount(facetData, ALL) },
@@ -157,12 +162,12 @@ export function InventoryQualityPage() {
 
   return <>{confirmDialog}<AppShell section="Qualidade do inventário" search={{ value: search, onChange: setSearch, placeholder: 'Pesquisar título, detalhe ou correção…', ariaLabel: 'Pesquisar findings', scopeLabel: 'Qualidade do inventário' }} actions={actions}>
     <PageToolbarPortal><div className="interface-toolbar-controls">
-      <label><span className="toolbar-filter-label">Severidade</span><select aria-label="Filtrar por severidade" title="Filtrar por severidade" value={filters.severity} onChange={(event) => setFilter('severity', event.target.value)}><option value="">Severidade</option>{findingSeverities.map((severity) => <option key={severity} value={severity}>{withCount(severityLabels[severity], facetData?.bySeverity[severity] ?? (facetData ? 0 : undefined))}</option>)}</select></label>
-      <label><span className="toolbar-filter-label">Regra</span><select aria-label="Filtrar por regra" title="Filtrar por regra" value={filters.rule} onChange={(event) => setFilter('rule', event.target.value)}><option value="">Regra</option>{(facetData?.byRule ?? []).map((item) => <option key={item.rule} value={item.rule}>{withCount(ruleLabel(item.rule), item.total)}</option>)}{filters.rule && !facetData?.byRule.some((item) => item.rule === filters.rule) && <option value={filters.rule}>{ruleLabel(filters.rule)}</option>}</select></label>
+      <label><span className="toolbar-filter-label">Severidade</span><select aria-label="Filtrar por severidade" title="Filtrar por severidade" value={filters.severity} onChange={(event) => setFilter('severity', event.target.value)}><option value="">Severidade</option>{findingSeverities.map((severity) => <option key={severity} value={severity}>{withCount(severityText(severity), facetData?.bySeverity[severity] ?? (facetData ? 0 : undefined))}</option>)}</select></label>
+      <label><span className="toolbar-filter-label">Regra</span><select aria-label="Filtrar por regra" title="Filtrar por regra" value={filters.rule} onChange={(event) => setFilter('rule', event.target.value)}><option value="">Regra</option>{(facetData?.byRule ?? []).map((item) => <option key={item.rule} value={item.rule}>{withCount(ruleText(item.rule), item.total)}</option>)}{filters.rule && !facetData?.byRule.some((item) => item.rule === filters.rule) && <option value={filters.rule}>{ruleLabel(filters.rule)}</option>}</select></label>
       <label><span className="toolbar-filter-label">Responsável</span><select aria-label="Filtrar por responsável" title="Filtrar por responsável" value={filters.assignee} onChange={(event) => setFilter('assignee', event.target.value)}>
         <option value="">Responsável</option>
-        <option value="me">{withCount('Atribuídos a mim', facetData ? myCount ?? 0 : undefined)}</option>
-        <option value="unassigned">{withCount('Sem responsável', unassignedCount ?? (facetData ? 0 : undefined))}</option>
+        <option value="me">{withCount(tx('quality.assignee.me'), facetData ? myCount ?? 0 : undefined)}</option>
+        <option value="unassigned">{withCount(tx('quality.assignee.none'), unassignedCount ?? (facetData ? 0 : undefined))}</option>
         {(facetData?.byAssignee ?? []).filter((item) => item.userId && item.userId !== user?.id).map((item) => <option key={item.userId} value={item.userId ?? ''}>{withCount(personName(item), item.total)}</option>)}
       </select></label>
       <label><span className="toolbar-filter-label">Agrupar</span><select aria-label="Agrupar findings" title="Agrupar findings" value={filters.group} onChange={(event) => setFilter('group', event.target.value)}><option value="">Sem agrupamento</option><option value="rule">Por regra</option></select></label>
@@ -183,8 +188,8 @@ export function InventoryQualityPage() {
       <h2 className="critical-assets-count" aria-live="polite">{rows.length < total ? `${rows.length} de ${total} findings carregados` : total === 1 ? '1 finding' : `${total} findings`}{canAct && actionable.length ? ` · ${actionable.length} selecionados` : ''}</h2>
       {grouped && sorted.length
         ? groups.map((group) => <section key={group.rule} className="host-section">
-          <h3>{`${ruleLabel(group.rule)} (${group.rows.length})`}</h3>
-          <DataTable {...tableProps} rows={group.rows} label={`Findings da regra ${ruleLabel(group.rule)}`} selection={selection ? { ...selection, allLabel: `Selecionar findings visíveis da regra ${ruleLabel(group.rule)}` } : undefined} />
+          <h3>{`${ruleText(group.rule)} (${group.rows.length})`}</h3>
+          <DataTable {...tableProps} rows={group.rows} label={tx('groupB.quality.ruleFindings', undefined, { rule: ruleLabel(group.rule) })} selection={selection ? { ...selection, allLabel: tx('groupB.quality.selectRuleFindings', undefined, { rule: ruleLabel(group.rule) }) } : undefined} />
         </section>)
         : <DataTable {...tableProps} rows={sorted} label="Findings de qualidade do inventário" loading={pages.isLoading} empty={siteId ? empty : null} />}
       {pages.hasNextPage && <div className="form-actions"><button type="button" className="secondary-button" disabled={pages.isFetchingNextPage} onClick={() => void pages.fetchNextPage()}>{pages.isFetchingNextPage ? 'A carregar…' : 'Carregar mais findings'}</button></div>}

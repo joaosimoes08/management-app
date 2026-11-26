@@ -91,7 +91,7 @@ describe('NetApp site workspace', () => {
     renderPage();
     await screen.findByText('Este Site ainda não tem integração NetApp');
     fireEvent.change(screen.getByLabelText('Endpoint HTTPS (origem)'), { target: { value: 'https://ontap.example.local' } });
-    fireEvent.change(screen.getByLabelText('Username ONTAP'), { target: { value: 'readonly' } });
+    fireEvent.change(screen.getByLabelText('Utilizador ONTAP'), { target: { value: 'readonly' } });
     fireEvent.change(screen.getByLabelText('Palavra-passe'), { target: { value: 'secret-test-only' } });
     fireEvent.click(screen.getByRole('button', { name: 'Guardar configuração' }));
     await waitFor(() => expect(configureNetAppIntegration).toHaveBeenCalledWith('site-a', { endpointUrl: 'https://ontap.example.local', username: 'readonly', password: 'secret-test-only' }));

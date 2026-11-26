@@ -8,6 +8,7 @@ import { formatDateTime } from '@/lib/format/date';
 import { discoveryIntervalChoices, formatDiscoveryInterval } from './discovery-intervals';
 import { describeDiscoveryError, discoveryStatusLabel } from './discovery-status';
 import { DiscoverySnmpEnrichmentPanel } from './discovery-snmp-enrichment';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 const freshForm = (): DiscoveryScheduleInput => ({ enabled: false, intervalHours: 12, methods: ['ICMP', 'TCP'], tcpPorts: [22, 80, 443, 3389], reverseDns: true });
 /** Discovery P0: '' keeps the default; otherwise a whole number inside [min, max]. Returns undefined when invalid. */
@@ -24,6 +25,7 @@ const dateTime = (value: string | null, timeZone: string) => value ? formatDateT
 
 /** `subnetId`/`onSubnetChange` let the page pick the subnet (D-P2c overview row action); without them the panel keeps its own choice. */
 export function DiscoverySchedulePanel({ subnets, canEdit, onError, subnetId: selectedSubnetId, onSubnetChange }: { subnets: DiscoverySubnet[]; canEdit: boolean; onError: (message: string) => void; subnetId?: string; onSubnetChange?: (subnetId: string) => void }) {
+  const tx = useUiText();
   const [ownSubnetId, setOwnSubnetId] = useState('');
   const subnetId = selectedSubnetId ?? ownSubnetId;
   const setSubnetId = onSubnetChange ?? setOwnSubnetId;
@@ -54,8 +56,8 @@ export function DiscoverySchedulePanel({ subnets, canEdit, onError, subnetId: se
   const limitsInput = (): { probesPerSecond: number | null; maxSockets: number | null } | string => {
     const probesPerSecond = parseLimitField(rateText, ...PROBES_PER_SECOND_RANGE);
     const maxSockets = parseLimitField(socketsText, ...MAX_SOCKETS_RANGE);
-    if (probesPerSecond === undefined) return `O limite de sondas por segundo tem de ser um número inteiro entre ${PROBES_PER_SECOND_RANGE[0]} e ${PROBES_PER_SECOND_RANGE[1]}.`;
-    if (maxSockets === undefined) return `O máximo de ligações simultâneas tem de ser um número inteiro entre ${MAX_SOCKETS_RANGE[0]} e ${MAX_SOCKETS_RANGE[1]}.`;
+    if (probesPerSecond === undefined) return tx('groupB.discovery.probesRange', undefined, { min: PROBES_PER_SECOND_RANGE[0], max: PROBES_PER_SECOND_RANGE[1] });
+    if (maxSockets === undefined) return tx('groupB.discovery.socketsRange', undefined, { min: MAX_SOCKETS_RANGE[0], max: MAX_SOCKETS_RANGE[1] });
     return { probesPerSecond, maxSockets };
   };
 
@@ -95,21 +97,21 @@ export function DiscoverySchedulePanel({ subnets, canEdit, onError, subnetId: se
     <div className="panel-heading"><div><h2>Schedules de Discovery</h2><p className="panel-description">Uma configuração por subnet. O intervalo permitido é de 1 a 168 horas.</p></div><CalendarClock size={18} /></div>
     {!subnets.length ? <div className="no-data">Não há subnets disponíveis neste Site.</div> : <>
       <label className="schedule-subnet-select">Subnet<select className="context-toolbar-selector" value={subnetId} onChange={(event) => setSubnetId(event.target.value)}>{subnets.map((subnet) => <option key={subnet.id} value={subnet.id}>{subnet.cidr}</option>)}</select></label>
-      {scheduleQuery.isPending ? <div className="no-data">A carregar schedule…</div> : scheduleQuery.isError ? <div className="ipam-alert error">Não foi possível consultar o schedule desta subnet.</div> : <>
+      {scheduleQuery.isPending ? <div className="no-data">{tx('discoverySchedules.loading')}</div> : scheduleQuery.isError ? <div className="ipam-alert error">{tx('discoverySchedules.loadError')}</div> : <>
         <div className="schedule-run-summary" aria-live="polite">
-          <div><span><Clock3 size={13} /> Próxima execução</span><strong>{schedule?.enabled ? dateTime(schedule.nextRunAt, timeZone) : 'Pausado'}</strong></div>
-          <div><span>Última execução</span><strong>{dateTime(schedule?.lastRunAt ?? null, timeZone)}</strong></div>
-          <div><span>Último resultado</span><strong className={schedule?.lastStatus === 'FAILED' ? 'schedule-error-text' : ''}>{schedule?.lastStatus ? discoveryStatusLabel(schedule.lastStatus) : 'Sem execuções'}</strong></div>
+          <div><span><Clock3 size={13} /> {tx('discoverySchedules.nextRun')}</span><strong>{schedule?.enabled ? dateTime(schedule.nextRunAt, timeZone) : tx('discoverySchedules.state.paused')}</strong></div>
+          <div><span>{tx('discoverySchedules.lastRun')}</span><strong>{dateTime(schedule?.lastRunAt ?? null, timeZone)}</strong></div>
+          <div><span>Último resultado</span><strong className={schedule?.lastStatus === 'FAILED' ? 'schedule-error-text' : ''}>{schedule?.lastStatus ? discoveryStatusLabel(schedule.lastStatus) : tx('discoverySchedules.neverRun')}</strong></div>
           <small>Horas apresentadas no fuso {timeZone}.</small>
           {schedule?.lastError && <p className="schedule-last-error">{describeDiscoveryError(schedule.lastError)}</p>}
         </div>
         <form className="schedule-form" onSubmit={save}>
-          <label>Intervalo<select className="context-toolbar-selector" disabled={!canEdit} value={form.intervalHours} onChange={(event) => setForm({ ...form, intervalHours: Number(event.target.value) })}>{discoveryIntervalChoices(form.intervalHours).map((hours) => <option key={hours} value={hours}>{formatDiscoveryInterval(hours)}</option>)}</select></label>
+          <label>{tx('discoverySchedules.interval')}<select className="context-toolbar-selector" disabled={!canEdit} value={form.intervalHours} onChange={(event) => setForm({ ...form, intervalHours: Number(event.target.value) })}>{discoveryIntervalChoices(form.intervalHours).map((hours) => <option key={hours} value={hours}>{formatDiscoveryInterval(hours)}</option>)}</select></label>
           <fieldset disabled={!canEdit}><legend>Métodos</legend>{(['ICMP', 'TCP'] as const).map((method) => <label key={method}><input type="checkbox" checked={form.methods.includes(method)} onChange={() => toggleMethod(method)} />{method}</label>)}</fieldset>
           <label>Portas TCP<input disabled={!canEdit || !form.methods.includes('TCP')} value={portsText} onChange={(event) => setPortsText(event.target.value)} aria-describedby="schedule-port-help" /><small id="schedule-port-help">Máximo 64 portas, entre 1 e 65535.</small></label>
           <fieldset className="schedule-limits" disabled={!canEdit}><legend>Limites de carga</legend>
-            <label>Sondas por segundo<input type="number" inputMode="numeric" min={PROBES_PER_SECOND_RANGE[0]} max={PROBES_PER_SECOND_RANGE[1]} step={1} value={rateText} placeholder={String(schedule?.limits?.effective.probesPerSecond ?? 100)} onChange={(event) => setRateText(event.target.value)} aria-describedby="schedule-limits-help" /></label>
-            <label>Ligações simultâneas<input type="number" inputMode="numeric" min={MAX_SOCKETS_RANGE[0]} max={MAX_SOCKETS_RANGE[1]} step={1} value={socketsText} placeholder={String(schedule?.limits?.effective.maxSockets ?? 64)} onChange={(event) => setSocketsText(event.target.value)} aria-describedby="schedule-limits-help" /></label>
+            <label>{tx('discoverySchedules.rate')}<input type="number" inputMode="numeric" min={PROBES_PER_SECOND_RANGE[0]} max={PROBES_PER_SECOND_RANGE[1]} step={1} value={rateText} placeholder={String(schedule?.limits?.effective.probesPerSecond ?? 100)} onChange={(event) => setRateText(event.target.value)} aria-describedby="schedule-limits-help" /></label>
+            <label>{tx('discoverySchedules.sockets')}<input type="number" inputMode="numeric" min={MAX_SOCKETS_RANGE[0]} max={MAX_SOCKETS_RANGE[1]} step={1} value={socketsText} placeholder={String(schedule?.limits?.effective.maxSockets ?? 64)} onChange={(event) => setSocketsText(event.target.value)} aria-describedby="schedule-limits-help" /></label>
             <small id="schedule-limits-help">Aplicam-se a todas as execuções desta subnet, manuais e agendadas. Cada ping ou ligação TCP conta como uma sonda. Vazio usa o valor predefinido (em cinzento).</small>
           </fieldset>
           <label className="schedule-reverse-dns"><input type="checkbox" disabled={!canEdit} checked={form.reverseDns} onChange={(event) => setForm({ ...form, reverseDns: event.target.checked })} /> Resolver reverse DNS</label>

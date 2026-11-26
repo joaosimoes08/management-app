@@ -4,7 +4,9 @@
  * callers no longer hard-code 'pt-PT'. Pass `timeZone` to format in a Site or
  * organisation zone; without it the browser's zone is used, as before.
  */
-export type FormatLocale = 'pt-PT' | 'en-US';
+import type { AppLocale } from '@/lib/i18n/i18n';
+
+export type FormatLocale = AppLocale;
 export type DateInput = string | number | Date;
 export interface DateFormatOptions extends Intl.DateTimeFormatOptions { locale?: FormatLocale }
 export interface NumberFormatOptions extends Intl.NumberFormatOptions { locale?: FormatLocale }

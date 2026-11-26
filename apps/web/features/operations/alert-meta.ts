@@ -32,6 +32,7 @@ export const alertSourceLabels: Record<string, string> = {
   DISCOVERY: 'Descoberta',
   INVENTORY_QUALITY: 'Qualidade do inventário',
   SYSTEM_HEALTH: 'Saúde do sistema',
+  SNMP_HEALTH: 'Saúde do equipamento',
 };
 
 export const alertSourceLabel = (source: string) => alertSourceLabels[source] ?? source;
@@ -47,6 +48,7 @@ const nextSteps: Record<string, string> = {
   DISCOVERY: 'Revê os resultados da descoberta e importa ou ignora o que foi encontrado.',
   INVENTORY_QUALITY: 'Abre a fila de qualidade e corrige os dados em falta.',
   SYSTEM_HEALTH: 'Verifica o estado dos serviços em Sistema.',
+  SNMP_HEALTH: 'Abre o equipamento e revê os valores de saúde SNMP (CPU, memória, temperatura, fontes e ventoinhas).',
 };
 export const DEFAULT_NEXT_STEP = 'Abre o alerta e revê o detalhe.';
 

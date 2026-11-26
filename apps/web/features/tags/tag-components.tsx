@@ -7,6 +7,7 @@ import { Modal } from '@/components/ui/modal';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { createTag, deleteTag, listTags, tagsQueryKey, updateTag } from './api';
 import { TAG_COLORS, TAG_NAME_MAX_LENGTH, TAGS_PER_ITEM_LIMIT, parseTagFilterValue, tagColorClass, type Tag, type TagColor, type TagSummary } from './types';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 const colorLabels: Record<TagColor, string> = {
   gray: 'Cinzento',
@@ -159,6 +160,7 @@ export function TagEditor({ siteId, itemLabel, selected, save, close, canCreate 
 }
 
 function TagManagerRow({ tag, siteId, onChanged }: { tag: Tag; siteId: string; onChanged: () => void }) {
+  const ui = useUiText();
   const queryClient = useQueryClient();
   const { confirm, confirmDialog } = useConfirm();
   const [name, setName] = useState(tag.name);
@@ -182,7 +184,7 @@ function TagManagerRow({ tag, siteId, onChanged }: { tag: Tag; siteId: string; o
       <ColorSelect value={color} onChange={setColor} label="Cor da etiqueta" />
       <small className="tag-manager-uses" title="Equipamentos · Sub-redes">{tag.deviceCount} · {tag.subnetCount}</small>
       <button type="button" className="secondary-button" disabled={!dirty || !name.trim() || save.isPending} onClick={() => save.mutate()}>Guardar</button>
-      <button type="button" className="icon-button subtle" aria-label={`Eliminar ${tag.name}`} disabled={remove.isPending} onClick={() => void askRemove()}><Trash2 size={14} /></button>
+      <button type="button" className="icon-button subtle" aria-label={ui('tags.deleteNamed', undefined, { name: tag.name })} disabled={remove.isPending} onClick={() => void askRemove()}><Trash2 size={14} /></button>
       {error ? <p className="form-error" role="alert">{errorText(error)}</p> : null}
       {confirmDialog}
     </li>

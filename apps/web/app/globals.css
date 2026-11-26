@@ -1453,7 +1453,7 @@ button { cursor:pointer; }
 .environment-trigger.degraded i { background:#dca34e; box-shadow:0 0 0 3px #fff0d5; }
 .environment-trigger.unavailable i { background:#d66f60; box-shadow:0 0 0 3px #fae6e3; }
 .environment-trigger.operational::after { content:'· Setup concluído'; color:var(--t-text-3,#8a858b); }
-html[lang='en-US'] .environment-trigger.operational::after { content:'· Setup complete'; }
+html:not([lang='pt-PT']) .environment-trigger.operational::after { content:'· Setup complete'; }
 .alerts-trigger { width:40px; height:40px; }
 .alert-count { position:absolute; top:-3px; right:-3px; display:grid; place-items:center; min-width:17px; height:17px; padding:0 4px; color:#fff; border:2px solid var(--t-line,#fff); border-radius:9px; background:#d96f5f; font:700 8px 'DM Mono'; }
 .topbar-popover { position:absolute; z-index:80; top:calc(100% + 10px); right:0; overflow:hidden; color:var(--t-text,#2b272b); border:1px solid var(--line); border-radius:14px; background:var(--t-panel,#fff); box-shadow:0 20px 55px rgba(26,21,25,.16); }

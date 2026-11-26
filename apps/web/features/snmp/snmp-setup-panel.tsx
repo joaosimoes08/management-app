@@ -7,6 +7,7 @@ import { formatDateTime } from '@/lib/format/date';
 import { getSnmpReceiverSettings, snmpReceiverKey } from './api';
 import { containerReceiverView, iosXeSetupLines, receiverAddresses, RECEIVER_PLACEHOLDER } from './snmp-setup';
 import { isV2cAllowed, SnmpV2cDisabledNote, SnmpV2cNote, V2C_PENDING } from './snmp-version';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 type Props = {
   /** The switch's management IP in the app; traps are matched on it. */
@@ -25,6 +26,7 @@ type Props = {
  * pre-registration dialog. Secrets never appear: keys and communities are placeholders the admin fills in on the switch.
  */
 export function SnmpSetupPanel({ managementIp, username, authProtocol, privProtocol, canReadReceiver, lastTrapReceivedAt }: Props) {
+  const tx = useUiText();
   const { data: receiver, isError, isLoading } = useQuery({ queryKey: snmpReceiverKey, queryFn: getSnmpReceiverSettings, enabled: canReadReceiver, staleTime: 30_000, retry: false });
   const addresses = useMemo(() => receiverAddresses(receiver), [receiver]);
   const [chosen, setChosen] = useState('');
@@ -51,7 +53,7 @@ export function SnmpSetupPanel({ managementIp, username, authProtocol, privProto
       <dt>Engine ID da app</dt>
       <dd>{!canReadReceiver ? '—' : isLoading ? 'A carregar…' : isError ? '—' : receiver?.engineId ? <span className="mono">{receiver.engineId}</span> : 'Ainda não gerado: o recetor SNMP ainda não arrancou. Inicia o contentor snmp e volta a abrir esta página.'}</dd>
     </dl>
-    <p className="snmp-setup-warning"><TriangleAlert size={14} /><span>{`O trap-source tem de ser o IP de gestão${managementIp ? ` (${managementIp})` : ''}. Traps vindas de outro IP chegam como desconhecidas e não geram alertas do equipamento.`}</span></p>
+    <p className="snmp-setup-warning"><TriangleAlert size={14} /><span>{managementIp ? tx('groupB.snmp.trapSourceWarningIp', undefined, { ip: managementIp }) : tx('groupB.snmp.trapSourceWarning')}</span></p>
     <SetupBlock title="SNMPv3 authPriv (polling e traps)" text={lines.v3} />
     {lines.informs ? <SetupBlock title="Opcional: informs SNMPv3 (com confirmação de entrega)" text={lines.informs} /> : canReadReceiver && receiver && <p className="form-help">Os informs SNMPv3 precisam do engine ID da app, que ainda não existe.</p>}
     {lines.v2c ? <SetupBlock title="SNMPv2c (polling e traps)" text={lines.v2c} note={<SnmpV2cNote />} /> : v2c === null ? <p className="snmp-v2c-pending" role="status">{V2C_PENDING}</p> : <SnmpV2cDisabledNote />}

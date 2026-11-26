@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 type RecentItem = { id: string; label: string; href: string; kind: string; visitedAt: number };
 const storageKey = (userId: string) => `management-app:recent-items:${userId}`;
@@ -17,6 +18,7 @@ export function rememberRecentItem(userId: string | undefined, item: Omit<Recent
 }
 
 export function RecentItems({ userId }: { userId: string | undefined }) {
+  const ui = useUiText();
   const [items, setItems] = useState<RecentItem[]>([]);
   useEffect(() => {
     const load = () => {
@@ -28,5 +30,5 @@ export function RecentItems({ userId }: { userId: string | undefined }) {
     return () => window.removeEventListener('management-app:recent-items', load);
   }, [userId]);
   if (!items.length) return null;
-  return <section className="recent-items" aria-label="Registos vistos recentemente"><h2>Vistos recentemente</h2><ul>{items.map((item) => <li key={`${item.kind}:${item.id}`}><a href={item.href}><small>{item.kind}</small><span>{item.label}</span></a></li>)}</ul></section>;
+  return <section className="recent-items" aria-label={ui('recentItems.label')}><h2>{ui('recentItems.title')}</h2><ul>{items.map((item) => <li key={`${item.kind}:${item.id}`}><a href={item.href}><small>{item.kind}</small><span>{item.label}</span></a></li>)}</ul></section>;
 }

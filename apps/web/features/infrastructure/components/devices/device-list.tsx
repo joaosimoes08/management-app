@@ -13,6 +13,7 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import type { SnmpHealthSummaryItem } from '@/features/snmp/health/health-api';
 import { isSnmpNetworkDevice } from '@/features/snmp/health/health-api';
 import { SnmpHealthBadge } from '@/features/snmp/health/health-badge';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 export interface DeviceListProps {
   devices: Device[];
@@ -54,6 +55,7 @@ export function getPopoverAlignment(anchor: Pick<DOMRect, 'left' | 'right'>, vie
 
 /** Active device inventory of the site. */
 export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire, canRetire, canEdit, selectedId, models = [], racks = [], onImport, canImport = canEdit, onBulkUpdate, tierFilter = '', onTierFilterChange, tierCounts, toolbarFilters, headingFilters, filterChips, onEditTags, canEditTagsFor, health }: DeviceListProps) {
+  const ui = useUiText();
   const { confirm: askConfirm, confirmDialog } = useConfirm();
   const [selected, setSelected] = useState<string[]>([]);
   const [status, setStatus] = useState('');
@@ -157,7 +159,7 @@ export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire,
     if (modelId) changes.modelId = modelId === '__none__' ? null : modelId;
     if (rackId) changes.rackId = rackId === '__unplaced__' ? null : rackId;
     if (!Object.keys(changes).length) { setError('Seleciona pelo menos um campo para alterar.'); return; }
-    const summary = Object.entries(changes).map(([key, value]) => `${key}: ${value ?? 'sem valor'}`).join('\n');
+    const summary = Object.entries(changes).map(([key, value]) => `${key}: ${value ?? ui('infra.bulk.noValue')}`).join('\n');
     if (!(await askConfirm({ title: 'Atualizar equipamentos', message: `Atualizar ${selected.length} equipamentos com os seguintes campos?\n\n${summary}`, confirmLabel: 'Atualizar' }))) return;
     setError(''); setUpdating(true);
     try {
@@ -219,11 +221,11 @@ export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire,
     {error && <div role="status" className="ipam-alert">{error}</div>}
     {devices.map((device) => <div className={`host-row infra-device-row ${selectedId === device.id ? 'selected' : ''}`} key={device.id} onClick={() => onSelect(device)} aria-current={selectedId === device.id ? 'true' : undefined}>
       {canEdit && <input type="checkbox" aria-label={`Selecionar ${device.name}`} checked={selected.includes(device.id)} onClick={(event) => event.stopPropagation()} onChange={(event) => setSelected(event.target.checked ? [...selected, device.id] : selected.filter((id) => id !== device.id))} />}
-      <span className="host-icon equipment-type-icon-frame">{device.frontAsset ?? device.model?.frontAsset ? <AssetImage asset={device.frontAsset ?? device.model?.frontAsset} alt={`${device.name} — imagem frontal`} className="catalog-icon" fallback={<EquipmentTypeIcon type={device.type} />} /> : <EquipmentTypeIcon type={device.type} />}</span>
+      <span className="host-icon equipment-type-icon-frame">{device.frontAsset ?? device.model?.frontAsset ? <AssetImage asset={device.frontAsset ?? device.model?.frontAsset} alt={ui('infra.frontImageOf', undefined, { name: device.name })} className="catalog-icon" fallback={<EquipmentTypeIcon type={device.type} />} /> : <EquipmentTypeIcon type={device.type} />}</span>
       <span><strong>{device.name}</strong><small>{device.type} · {device.model ? `${device.model.manufacturer} ${device.model.model}` : 'Sem modelo'} · {device.managementIp || 'Sem IP de gestão'} · {device.rack ? `${device.rack.name} / ${device.rackUnitStart ?? '?'}U` : 'Por localizar'}</small><TagChips tags={device.tags} limit={4} /></span>
       {health && isSnmpNetworkDevice(device.type) && <SnmpHealthBadge item={health.get(device.id) ?? null} />}
       <em className="status-active">{device.status}</em>
-      {(canEdit || canRetire || onEditTags) && <span className="row-actions">{onEditTags && (canEditTagsFor?.(device) ?? true) && <button type="button" className="icon-button subtle" aria-label={`Etiquetas de ${device.name}`} title="Etiquetas" onClick={(event) => { event.stopPropagation(); onEditTags(device); }}><Tags size={14} /></button>}{canEdit && <button type="button" className="icon-button subtle" aria-label={`Editar ${device.name}`} onClick={(event) => { event.stopPropagation(); onEdit(device, event.detail > 0); }}><Edit3 size={14} /></button>}{canRetire && <button type="button" className="icon-button subtle" aria-label={`Rever retirada de ${device.name}`} onClick={(event) => { event.stopPropagation(); onRetire(device); }}><Archive size={14} /></button>}</span>}
+      {(canEdit || canRetire || onEditTags) && <span className="row-actions">{onEditTags && (canEditTagsFor?.(device) ?? true) && <button type="button" className="icon-button subtle" aria-label={`Etiquetas de ${device.name}`} title="Etiquetas" onClick={(event) => { event.stopPropagation(); onEditTags(device); }}><Tags size={14} /></button>}{canEdit && <button type="button" className="icon-button subtle" aria-label={ui('infra.editNamed', undefined, { name: device.name })} onClick={(event) => { event.stopPropagation(); onEdit(device, event.detail > 0); }}><Edit3 size={14} /></button>}{canRetire && <button type="button" className="icon-button subtle" aria-label={ui('infra.reviewRetirementOf', undefined, { name: device.name })} onClick={(event) => { event.stopPropagation(); onRetire(device); }}><Archive size={14} /></button>}</span>}
     </div>)}
     {!devices.length && <div className="empty-context"><Server size={26} /><strong>{search ? 'Sem equipamentos correspondentes' : 'Não existem equipamentos ativos neste Site'}</strong></div>}
   </section></>;

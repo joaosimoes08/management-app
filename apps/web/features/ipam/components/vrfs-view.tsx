@@ -9,6 +9,7 @@ import type { Vrf, VrfInput } from '../types';
 import { Empty, IpamModal } from './ipam-modal';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { DataTable, type DataTableColumn } from '@/components/data-table/data-table';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 type VrfFormState = { id: string; name: string; routeDistinguisher: string; description: string; status: string };
 const blankVrf: VrfFormState = { id: '', name: '', routeDistinguisher: '', description: '', status: 'ACTIVE' };
@@ -36,6 +37,7 @@ export function filterVrfs(items: Vrf[], search: string): Vrf[] {
 
 /** VRFs of the active Site: table, create/edit/delete and the "subnets in this VRF" drill-down. */
 export function VrfsView({ siteId, siteName, search, canCreate, canUpdate, canDelete, openSubnet, success, toastError }: VrfsViewProps) {
+  const ui = useUiText();
   const { confirm: askConfirm, confirmDialog } = useConfirm();
   const queryClient = useQueryClient();
   const [form, setForm] = useState<VrfFormState | null>(null);
@@ -66,7 +68,7 @@ export function VrfsView({ siteId, siteName, search, canCreate, canUpdate, canDe
       if (editing) await updateVrf(form.id, body);
       else await createVrf(body);
       setForm(null);
-      success(operation, editing ? 'As alterações foram guardadas.' : `O VRF ${body.name} foi criado com sucesso.`);
+      success(operation, editing ? 'As alterações foram guardadas.' : ui('ipam.vrfs.created', undefined, { name: body.name }));
       await refresh();
     } catch (cause) {
       setFormError(message(cause));
@@ -78,11 +80,11 @@ export function VrfsView({ siteId, siteName, search, canCreate, canUpdate, canDe
 
   const remove = async (item: Vrf) => {
     const subnetCount = item._count?.subnets ?? 0;
-    if (!(await askConfirm({ message: subnetCount ? `O VRF ${item.name} tem ${subnetCount} subnet(s) associada(s). Remove-as do VRF antes de o eliminar. Tentar mesmo assim?` : `Eliminar o VRF ${item.name}?`, destructive: true }))) return;
+    if (!(await askConfirm({ message: subnetCount ? ui('ipam.vrfs.deleteWithSubnets', undefined, { name: item.name, count: subnetCount }) : ui('ipam.vrfs.deleteConfirm', undefined, { name: item.name }), destructive: true }))) return;
     try {
       await deleteVrf(item.id);
       if (detailId === item.id) setDetailId('');
-      success('Eliminar VRF', `O VRF ${item.name} foi eliminado.`);
+      success('Eliminar VRF', ui('ipam.vrfs.deleted', undefined, { name: item.name }));
       await refresh();
     } catch (cause) {
       toastError('Eliminar VRF', message(cause));
@@ -90,24 +92,24 @@ export function VrfsView({ siteId, siteName, search, canCreate, canUpdate, canDe
   };
 
   const columns: DataTableColumn<Vrf>[] = [
-    { id: 'name', header: 'Nome', cell: (item) => <><button className="link-button" aria-label={`Ver subnets do VRF ${item.name}`} onClick={() => setDetailId(item.id)}>{item.name}</button>{item.description && <small>{item.description}</small>}</> },
+    { id: 'name', header: 'Nome', cell: (item) => <><button className="link-button" aria-label={ui('ipam.vrfs.viewSubnets', undefined, { name: item.name })} onClick={() => setDetailId(item.id)}>{item.name}</button>{item.description && <small>{item.description}</small>}</> },
     { id: 'rd', header: 'Route distinguisher', className: 'mono', cell: (item) => item.routeDistinguisher || '—' },
     { id: 'site', header: 'Site', cell: () => siteName },
     { id: 'subnets', header: 'Subnets', cell: (item) => item._count?.subnets ?? 0 },
     { id: 'nat', header: 'Regras NAT', cell: (item) => item._count?.natRules ?? 0 },
     { id: 'status', header: 'Estado', cell: (item) => statusLabel(item.status) },
-    { id: 'actions', header: 'Ações', className: 'table-actions', cell: (item) => <>{canUpdate && <button className="icon-button subtle" title={`Editar VRF ${item.name}`} aria-label={`Editar VRF ${item.name}`} onClick={() => openForm(item)}><Edit3 size={14} /></button>}{canDelete && <button className="icon-button subtle danger" title={`Eliminar VRF ${item.name}`} aria-label={`Eliminar VRF ${item.name}`} onClick={() => void remove(item)}><Trash2 size={14} /></button>}</> },
+    { id: 'actions', header: 'Ações', className: 'table-actions', cell: (item) => <>{canUpdate && <button className="icon-button subtle" title={ui('ipam.vrfs.edit', undefined, { name: item.name })} aria-label={ui('ipam.vrfs.edit', undefined, { name: item.name })} onClick={() => openForm(item)}><Edit3 size={14} /></button>}{canDelete && <button className="icon-button subtle danger" title={ui('ipam.vrfs.delete', undefined, { name: item.name })} aria-label={ui('ipam.vrfs.delete', undefined, { name: item.name })} onClick={() => void remove(item)}><Trash2 size={14} /></button>}</> },
   ];
 
   return <>{confirmDialog}<section className="ipam-card">
     <div className="panel-heading"><div><h2>VRFs do Site</h2><p className="panel-description">Instâncias de routing do Site e as subnets que pertencem a cada uma.</p></div></div>
     {canCreate && <PageToolbarPortal><button className="primary-button" onClick={() => openForm()}><Plus size={14} /> Novo VRF</button></PageToolbarPortal>}
     {error && <div className="ipam-alert error"><X size={15} />{message(error)}</div>}
-    <DataTable rows={items} columns={columns} rowKey={(item) => item.id} label="VRFs do Site" loading={isLoading} skeletonRows={3} empty={!error && <Empty title={search ? 'Sem VRFs correspondentes' : 'Este Site ainda não tem VRFs'} text={search ? 'Experimenta outra pesquisa.' : canCreate ? 'Cria um VRF para separar tabelas de routing neste Site.' : 'Ainda não foram configurados VRFs neste Site.'} />} />
+    <DataTable rows={items} columns={columns} rowKey={(item) => item.id} label="VRFs do Site" loading={isLoading} skeletonRows={3} empty={!error && <Empty title={search ? 'Sem VRFs correspondentes' : 'Este Site ainda não tem VRFs'} text={search ? ui('ipam.vrfs.tryAnotherSearch') : canCreate ? 'Cria um VRF para separar tabelas de routing neste Site.' : 'Ainda não foram configurados VRFs neste Site.'} />} />
 
-    {detailId && <aside className="host-panel" aria-label="Subnets do VRF">
+    {detailId && <aside className="host-panel" aria-label={ui('ipam.vrfs.subnetsPanel')}>
       <div className="host-panel-head"><div><h2>{detail?.name ?? '…'}</h2><span>{detail?.routeDistinguisher || 'Sem route distinguisher'}</span></div><button className="icon-button" onClick={() => setDetailId('')} aria-label="Fechar"><X size={18} /></button></div>
-      {loadingDetail || !detail ? <div className="content-skeleton ip-table-skeleton-line" aria-label="A carregar VRF" aria-busy="true" /> : <>
+      {loadingDetail || !detail ? <div className="content-skeleton ip-table-skeleton-line" aria-label={ui('ipam.vrfs.loading')} aria-busy="true" /> : <>
         <div className="host-detail-grid">
           <div><span>Site</span><strong>{detail.site?.name ?? siteName}</strong></div>
           <div><span>Estado</span><strong>{statusLabel(detail.status)}</strong></div>
@@ -117,7 +119,7 @@ export function VrfsView({ siteId, siteName, search, canCreate, canUpdate, canDe
         </div>
         <section className="host-section">
           <h3>Subnets neste VRF</h3>
-          {detail.subnets.map((subnet) => <div className="subnet-list-item" key={subnet.id}><button className="subnet-list-row" aria-label={`Abrir subnet ${subnet.cidr}`} onClick={() => { setDetailId(''); openSubnet(subnet.id); }}><Network size={17} /><span><strong>{subnet.cidr}</strong><small>IPv{subnet.version}{subnet.purpose ? ` · ${subnet.purpose}` : ''}{subnet.gateway ? ` · gateway ${subnet.gateway}` : ''}</small></span><ChevronRight size={16} /></button></div>)}
+          {detail.subnets.map((subnet) => <div className="subnet-list-item" key={subnet.id}><button className="subnet-list-row" aria-label={ui('ipam.vrfs.openSubnet', undefined, { cidr: subnet.cidr })} onClick={() => { setDetailId(''); openSubnet(subnet.id); }}><Network size={17} /><span><strong>{subnet.cidr}</strong><small>IPv{subnet.version}{subnet.purpose ? ` · ${subnet.purpose}` : ''}{subnet.gateway ? ` · gateway ${subnet.gateway}` : ''}</small></span><ChevronRight size={16} /></button></div>)}
           {!detail.subnets.length && <p className="panel-description">Ainda não existem subnets neste VRF. Associa uma subnet ao VRF ao criá-la ou editá-la no separador Subnets.</p>}
         </section>
       </>}

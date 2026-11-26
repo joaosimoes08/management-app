@@ -21,7 +21,8 @@ describe('organizationLocaleFrom', () => {
     expect(organizationLocaleFrom({ setupCompleted: true, locale: 'en-US' })).toBe('en-US');
     expect(organizationLocaleFrom({ setupCompleted: false, organizationName: 'Org', locale: 'en-US' })).toBe('en-US');
     expect(organizationLocaleFrom({ setupCompleted: false, organizationName: ' ', locale: 'en-US' })).toBeNull();
-    expect(organizationLocaleFrom({ setupCompleted: true, locale: 'fr-FR' })).toBeNull();
+    expect(organizationLocaleFrom({ setupCompleted: true, locale: 'fr-FR' })).toBe('fr-FR');
+    expect(organizationLocaleFrom({ setupCompleted: true, locale: 'xx-XX' })).toBeNull();
     expect(organizationLocaleFrom(null)).toBeNull();
   });
 });

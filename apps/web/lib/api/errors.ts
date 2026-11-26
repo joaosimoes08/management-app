@@ -94,6 +94,27 @@ export const localizedApiErrors: Record<string, Record<string, string>> = {
 
 export type ApiLocale = 'pt-PT' | 'en-US';
 
+/** Errors the web client raises itself (no API code); `{status}` is the HTTP status. */
+const localizedClientErrors: Record<ApiLocale, Record<ClientErrorKey, string>> = {
+  'pt-PT': {
+    notInitialized: 'O cliente da API não está inicializado.',
+    sessionExpired: 'Sessão expirada',
+    requestFailed: 'Pedido falhou ({status})',
+    exportFailed: 'Export falhou ({status})',
+  },
+  'en-US': {
+    notInitialized: 'The API client is not initialized.',
+    sessionExpired: 'Session expired',
+    requestFailed: 'Request failed ({status})',
+    exportFailed: 'Export failed ({status})',
+  },
+};
+export type ClientErrorKey = 'notInitialized' | 'sessionExpired' | 'requestFailed' | 'exportFailed';
+
+export function clientErrorMessage(key: ClientErrorKey, locale: ApiLocale, status?: number): string {
+  return localizedClientErrors[locale][key].replace('{status}', String(status ?? ''));
+}
+
 const FACE_NAMES: Record<ApiLocale, Record<string, string>> = {
   'pt-PT': { front: 'frontal', rear: 'traseira' },
   'en-US': { front: 'front', rear: 'rear' },

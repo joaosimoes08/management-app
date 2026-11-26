@@ -43,9 +43,9 @@ function TopologyDeviceNode({ data, selected }: NodeProps<TopologyFlowNode>) {
   const health = data.health === undefined ? undefined : badgeStatus(data.health?.status);
   // The pill only appears when the device needs a look (Degradado / Desconhecido); OK and Sem dados stay in the tooltip and the accessible name.
   const healthPill = health === 'DEGRADED' || health === 'UNKNOWN';
-  return <div className={`topology-device-node${selected ? ' topology-device-node--selected' : ''}`} aria-label={`${data.deviceName}; hostname ${data.hostname || 'não definido'}; localização ${data.location || 'não definida'}${health ? `; ${snmpHealthDescription(t, data.health)}` : ''}`}>
+  return <div className={`topology-device-node${selected ? ' topology-device-node--selected' : ''}`} aria-label={t(health ? 'groupB.topology.nodeLabelHealth' : 'groupB.topology.nodeLabel', undefined, { name: data.deviceName, hostname: data.hostname || t('groupB.topology.notSet'), location: data.location || t('groupB.topology.notSet'), health: health ? snmpHealthDescription(t, data.health) : '' })}>
     <Handle type="target" position={Position.Left} className="topology-device-handle" />
-    <span className="topology-device-image">{data.asset ? <AssetImage asset={data.asset} alt={`Imagem de ${data.deviceName}`} fallback={<EquipmentTypeIcon type={data.equipmentType} alt="" />} /> : <EquipmentTypeIcon type={data.equipmentType} alt="" />}</span>
+    <span className="topology-device-image">{data.asset ? <AssetImage asset={data.asset} alt={t('groupB.topology.imageOf', undefined, { name: data.deviceName })} fallback={<EquipmentTypeIcon type={data.equipmentType} alt="" />} /> : <EquipmentTypeIcon type={data.equipmentType} alt="" />}</span>
     <span className="topology-node-label">{data.deviceName}</span>
     {data.alertSummary && <span className={`topology-node-alert topology-node-alert--${String(data.alertSummary.highestSeverity).toLowerCase()}`} aria-label={`${data.alertSummary.count} alertas ativos · ${data.alertSummary.highestSeverity}`}>{data.alertSummary.count} · {data.alertSummary.highestSeverity}</span>}
     {healthPill && <span className="topology-node-health" data-health={health} aria-hidden="true">{snmpHealthStatusLabel(t, data.health?.status)}{data.health?.issueCount ? ` · ${data.health.issueCount}` : ''}</span>}
@@ -103,6 +103,7 @@ function toFlowNode(node: TopologyNode, alertSummary?: TopologyNodeAlertSummary,
 }
 
 export function TopologyPage() {
+  const tx = useUiText();
   const { siteId } = useSiteContext();
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState('');
@@ -339,7 +340,7 @@ export function TopologyPage() {
       {warning && <p className="ipam-alert error" role="alert">{warning} {create.isError && <button type="button" className="secondary-button" onClick={() => create.mutate()}>Tentar criar novamente</button>} {remove.isError && <button type="button" className="secondary-button" onClick={() => remove.mutate()}>Tentar eliminar novamente</button>}</p>}
     </div></details>
   </div>;
-  const toolbarSummary = topologyToolbarSummary({ mapName: current?.name, nodeCount: current?.nodes.length ?? 0, visibleCount, filtering, connectionCount: current?.connections.length ?? 0, alertsUnavailable: operationalAlerts.isError, problemCount: mapProblemCount });
+  const toolbarSummary = topologyToolbarSummary({ mapName: current?.name, nodeCount: current?.nodes.length ?? 0, visibleCount, filtering, connectionCount: current?.connections.length ?? 0, alertsUnavailable: operationalAlerts.isError, problemCount: mapProblemCount }, tx);
   const mapViewActions = <><span className="topology-toolbar-summary" title={toolbarSummary}>{toolbarSummary}</span><ToolbarMore label="Controlos do mapa"><button type="button" disabled={!searchMatch} onClick={() => searchMatch && focusNode(searchMatch.id)}>Encontrar equipamento</button><button type="button" aria-pressed={labelsVisible} onClick={() => setLabelsVisible((value) => !value)}>{labelsVisible ? 'Ocultar etiquetas' : 'Mostrar etiquetas'}</button><button type="button" aria-pressed={showGrid} onClick={() => setShowGrid((value) => !value)}>{showGrid ? 'Ocultar grelha' : 'Mostrar grelha'}</button><button type="button" onClick={() => void flow?.zoomIn({ duration: 180 })}>Ampliar</button><button type="button" onClick={() => void flow?.zoomOut({ duration: 180 })}>Reduzir</button><button type="button" onClick={() => void flow?.fitView({ duration: 300, padding: 0.2 })}>Ajustar mapa</button><button type="button" aria-pressed={interactive} onClick={() => setInteractive((value) => !value)}>{interactive ? 'Bloquear mapa' : 'Desbloquear mapa'}</button><button type="button" onClick={toggleFullscreen}>Alternar ecrã inteiro</button></ToolbarMore></>;
 
   return <AppShell section="Topologia" toolbarKey={workspace} context={['Infraestrutura']} search={workspace === 'manual' ? { value: search, onChange: setSearch, placeholder: 'Procurar equipamento no mapa', ariaLabel: 'Procurar equipamento no mapa', scopeLabel: 'Mapas manuais' } : undefined} moduleTabs={<nav className="infra-menu" aria-label="Visualização de topologia"><button className={workspace === 'manual' ? 'active' : ''} aria-pressed={workspace === 'manual'} onClick={() => setWorkspace('manual')}><MapIcon size={15}/><span>Mapas manuais</span></button><button className={workspace === 'observed' ? 'active' : ''} aria-pressed={workspace === 'observed'} onClick={() => setWorkspace('observed')}><Activity size={15}/><span>Observada e reconciliação</span></button></nav>} toolbar={<div className="topology-toolbar-stack">{workspace === 'manual' ? <div className="topology-toolbar-row">{topbarActions}{mapViewActions}</div> : <div className="topology-toolbar-row">{observedToolbar}</div>}</div>}>

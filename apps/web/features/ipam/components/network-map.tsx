@@ -4,6 +4,7 @@ import { ChevronRight, Edit3, Link2Off, Plus, Server, Trash2 } from 'lucide-reac
 import type { NetworkMapVlan, Vlan } from '../types';
 import { Empty } from './ipam-modal';
 import { PageToolbarPortal } from '@/components/layout/app-shell';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 export interface NetworkMapProps {
   vlans: NetworkMapVlan[];
@@ -20,10 +21,11 @@ export interface NetworkMapProps {
 
 /** VLAN map of the active site: subnet and associated device ports per VLAN. */
 export function NetworkMap({ vlans, loading = false, canEdit, newVlan, newSubnet, edit, remove, associate, detachSubnet, openSubnet }: NetworkMapProps) {
+  const ui = useUiText();
   return <section className="ipam-card">
-    <div className="panel-heading"><div><h2>Mapa de Rede</h2><p className="panel-description">Seleciona uma VLAN para consultar as subnets associadas.</p></div></div>{canEdit && <PageToolbarPortal><button className="primary-button" onClick={newVlan}><Plus size={14} /> Nova VLAN</button></PageToolbarPortal>}
+    <div className="panel-heading"><div><h2>{ui('ipam.map.title')}</h2><p className="panel-description">{ui('ipam.map.description')}</p></div></div>{canEdit && <PageToolbarPortal><button className="primary-button" onClick={newVlan}><Plus size={14} /> Nova VLAN</button></PageToolbarPortal>}
     {loading
-      ? <div className="ipam-loading-skeletons" aria-label="A carregar mapa de rede" aria-busy="true">{[0, 1, 2].map((item) => <article className="vlan-card" key={item}><div className="content-skeleton ipam-loading-line wide"/><div className="content-skeleton ipam-loading-line medium"/><div className="content-skeleton ipam-loading-line"/><div className="content-skeleton ipam-loading-row"/></article>)}</div>
+      ? <div className="ipam-loading-skeletons" aria-label={ui('ipam.map.loading')} aria-busy="true">{[0, 1, 2].map((item) => <article className="vlan-card" key={item}><div className="content-skeleton ipam-loading-line wide"/><div className="content-skeleton ipam-loading-line medium"/><div className="content-skeleton ipam-loading-line"/><div className="content-skeleton ipam-loading-row"/></article>)}</div>
       : !vlans.length
       ? <Empty title="Este Site ainda não tem VLANs" text="Cria a tua primeira VLAN para começares." />
       : <div className="vlan-map-grid">{vlans.map((vlan) => <article className="vlan-card" key={vlan.id}>
@@ -37,7 +39,7 @@ export function NetworkMap({ vlans, loading = false, canEdit, newVlan, newSubnet
         <span className="vlan-status">{vlan.subnet ? 'Configurada' : 'Sem subnet'}</span>
         <div className="vlan-subnet"><span>Subnet principal</span>
           {vlan.subnet
-            ? <div className="vlan-subnet-actions"><button className="link-button" onClick={() => openSubnet(vlan.subnet!.id)}>{vlan.subnet.cidr} · {vlan.subnet.ipCount} IPs <ChevronRight size={14} /></button>{canEdit && <button className="secondary-button danger" aria-label={`Desassociar ${vlan.subnet.cidr} da VLAN ${vlan.vlanId}`} onClick={() => detachSubnet(vlan)}><Link2Off size={13} /> Desassociar</button>}</div>
+            ? <div className="vlan-subnet-actions"><button className="link-button" onClick={() => openSubnet(vlan.subnet!.id)}>{vlan.subnet.cidr} · {vlan.subnet.ipCount} IPs <ChevronRight size={14} /></button>{canEdit && <button className="secondary-button danger" aria-label={ui('ipam.map.detach', undefined, { cidr: vlan.subnet.cidr, vlan: vlan.vlanId })} onClick={() => detachSubnet(vlan)}><Link2Off size={13} /> Desassociar</button>}</div>
             : canEdit
               ? <button className="secondary-button" onClick={() => newSubnet(vlan.id)}><Plus size={14} /> Criar subnet</button>
               : <em>Sem subnet configurada</em>}

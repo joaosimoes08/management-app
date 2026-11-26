@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from 'react';
 import { Loader2, Search, Square, X } from 'lucide-react';
 import { DataTable, sortByColumns, type DataTableColumn, type SortState } from '@/components/data-table';
 import { formatDateTime, formatNumber } from '@/lib/format/date';
+import { useUiText } from '@/components/ui/use-ui-text';
 import { checkAllApplicationLinks, nextCheckAllCursor, type CheckAllCursor, type CheckAllItem } from './api';
 
 /** Safety net: a batch holds up to 100 links, so 50 batches is far beyond any real catalogue. */
@@ -38,6 +39,7 @@ export interface CheckAllPanelProps {
 
 /** "Verificar todas": runs check-all batch after batch until the API reports nothing left, with per-link results. */
 export function CheckAllPanel({ onFinished, onBatch, close }: CheckAllPanelProps) {
+  const ui = useUiText();
   const [all, setAll] = useState(false);
   const [running, setRunning] = useState(false);
   const [items, setItems] = useState<CheckAllItem[]>([]);
@@ -95,7 +97,7 @@ export function CheckAllPanel({ onFinished, onBatch, close }: CheckAllPanelProps
     { id: 'message', header: 'Detalhe', cell: (item) => item.message || (checkOutcome(item).code === 'BLOCKED' ? 'O endereço de destino pertence a uma rede restrita.' : '—') },
   ];
 
-  const progress = total !== null ? `${items.length} de ${total} verificadas` : `${items.length} verificadas`;
+  const progress = total !== null ? ui('portal.checkAll.progress', undefined, { done: items.length, total }) : ui('portal.checkAll.progressOpen', undefined, { done: items.length });
   return <section className="ipam-card" aria-labelledby="portal-check-all-title" data-testid="portal-check-all">
     <div className="panel-heading"><div><h2 id="portal-check-all-title">Verificar todas as aplicações</h2></div><button type="button" className="icon-button subtle" onClick={close} disabled={running} aria-label="Fechar"><X size={16} /></button></div>
     <div className="table-actions">

@@ -5,7 +5,8 @@ import { EntityLink } from '@/components/data-table';
 import type { ConfirmFn } from '@/components/ui/confirm-dialog';
 import { formatDateTime } from '@/lib/format/date';
 import { addChecklistItems, closeChangePlan, getChangeConflicts, getPostChangeCheck, removeChecklistItem, startChangePlan, tickChecklistItem, type ChangeConflicts, type ChangeEntityType, type ChangePlan, type ChecklistItem, type CloseStatus, type ConflictWarning, type PostChangeCheck } from './api';
-import { checkLabels, checklistEditable, checklistProgress, checkTone, checkValue, closedStatuses, closeLabels, closeStatuses, closingNoteRequired, conflictRelevant, parseChecklistLines, personName, statusLabels, typeLabels, warningTitles } from './workspace';
+import { checkText, closeText, statusText, typeText, useChangeT, warningText } from './i18n';
+import { checklistEditable, checklistProgress, checkTone, checkValue, closedStatuses, closeStatuses, closingNoteRequired, conflictRelevant, parseChecklistLines, personName } from './workspace';
 
 const dateTime = (value: string) => formatDateTime(value, { dateStyle: 'medium', timeStyle: 'short' });
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
@@ -25,36 +26,38 @@ export type ChangeExecutionProps = {
 
 /** Non-blocking warnings for the plan's window and targets (`GET /change-plans/:id/conflicts`). */
 function ConflictWarnings({ warnings, tierSource, siteId, onOpenPlan }: { warnings: ConflictWarning[]; tierSource?: ChangeConflicts['tierSource']; siteId: string; onOpenPlan: (plan: { id: string }) => void }) {
+  const t = useChangeT();
   if (!warnings.length) return null;
   return <div className="change-warning change-conflicts" aria-label="Avisos de conflito">
     <strong>Avisos antes de implementar</strong> <small>Não bloqueiam a alteração.</small>
-    {warnings.map((warning) => <p key={warning.code}><b>{warningTitles[warning.code]}</b>{' · '}
-      {warning.code === 'OUTSIDE_MAINTENANCE_WINDOW' && <>{warning.maintenanceWindowCount ? `Sem cobertura: ${warning.uncovered.map((gap) => `${dateTime(gap.startsAt)} – ${dateTime(gap.endsAt)}`).join('; ')}` : 'Este Site não tem janelas de manutenção nesse período.'}</>}
-      {(warning.code === 'TIER1_CRITICAL_ASSET' || warning.code === 'CRITICAL_ASSET') && <>{warning.devices.map((device, index) => <span key={device.id}>{index ? ', ' : ''}<EntityLink kind="device" id={device.id} label={device.name} siteId={siteId} /></span>)}{warning.code === 'CRITICAL_ASSET' && tierSource === 'IS_CRITICAL' ? ' (marcados como críticos; ainda sem tier)' : ''}</>}
-      {warning.code === 'OVERLAPS_APPROVED_CHANGE' && warning.plans.map((other, index) => <span key={other.id}>{index ? '; ' : ''}<a href={`/alteracoes?changeId=${encodeURIComponent(other.id)}`} onClick={(event) => { event.preventDefault(); onOpenPlan(other); }}>{other.title}</a> · {statusLabels[other.status] ?? other.status} · {dateTime(other.plannedStartAt)} – {dateTime(other.plannedEndAt)}{other.sharedTargetCount ? ` · ${other.sharedTargetCount === 1 ? '1 alvo em comum' : `${other.sharedTargetCount} alvos em comum`}` : ''}</span>)}
+    {warnings.map((warning) => <p key={warning.code}><b>{warningText(t, warning.code)}</b>{' · '}
+      {warning.code === 'OUTSIDE_MAINTENANCE_WINDOW' && <>{warning.maintenanceWindowCount ? t('changePlans.conflicts.uncovered', { ranges: warning.uncovered.map((gap) => `${dateTime(gap.startsAt)} – ${dateTime(gap.endsAt)}`).join('; ') }) : 'Este Site não tem janelas de manutenção nesse período.'}</>}
+      {(warning.code === 'TIER1_CRITICAL_ASSET' || warning.code === 'CRITICAL_ASSET') && <>{warning.devices.map((device, index) => <span key={device.id}>{index ? ', ' : ''}<EntityLink kind="device" id={device.id} label={device.name} siteId={siteId} /></span>)}{warning.code === 'CRITICAL_ASSET' && tierSource === 'IS_CRITICAL' ? ` ${t('changePlans.conflicts.markedCritical')}` : ''}</>}
+      {warning.code === 'OVERLAPS_APPROVED_CHANGE' && warning.plans.map((other, index) => <span key={other.id}>{index ? '; ' : ''}<a href={`/alteracoes?changeId=${encodeURIComponent(other.id)}`} onClick={(event) => { event.preventDefault(); onOpenPlan(other); }}>{other.title}</a> · {statusText(t, other.status)} · {dateTime(other.plannedStartAt)} – {dateTime(other.plannedEndAt)}{other.sharedTargetCount ? ` · ${t('changePlans.sharedTargets', { count: other.sharedTargetCount })}` : ''}</span>)}
     </p>)}
   </div>;
 }
 
 /** "Como planeado / diferente" per target, with the compared fields. */
 function PostChangeCheckView({ check, targetLabel }: { check: PostChangeCheck; targetLabel: ChangeExecutionProps['targetLabel'] }) {
+  const t = useChangeT();
   return <div className="change-post-check">
     <div className="change-summary-grid">
-      <div><small>Resultado</small><strong><span className={`state-badge ${checkTone[check.result]}`.trim()}><i />{checkLabels[check.result]}</span></strong></div>
+      <div><small>Resultado</small><strong><span className={`state-badge ${checkTone[check.result]}`.trim()}><i />{checkText(t, check.result)}</span></strong></div>
       <div><small>Verificado em</small><strong>{dateTime(check.checkedAt)}</strong></div>
     </div>
     {check.items.map((item) => <div className="change-target-item change-check-item" key={`${item.entityType}:${item.entityId}`}>
       <span>
-        <strong>{typeLabels[item.entityType] ?? item.entityType} · {targetLabel(item)}</strong>
+        <strong>{typeText(t, item.entityType)} · {targetLabel(item)}</strong>
         <small>{item.operationSummary}</small>
         {item.fields.length > 0 && <table className="change-check-fields"><thead><tr><th scope="col">Campo</th><th scope="col">Antes</th><th scope="col">Planeado</th><th scope="col">Atual</th></tr></thead>
           <tbody>{item.fields.map((field) => <tr key={field.field} className={field.matches ? undefined : 'change-check-mismatch'}><td className="mono">{field.field}</td><td>{checkValue(field.before)}</td><td>{checkValue(field.planned)}</td><td>{checkValue(field.current)}{field.matches ? '' : ' ≠'}</td></tr>)}</tbody></table>}
         {item.result === 'NOT_COMPARABLE' && <small>Este alvo não tem valores propostos que possam ser comparados com o inventário.</small>}
       </span>
-      <span className={`state-badge ${checkTone[item.result]}`.trim()}><i />{checkLabels[item.result]}</span>
+      <span className={`state-badge ${checkTone[item.result]}`.trim()}><i />{checkText(t, item.result)}</span>
     </div>)}
     {!check.items.length && <p className="change-muted">Não há alvos para comparar.</p>}
-    {check.hiddenItemCount > 0 && <p className="change-muted">{check.hiddenItemCount === 1 ? '1 alvo não aparece porque não tens acesso a ele.' : `${check.hiddenItemCount} alvos não aparecem porque não tens acesso a eles.`}</p>}
+    {check.hiddenItemCount > 0 && <p className="change-muted">{t('changePlans.check.hidden', { count: check.hiddenItemCount })}</p>}
   </div>;
 }
 
@@ -63,6 +66,7 @@ function PostChangeCheckView({ check, targetLabel }: { check: PostChangeCheck; t
  * checklist, start/close with a closing note and the post-change check.
  */
 export function ChangeExecution({ plan, canAct, confirm, targetLabel, onPlanChanged, onOpenPlan }: ChangeExecutionProps) {
+  const t = useChangeT();
   const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   const [newSteps, setNewSteps] = useState('');
   const [checklist, setChecklist] = useState<{ source: ChangePlan['checklist']; items: ChecklistItem[] } | null>(null);
@@ -122,21 +126,21 @@ export function ChangeExecution({ plan, canAct, confirm, targetLabel, onPlanChan
   }, 'Não foi possível remover o passo.');
   const start = async () => {
     const warningCount = currentConflicts?.data?.warnings.length ?? 0;
-    if (!(await confirm({ title: 'Iniciar implementação', message: `Iniciar “${plan.title}”? O início fica registado na auditoria.${warningCount ? ` Há ${warningCount === 1 ? '1 aviso' : `${warningCount} avisos`} de conflito; não impedem o início.` : ''}`, confirmLabel: 'Iniciar implementação' }))) return;
+    if (!(await confirm({ title: 'Iniciar implementação', message: warningCount ? t('changePlans.start.confirmWarnings', { title: plan.title, count: warningCount }) : t('changePlans.start.confirm', { title: plan.title }), confirmLabel: 'Iniciar implementação' }))) return;
     await act(async () => {
       const result = await startChangePlan(plan.id, plan.revision);
-      await onPlanChanged(result.plan, result.warnings.length ? `Implementação iniciada com ${result.warnings.length === 1 ? '1 aviso' : `${result.warnings.length} avisos`}: ${result.warnings.map((warning) => warningTitles[warning.code]).join('; ')}.` : 'Implementação iniciada.');
+      await onPlanChanged(result.plan, result.warnings.length ? t('changePlans.start.doneWarnings', { count: result.warnings.length, warnings: result.warnings.map((warning) => warningText(t, warning.code)).join('; ') }) : t('changePlans.start.done'));
     }, 'Não foi possível iniciar a implementação.');
   };
   const close = async () => {
     if (noteNeeded && !closingNote.trim()) return;
     const pending = progress.total - progress.done;
-    if (!(await confirm({ title: 'Encerrar alteração', message: `Encerrar “${plan.title}” como “${closeLabels[closeStatus]}”?${pending ? ` Ainda há ${pending === 1 ? '1 passo' : `${pending} passos`} por concluir na lista.` : ''} Uma alteração encerrada não pode ser reaberta.`, confirmLabel: 'Encerrar alteração', destructive: closeStatus !== 'COMPLETED' }))) return;
+    if (!(await confirm({ title: 'Encerrar alteração', message: pending ? t('changePlans.close.confirmPending', { title: plan.title, outcome: closeText(t, closeStatus), count: pending }) : t('changePlans.close.confirm', { title: plan.title, outcome: closeText(t, closeStatus) }), confirmLabel: 'Encerrar alteração', destructive: closeStatus !== 'COMPLETED' }))) return;
     await act(async () => {
       const result = await closeChangePlan(plan.id, closeStatus, closingNote.trim() || undefined);
       setCheck({ key: `${plan.id}:${result.plan.status}`, data: result.postChangeCheck, loading: false, failed: false });
       setClosingNote(''); setCloseStatus('COMPLETED');
-      await onPlanChanged(result.plan, `Alteração encerrada: ${statusLabels[result.plan.status] ?? closeLabels[closeStatus]}. Verificação pós-alteração: ${checkLabels[result.postChangeCheck.result]}.`);
+      await onPlanChanged(result.plan, t('changePlans.close.done', { status: statusText(t, result.plan.status), check: checkText(t, result.postChangeCheck.result) }));
     }, 'Não foi possível encerrar a alteração.');
   };
 
@@ -155,12 +159,12 @@ export function ChangeExecution({ plan, canAct, confirm, targetLabel, onPlanChan
     {plan.closingNote && <div className="change-warning"><strong>Nota de encerramento:</strong> {plan.closingNote}</div>}
 
     {showChecklist && <section className="change-review change-checklist" aria-labelledby="change-checklist-title">
-      <div className="change-section-heading panel-heading"><div><h3 id="change-checklist-title">Lista de implementação</h3></div>{progress.total > 0 && <span className="change-count" aria-label={`${progress.done} de ${progress.total} passos concluídos`}>{progress.done}/{progress.total}</span>}</div>
+      <div className="change-section-heading panel-heading"><div><h3 id="change-checklist-title">Lista de implementação</h3></div>{progress.total > 0 && <span className="change-count" aria-label={t('changePlans.checklist.progress', { done: progress.done, total: progress.total })}>{progress.done}/{progress.total}</span>}</div>
       {!items.length && <p className="change-muted">Ainda não há passos definidos para esta alteração.</p>}
       {items.length > 0 && <ol className="change-target-list">{items.map((item) => <li className="change-target-item" key={item.id}>
         <label className="change-check-step"><input type="checkbox" checked={Boolean(item.doneAt)} disabled={!canTick || busy} onChange={(event) => void tick(item, event.target.checked)} />
-          <span><strong>{item.label}</strong>{item.doneAt ? <small>Concluído por {who(item.doneBy, item.doneAt)}</small> : <small>{status === 'IN_PROGRESS' ? 'Por concluir' : 'Os passos marcam-se durante a implementação.'}</small>}</span></label>
-        {canEditSteps && !item.doneAt && <button type="button" className="secondary-button" disabled={busy} aria-label={`Remover passo: ${item.label}`} onClick={() => void remove(item)}>Remover</button>}
+          <span><strong>{item.label}</strong>{item.doneAt ? <small>{t('changePlans.checklist.doneBy', { who: who(item.doneBy, item.doneAt) })}</small> : <small>{status === 'IN_PROGRESS' ? 'Por concluir' : 'Os passos marcam-se durante a implementação.'}</small>}</span></label>
+        {canEditSteps && !item.doneAt && <button type="button" className="secondary-button" disabled={busy} aria-label={t('changePlans.checklist.remove', { label: item.label })} onClick={() => void remove(item)}>Remover</button>}
       </li>)}</ol>}
       {canEditSteps && <><label>Novos passos (um por linha)<textarea value={newSteps} maxLength={12000} onChange={(event) => setNewSteps(event.target.value)} placeholder={'Ex.: Guardar a configuração atual\nAtualizar firmware\nConfirmar ligações'} /></label>
         <div className="change-actions"><button type="button" className="secondary-button" disabled={busy || !parseChecklistLines(newSteps).length} onClick={() => void addSteps()}>Adicionar passos</button></div></>}
@@ -170,9 +174,9 @@ export function ChangeExecution({ plan, canAct, confirm, targetLabel, onPlanChan
 
     {canAct && status === 'IN_PROGRESS' && <section className="change-review" aria-labelledby="change-close-title">
       <h3 id="change-close-title">Encerrar alteração</h3>
-      <label>Resultado<select value={closeStatus} onChange={(event) => setCloseStatus(event.target.value as CloseStatus)}>{closeStatuses.map((value) => <option key={value} value={value}>{closeLabels[value]}</option>)}</select></label>
-      <label>Nota de encerramento{noteNeeded ? ' (obrigatória)' : ' (opcional)'}<textarea maxLength={2000} required={noteNeeded} value={closingNote} onChange={(event) => setClosingNote(event.target.value)} placeholder={noteNeeded ? 'Explica o que falhou ou porque foi revertida' : 'Notas sobre a implementação'} /></label>
-      {progress.total > progress.done && <p className="change-muted">{progress.total - progress.done === 1 ? 'Falta 1 passo da lista.' : `Faltam ${progress.total - progress.done} passos da lista.`} Podes encerrar na mesma.</p>}
+      <label>Resultado<select value={closeStatus} onChange={(event) => setCloseStatus(event.target.value as CloseStatus)}>{closeStatuses.map((value) => <option key={value} value={value}>{closeText(t, value)}</option>)}</select></label>
+      <label>{noteNeeded ? t('changePlans.close.noteRequired') : t('changePlans.close.noteOptional')}<textarea maxLength={2000} required={noteNeeded} value={closingNote} onChange={(event) => setClosingNote(event.target.value)} placeholder={noteNeeded ? 'Explica o que falhou ou porque foi revertida' : 'Notas sobre a implementação'} /></label>
+      {progress.total > progress.done && <p className="change-muted">{t('changePlans.close.stepsLeft', { count: progress.total - progress.done })}</p>}
       <div className="change-actions"><button type="button" className="primary-button" disabled={busy || (noteNeeded && !closingNote.trim())} title={noteNeeded && !closingNote.trim() ? 'Indica uma nota de encerramento.' : undefined} onClick={() => void close()}>Encerrar alteração</button></div>
     </section>}
 

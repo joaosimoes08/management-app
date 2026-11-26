@@ -9,6 +9,7 @@ vi.mock('next/headers', () => ({ headers: async () => new Headers({ 'x-nonce': '
 vi.mock('./globals.css', () => ({}));
 vi.mock('@/lib/auth', () => ({ AuthProvider: wrap('auth') }));
 vi.mock('@/components/layout/auth-gate', () => ({ AuthGate: wrap('gate') }));
+vi.mock('@/components/layout/locale-document-title', () => ({ LocaleDocumentTitle: () => null }));
 vi.mock('@/components/ui/toast', () => ({ ToastProvider: wrap('toast') }));
 vi.mock('@/lib/i18n', () => ({ I18nProvider: wrap('i18n') }));
 vi.mock('@/lib/query/query-provider', () => ({ QueryProvider: wrap('query') }));

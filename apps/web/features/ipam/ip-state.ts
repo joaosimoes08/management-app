@@ -1,3 +1,5 @@
+import { ipamText } from './i18n';
+
 const stateLabels = new Map([
   ['FREE', 'Livre'],
   ['OCCUPIED', 'Ocupado'],
@@ -28,14 +30,14 @@ export function hostStatusLabel(status?: string | null): string {
 const observedStatusLabels = new Map([
   ...stateLabels,
   ['OPEN', 'Aberto'],
-  ['CLOSED', 'Fechado'],
-  ['DEGRADED', 'Degradado'],
-  ['DISABLED', 'Desativado'],
   ['ACTIVE', 'Ativo'],
 ]);
 
+const OBSERVED_TEXT = ['CLOSED', 'DEGRADED', 'DISABLED'];
+
 /** Observed or manual status of a Host service or observed Host status. */
 export function observedStatusLabel(status?: string | null): string {
+  if (status && OBSERVED_TEXT.includes(status)) return ipamText(`ipam.state.observed.${status}`);
   return status ? observedStatusLabels.get(status) ?? 'Desconhecido' : '—';
 }
 
@@ -43,15 +45,17 @@ export function observedStatusLabel(status?: string | null): string {
 const sourceLabels = new Map([
   ['MANUAL', 'Manual'],
   ['SNMP', 'SNMP'],
-  ['AGENT', 'Agente'],
   ['ICMP', 'ICMP'],
   ['TCP', 'TCP'],
   ['DNS', 'DNS'],
   ['DHCP', 'DHCP'],
-  ['IMPORT', 'Importação'],
 ]);
+
+const SOURCE_TEXT = ['AGENT', 'IMPORT'];
 
 /** Where a Host or service record came from. Unknown sources read as "Outra origem". */
 export function sourceLabel(source?: string | null): string {
-  return source ? sourceLabels.get(source) ?? 'Outra origem' : '—';
+  if (!source) return '—';
+  if (SOURCE_TEXT.includes(source)) return ipamText(`ipam.state.source.${source}`);
+  return sourceLabels.get(source) ?? ipamText('ipam.state.source.other');
 }

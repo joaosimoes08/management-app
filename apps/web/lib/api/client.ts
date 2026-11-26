@@ -1,8 +1,15 @@
-import { ApiRequestError, apiErrorMessage, type ApiErrorPayload } from './errors';
+import { ApiRequestError, apiErrorMessage, clientErrorMessage, type ApiErrorPayload, type ApiLocale } from './errors';
 import { getPublicRuntimeConfig } from '@/lib/runtime-config';
 import { STORAGE_KEYS, getLocalItem } from '@/lib/storage-keys';
+import { isAppLocale } from '@/lib/i18n/locales/catalog';
 
 type TokenProvider = () => Promise<string>;
+
+/** API errors exist in Portuguese and English; every other language gets the English text. */
+const activeLocale = (): ApiLocale => {
+  const stored = typeof window !== 'undefined' ? getLocalItem(STORAGE_KEYS.locale) : null;
+  return isAppLocale(stored) && stored !== 'pt-PT' ? 'en-US' : 'pt-PT';
+};
 
 let tokenProvider: TokenProvider | null = null;
 let onUnauthorized: (() => void) | null = null;
@@ -25,12 +32,11 @@ export function setApiUnauthorizedHandler(handler: (() => void) | null): void {
  * caller's contract: domain API wrappers pass the concrete entity type.
  */
 export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
-  if (!tokenProvider) throw new Error('O cliente da API não está inicializado.');
+  if (!tokenProvider) throw new Error(clientErrorMessage('notInitialized', activeLocale()));
   const accessToken = await tokenProvider();
   const headers = {
     ...init.headers,
     Authorization: `Bearer ${accessToken}`,
-    'Accept-Language': typeof window !== 'undefined' ? (getLocalItem(STORAGE_KEYS.locale) ?? 'pt-PT') : 'pt-PT',
     ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
   };
   const response = await fetch(`${getPublicRuntimeConfig().apiUrl}${path}`, {
@@ -39,19 +45,18 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
   });
   if (response.status === 401) {
     onUnauthorized?.();
-    throw new Error('Sessão expirada');
+    throw new Error(clientErrorMessage('sessionExpired', activeLocale()));
   }
   if (!response.ok) {
     let detail = '';
     let payload: ApiErrorPayload | undefined;
     try {
       payload = await response.json() as ApiErrorPayload;
-      const locale = getLocalItem(STORAGE_KEYS.locale) === 'en-US' ? 'en-US' : 'pt-PT';
-      detail = apiErrorMessage(payload, locale);
+      detail = apiErrorMessage(payload, activeLocale());
     } catch {
       // Keep the status as a useful fallback when the API did not return JSON.
     }
-    throw new ApiRequestError(detail || `Pedido falhou (${response.status})`, response.status, payload);
+    throw new ApiRequestError(detail || clientErrorMessage('requestFailed', activeLocale(), response.status), response.status, payload);
   }
   const responseText = await response.text();
   return (responseText ? JSON.parse(responseText) : undefined) as T;
@@ -59,10 +64,10 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
 
 /** Downloads a file from the API; resolves with the response headers (e.g. export row counts). */
 export async function apiDownload(path: string, filename: string): Promise<Headers> {
-  if (!tokenProvider) throw new Error('O cliente da API não está inicializado.');
+  if (!tokenProvider) throw new Error(clientErrorMessage('notInitialized', activeLocale()));
   const accessToken = await tokenProvider();
-  const response = await fetch(`${getPublicRuntimeConfig().apiUrl}${path}`, { headers: { Authorization: `Bearer ${accessToken}`, 'Accept-Language': getLocalItem(STORAGE_KEYS.locale) ?? 'pt-PT' } });
-  if (!response.ok) throw new Error(`Export falhou (${response.status})`);
+  const response = await fetch(`${getPublicRuntimeConfig().apiUrl}${path}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!response.ok) throw new Error(clientErrorMessage('exportFailed', activeLocale(), response.status));
   const url = URL.createObjectURL(await response.blob()); const link = document.createElement('a'); link.href = url; link.download = filename; link.click();
   // Some browsers start the download after the click returns: keep the URL alive for a moment.
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);

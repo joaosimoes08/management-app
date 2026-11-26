@@ -13,7 +13,7 @@ vi.mock('./user-menu', () => ({ UserMenu: () => null }));
 // jsdom has no layout, so the one-line fit check is stubbed: false = the controls fit.
 const toolbarFit = vi.hoisted(() => ({ overflows: false }));
 vi.mock('./context-toolbar-fit', async (importOriginal) => ({ ...(await importOriginal<typeof import('./context-toolbar-fit')>()), contextToolbarOverflows: () => toolbarFit.overflows }));
-vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ locale: 'pt-PT', t: (key: string) => ({ 'shell.skipToContent': 'Saltar para o conteúdo', 'shell.closeMenu': 'Fechar menu', 'shell.pageControls': 'Controlos da página', 'shell.controls': 'Controlos' } as Record<string, string>)[key] ?? key }) }));
+vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ locale: 'pt-PT', t: (key: string, fallback?: string) => ({ 'shell.skipToContent': 'Saltar para o conteúdo', 'shell.closeMenu': 'Fechar menu', 'shell.pageControls': 'Controlos da página', 'shell.controls': 'Controlos' } as Record<string, string>)[key] ?? fallback ?? key }) }));
 
 afterEach(() => { cleanup(); localStorage.clear(); });
 

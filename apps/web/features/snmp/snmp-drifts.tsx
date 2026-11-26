@@ -88,23 +88,23 @@ export function SnmpDriftsView({ siteId, canReview, openDevice }: Props) {
     {loadError && <div className="ipam-alert error" role="alert"><X size={15} />{loadError instanceof Error && loadError.message ? loadError.message : 'Não foi possível carregar as divergências.'}</div>}
     {error && <div className="ipam-alert error" role="alert"><X size={15} />{error}</div>}
     {canReview && <div className="table-actions" role="toolbar" aria-label="Revisão em massa">
-      <span className="muted-cell">{selectedIds.length ? `${selectedIds.length} selecionadas` : 'Seleciona divergências pendentes para rever em massa.'}</span>
+      <span className="muted-cell">{selectedIds.length ? ui('groupB.drifts.selected', undefined, { count: selectedIds.length }) : 'Seleciona divergências pendentes para rever em massa.'}</span>
       <button type="button" className="secondary-button" disabled={!selectedIds.length || tooMany} onClick={() => setBulk({ status: 'ACCEPTED', ids: selectedIds })}><Check size={13} /> Aceitar selecionadas</button>
       <button type="button" className="danger-button" disabled={!selectedIds.length || tooMany} onClick={() => setBulk({ status: 'IGNORED', ids: selectedIds })}><X size={13} /> Ignorar selecionadas</button>
     </div>}
-    {tooMany && <div className="ipam-alert warning" role="note">{`Seleciona no máximo ${BULK_REVIEW_MAX} divergências por pedido.`}</div>}
+    {tooMany && <div className="ipam-alert warning" role="note">{ui('groupB.drifts.bulkMax', undefined, { count: BULK_REVIEW_MAX })}</div>}
     <DataTable rows={rows} columns={columns} rowKey={(drift) => drift.id} label="Divergências SNMP" sort={table.sort} onSortChange={table.setSort} defaultSort={table.defaultSort} loading={isLoading}
-      selection={canReview ? { selected: new Set(selectedIds), onChange: setSelected, isSelectable: (drift) => drift.status === 'PENDING', rowLabel: (drift, selectable) => selectable ? `Selecionar ${drift.field} de ${drift.device?.name ?? drift.id}` : `${drift.field} de ${drift.device?.name ?? drift.id} já revista`, allLabel: 'Selecionar todas as divergências pendentes' } : undefined}
+      selection={canReview ? { selected: new Set(selectedIds), onChange: setSelected, isSelectable: (drift) => drift.status === 'PENDING', rowLabel: (drift, selectable) => ui(selectable ? 'groupB.drifts.selectRow' : 'groupB.drifts.rowReviewed', undefined, { field: drift.field, device: drift.device?.name ?? drift.id }), allLabel: 'Selecionar todas as divergências pendentes' } : undefined}
       empty={<div className="no-data">Sem divergências para este filtro.</div>} />
     {data && (data.totalPages > 1 || page > 1) && <div className="group-member-pagination">
       <button type="button" aria-label={ui('ui.previousPage')} disabled={page <= 1} onClick={() => setPage(page - 1)}><ChevronLeft size={15} /></button>
-      <span>{`${page} / ${totalPages} · ${data.total} divergências`}</span>
+      <span>{ui('groupB.drifts.pageSummary', undefined, { page, pages: totalPages, count: data.total })}</span>
       <button type="button" aria-label={ui('ui.nextPage')} disabled={page >= totalPages} onClick={() => setPage(page + 1)}><ChevronRight size={15} /></button>
     </div>}
     {bulk && <BulkReviewDialog
-      title={bulk.status === 'ACCEPTED' ? 'Aceitar divergências selecionadas' : 'Ignorar divergências selecionadas'}
-      actionLabel={bulk.status === 'ACCEPTED' ? 'Aceitar' : 'Ignorar'}
-      noun="divergências"
+      title={ui(bulk.status === 'ACCEPTED' ? 'groupB.drifts.bulkAcceptTitle' : 'groupB.drifts.bulkIgnoreTitle')}
+      actionLabel={ui(bulk.status === 'ACCEPTED' ? 'groupB.drifts.accept' : 'groupB.common.ignore')}
+      noun={ui('groupB.drifts.noun')}
       items={bulk.ids.map((id) => { const drift = byId.get(id); return { id, label: drift ? `${drift.device?.name ?? '—'} · ${drift.field}` : id, detail: drift ? `${formatDriftValue(drift.documentedValue)} → ${formatDriftValue(drift.observedValue)}` : undefined }; })}
       run={() => bulkReviewSnmpDrifts(bulk.ids, bulk.status)}
       onDone={() => { setSelected(new Set()); void refresh(); }}

@@ -34,6 +34,7 @@ import { SnmpSetupPanel } from '@/features/snmp/snmp-setup-panel';
 import { NarrowViewSwitch } from '@/components/layout/narrow-view-switch';
 import { UNKNOWN_TRAPS_HREF } from '@/features/snmp/snmp-unknown-traps';
 import { isV2cAllowed, SnmpCommunityField, SnmpVersionField } from '@/features/snmp/snmp-version';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 const emptyEnrollment: SnmpPreRegistrationInput = { sourceAddress: '', siteId: '', version: 'V3', username: '', community: '', authKey: '', privKey: '', authProtocol: 'SHA256', privProtocol: 'AES128', compatibilitySha1: false };
 
@@ -116,15 +117,16 @@ function NetworkDiscovery({ jobs, allJobs, results, selectedJob, selectJob, canE
 }
 
 function DiscoveryComparisonReview({ comparison, action }: { comparison: DiscoveryComparison; action?: (item: DiscoveryComparisonItem) => ReactNode }) {
+  const tx = useUiText();
   const sections: Array<{ title: string; items: DiscoveryComparisonItem[] }> = [
-    { title: `Novos (${comparison.newlySeen.length})`, items: comparison.newlySeen },
-    { title: `Alterados (${comparison.changed.length})`, items: comparison.changed },
-    { title: `Sem resposta nesta execução (${comparison.noLongerReachable.length})`, items: comparison.noLongerReachable },
+    { title: tx('groupB.discovery.compareNew', undefined, { count: comparison.newlySeen.length }), items: comparison.newlySeen },
+    { title: tx('groupB.discovery.compareChanged', undefined, { count: comparison.changed.length }), items: comparison.changed },
+    { title: tx('groupB.discovery.compareGone', undefined, { count: comparison.noLongerReachable.length }), items: comparison.noLongerReachable },
   ];
   const details = (item: DiscoveryComparisonItem) => {
     const previous = item.previous; const current = item.current;
-    if (!current) return `Último hostname observado: ${previous?.hostname ?? 'não disponível'}`;
-    return item.changes.map((change) => snmpChangeText(change, item) ?? (change === 'hostname' ? `hostname: ${previous?.hostname ?? '—'} → ${current?.hostname ?? '—'}` : change === 'icmpReachable' ? `ICMP: ${previous?.icmpReachable ? 'respondeu' : 'sem resposta'} → ${current?.icmpReachable ? 'respondeu' : 'sem resposta'}` : `portas TCP: ${(previous?.openPorts ?? []).join(', ') || '—'} → ${(current?.openPorts ?? []).join(', ') || '—'}`)).join(' · ');
+    if (!current) return tx('groupB.discovery.lastHostname', undefined, { hostname: previous?.hostname ?? tx('groupB.discovery.notAvailable') });
+    return item.changes.map((change) => snmpChangeText(change, item) ?? (change === 'hostname' ? `hostname: ${previous?.hostname ?? '—'} → ${current?.hostname ?? '—'}` : change === 'icmpReachable' ? tx('groupB.discovery.icmpChange', undefined, { before: tx(previous?.icmpReachable ? 'groupB.discovery.replied' : 'groupB.discovery.noReply'), after: tx(current?.icmpReachable ? 'groupB.discovery.replied' : 'groupB.discovery.noReply') }) : tx('groupB.discovery.tcpChange', undefined, { before: (previous?.openPorts ?? []).join(', ') || '—', after: (current?.openPorts ?? []).join(', ') || '—' }))).join(tx('groupB.discovery.separator'));
   };
   return <div className="discovery-comparison">{sections.map(({ title, items }) => <section key={title}><h3>{title}</h3>{items.length ? items.map((item) => <div className="result-row" key={item.address}><span><strong>{item.address}</strong><small>{details(item) || (item.current?.hostname ?? 'Host observado na execução atual')}</small></span>{action?.(item)}</div>) : <p className="no-data">Nenhuma alteração.</p>}</section>)}</div>;
 }

@@ -6,6 +6,7 @@ import { Check, Upload } from 'lucide-react';
 import { createAsset } from '../../api';
 import type { AssetFile } from '../../types';
 import { assetDisplayName } from '../../utils';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
@@ -28,6 +29,7 @@ export function AssetPicker({ label, value, assets, onChange, required = false, 
 
 /** Asset picker with an upload button: the uploaded image is created as an asset and selected. */
 export function AssetUploadPicker({ label, value, assets, onChange, required = false, help, warning }: { label: string; value: string; assets: AssetFile[]; onChange: (value: string) => void; required?: boolean; help?: string; warning?: string }) {
+  const ui = useUiText();
   const queryClient = useQueryClient();
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -38,7 +40,7 @@ export function AssetUploadPicker({ label, value, assets, onChange, required = f
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
-    if (file.size > MAX_IMAGE_BYTES) { setUploadError('A imagem não pode exceder 10 MB.'); return; }
+    if (file.size > MAX_IMAGE_BYTES) { setUploadError(ui('infra.upload.tooLarge')); return; }
     setBusy(true);
     setUploadError('');
     try {
@@ -47,14 +49,14 @@ export function AssetUploadPicker({ label, value, assets, onChange, required = f
       onChange(asset.id);
       await queryClient.invalidateQueries({ queryKey: ['infrastructure', 'assets'] });
     } catch (cause) {
-      setUploadError(cause instanceof Error ? cause.message : 'Upload falhou.');
+      setUploadError(cause instanceof Error ? cause.message : ui('infra.upload.failed'));
     } finally {
       setBusy(false);
     }
   };
   return <div className="asset-upload-picker">
-    <AssetPicker label={label} value={value} assets={options} onChange={onChange} required={required} emptyLabel={required ? 'Seleciona ou carrega uma imagem' : 'Sem imagem'} />
-    <button type="button" className="secondary-button asset-upload-picker-button" disabled={busy} aria-label={`Carregar ${label.toLowerCase()}`} onClick={() => input.current?.click()}><Upload size={14} aria-hidden="true" /> {busy ? 'A carregar…' : 'Carregar imagem'}</button>
+    <AssetPicker label={label} value={value} assets={options} onChange={onChange} required={required} emptyLabel={required ? ui('infra.upload.selectOrUpload') : ui('infra.upload.noImage')} />
+    <button type="button" className="secondary-button asset-upload-picker-button" disabled={busy} aria-label={ui('infra.upload.uploadNamed', undefined, { label: label.toLocaleLowerCase() })} onClick={() => input.current?.click()}><Upload size={14} aria-hidden="true" /> {busy ? ui('infra.upload.uploading') : ui('infra.upload.uploadImage')}</button>
     <input ref={input} type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden tabIndex={-1} onChange={(event) => void upload(event)} />
     {help && <small className="form-help">{help}</small>}
     {warning && <small className="form-warning" role="status">{warning}</small>}

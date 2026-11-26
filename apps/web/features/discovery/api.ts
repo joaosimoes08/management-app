@@ -1,5 +1,8 @@
 import { apiFetch } from '@/lib/api/client';
 import type { BulkReviewResponse } from '@/components/ui/bulk-review-dialog';
+import { translateMessage } from '@/lib/i18n/i18n';
+type Translate = (key: string, fallback?: string, params?: Record<string, string | number>) => string;
+const portuguese: Translate = (key, fallback, params) => translateMessage('pt-PT', key, fallback, params);
 
 export interface DiscoveryJob {
   id: string;
@@ -286,14 +289,14 @@ export function retryDiscoveryJob(id: string): Promise<DiscoveryJob> {
 }
 
 /** Progress and end state shown next to a scan: `32/62 endereços`, `parado no limite de duração`, `cancelamento pedido`. */
-export function discoveryJobProgress(job: Pick<DiscoveryJob, 'status' | 'totalCount' | 'processedCount' | 'stopReason' | 'cancelRequestedAt'>): string {
+export function discoveryJobProgress(job: Pick<DiscoveryJob, 'status' | 'totalCount' | 'processedCount' | 'stopReason' | 'cancelRequestedAt'>, t: Translate = portuguese): string {
   const parts: string[] = [];
-  if (job.totalCount && (job.status === 'RUNNING' || job.status === 'PENDING' || job.stopReason || job.status === 'FAILED')) parts.push(`${job.processedCount ?? 0}/${job.totalCount} endereços`);
-  if (job.stopReason === 'LIMIT_DURATION') parts.push('parado no limite de duração');
-  else if (job.stopReason === 'LIMIT_PROBES') parts.push('parado no limite de sondas');
-  else if (job.status === 'CANCELLED') parts.push('cancelada');
-  else if (job.cancelRequestedAt && job.status === 'RUNNING') parts.push('cancelamento pedido');
-  return parts.join(' · ');
+  if (job.totalCount && (job.status === 'RUNNING' || job.status === 'PENDING' || job.stopReason || job.status === 'FAILED')) parts.push(t('groupB.discovery.progressAddresses', undefined, { processed: job.processedCount ?? 0, total: job.totalCount }));
+  if (job.stopReason === 'LIMIT_DURATION') parts.push(t('groupB.discovery.stoppedDuration'));
+  else if (job.stopReason === 'LIMIT_PROBES') parts.push(t('groupB.discovery.stoppedProbes'));
+  else if (job.status === 'CANCELLED') parts.push(t('groupB.discovery.cancelled'));
+  else if (job.cancelRequestedAt && job.status === 'RUNNING') parts.push(t('groupB.discovery.cancelRequested'));
+  return parts.join(t('groupB.discovery.separator'));
 }
 
 export function listDiscoveryResults(jobId: string): Promise<DiscoveryResult[]> {

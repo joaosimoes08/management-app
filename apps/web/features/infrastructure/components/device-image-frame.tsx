@@ -7,6 +7,7 @@ import type { Device, DeviceInterface, PortLayout, RackFace } from '../types';
 import { deviceFaceImage, formatPortTooltipTitle, getInterfaceSubnets, getInterfaceVlans, normalizePortLayout, normalizedPortLayoutPorts, primaryPortFace } from '../utils';
 import { AssetImage } from './asset-image';
 import { useI18n } from '@/lib/i18n';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 interface DeviceImageFrameProps {
   device: Device;
@@ -17,6 +18,7 @@ interface DeviceImageFrameProps {
 
 /** Device face image with clickable port hotspots, VLAN tooltips and IPAM cross-links. */
 export function DeviceImageFrame({ device, interfaces, face: requestedFace }: DeviceImageFrameProps) {
+  const ui = useUiText();
   const { t } = useI18n();
   const [activePort, setActivePort] = useState('');
   const face = requestedFace ?? primaryPortFace(device.model);
@@ -38,24 +40,24 @@ export function DeviceImageFrame({ device, interfaces, face: requestedFace }: De
 
   return <>
   <div className="device-image-frame" data-face={face} style={{ aspectRatio: `${width} / ${height}` }}>
-    {image ? <AssetImage asset={image} alt={`Imagem de ${device.name}`} /> : noteBelow ? <div className="switch-face-fallback switch-face-fallback--inline" data-has-ports="true" aria-hidden="true" /> : <div className={`switch-face-fallback${shortFace ? ' switch-face-fallback--inline' : ''}`} data-has-ports={ports.length > 0 || undefined}><EquipmentTypeIcon type={device.type} alt={`Ícone de ${device.type}`} className="equipment-type-icon-large"/><strong>{device.name}</strong><small>{missingLabel}</small></div>}
+    {image ? <AssetImage asset={image} alt={ui('infra.imageOf', undefined, { name: device.name })} /> : noteBelow ? <div className="switch-face-fallback switch-face-fallback--inline" data-has-ports="true" aria-hidden="true" /> : <div className={`switch-face-fallback${shortFace ? ' switch-face-fallback--inline' : ''}`} data-has-ports={ports.length > 0 || undefined}><EquipmentTypeIcon type={device.type} alt={ui('infra.typeIconOf', undefined, { type: device.type })} className="equipment-type-icon-large"/><strong>{device.name}</strong><small>{missingLabel}</small></div>}
     {ports.map((port) => {
       const item = byPort(port);
       const allowedVlans = (item?.allowedVlans ?? []).map((x) => x?.vlan?.vlanId ?? x?.vlanId).filter(Boolean);
       const subnets = getInterfaceSubnets(item);
       const vlanSummary = item?.accessVlan
-        ? `VLAN access ${item.accessVlan.vlanId}`
+        ? ui('infra.vlanAccess', undefined, { id: item.accessVlan.vlanId })
         : item?.nativeVlan
           ? `VLAN nativa ${item.nativeVlan.vlanId}`
           : allowedVlans.length
             ? `Allowed: ${allowedVlans.join(', ')}`
             : 'Sem VLAN configurada';
-      return <div key={port.portKey} role="button" tabIndex={0} onClick={() => setActivePort(activePort === port.portKey ? '' : port.portKey)} onKeyDown={(event) => event.key === 'Enter' && setActivePort(activePort === port.portKey ? '' : port.portKey)} className={`rack-port-hotspot ${item?.operUp ? 'up' : ''}`} style={{ left: `${Number(port.x || 0) * 100}%`, top: `${Number(port.y || 0) * 100}%`, width: `${Number(port.width || .03) * 100}%`, height: `${Number(port.height || .3) * 100}%` }} aria-label={`Porta ${port.label || port.portKey}`}>
+      return <div key={port.portKey} role="button" tabIndex={0} onClick={() => setActivePort(activePort === port.portKey ? '' : port.portKey)} onKeyDown={(event) => event.key === 'Enter' && setActivePort(activePort === port.portKey ? '' : port.portKey)} className={`rack-port-hotspot ${item?.operUp ? 'up' : ''}`} style={{ left: `${Number(port.x || 0) * 100}%`, top: `${Number(port.y || 0) * 100}%`, width: `${Number(port.width || .03) * 100}%`, height: `${Number(port.height || .3) * 100}%` }} aria-label={ui('infra.portNamed', undefined, { port: port.label || port.portKey })}>
         <span>{port.label || port.portKey}</span>
         <b className="rack-port-tooltip"><strong>{formatPortTooltipTitle(item, port)}</strong><small>{item?.mode || 'sem modo'} · {item?.operUp ? 'UP' : 'DOWN'}</small><small>{vlanSummary}</small>{item?.accessVlan && allowedVlans.length ? <small>Allowed: {allowedVlans.join(', ')}</small> : null}<small>{subnets.length ? `Subnet: ${subnets.join(', ')}` : 'Sem subnet'}</small></b>
       </div>;
     })}
-    {activeLayoutPort && <div className="rack-port-popover" role="dialog" aria-label={`Porta ${activeLayoutPort.label || activeLayoutPort.portKey}`} style={{ left: `${(Number(activeLayoutPort.x || 0) + Number(activeLayoutPort.width || .03) / 2) * 100}%`, top: `calc(${(Number(activeLayoutPort.y || 0) + Number(activeLayoutPort.height || .3)) * 100}% + 8px)` }}><strong>{formatPortTooltipTitle(activeInterface, activeLayoutPort)}</strong>{activeVlans.map((linked) => <div key={linked.id}><span>VLAN {linked.vlanId} · {linked.name}</span>{linked.subnets?.length ? linked.subnets.map((network) => <a key={network.id} href={`/ipam?siteId=${encodeURIComponent(linked.siteId || network.siteId || '')}&vlanId=${encodeURIComponent(linked.id)}&subnetId=${encodeURIComponent(network.id)}&fromDeviceId=${encodeURIComponent(device.id)}&fromInterfaceId=${encodeURIComponent(activeInterface?.id || '')}`}>{network.cidr}</a>) : <a href={`/ipam?siteId=${encodeURIComponent(linked.siteId || '')}&vlanId=${encodeURIComponent(linked.id)}&fromDeviceId=${encodeURIComponent(device.id)}&fromInterfaceId=${encodeURIComponent(activeInterface?.id || '')}`}>Abrir VLAN no IPAM</a>}</div>)}{!activeVlans.length && <small>Sem VLAN associada.</small>}</div>}
+    {activeLayoutPort && <div className="rack-port-popover" role="dialog" aria-label={ui('infra.portNamed', undefined, { port: activeLayoutPort.label || activeLayoutPort.portKey })} style={{ left: `${(Number(activeLayoutPort.x || 0) + Number(activeLayoutPort.width || .03) / 2) * 100}%`, top: `calc(${(Number(activeLayoutPort.y || 0) + Number(activeLayoutPort.height || .3)) * 100}% + 8px)` }}><strong>{formatPortTooltipTitle(activeInterface, activeLayoutPort)}</strong>{activeVlans.map((linked) => <div key={linked.id}><span>VLAN {linked.vlanId} · {linked.name}</span>{linked.subnets?.length ? linked.subnets.map((network) => <a key={network.id} href={`/ipam?siteId=${encodeURIComponent(linked.siteId || network.siteId || '')}&vlanId=${encodeURIComponent(linked.id)}&subnetId=${encodeURIComponent(network.id)}&fromDeviceId=${encodeURIComponent(device.id)}&fromInterfaceId=${encodeURIComponent(activeInterface?.id || '')}`}>{network.cidr}</a>) : <a href={`/ipam?siteId=${encodeURIComponent(linked.siteId || '')}&vlanId=${encodeURIComponent(linked.id)}&fromDeviceId=${encodeURIComponent(device.id)}&fromInterfaceId=${encodeURIComponent(activeInterface?.id || '')}`}>Abrir VLAN no IPAM</a>}</div>)}{!activeVlans.length && <small>Sem VLAN associada.</small>}</div>}
   </div>
   {noteBelow && <p className="device-image-frame-note">{missingLabel}</p>}
   </>;
