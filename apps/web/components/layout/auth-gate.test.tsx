@@ -1,12 +1,19 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import { useEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { AuthGate } from './auth-gate';
 
 const signedOut = { loading: false, authError: null, authenticated: false, setupStatus: null, setupStatusError: null };
-const mocks = vi.hoisted(() => ({ apiFetch: vi.fn(), auth: {} as Record<string, unknown> }));
+const mocks = vi.hoisted(() => ({ apiFetch: vi.fn(), auth: {} as Record<string, unknown>, uiLocale: null as string | null }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ login: vi.fn(), retry: vi.fn(), ...mocks.auth }) }));
 vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ locale: 'pt-PT', t: (key: string) => key }) }));
+// useUiText reads the active language from '@/lib/i18n/i18n'; without a provider it falls back to pt-PT.
+vi.mock('@/lib/i18n/i18n', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/i18n/i18n')>();
+  return { ...actual, useOptionalI18n: () => (mocks.uiLocale ? { t: (key: string, fallback?: string, params?: Record<string, string | number>) => actual.translateMessage(mocks.uiLocale as 'en-US', key, fallback, params) } : null) };
+});
 vi.mock('@/lib/api/client', () => ({ apiFetch: mocks.apiFetch }));
 vi.mock('@/lib/runtime-config', () => ({ getPublicOrganizationName: () => 'Org', getPublicRuntimeConfig: () => ({ apiUrl: '', keycloakRealm: 'r' }) }));
 vi.mock('@/features/reports/report-unsubscribe', () => ({
@@ -14,7 +21,7 @@ vi.mock('@/features/reports/report-unsubscribe', () => ({
   ReportUnsubscribe: ({ token }: { token: string | null }) => <p>unsubscribe:{token}</p>,
 }));
 
-afterEach(() => { cleanup(); window.history.replaceState(null, '', '/'); mocks.apiFetch.mockReset(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); window.history.replaceState(null, '', '/'); mocks.apiFetch.mockReset(); mocks.uiLocale = null; vi.restoreAllMocks(); });
 beforeEach(() => { mocks.auth = { ...signedOut }; });
 
 function CountMounts({ onMount }: { onMount: () => void }) {
@@ -27,6 +34,32 @@ describe('AuthGate', () => {
     render(<AuthGate><p>app</p></AuthGate>);
     expect(screen.getByRole('button', { name: /Continuar com Keycloak/ })).toBeInTheDocument();
     expect(screen.queryByText('app')).toBeNull();
+  });
+
+  it('shows the Civernode mark and the swappable scene image on the signed-out page', () => {
+    const { container } = render(<AuthGate><p>app</p></AuthGate>);
+    const sources = Array.from(container.querySelectorAll('img')).map((image) => image.getAttribute('src'));
+    expect(sources).toContain('/brand/civernode-mark.png');
+    expect(sources).toContain('/brand/auth-scene.png');
+    expect(container.querySelectorAll('img[alt=""]')).toHaveLength(2);
+    expect(screen.getByText('ORG')).toBeInTheDocument();
+    expect(screen.queryByText('SECURE INFRASTRUCTURE')).toBeNull();
+  });
+
+  it('shows the translated tagline in Portuguese by default and in English when the UI is English', () => {
+    render(<AuthGate><p>app</p></AuthGate>);
+    expect(screen.getByText('Gestão de infraestrutura')).toBeInTheDocument();
+    cleanup();
+    mocks.uiLocale = 'en-US';
+    render(<AuthGate><p>app</p></AuthGate>);
+    expect(screen.getByText('Infrastructure management')).toBeInTheDocument();
+    expect(screen.queryByText('Gestão de infraestrutura')).toBeNull();
+  });
+
+  it('keeps no hard-coded tagline text in the component', () => {
+    const source = readFileSync(path.join(import.meta.dirname, 'auth-gate.tsx'), 'utf8');
+    expect(source).not.toMatch(/Infrastructure/);
+    expect(source).toContain("ui('authGate.tagline')");
   });
 
   it('shows the email unsubscribe page without a session and without the app', () => {

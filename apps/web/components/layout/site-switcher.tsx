@@ -3,7 +3,7 @@
 import { useEscapeClose } from '@/components/ui/use-escape-close';
 import { useDialogFocusRef } from '@/components/ui/use-dialog-focus';
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, ChevronDown, MapPin, Plus, ShieldCheck, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ChevronDown, MapPin, Plus, X } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { apiFetch } from '@/lib/api/client';
 import { useI18n } from '@/lib/i18n';
@@ -46,7 +46,9 @@ export function SiteSwitcher() {
   return <>
     <div className="site-switcher-root" ref={rootRef} onMouseLeave={() => setOpen(false)}>
       <button className="workspace-switcher" type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-haspopup="menu">
-        <ShieldCheck className="workspace-switcher-shield" size={19} aria-hidden="true" />
+        {/* Civernode brand mark (same image as the favicon), on a light tile so its dark nodes stay visible on the dark
+            topbar. Inline style keeps globals.css untouched. Decorative: the button name stays the site text. */}
+        <img className="workspace-switcher-shield" src="/brand/civernode-mark.png" width={22} height={22} alt="" aria-hidden="true" style={{ boxSizing: 'border-box', padding: 2, borderRadius: 6, background: '#f5efe3' }} />
         <span className="workspace-switcher-copy" key={siteId || 'all-sites'}><small>{organizationName ? `${organizationName.toLocaleUpperCase()} — Site Ativo` : 'Site Ativo'}</small><strong><MapPin size={12} aria-hidden="true" />{activeSite?.name ?? t('shell.allSites')}</strong></span>
         <ChevronDown className="workspace-switcher-chevron" size={15} aria-hidden="true" />
       </button>

@@ -1,0 +1,16 @@
+/* Signed-out visual panel: brand mark, organization name and one swappable scene image (AUTH_SCENE_IMAGE).
+   New class names on purpose, so the legacy .auth-visual / .auth-scene rules in globals.css do not apply. */
+.visual { position:relative; overflow:hidden; min-height:560px; background:#f5efe3; }
+.scene { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; object-position:center; pointer-events:none; user-select:none; }
+.copy { position:absolute; z-index:1; top:35px; left:40px; max-width:calc(100% - 80px); }
+.mark { display:block; box-sizing:border-box; width:36px; height:36px; margin-bottom:15px; padding:3px; border-radius:9px; background:#f5efe3; box-shadow:0 0 0 1px rgba(31,39,51,.1),0 4px 12px rgba(31,39,51,.08); }
+.organization { display:block; overflow:hidden; color:#1f2733; font:500 9px 'DM Mono'; letter-spacing:.18em; text-overflow:ellipsis; white-space:nowrap; }
+.tagline { display:block; max-width:15ch; margin-top:8px; text-wrap:balance; color:#4a5563; font-size:12px; line-height:1.35; letter-spacing:.04em; text-transform:uppercase; }
+.error { filter:saturate(.65); }
+
+@media (max-width:700px) {
+  .visual { min-height:245px; }
+  .error { min-height:210px; }
+  .copy { top:24px; left:24px; max-width:calc(100% - 48px); }
+  .tagline { display:none; }
+}
