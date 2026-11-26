@@ -18,6 +18,7 @@ import {
 } from './workbench';
 import { useUiText } from '@/components/ui/use-ui-text';
 import { STORAGE_KEYS, getLocalItem } from '@/lib/storage-keys';
+import { isAppLocale } from '@/lib/i18n/locales/catalog';
 
 type View = 'assets' | 'corrections' | 'compliance';
 type Connection = { id: string; label?: string | null; type?: string; sourceDevice: { id: string; name: string }; targetDevice: { id: string; name: string } };
@@ -91,7 +92,8 @@ export function CriticalAssetsPage() {
   const loading = hydrated ? (view === 'assets' ? pageLoading : isLoading) : true;
   const error = hydrated ? queryError ?? (view === 'assets' ? pageError : null) : null;
   const groups = (hydrated && queryGroups) || noGroups;
-  const locale = hydrated && getLocalItem(STORAGE_KEYS.locale) === 'en-US' ? 'en-US' : 'pt-PT';
+  const storedLocale = hydrated ? getLocalItem(STORAGE_KEYS.locale) : null;
+  const locale = isAppLocale(storedLocale) ? storedLocale : 'pt-PT';
   const formatDate = useCallback((value?: string | null, withTime = false) => {
     if (!value) return '—';
     const date = new Date(value.length === 10 ? `${value}T00:00:00.000Z` : value);
@@ -270,7 +272,7 @@ export function CriticalAssetsPage() {
   const closeCorrection = async (correction: Correction, outcome: 'RESOLVED' | 'REJECTED', value: string): Promise<string | null> => {
     try {
       await apiFetch(`/api/v1/critical-assets/corrections/${correction.id}/${outcome === 'RESOLVED' ? 'resolve' : 'reject'}`, { method: 'POST', body: JSON.stringify(outcome === 'RESOLVED' ? { changeReference: value } : { note: value }) });
-      setNotice({ tone: 'success', text: outcome === 'RESOLVED' ? `Correção de ${correction.device?.name ?? 'ativo'} resolvida.` : `Correção de ${correction.device?.name ?? 'ativo'} rejeitada.` });
+      setNotice({ tone: 'success', text: outcome === 'RESOLVED' ? ui('groupB.assets.correctionResolved', undefined, { name: correction.device?.name ?? ui('groupB.assets.asset') }) : ui('groupB.assets.correctionRejected', undefined, { name: correction.device?.name ?? ui('groupB.assets.asset') }) });
       setCorrectionDialog(null);
       await queryClient.invalidateQueries({ queryKey: ['critical-asset-corrections'] });
       return null;
@@ -356,17 +358,17 @@ export function CriticalAssetsPage() {
     },
     {
       id: 'actions', header: 'Ações', className: 'table-actions', cell: (item) => item.status === 'OPEN' && canReview ? <>
-        <button className="secondary-button" aria-label={`Resolver correção de ${item.device?.name ?? 'ativo'}`} onClick={() => setCorrectionDialog({ correction: item, outcome: 'RESOLVED' })}>Resolver</button>
-        <button className="secondary-button" aria-label={`Rejeitar correção de ${item.device?.name ?? 'ativo'}`} onClick={() => setCorrectionDialog({ correction: item, outcome: 'REJECTED' })}>Rejeitar</button>
+        <button className="secondary-button" aria-label={ui('groupB.assets.resolveCorrection', undefined, { name: item.device?.name ?? ui('groupB.assets.asset') })} onClick={() => setCorrectionDialog({ correction: item, outcome: 'RESOLVED' })}>Resolver</button>
+        <button className="secondary-button" aria-label={ui('groupB.assets.rejectCorrection', undefined, { name: item.device?.name ?? ui('groupB.assets.asset') })} onClick={() => setCorrectionDialog({ correction: item, outcome: 'REJECTED' })}>Rejeitar</button>
       </> : null,
     },
   ];
   const complianceColumns: DataTableColumn<string>[] = [
     { id: 'group', header: 'Grupo responsável', cell: (group) => group, csv: [{ header: 'Grupo responsável', value: (group) => group }] },
     ...compliance.weeks.map((week): DataTableColumn<string> => ({
-      id: `week-${week}`, header: `Semana de ${formatDate(week)}`,
-      cell: (group) => { const cell = compliance.cells.find((item) => item.group === group && item.weekStart === week); return cell && cell.expected ? <>{`${cell.percent}%`}<small>{`${cell.onTime} de ${cell.expected} a tempo`}</small></> : <span className="muted-cell">—</span>; },
-      csv: [{ header: `Semana de ${formatDate(week)} (%)`, value: (group) => compliance.cells.find((item) => item.group === group && item.weekStart === week)?.percent ?? '' }],
+      id: `week-${week}`, header: ui('groupB.assets.weekOf', undefined, { date: formatDate(week) }),
+      cell: (group) => { const cell = compliance.cells.find((item) => item.group === group && item.weekStart === week); return cell && cell.expected ? <>{`${cell.percent}%`}<small>{ui('groupB.assets.onTime', undefined, { onTime: cell.onTime, expected: cell.expected })}</small></> : <span className="muted-cell">—</span>; },
+      csv: [{ header: ui('groupB.assets.weekOfPercent', undefined, { date: formatDate(week) }), value: (group) => compliance.cells.find((item) => item.group === group && item.weekStart === week)?.percent ?? '' }],
     })),
   ];
   const complianceCsvColumns: Array<{ header: string; value: (cell: ComplianceCell) => string | number | null | undefined }> = [
@@ -404,7 +406,7 @@ export function CriticalAssetsPage() {
       </div>
 
       <h2 className="critical-assets-count" aria-live="polite">{filtering ? `${total} de ${rows.length} ativos` : `${rows.length} ativos críticos`}</h2>
-      {canReview && total > pageRows.length && <div className="table-actions"><button className="secondary-button" disabled={selectingAll} onClick={() => void selectAllMatching()}>{selectingAll ? 'A selecionar…' : `Selecionar os ${total} ativos que correspondem`}</button></div>}
+      {canReview && total > pageRows.length && <div className="table-actions"><button className="secondary-button" disabled={selectingAll} onClick={() => void selectAllMatching()}>{selectingAll ? 'A selecionar…' : ui('groupB.assets.selectAllMatching', undefined, { count: total })}</button></div>}
       <DataTable
         rows={sorted}
         columns={columns}
@@ -433,7 +435,7 @@ export function CriticalAssetsPage() {
         <DataTable rows={correctionRows} columns={correctionColumns} rowKey={(item) => item.id} label="Correções" className="critical-assets-table" loading={correctionsLoading} empty={<Empty title={correctionTab === 'open' ? 'Sem correções abertas' : 'Sem correções fechadas'} text="As correções pedidas nas revisões aparecem aqui." />} />
       </>}
       {view === 'compliance' && <>
-        <p className="panel-description">{`Percentagem de revisões registadas a tempo, por grupo e semana (últimas ${compliance.weeks.length} semanas com revisões). Uma revisão conta como a tempo se foi registada antes de abrir o ciclo seguinte.`}</p>
+        <p className="panel-description">{ui('groupB.assets.complianceDescription', undefined, { count: compliance.weeks.length })}</p>
         <div className="table-actions"><CsvExportButton rows={compliance.cells} columns={complianceCsvColumns} fileName="conformidade-ativos-criticos" /></div>
         <DataTable rows={compliance.groups} columns={complianceColumns} rowKey={(group) => group} label="Conformidade" className="critical-assets-table" empty={<Empty title="Sem revisões para medir" text="A conformidade aparece quando existirem revisões semanais." />} />
       </>}
@@ -459,7 +461,7 @@ export function CriticalAssetsPage() {
         {isAdmin && <button className="secondary-button" onClick={() => openOwner(detail.type)}><Users size={14} /> {detail.owner ? 'Alterar responsável' : 'Atribuir responsável'}</button>}
       </div>
       <section className="critical-assets-dependencies" aria-label="Dependências">
-        <h3>{`Dependências (${dependencies.length})`}</h3>
+        <h3>{ui('groupB.assets.dependencies', undefined, { count: dependencies.length })}</h3>
         {dependencies.length ? <ul>{dependencies.map(({ item, other, direction }) => <li key={item.id}><span>{direction}</span> <EntityLink kind="device" id={other.id} label={other.name} siteId={siteId}>{other.name}</EntityLink>{item.label && <small>{item.label}</small>}</li>)}</ul> : <p className="panel-description">Sem ligações registadas para este equipamento.</p>}
       </section>
       <HistoryBlock
@@ -468,7 +470,7 @@ export function CriticalAssetsPage() {
         empty="Ainda não existem revisões para este ativo."
         events={detail.attestations.map((attestation) => ({
           id: attestation.id,
-          title: <>{`Semana de ${formatDate(attestation.weekStart)}`}{attestation.weekStart.slice(0, 10) === linkedWeek && <> · {translateLegacyText(locale, 'Revisão ligada à notificação')}</>}</>,
+          title: <>{ui('groupB.assets.weekOf', undefined, { date: formatDate(attestation.weekStart) })}{attestation.weekStart.slice(0, 10) === linkedWeek && <> · {translateLegacyText(locale, 'Revisão ligada à notificação')}</>}</>,
           status: <span className={`state-badge ${outcomeTone(attestation.outcome)}`}><i />{outcomeLabel(attestation.outcome)}</span>,
           at: attestation.outcome ? attestation.confirmedAt : null,
           actor: attestation.outcome ? attestation.confirmedByName ?? 'Revisor desconhecido' : null,

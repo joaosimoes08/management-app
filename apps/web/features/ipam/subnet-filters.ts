@@ -5,6 +5,7 @@
  * and passed as-is to GET /subnets, which validates everything (400 with a message).
  */
 import { hasTableFilters, parseTableState, serializeTableState, type TableStateConfig } from '@/components/data-table';
+import { ipamText } from './i18n';
 
 export type SubnetUrlFilters = { band: string; minUtilization: string; sort: string };
 export const emptySubnetUrlFilters: SubnetUrlFilters = { band: '', minUtilization: '', sort: '' };
@@ -22,12 +23,13 @@ export function subnetFilterQuery(filters: Partial<SubnetUrlFilters> = {}): stri
     .join('');
 }
 
-const bandLabels: Record<string, string> = { OK: 'Normal', WARNING: 'Aviso (≥ 80%)', CRITICAL: 'Crítico (≥ 90%)', UNTRACKED: 'Sem cálculo (IPv6)' };
+const FILTER_BANDS = ['OK', 'WARNING', 'CRITICAL', 'UNTRACKED'];
+const bandLabel = (value: string) => (FILTER_BANDS.includes(value.toUpperCase()) ? ipamText(`ipam.filters.band.${value.toUpperCase()}`) : value);
 
 export function subnetFilterLabels(filters: SubnetUrlFilters): string[] {
   const labels: string[] = [];
-  if (filters.band) labels.push(`Ocupação: ${filters.band.split(',').map((value) => bandLabels[value.trim().toUpperCase()] ?? value.trim()).join(', ')}`);
-  if (filters.minUtilization) labels.push(`Ocupação mínima: ${filters.minUtilization}%`);
-  if (filters.sort) labels.push(filters.sort.startsWith('cidr') ? 'Ordenadas por CIDR' : 'Ordenadas por ocupação');
+  if (filters.band) labels.push(ipamText('ipam.filters.band', { bands: filters.band.split(',').map((value) => bandLabel(value.trim())).join(', ') }));
+  if (filters.minUtilization) labels.push(ipamText('ipam.filters.minUtilization', { percent: filters.minUtilization }));
+  if (filters.sort) labels.push(ipamText(filters.sort.startsWith('cidr') ? 'ipam.filters.sortCidr' : 'ipam.filters.sortUtilization'));
   return labels;
 }

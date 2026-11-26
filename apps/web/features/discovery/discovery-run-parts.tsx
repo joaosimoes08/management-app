@@ -6,6 +6,7 @@ import { UNKNOWN_TRAPS_HREF } from '@/features/snmp/snmp-unknown-traps';
 import { discoveryJobProgress, type DiscoveryJob } from './api';
 import { formatDurationMs } from './discovery-results';
 import { discoveryFailureReason, discoveryProgressPercent, discoveryStatusLabel, formatResultCount, isActiveDiscoveryJob } from './discovery-status';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 /**
  * Step 5.5: the discovery flow in three steps, with what pre-registration does and where traps from unknown senders go.
@@ -23,10 +24,11 @@ export function DiscoveryFlowHeader() {
 
 /** Live progress of a pending or running scan: a bar plus "32/62 endereços". */
 export function DiscoveryRunProgress({ job }: { job: DiscoveryJob }) {
+  const tx = useUiText();
   if (!isActiveDiscoveryJob(job)) return null;
   const percent = discoveryProgressPercent(job);
   const label = job.status === 'PENDING' && !job.processedCount ? 'Na fila' : percent === null ? 'A preparar' : `${percent}%`;
-  return <span className="discovery-progress" role="progressbar" aria-label={`Progresso de ${job.name}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent ?? undefined} aria-valuetext={label}>
+  return <span className="discovery-progress" role="progressbar" aria-label={tx('groupB.discovery.progressOf', undefined, { name: job.name })} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent ?? undefined} aria-valuetext={label}>
     <span className="discovery-progress-track"><span className="discovery-progress-fill" style={{ width: `${percent ?? 0}%` }} /></span>
     <span className="discovery-progress-label">{label}</span>
   </span>;
@@ -39,7 +41,8 @@ export function DiscoveryFailureReason({ job }: { job: DiscoveryJob }) {
 }
 
 export function DiscoveryRunRow({ job, onSelect, selected }: { job: DiscoveryJob; onSelect: (id: string) => void; selected?: boolean }) {
-  const progress = discoveryJobProgress(job);
+  const tx = useUiText();
+  const progress = discoveryJobProgress(job, tx);
   return <button className={`job-row${selected ? ' selected' : ''}`} onClick={() => onSelect(job.id)} aria-current={selected ? 'true' : undefined}>
     <span className={`job-status ${job.status.toLowerCase()}`} aria-hidden="true" />
     <span>

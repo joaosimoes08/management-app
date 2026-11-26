@@ -77,12 +77,12 @@ export function RoleRequestQueue({ onDecided, reloadToken }: RoleRequestQueuePro
 
   const decide = async (item: RoleRequestItem, decision: 'APPROVE' | 'REJECT') => {
     const name = personName(item.user);
-    if (decision === 'REJECT' && !(await askConfirm({ title: 'Rejeitar pedido', message: `Rejeitar o pedido de roles de ${name}?`, confirmLabel: 'Rejeitar', destructive: true }))) return;
+    if (decision === 'REJECT' && !(await askConfirm({ title: 'Rejeitar pedido', message: ui('settings.roleQueue.rejectConfirm', undefined, { name }), confirmLabel: 'Rejeitar', destructive: true }))) return;
     setBusyId(item.id);
     setActionError('');
     try {
       await decideRoleRequest(item.id, decision);
-      success('Pedidos de roles', decision === 'APPROVE' ? `Pedido de ${name} aprovado.` : `Pedido de ${name} rejeitado.`);
+      success('Pedidos de roles', decision === 'APPROVE' ? ui('settings.roleQueue.approved', undefined, { name }) : ui('settings.roleQueue.rejected', undefined, { name }));
       setRefresh((value) => value + 1);
       onDecided();
     } catch (reason) {
@@ -109,9 +109,9 @@ export function RoleRequestQueue({ onDecided, reloadToken }: RoleRequestQueuePro
         const processing = item.status === 'PROCESSING';
         const busy = busyId === item.id;
         return <div className="role-request-actions"><div>
-          <button type="button" className="secondary-button" disabled={Boolean(busyId)} aria-label={`${processing ? 'Concluir' : 'Aprovar'} pedido de ${name}`} onClick={() => void decide(item, 'APPROVE')}><Check size={13} />{processing ? 'Concluir' : 'Aprovar'}</button>
+          <button type="button" className="secondary-button" disabled={Boolean(busyId)} aria-label={ui(processing ? 'settings.roleQueue.finishRequest' : 'settings.roleQueue.approveRequest', undefined, { name })} onClick={() => void decide(item, 'APPROVE')}><Check size={13} />{processing ? 'Concluir' : 'Aprovar'}</button>
           {/* A PROCESSING request already had its roles granted half-way: it can only be finished. */}
-          <button type="button" className="danger-button" disabled={Boolean(busyId) || processing} aria-label={`Rejeitar pedido de ${name}`} onClick={() => void decide(item, 'REJECT')}><X size={13} />Rejeitar</button>
+          <button type="button" className="danger-button" disabled={Boolean(busyId) || processing} aria-label={ui('settings.roleQueue.rejectRequest', undefined, { name })} onClick={() => void decide(item, 'REJECT')}><X size={13} />Rejeitar</button>
           {busy && <span className="muted-cell">A guardar…</span>}
         </div></div>;
       },
@@ -121,7 +121,7 @@ export function RoleRequestQueue({ onDecided, reloadToken }: RoleRequestQueuePro
   const pending = data.pendingTotal;
   return <section className="ipam-card settings-panel" aria-labelledby="role-request-queue-title" data-testid="role-request-queue">
     <div className="panel-heading">
-      <div><h2 id="role-request-queue-title">Pedidos de roles</h2>{typeof pending === 'number' && <p className="panel-description">{pending === 1 ? '1 pedido por decidir' : `${pending} pedidos por decidir`}</p>}</div>
+      <div><h2 id="role-request-queue-title">Pedidos de roles</h2>{typeof pending === 'number' && <p className="panel-description">{ui('settings.roleQueue.pendingCount', undefined, { count: pending })}</p>}</div>
       <div className="table-actions">
         <label className="role-request-status-filter">Estado <select className="context-toolbar-selector" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); setActionError(''); setSort({ column: 'createdAt', direction: event.target.value === ROLE_REQUEST_FILTERS[0].value ? 'asc' : 'desc' }); }}>{ROLE_REQUEST_FILTERS.map((filter) => <option key={filter.value} value={filter.value}>{filter.label}</option>)}</select></label>
         <button type="button" className="secondary-button" onClick={() => setRefresh((value) => value + 1)}><RefreshCw size={14} />Atualizar</button>
@@ -130,7 +130,7 @@ export function RoleRequestQueue({ onDecided, reloadToken }: RoleRequestQueuePro
     {(error || actionError) && <div role="alert" className="ipam-alert error"><X size={15} />{error || actionError}</div>}
     {!loading && !error && !data.items.length && <div className="ipam-alert">{status === ROLE_REQUEST_FILTERS[0].value ? 'Não há pedidos de roles pendentes.' : 'Não há pedidos de roles neste estado.'}</div>}
     {data.items.length > 0 && <DataTable rows={sortByColumns(data.items, columns, sort)} columns={columns} rowKey={(item) => item.id} label="Pedidos de roles" sort={sort} onSortChange={setSort} defaultSort={defaultSort} />}
-    {data.totalPages > 1 && <div className="settings-pagination"><span>{data.total === 1 ? '1 pedido' : `${data.total} pedidos`}</span><div><button type="button" aria-label={ui('ui.previousPage')} disabled={page <= 1 || loading} onClick={() => setPage(page - 1)}><ChevronLeft size={14} /></button><b>{data.page} / {data.totalPages}</b><button type="button" aria-label={ui('ui.nextPage')} disabled={page >= data.totalPages || loading} onClick={() => setPage(page + 1)}><ChevronRight size={14} /></button></div></div>}
+    {data.totalPages > 1 && <div className="settings-pagination"><span>{ui('settings.roleQueue.total', undefined, { count: data.total })}</span><div><button type="button" aria-label={ui('ui.previousPage')} disabled={page <= 1 || loading} onClick={() => setPage(page - 1)}><ChevronLeft size={14} /></button><b>{data.page} / {data.totalPages}</b><button type="button" aria-label={ui('ui.nextPage')} disabled={page >= data.totalPages || loading} onClick={() => setPage(page + 1)}><ChevronRight size={14} /></button></div></div>}
     {confirmDialog}
   </section>;
 }

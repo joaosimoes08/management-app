@@ -1,3 +1,5 @@
+import type { AppLocale } from '@/lib/i18n/i18n';
+import { isAppLocale } from '@/lib/i18n/locales/catalog';
 import { PRODUCT_NAME } from '@/lib/brand';
 
 export interface PublicRuntimeConfig {
@@ -41,6 +43,7 @@ export function getPublicOrganizationName() {
   return runtime?.organizationName?.trim() || process.env.NEXT_PUBLIC_ORGANIZATION_NAME?.trim() || PRODUCT_NAME;
 }
 
+/** The installer's start-up language (deploy.sh only offers pt-PT and en-US). The organization can pick any AppLocale later. */
 export function getConfiguredLocale(): 'pt-PT' | 'en-US' {
   return getPublicRuntimeConfig().locale === 'en-US' ? 'en-US' : 'pt-PT';
 }
@@ -51,8 +54,8 @@ export function hasSavedOrganizationLocale(status: { setupCompleted: boolean; or
 
 export function resolveOrganizationLocale(
   status: { setupCompleted: boolean; organizationName?: string | null; locale?: string | null },
-  deploymentLocale: 'pt-PT' | 'en-US',
-): 'pt-PT' | 'en-US' {
-  if (hasSavedOrganizationLocale(status) && (status.locale === 'pt-PT' || status.locale === 'en-US')) return status.locale;
+  deploymentLocale: AppLocale,
+): AppLocale {
+  if (hasSavedOrganizationLocale(status) && isAppLocale(status.locale)) return status.locale;
   return deploymentLocale;
 }

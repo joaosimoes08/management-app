@@ -12,6 +12,7 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import { formatDateTime } from '@/lib/format/date';
 import { bulkOperationalAlerts, BULK_ALERT_LIMIT, type BulkAlertAction, type BulkAlertResponse } from './api';
 import { SNOOZE_CHOICES } from './alert-meta';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 export const OPERATOR_ROLES = ['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR'] as const;
 
@@ -60,6 +61,7 @@ export function outcomeText(outcome: AlertActionOutcome): string {
  * reports the outcome. Render `confirmDialog` once.
  */
 export function useAlertActions(onDone?: (outcome: AlertActionOutcome, ids: string[]) => void) {
+  const tx = useUiText();
   const queryClient = useQueryClient();
   const { confirm, confirmDialog } = useConfirm();
   const [running, setRunning] = useState(false);
@@ -70,8 +72,8 @@ export function useAlertActions(onDone?: (outcome: AlertActionOutcome, ids: stri
     if (!targets.length) return;
     if (action === 'RESOLVE') {
       const message = targets.length === 1
-        ? `Resolver o alerta "${targets[0].title}"?\nSai da lista de alertas ativos; se o problema voltar a ocorrer, abre um novo alerta.`
-        : `Resolver ${targets.length} alertas?\nSaem da lista de alertas ativos; se algum voltar a ocorrer, abre um novo alerta.`;
+        ? tx('groupB.alerts.resolveOne', undefined, { title: targets[0].title })
+        : tx('groupB.alerts.resolveMany', undefined, { count: targets.length });
       if (!await confirm({ title: 'Resolver alertas', message, confirmLabel: 'Resolver' })) return;
     }
     setRunning(true); setError(null); setOutcome(null);
@@ -88,7 +90,7 @@ export function useAlertActions(onDone?: (outcome: AlertActionOutcome, ids: stri
       await queryClient.invalidateQueries({ queryKey: ['operations'] });
       await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
     }
-  }, [confirm, onDone, queryClient]);
+  }, [confirm, onDone, queryClient, tx]);
   const clear = useCallback(() => { setOutcome(null); setError(null); }, []);
   return { run, running, outcome, error, clear, confirmDialog };
 }
@@ -125,11 +127,12 @@ export function AlertRowActions({ alert, disabled, run }: { alert: Actionable; d
 
 /** Shown when the selection is not empty. */
 export function AlertBulkBar({ selected, disabled, run, clearSelection }: { selected: Actionable[]; disabled?: boolean; run: (action: BulkAlertAction, alerts: Actionable[], hours?: number) => void; clearSelection: () => void }) {
+  const tx = useUiText();
   if (!selected.length) return null;
   const over = selected.length > BULK_ALERT_LIMIT;
   return <div className="alert-bulk-bar" role="region" aria-label="Ações sobre os alertas selecionados">
     <strong>{selected.length === 1 ? '1 alerta selecionado' : `${selected.length} alertas selecionados`}</strong>
-    {over && <small>{`Apenas os primeiros ${BULK_ALERT_LIMIT} são tratados de cada vez.`}</small>}
+    {over && <small>{tx('groupB.alerts.bulkLimit', undefined, { count: BULK_ALERT_LIMIT })}</small>}
     <span className="button-row">
       <button type="button" className="secondary-button" disabled={disabled} onClick={() => run('ACKNOWLEDGE', selected)}>Reconhecer</button>
       <SnoozeSelect label="Adiar selecionados" disabled={disabled} onPick={(hours) => run('SNOOZE', selected, hours)} />

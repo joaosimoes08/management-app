@@ -43,7 +43,7 @@ export function IpAddressPanel({ ip, canUpdate, canCheck, close, updated, saved,
       setTotalPages(result.totalPages);
       setPage(requestedPage);
     } catch (cause) {
-      setHistoryError(cause instanceof Error ? cause.message : 'Não foi possível carregar o histórico.');
+      setHistoryError(cause instanceof Error ? cause.message : ui('ipam.ipPanel.historyError'));
     }
   };
   useEffect(() => { void loadHistory(1); }, [ip.id]);
@@ -57,7 +57,7 @@ export function IpAddressPanel({ ip, canUpdate, canCheck, close, updated, saved,
       saved();
       setEditing(false);
     } catch (cause) {
-      error(cause instanceof Error ? cause.message : 'Não foi possível guardar o endereço IP.');
+      error(cause instanceof Error ? cause.message : ui('ipam.ipPanel.saveError'));
     } finally { setBusy(false); }
   };
 
@@ -68,12 +68,12 @@ export function IpAddressPanel({ ip, canUpdate, canCheck, close, updated, saved,
       updated({ ...ip, ...result });
       await loadHistory(1);
     } catch (cause) {
-      error(cause instanceof Error ? cause.message : 'Não foi possível verificar o endereço IP.');
+      error(cause instanceof Error ? cause.message : ui('ipam.ipPanel.checkError'));
     } finally { setBusy(false); }
   };
 
   return <>
-    <button className="ip-panel-backdrop" aria-label="Fechar detalhes do IP" onClick={close} />
+    <button className="ip-panel-backdrop" aria-label={ui('ipam.ipPanel.close')} onClick={close} />
     <aside ref={dialogRef} className="host-panel ip-address-panel" role="dialog" aria-modal="true" aria-labelledby="ip-panel-title">
       <div className="host-panel-head"><div><h2 id="ip-panel-title">{ip.address}</h2><span>{ip.hostname || 'Sem hostname'}</span></div><button className="icon-button" onClick={close} aria-label="Fechar"><X size={18} /></button></div>
       <div className="host-status-line"><span>Estado: <strong>{ipStateLabel(ip.state)}</strong></span><span>Observado: <strong>{ipStateLabel(ip.observedState)}</strong></span><span>Subnet: <strong>{ip.subnet?.cidr || ip.subnetId}</strong></span></div>
@@ -83,14 +83,14 @@ export function IpAddressPanel({ ip, canUpdate, canCheck, close, updated, saved,
         <label>Descrição<textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
         <div className="form-actions"><button type="button" className="secondary-button" onClick={() => setEditing(false)}>Cancelar</button><button className="primary-button" disabled={busy}>{busy && <LoaderCircle size={14} className="spin" />} Guardar</button></div>
       </form> : <>
-        <div className="host-detail-grid"><div><span>MAC</span><strong>{ip.macAddress || '—'}</strong></div><div><span>Última verificação</span><strong>{ip.lastCheckAt ? formatDateTime(ip.lastCheckAt) : 'Nunca'}</strong></div><div className="wide"><span>Descrição</span><strong>{ip.notes || '—'}</strong></div><div className="wide"><span>Associado a</span><strong>{ip.host?.name || ip.interface?.device?.name || 'Sem host ou equipamento associado'}</strong></div></div>
-        <div className="form-actions ip-panel-actions">{canUpdate && <button className="secondary-button" onClick={() => setEditing(true)}><Edit3 size={14} /> Editar IP</button>}{canCheck && <button className="primary-button" disabled={busy} onClick={() => void check()}>{busy ? <LoaderCircle size={14} className="spin" /> : <Activity size={14} />} Verificar IP</button>}</div>
+        <div className="host-detail-grid"><div><span>MAC</span><strong>{ip.macAddress || '—'}</strong></div><div><span>{ui('ipam.ipPanel.lastCheck')}</span><strong>{ip.lastCheckAt ? formatDateTime(ip.lastCheckAt) : 'Nunca'}</strong></div><div className="wide"><span>Descrição</span><strong>{ip.notes || '—'}</strong></div><div className="wide"><span>{ui('ipam.ipPanel.linkedTo')}</span><strong>{ip.host?.name || ip.interface?.device?.name || ui('ipam.ipPanel.notLinked')}</strong></div></div>
+        <div className="form-actions ip-panel-actions">{canUpdate && <button className="secondary-button" onClick={() => setEditing(true)}><Edit3 size={14} /> Editar IP</button>}{canCheck && <button className="primary-button" disabled={busy} onClick={() => void check()}>{busy ? <LoaderCircle size={14} className="spin" /> : <Activity size={14} />} {ui('ipam.ipPanel.check')}</button>}</div>
       </>}
       <section className="ip-check-history" aria-labelledby="ip-history-title" aria-busy={!history && !historyError}>
-        <div className="panel-heading"><div><h3 id="ip-history-title">Histórico de verificações</h3></div><button className="icon-button subtle" onClick={() => void loadHistory(1)} aria-label="Atualizar histórico"><RefreshCw size={14} /></button></div>
+        <div className="panel-heading"><div><h3 id="ip-history-title">Histórico de verificações</h3></div><button className="icon-button subtle" onClick={() => void loadHistory(1)} aria-label={ui('ipam.ipPanel.refreshHistory')}><RefreshCw size={14} /></button></div>
         {historyError && <p className="ipam-alert error" role="alert">{historyError}</p>}
-        {!history && !historyError && <div className="ip-history-skeletons" aria-label="A carregar histórico de verificações">{[0, 1, 2].map((item) => <div className="ip-history-skeleton" key={item}><i className="content-skeleton"/><span><i className="content-skeleton"/><i className="content-skeleton"/></span><i className="content-skeleton"/></div>)}</div>}
-        {history?.length === 0 && <p className="ip-history-muted">Ainda não existem verificações registadas.</p>}
+        {!history && !historyError && <div className="ip-history-skeletons" aria-label={ui('ipam.ipPanel.loadingHistory')}>{[0, 1, 2].map((item) => <div className="ip-history-skeleton" key={item}><i className="content-skeleton"/><span><i className="content-skeleton"/><i className="content-skeleton"/></span><i className="content-skeleton"/></div>)}</div>}
+        {history?.length === 0 && <p className="ip-history-muted">{ui('ipam.ipPanel.noHistory')}</p>}
         {history && history.length > 0 && <>
           <ol className="ip-check-list">{history.map((entry) => <li key={entry.id}><span className={`ip-check-dot ${entry.metadata?.reachable ? 'reachable' : 'unreachable'}`} /><span><strong>{entry.metadata?.reachable ? 'Acessível' : 'Sem resposta'}</strong><small>{entry.user?.displayName || entry.user?.username || 'Sistema'}</small></span><time dateTime={entry.createdAt}>{formatDateTime(entry.createdAt)}</time></li>)}</ol>
           {totalPages > 1 && <div className="ip-history-pagination"><button className="secondary-button" disabled={page <= 1} onClick={() => void loadHistory(page - 1)}>{ui('common.previous')}</button><span>{page} / {totalPages}</span><button className="secondary-button" disabled={page >= totalPages} onClick={() => void loadHistory(page + 1)}>{ui('common.next')}</button></div>}

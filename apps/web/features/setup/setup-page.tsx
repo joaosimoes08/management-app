@@ -8,6 +8,7 @@ import { ArrowLeft, ArrowRight, Building2, Check, DoorOpen, Flag, MapPin, Shield
 import { useAuth } from '@/lib/auth';
 import { currentSearch, designPreviewStep, isDesignPreview } from '@/lib/design-preview';
 import { AppLocale, useI18n } from '@/lib/i18n';
+import { APP_LOCALES, LOCALE_NATIVE_NAMES } from '@/lib/i18n/locales/catalog';
 import { getConfiguredLocale, resolveOrganizationLocale } from '@/lib/runtime-config';
 import { ringTransition, stepIndicatorTransition, stepPanelVariants, type StepDirection } from './setup-motion';
 import { completeSetup, createSetupOrganization, createSetupSite, getSetupStatus, type SetupStatus } from './api';
@@ -61,7 +62,7 @@ export default function SetupPage() {
     if (preview) { setStep(2); return; }
     setSaving(true); setError(null);
     try { await createSetupOrganization({ name: form.organizationName, code: form.organizationCode || undefined, timezone: form.timezone, locale: form.locale }); setStep(2); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : 'Não foi possível guardar a organização.'); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : t('setup.error.organization')); }
     finally { setSaving(false); }
   };
   const saveSite = async () => {
@@ -72,14 +73,14 @@ export default function SetupPage() {
       queryClient.setQueryData<SetupStatus>(['setup', 'status'], (value) => (value ? { ...value, hasSite: true, siteCount: value.siteCount + 1 } : value));
       setStep(3);
     }
-    catch (reason) { setError(reason instanceof Error ? reason.message : 'Não foi possível criar o site.'); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : t('setup.error.site')); }
     finally { setSaving(false); }
   };
   const complete = async () => {
     if (preview) { window.location.replace('/'); return; }
     setSaving(true); setError(null);
     try { await completeSetup(); window.location.replace('/'); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : 'Não foi possível concluir o setup.'); setSaving(false); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : t('setup.error.complete')); setSaving(false); }
   };
 
   if (busy) return <div className="auth-loading"><div className="auth-spinner" /><span>{t('setup.preparing')}</span></div>;
@@ -119,7 +120,7 @@ export default function SetupPage() {
         <AnimatePresence mode="wait" initial={false} custom={direction}>
         <m.div className={navigated ? 'onboarding-stage stagger' : 'onboarding-stage'} key={step} custom={direction} variants={stepPanelVariants(reduceMotion)} initial="enter" animate="center" exit="exit" onAnimationComplete={focusNewStep}>
         {step === 0 && <div className="onboarding-panel"><div className="onboarding-body">{heading(t('setup.welcomeTitle'))}<p>{t('setup.welcomeDescription')}</p></div><div className="onboarding-actions"><button className="onboarding-primary" onClick={() => setStep(1)}>{t('setup.start')} <ArrowRight size={16} /></button></div></div>}
-        {step === 1 && <div className="onboarding-panel"><div className="onboarding-body">{heading(t('setup.orgQuestion'))}<p>{t('setup.orgDescription')}</p><label className="setup-field">{t('setup.language')}<select value={form.locale} onChange={(event) => { const next = event.target.value as AppLocale; update('locale', next); setLocale(next); }}><option value="pt-PT">Português (Portugal)</option><option value="en-US">English (United States)</option></select></label>{fields('organizationName', t('setup.orgName'), t('setup.orgNameExample'), true)}{fields('organizationCode', t('setup.shortCode'), t('setup.shortCodeExample'))}<label className="setup-field">{t('setup.timezone')}<select value={form.timezone} onChange={(event) => update('timezone', event.target.value)}><option>Europe/Lisbon</option><option>UTC</option><option>Europe/London</option><option>Europe/Madrid</option></select></label></div><div className="onboarding-actions">{backButton(0)}<button className="onboarding-primary" disabled={!form.organizationName.trim() || saving} onClick={() => void saveOrganization()}>{saving ? t('setup.saving') : <>{t('setup.continue')} <ArrowRight size={16} /></>}</button></div></div>}
+        {step === 1 && <div className="onboarding-panel"><div className="onboarding-body">{heading(t('setup.orgQuestion'))}<p>{t('setup.orgDescription')}</p><label className="setup-field">{t('setup.language')}<select value={form.locale} onChange={(event) => { const next = event.target.value as AppLocale; update('locale', next); setLocale(next); }}>{APP_LOCALES.map((code) => <option key={code} value={code}>{LOCALE_NATIVE_NAMES[code]}</option>)}</select></label>{fields('organizationName', t('setup.orgName'), t('setup.orgNameExample'), true)}{fields('organizationCode', t('setup.shortCode'), t('setup.shortCodeExample'))}<label className="setup-field">{t('setup.timezone')}<select value={form.timezone} onChange={(event) => update('timezone', event.target.value)}><option>Europe/Lisbon</option><option>UTC</option><option>Europe/London</option><option>Europe/Madrid</option></select></label></div><div className="onboarding-actions">{backButton(0)}<button className="onboarding-primary" disabled={!form.organizationName.trim() || saving} onClick={() => void saveOrganization()}>{saving ? t('setup.saving') : <>{t('setup.continue')} <ArrowRight size={16} /></>}</button></div></div>}
         {step === 2 && <div className="onboarding-panel"><div className="onboarding-body">{heading(t('setup.siteTitle'))}<p>{t('setup.siteDescription')}</p><div className="form-row">{fields('siteName', t('setup.siteName'), t('setup.siteNameExample'), true)}{fields('siteCode', t('setup.siteCode'), t('setup.siteCodeExample'), true)}</div><div className="form-row">{fields('address', t('setup.address'), t('setup.addressExample'))}{fields('city', t('setup.city'), t('setup.city'))}</div><div className="form-row">{fields('region', t('setup.region'), t('setup.region'))}{fields('country', t('setup.country'), t('setup.country'))}</div><div className="setup-location"><MapPin size={16} /><strong>{t('setup.optionalHierarchy')}</strong><div className="form-row">{fields('buildingName', t('setup.building'), t('setup.buildingExample'))}{fields('roomName', t('setup.room'), t('setup.roomExample'))}</div>{fields('rackName', t('setup.rack'), t('setup.rackExample'))}</div></div><div className="onboarding-actions">{backButton(1)}<button className="onboarding-primary" disabled={!form.siteName.trim() || !form.siteCode.trim() || saving} onClick={() => void saveSite()}>{saving ? t('setup.creating') : <>{t('setup.createSite')} <ArrowRight size={16} /></>}</button></div></div>}
         {step === 3 && <div className="onboarding-panel"><div className="onboarding-body"><div className="setup-success"><Check size={25} /></div>{heading(t('setup.ready'))}<p>{t('setup.readyDescription').replace('{organization}', form.organizationName).replace('{site}', form.siteName).replace('{code}', form.siteCode.toUpperCase())}</p></div><div className="onboarding-actions"><button className="onboarding-primary" disabled={saving} onClick={() => void complete()}>{saving ? t('setup.finishing') : <>{t('setup.enter')} <ArrowRight size={16} /></>}</button></div></div>}
         </m.div>

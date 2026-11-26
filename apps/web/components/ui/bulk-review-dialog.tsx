@@ -21,11 +21,11 @@ export type BulkReviewResponse = { status?: string; total?: number; succeeded?: 
 export type BulkReviewItem = { id: string; label: string; detail?: string };
 
 /** Message for a failed item: API message first, then the code, then a generic text. */
-export function bulkItemErrorMessage(result: BulkReviewItemResult): string {
+export function bulkItemErrorMessage(result: BulkReviewItemResult, fallback = 'Não foi possível aplicar a revisão a este item.'): string {
   if (result.ok) return '';
   const message = result.error?.message;
   const text = Array.isArray(message) ? message.join(' ') : message;
-  return text || result.error?.code || 'Não foi possível aplicar a revisão a este item.';
+  return text || result.error?.code || fallback;
 }
 
 type Props = {
@@ -65,33 +65,33 @@ export function BulkReviewDialog({ title, actionLabel, noun, items, run, onDone,
       setResponse(result);
       onDone?.(result);
     } catch (cause) {
-      setError(cause instanceof Error && cause.message ? cause.message : 'Não foi possível aplicar a revisão em massa.');
+      setError(cause instanceof Error && cause.message ? cause.message : ui('ui.bulk.requestFailed'));
     } finally {
       setRunning(false);
     }
   };
 
   return <IpamModal title={title} close={running ? () => undefined : close}><div className="modal-form">
-    {!done && <p className="panel-description">{`${items.length} ${noun} selecionados. Cada item é verificado à parte; uma falha não impede os restantes.`}</p>}
-    {tooMany && <div className="ipam-alert warning" role="note">{`Seleciona no máximo ${BULK_REVIEW_MAX} itens por pedido.`}</div>}
+    {!done && <p className="panel-description">{ui('ui.bulk.selected', undefined, { count: items.length, noun })}</p>}
+    {tooMany && <div className="ipam-alert warning" role="note">{ui('ui.bulk.tooMany', undefined, { max: BULK_REVIEW_MAX })}</div>}
     {error && <div className="ipam-alert error" role="alert"><X size={15} />{error}</div>}
-    {done && <div className={`ipam-alert ${succeeded === total ? 'success' : 'error'}`} role="status">{succeeded === total ? <CheckCircle2 size={15} /> : <X size={15} />}{`${succeeded} de ${total} aplicados.`}</div>}
+    {done && <div className={`ipam-alert ${succeeded === total ? 'success' : 'error'}`} role="status">{succeeded === total ? <CheckCircle2 size={15} /> : <X size={15} />}{ui('ui.bulk.applied', undefined, { succeeded, total })}</div>}
     <div className="ip-table-wrap" role="region" aria-label={ui('ui.bulkReviewItems')} tabIndex={0}><table className="ip-table">
-      <thead><tr><th>Item</th><th>Resultado</th></tr></thead>
+      <thead><tr><th>{ui('ui.bulk.item')}</th><th>{ui('ui.bulk.result')}</th></tr></thead>
       <tbody>{rows.map((item) => {
         const result = byId.get(item.id);
         return <tr key={item.id}>
           <td><strong>{item.label}</strong>{item.detail ? <small>{item.detail}</small> : null}</td>
           <td>{result
             ? result.ok
-              ? <span className="state-badge occupied"><i />{typeof result.status === 'string' && result.status ? `Aplicado · ${result.status}` : 'Aplicado'}</span>
-              : <><span className="state-badge excluded"><i />Falhou</span><small>{bulkItemErrorMessage(result)}</small></>
-            : <span className="muted-cell">{running ? 'A aplicar…' : done ? 'Sem resposta' : 'Por aplicar'}</span>}</td>
+              ? <span className="state-badge occupied"><i />{typeof result.status === 'string' && result.status ? ui('ui.bulk.appliedStatus', undefined, { status: result.status }) : ui('ui.bulk.appliedPlain')}</span>
+              : <><span className="state-badge excluded"><i />{ui('ui.bulk.failed')}</span><small>{bulkItemErrorMessage(result, ui('ui.bulk.itemFailed'))}</small></>
+            : <span className="muted-cell">{running ? ui('ui.bulk.applying') : done ? ui('ui.bulk.noResponse') : ui('ui.bulk.pending')}</span>}</td>
         </tr>;
       })}</tbody>
     </table></div>
     <div className="modal-actions">{done
-      ? <button type="button" className="primary-button" onClick={close}>Fechar</button>
-      : <><button type="button" className="secondary-button" disabled={running} onClick={close}>Cancelar</button><button type="button" className="primary-button" disabled={running || !items.length || tooMany} onClick={() => void submit()}>{running ? 'A aplicar…' : `${actionLabel} ${items.length}`}</button></>}</div>
+      ? <button type="button" className="primary-button" onClick={close}>{ui('ui.close')}</button>
+      : <><button type="button" className="secondary-button" disabled={running} onClick={close}>{ui('ui.bulk.cancel')}</button><button type="button" className="primary-button" disabled={running || !items.length || tooMany} onClick={() => void submit()}>{running ? ui('ui.bulk.applying') : <>{actionLabel} {items.length}</>}</button></>}</div>
   </div></IpamModal>;
 }

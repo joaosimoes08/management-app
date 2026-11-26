@@ -1,5 +1,6 @@
 import { formatNumber } from '@/lib/format/date';
 import type { Subnet, SubnetUtilization } from './types';
+import { ipamText } from './i18n';
 
 /** Thresholds the API uses for `utilization.band` (shown in tooltips; the band itself comes from the API). */
 export const UTILIZATION_WARNING_PERCENT = 80;
@@ -12,7 +13,7 @@ export const utilizationBandOptions = [
   ['UNTRACKED', 'Não contabilizada (IPv6)'],
 ] as const;
 
-const bandLabels: Record<string, string> = { WARNING: 'Atenção', CRITICAL: 'Crítica' };
+const LABELLED_BANDS = ['WARNING', 'CRITICAL'];
 const bandTone: Record<string, string> = { OK: 'occupied', WARNING: 'reserved', CRITICAL: 'excluded' };
 
 export function formatIpamPercent(value: number): string {
@@ -26,14 +27,14 @@ export function utilizationBadge(utilization: SubnetUtilization | null | undefin
   if (!utilization) return null;
   const { band, utilizationPercent } = utilization;
   if (band === 'UNTRACKED' || utilizationPercent === null || utilizationPercent === undefined) {
-    return { tone: '', label: band === 'UNTRACKED' ? 'Não contabilizada' : String(band || '—'), title: 'A capacidade de prefixos IPv6 não é enumerada.' };
+    return { tone: '', label: band === 'UNTRACKED' ? ipamText('ipam.utilization.untracked') : String(band || '—'), title: ipamText('ipam.utilization.untrackedTitle') };
   }
   const percent = formatIpamPercent(utilizationPercent);
-  const bandLabel = band === 'OK' ? '' : bandLabels[band] ?? String(band);
+  const bandLabel = band === 'OK' ? '' : LABELLED_BANDS.includes(band) ? ipamText(`ipam.utilization.band.${band}`) : String(band);
   const suffix = bandLabel ? ` · ${bandLabel}` : '';
   const counts = [
-    typeof utilization.allocated === 'number' && typeof utilization.usableCapacity === 'number' ? `${utilization.allocated} de ${utilization.usableCapacity} alocados` : '',
-    typeof utilization.free === 'number' ? `${utilization.free} livres` : '',
+    typeof utilization.allocated === 'number' && typeof utilization.usableCapacity === 'number' ? ipamText('ipam.utilization.allocated', { allocated: utilization.allocated, capacity: utilization.usableCapacity }) : '',
+    typeof utilization.free === 'number' ? ipamText('ipam.utilization.free', { free: utilization.free }) : '',
   ].filter(Boolean).join(' · ');
   return { tone: bandTone[band] ?? '', label: `${percent}${suffix}`, title: counts };
 }

@@ -56,7 +56,11 @@ export function DiscoveryIpamStatus({ ipam }: { ipam?: DiscoveryResultIpam | nul
   </>;
 }
 
-const probeSummary = (result: DiscoveryResult) => `${result.icmpReachable ? `ICMP respondeu${result.responseMs != null ? ` em ${result.responseMs}ms` : ''}` : 'Sem resposta ICMP'}${result.openPorts?.length ? ` · Ligação TCP aceite na(s) porta(s) ${result.openPorts.join(', ')}` : ''}`;
+const probeSummary = (result: DiscoveryResult, t: Translate) => {
+  const icmp = result.icmpReachable ? (result.responseMs != null ? t('groupB.discovery.icmpRepliedIn', undefined, { ms: result.responseMs }) : t('groupB.discovery.icmpReplied')) : t('groupB.discovery.icmpNoReply');
+  return result.openPorts?.length ? t('groupB.discovery.probeWithPorts', undefined, { icmp, ports: result.openPorts.join(', ') }) : icmp;
+};
+type Translate = ReturnType<typeof useUiText>;
 
 type Props = {
   results: DiscoveryResult[];
@@ -89,7 +93,7 @@ export function DiscoveryResultsTable({ results, canEdit, review, bulkDone }: Pr
   const columns = useMemo<DataTableColumn<DiscoveryResult>[]>(() => [
     { id: 'address', header: 'Endereço', sortValue: (result) => result.address.split(/[.:]/).map((part) => part.padStart(5, '0')).join('.'), cell: (result) => <strong className="mono">{result.address}</strong> },
     { id: 'hostname', header: 'Hostname', sortValue: (result) => result.hostname ?? null, cell: (result) => result.hostname || <span className="muted-cell">reverse DNS não encontrado</span> },
-    { id: 'probe', header: 'Sonda', cell: (result) => result.outcome ? <DiscoveryOutcomeCell outcome={result.outcome} /> : <small>{probeSummary(result)}</small> },
+    { id: 'probe', header: 'Sonda', cell: (result) => result.outcome ? <DiscoveryOutcomeCell outcome={result.outcome} /> : <small>{probeSummary(result, t)}</small> },
     ...(hasSnmp ? [{ id: 'snmp', header: 'SNMP', sortValue: (result: DiscoveryResult) => result.snmp?.fields.sysName?.value ?? null, cell: (result: DiscoveryResult) => <DiscoverySnmpCell snmp={result.snmp} /> }] : []),
     ...(hasIdentity ? [{ id: 'identity', header: t('discoveryIdentity.column'), sortValue: (result: DiscoveryResult) => identitySortValue(result.identity), cell: (result: DiscoveryResult) => <DiscoveryIdentityCell identity={result.identity} /> }] : []),
     { id: 'ipam', header: 'IPAM', sortValue: resultIpamState, cell: (result) => <DiscoveryIpamStatus ipam={result.ipam} /> },
@@ -112,14 +116,14 @@ export function DiscoveryResultsTable({ results, canEdit, review, bulkDone }: Pr
       <FilterChips label="IPAM" value={table.filters.Ipam} options={ipamOptions} total={tools.rows.length} onChange={(value) => table.setFilter('Ipam', value)} />
       {tools.typeChips}
     </FilterChipBar>}
-    {tooMany && <div className="ipam-alert warning" role="note">{`Seleciona no máximo ${BULK_REVIEW_MAX} resultados por pedido.`}</div>}
+    {tooMany && <div className="ipam-alert warning" role="note">{t('groupB.discovery.bulkMax', undefined, { count: BULK_REVIEW_MAX })}</div>}
     <DataTable rows={rows} columns={columns} rowKey={(result) => result.id} label="Resultados de sondas" sort={table.sort} onSortChange={table.setSort} defaultSort={table.defaultSort}
-      selection={canEdit ? { selected: new Set(selectedIds), onChange: setSelected, isSelectable: (result) => result.status === 'PENDING', rowLabel: (result, selectable) => selectable ? `Selecionar ${result.address}` : `${result.address} já revisto`, allLabel: 'Selecionar todos os resultados pendentes' } : undefined}
+      selection={canEdit ? { selected: new Set(selectedIds), onChange: setSelected, isSelectable: (result) => result.status === 'PENDING', rowLabel: (result, selectable) => t(selectable ? 'groupB.discovery.selectRow' : 'groupB.discovery.rowReviewed', undefined, { address: result.address }), allLabel: 'Selecionar todos os resultados pendentes' } : undefined}
       empty={<div className="no-data">{results.length ? 'Nenhum resultado com estes filtros.' : 'Não existem resultados alcançáveis para esta execução.'}</div>} />
     {bulk && <BulkReviewDialog
-      title={bulk.status === 'APPROVED' ? 'Aprovar resultados selecionados' : 'Ignorar resultados selecionados'}
-      actionLabel={bulk.status === 'APPROVED' ? 'Aprovar' : 'Ignorar'}
-      noun="resultados"
+      title={t(bulk.status === 'APPROVED' ? 'groupB.discovery.bulkApproveTitle' : 'groupB.discovery.bulkIgnoreTitle')}
+      actionLabel={t(bulk.status === 'APPROVED' ? 'groupB.discovery.approve' : 'groupB.common.ignore')}
+      noun={t('groupB.discovery.noun')}
       items={bulk.ids.map((id) => { const result = byId.get(id); return { id, label: result?.address ?? id, detail: result?.hostname ?? undefined }; })}
       run={() => bulkReviewDiscoveryResults(bulk.ids, bulk.status)}
       onDone={(response) => { bulkDone(response); setSelected(new Set()); }}

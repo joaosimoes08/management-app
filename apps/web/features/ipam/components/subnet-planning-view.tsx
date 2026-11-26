@@ -5,20 +5,22 @@ import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { ApiRequestError } from '@/lib/api/errors';
+import { useUiText } from '@/components/ui/use-ui-text';
+import { ipamText } from '../i18n';
 import type { Subnet } from '../types';
 import { commitSubnetPlanning, getSubnetPlanning, type SubnetPlanCommitProblem, type SubnetPlanning, type SubnetPlanningAllocationKind, type SubnetPlannedBlock, type SubnetPlanningSegment, type SubnetPlanningShortfall, type SubnetSkippedBlock, type SubnetSplitRow } from '../api';
 
 /** The API creates at most this many blocks per confirmation (MAX_COMMIT_BLOCKS in apps/api/src/ipam/subnet-planning.ts). */
 export const PLANNING_COMMIT_MAX_BLOCKS = 64;
-const PLANNING_COMMIT_LIMIT_HINT = `No máximo ${PLANNING_COMMIT_MAX_BLOCKS} subnets por confirmação; reduz a quantidade.`;
+const planningCommitLimitHint = () => ipamText('ipam.planning.commitLimit', { max: PLANNING_COMMIT_MAX_BLOCKS });
 
-const kindLabel: Record<SubnetPlanningAllocationKind, string> = { SUBNET: 'Subnet existente', HOST: 'Hosts', RESERVED: 'Reservados / excluídos', GATEWAY: 'Gateway' };
+const kindLabel = (kind: SubnetPlanningAllocationKind) => ipamText(`ipam.planning.kind.${kind}`);
 const segmentBadge: Record<SubnetPlanningSegment['status'], { className: string; label: string }> = {
-  FREE: { className: 'free', label: 'Livre' },
-  TAKEN: { className: 'occupied', label: 'Ocupado' },
-  PLANNED: { className: 'pending', label: 'Planeado' },
-  RESERVED: { className: 'reserved', label: 'Reservado' },
-  CONFLICT: { className: 'excluded', label: 'Conflito' },
+  FREE: { className: 'free', get label() { return ipamText('ipam.planning.segment.FREE'); } },
+  TAKEN: { className: 'occupied', get label() { return ipamText('ipam.planning.segment.TAKEN'); } },
+  PLANNED: { className: 'pending', get label() { return ipamText('ipam.planning.segment.PLANNED'); } },
+  RESERVED: { className: 'reserved', get label() { return ipamText('ipam.planning.segment.RESERVED'); } },
+  CONFLICT: { className: 'excluded', get label() { return ipamText('ipam.planning.segment.CONFLICT'); } },
 };
 
 const ipNumber = (ip: string) => ip.split('.').reduce((acc, part) => acc * 256 + Number(part), 0);
@@ -30,24 +32,24 @@ export function plannedListRows(planned: SubnetPlannedBlock[], skipped: SubnetSk
 }
 
 export function shortfallMessage(item: SubnetPlanningShortfall) {
-  if (item.reason === 'PREFIX_SHORTER_THAN_PARENT') return `Um bloco /${item.prefix} é maior do que a subnet selecionada.`;
-  if (item.reason === 'TRUNCATED') return `Foram planeados os primeiros ${item.planned} blocos /${item.prefix}; cabem mais. Indica uma quantidade para limitar a pré-visualização.`;
-  if (item.reason === 'NO_FREE_ALIGNED_BLOCK') return `Não existe nenhum bloco /${item.prefix} alinhado e livre nesta subnet.`;
-  return `Só cabem ${item.planned} de ${item.requested} blocos /${item.prefix}; faltam ${item.missing}.`;
+  if (item.reason === 'PREFIX_SHORTER_THAN_PARENT') return ipamText('ipam.planning.shortfall.tooLarge', { prefix: item.prefix });
+  if (item.reason === 'TRUNCATED') return ipamText('ipam.planning.shortfall.truncated', { count: item.planned, prefix: item.prefix });
+  if (item.reason === 'NO_FREE_ALIGNED_BLOCK') return ipamText('ipam.planning.shortfall.noFree', { prefix: item.prefix });
+  return ipamText('ipam.planning.shortfall.partial', { planned: item.planned ?? '—', requested: item.requested ?? '—', prefix: item.prefix ?? '—', missing: item.missing ?? '—' });
 }
 
 function segmentDetail(segment: SubnetPlanningSegment) {
   if (segment.status === 'FREE') return segment.cidrs.join(', ');
   if (segment.status === 'PLANNED') return segment.cidrs[0] ?? '';
   if (segment.status === 'RESERVED') return segment.label ?? '';
-  if (segment.status === 'CONFLICT') return `${segment.cidrs[0] ?? ''} não planeado: ${segment.label ?? ''}${segment.breakdown ? ` · ${segment.breakdown.free} livres` : ''}`;
-  const kinds = (segment.kinds ?? []).map((kind) => kindLabel[kind]).join(' · ');
+  if (segment.status === 'CONFLICT') return segment.breakdown ? ipamText('ipam.planning.conflictDetailFree', { cidr: segment.cidrs[0] ?? '', label: segment.label ?? '', free: segment.breakdown.free }) : ipamText('ipam.planning.conflictDetail', { cidr: segment.cidrs[0] ?? '', label: segment.label ?? '' });
+  const kinds = (segment.kinds ?? []).map(kindLabel).join(' · ');
   return segment.label ? `${kinds}: ${segment.label}` : kinds;
 }
 
 /** Selector label: CIDR · purpose · VRF · Site, so subnets with the same range in different VRFs can be told apart. */
 export function subnetOptionLabel(item: Subnet) {
-  return [item.cidr, item.purpose, item.vrf?.name ? `VRF ${item.vrf.name}` : item.vrfId ? 'VRF' : 'Global', item.site?.name].filter(Boolean).join(' · ');
+  return [item.cidr, item.purpose, item.vrf?.name ? `VRF ${item.vrf.name}` : item.vrfId ? 'VRF' : ipamText('ipam.planning.globalVrf'), item.site?.name].filter(Boolean).join(' · ');
 }
 
 function splitBadge(row: SubnetSplitRow) {
@@ -66,6 +68,7 @@ export function matchesPlanningSearch(item: Subnet, term: string) {
  */
 export function SubnetPlanningView({ subnets, search = '', canCreate = false }: { subnets: Subnet[]; search?: string; canCreate?: boolean }) {
   const { confirm, confirmDialog } = useConfirm();
+  const ui = useUiText();
   const queryClient = useQueryClient();
   const [subnetId, setSubnetId] = useState('');
   const [prefix, setPrefix] = useState('');
@@ -93,7 +96,7 @@ export function SubnetPlanningView({ subnets, search = '', canCreate = false }: 
   });
   const plan: SubnetPlanning | null = subnetId ? planQuery.data ?? null : null;
   const loading = Boolean(subnetId) && planQuery.isFetching;
-  const loadError = planQuery.error ? (planQuery.error instanceof Error ? planQuery.error.message : 'Não foi possível calcular o planeamento.') : '';
+  const loadError = planQuery.error ? (planQuery.error instanceof Error ? planQuery.error.message : ui('ipam.planning.loadError')) : '';
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['ipam'] });
   const planned = plan && plan.subnet?.id === subnetId ? plan.planned ?? [] : [];
   const skipped = plan && plan.subnet?.id === subnetId ? plan.skipped ?? [] : [];
@@ -102,9 +105,9 @@ export function SubnetPlanningView({ subnets, search = '', canCreate = false }: 
     if (!planned.length || overCommitLimit || committing) return;
     const label = purpose.trim();
     const ok = await confirm({
-      title: 'Criar subnets planeadas',
-      message: `Vão ser criadas ${planned.length} subnet(s) dentro de ${selected?.cidr ?? ''}, no mesmo Site e VRF:\n${planned.map((block) => `${block.cidr} (${block.start} – ${block.end})`).join('\n')}${label ? `\nFinalidade: ${label}` : ''}\nA disponibilidade é verificada de novo antes de gravar.`,
-      confirmLabel: 'Confirmar e criar',
+      title: ui('ipam.planning.confirmTitle'),
+      message: [ui('ipam.planning.confirmMessage', undefined, { count: planned.length, cidr: selected?.cidr ?? '' }), ...planned.map((block) => `${block.cidr} (${block.start} – ${block.end})`), ...(label ? [ui('ipam.planning.confirmPurpose', undefined, { purpose: label })] : []), ui('ipam.planning.confirmRecheck')].join('\n'),
+      confirmLabel: ui('ipam.planning.confirmCreate'),
     });
     if (!ok) return;
     setCommitting(true); setConflicts([]); setCreated([]); setError('');
@@ -115,66 +118,66 @@ export function SubnetPlanningView({ subnets, search = '', canCreate = false }: 
     } catch (cause) {
       const problems = cause instanceof ApiRequestError ? (cause.payload as { conflicts?: SubnetPlanCommitProblem[] } | undefined)?.conflicts : undefined;
       if (problems?.length) { setConflicts(problems); void refresh(); }
-      else setError(cause instanceof Error ? cause.message : 'Não foi possível criar as subnets.');
+      else setError(cause instanceof Error ? cause.message : ui('ipam.planning.createError'));
     } finally {
       setCommitting(false);
     }
   };
   return <section className="ipam-card" aria-busy={loading}>
-    <div className="panel-heading"><div><h2>Intervalos e endereços livres</h2><p>Consulta o espaço livre de uma subnet IPv4 e pré-visualiza onde ficariam novos blocos alinhados (por exemplo /27 ou ligações ponto a ponto /30 e /31). Nada é criado sem confirmação.</p></div></div>
+    <div className="panel-heading"><div><h2>{ui('ipam.planning.title')}</h2><p>{ui('ipam.planning.description')}</p></div></div>
     <div className="modal-form">
-      <label>Subnet<select value={subnetId} onChange={(event) => setSubnetId(event.target.value)}><option value="">{options.length || !term ? 'Seleciona uma subnet' : 'Nenhuma subnet corresponde à pesquisa'}</option>{options.map((item) => <option key={item.id} value={item.id}>{subnetOptionLabel(item)}</option>)}</select></label>
+      <label>{ui('ipam.planning.subnet')}<select value={subnetId} onChange={(event) => setSubnetId(event.target.value)}><option value="">{options.length || !term ? ui('ipam.planning.selectSubnet') : ui('ipam.planning.noMatch')}</option>{options.map((item) => <option key={item.id} value={item.id}>{subnetOptionLabel(item)}</option>)}</select></label>
       {prefixOptions.length > 0 && <>
-        <label>Tamanho dos blocos<select value={prefix} onChange={(event) => setPrefix(event.target.value)}><option value="">Só ver o espaço livre</option>{prefixOptions.map((value) => <option key={value} value={value}>/{value}{value === 31 ? ' · ponto a ponto (RFC 3021)' : value === 30 ? ' · ponto a ponto' : ''}</option>)}</select></label>
-        {prefix && <label>Quantidade<input type="number" min="1" max="1024" step="1" placeholder="Todos os que couberem" value={count} onChange={(event) => setCount(event.target.value)} /></label>}
+        <label>{ui('ipam.planning.blockSize')}<select value={prefix} onChange={(event) => setPrefix(event.target.value)}><option value="">{ui('ipam.planning.freeOnly')}</option>{prefixOptions.map((value) => <option key={value} value={value}>/{value}{value === 31 ? ` · ${ui('ipam.planning.pointToPointRfc')}` : value === 30 ? ` · ${ui('ipam.planning.pointToPoint')}` : ''}</option>)}</select></label>
+        {prefix && <label>{ui('ipam.planning.count')}<input type="number" min="1" max="1024" step="1" placeholder={ui('ipam.planning.countAll')} value={count} onChange={(event) => setCount(event.target.value)} /></label>}
       </>}
     </div>
-    {loading && <div className="no-data" role="status">A calcular…</div>}
+    {loading && <div className="no-data" role="status">{ui('ipam.calc.calculating')}</div>}
     {(error || loadError) && <div className="ipam-alert error">{error || loadError}</div>}
-    {created.length > 0 && <div className="ipam-alert success" role="status">Subnets criadas: {created.join(', ')}.</div>}
+    {created.length > 0 && <div className="ipam-alert success" role="status">{ui('ipam.planning.created', undefined, { cidrs: created.join(', ') })}</div>}
     {conflicts.length > 0 && <>
-      <div className="ipam-alert error" role="alert">Nada foi criado: {conflicts.length === 1 ? 'um bloco já não está disponível' : `${conflicts.length} blocos já não estão disponíveis`}. O plano foi recalculado.</div>
+      <div className="ipam-alert error" role="alert">{ui('ipam.planning.nothingCreated', undefined, { count: conflicts.length })}</div>
       {conflicts.map((item) => <div className="ipam-alert warning" key={`${item.cidr}-${item.reason}`}>{item.message}</div>)}
     </>}
     {plan && <div className="activity-list">
       {plan.message ? <div className="no-data">{plan.message}</div> : <>
-        <div className="activity-row"><strong>Intervalo utilizável</strong><span>{plan.usableRange?.start ?? '—'} – {plan.usableRange?.end ?? '—'}</span></div>
-        <div className="activity-row"><strong>Utilização</strong><span>{plan.unavailable} / {plan.usableTotal} indisponíveis (inclui subnets filhas e reservas) · {formatIpamPercent(plan.utilizationPercent ?? 0)} · {plan.free} livres</span></div>
-        <div className="activity-row"><strong>Broadcast</strong><span>{plan.broadcast}</span></div>
-        {plan.scope && <div className="activity-row"><strong>Âmbito</strong><span>{plan.scope.vrfName ? `VRF ${plan.scope.vrfName}` : 'Tabela global (sem VRF)'}{plan.scope.siteName ? ` · Site ${plan.scope.siteName}` : ''} · {plan.childSubnets ?? 0} subnets dentro desta</span></div>}
-        {plan.addressSpace && planned.length > 0 && <div className="activity-row"><strong>Após o plano</strong><span>{plan.addressSpace.taken} ocupados{plan.addressSpace.reserved ? ` · ${plan.addressSpace.reserved} reservados (rede e broadcast)` : ''} · {plan.addressSpace.planned} planeados · {plan.addressSpace.freeAfterPlan} livres de {plan.addressSpace.total}</span></div>}
+        <div className="activity-row"><strong>{ui('ipam.planning.usableRange')}</strong><span>{plan.usableRange?.start ?? '—'} – {plan.usableRange?.end ?? '—'}</span></div>
+        <div className="activity-row"><strong>{ui('ipam.planning.utilization')}</strong><span>{ui('ipam.planning.utilizationDetail', undefined, { unavailable: plan.unavailable ?? '', total: plan.usableTotal ?? '', percent: formatIpamPercent(plan.utilizationPercent ?? 0), free: plan.free ?? '' })}</span></div>
+        <div className="activity-row"><strong>{ui('ipam.planning.broadcast')}</strong><span>{plan.broadcast}</span></div>
+        {plan.scope && <div className="activity-row"><strong>{ui('ipam.planning.scope')}</strong><span>{[plan.scope.vrfName ? `VRF ${plan.scope.vrfName}` : ui('ipam.planning.globalTable'), ...(plan.scope.siteName ? [`Site ${plan.scope.siteName}`] : []), ui('ipam.planning.childSubnets', undefined, { count: plan.childSubnets ?? 0 })].join(' · ')}</span></div>}
+        {plan.addressSpace && planned.length > 0 && <div className="activity-row"><strong>{ui('ipam.planning.afterPlan')}</strong><span>{[ui('ipam.planning.taken', undefined, { count: plan.addressSpace.taken }), ...(plan.addressSpace.reserved ? [ui('ipam.planning.reserved', undefined, { count: plan.addressSpace.reserved })] : []), ui('ipam.planning.planned', undefined, { count: plan.addressSpace.planned }), ui('ipam.planning.freeOf', undefined, { free: plan.addressSpace.freeAfterPlan, total: plan.addressSpace.total })].join(' · ')}</span></div>}
         {(plan.shortfalls ?? []).map((item) => <div className="ipam-alert" role="status" key={`${item.prefix}-${item.reason}`}>{shortfallMessage(item)}</div>)}
         {prefix && <>
-          <h3>Blocos planeados</h3>
+          <h3>{ui('ipam.planning.plannedBlocks')}</h3>
           {plannedListRows(planned, skipped).map((row) => row.type === 'planned'
-            ? <div className="activity-row" key={`planned-${row.block.cidr}`}><strong>{row.block.cidr}</strong><span>{row.block.start} – {row.block.end}</span><span className={`state-badge ${segmentBadge.PLANNED.className}`}><i />{segmentBadge.PLANNED.label}</span><small>{row.block.usable} utilizáveis</small></div>
-            : <div className="activity-row" key={`skipped-${row.block.cidr}`}><strong>{row.block.cidr}</strong><span>{row.block.start} – {row.block.end} · {row.block.conflicts.map((item) => item.label).join(' · ')}</span><span className={`state-badge ${segmentBadge.CONFLICT.className}`}><i />{segmentBadge.CONFLICT.label}</span><small>{row.block.insideExisting && row.block.blocks > 1 ? `${row.block.blocks} blocos /${row.block.prefix} não planeados` : 'Não planeado'}</small></div>)}
-          {plan.skippedTruncated && <div className="no-data">A lista mostra só os primeiros {skipped.length} blocos não planeados.</div>}
-          {!planned.length && <div className="no-data">Nenhum bloco planeado.</div>}
+            ? <div className="activity-row" key={`planned-${row.block.cidr}`}><strong>{row.block.cidr}</strong><span>{row.block.start} – {row.block.end}</span><span className={`state-badge ${segmentBadge.PLANNED.className}`}><i />{segmentBadge.PLANNED.label}</span><small>{ui('ipam.planning.usable', undefined, { count: row.block.usable })}</small></div>
+            : <div className="activity-row" key={`skipped-${row.block.cidr}`}><strong>{row.block.cidr}</strong><span>{row.block.start} – {row.block.end} · {row.block.conflicts.map((item) => item.label).join(' · ')}</span><span className={`state-badge ${segmentBadge.CONFLICT.className}`}><i />{segmentBadge.CONFLICT.label}</span><small>{row.block.insideExisting && row.block.blocks > 1 ? ui('ipam.planning.skippedBlocks', undefined, { count: row.block.blocks, prefix: row.block.prefix }) : ui('ipam.planning.notPlanned')}</small></div>)}
+          {plan.skippedTruncated && <div className="no-data">{ui('ipam.planning.skippedTruncated', undefined, { count: skipped.length })}</div>}
+          {!planned.length && <div className="no-data">{ui('ipam.planning.noneplanned')}</div>}
           {canCreate && planned.length > 0 && <div className="modal-form">
-            <label>Finalidade das novas subnets<input maxLength={100} placeholder="Opcional" value={purpose} onChange={(event) => setPurpose(event.target.value)} /></label>
-            {overCommitLimit && <div className="ipam-alert warning" role="status" id="planning-commit-limit">{PLANNING_COMMIT_LIMIT_HINT}</div>}
-            <div className="modal-actions"><button type="button" className="primary-button" onClick={() => void review()} disabled={committing || loading || overCommitLimit} aria-describedby={overCommitLimit ? 'planning-commit-limit' : undefined}>{committing ? 'A criar…' : 'Rever e confirmar'}</button></div>
+            <label>{ui('ipam.planning.purpose')}<input maxLength={100} placeholder={ui('ipam.planning.optional')} value={purpose} onChange={(event) => setPurpose(event.target.value)} /></label>
+            {overCommitLimit && <div className="ipam-alert warning" role="status" id="planning-commit-limit">{planningCommitLimitHint()}</div>}
+            <div className="modal-actions"><button type="button" className="primary-button" onClick={() => void review()} disabled={committing || loading || overCommitLimit} aria-describedby={overCommitLimit ? 'planning-commit-limit' : undefined}>{committing ? ui('ipam.planning.creating') : ui('ipam.planning.review')}</button></div>
           </div>}
           {plan.split && plan.split.rows.length > 0 && <>
-            <h3>Divisão em /{prefix}</h3>
-            <div className="ip-table-wrap" role="region" aria-label={`Divisão em /${prefix}`} tabIndex={0}><table className="ip-table">
-              <thead><tr><th>Bloco</th><th>Estado</th><th>Usados</th><th>Livres</th><th>Ocupado por</th></tr></thead>
+            <h3>{ui('ipam.planning.split', undefined, { prefix })}</h3>
+            <div className="ip-table-wrap" role="region" aria-label={ui('ipam.planning.split', undefined, { prefix })} tabIndex={0}><table className="ip-table">
+              <thead><tr><th>{ui('ipam.planning.col.block')}</th><th>{ui('ipam.planning.col.state')}</th><th>{ui('ipam.planning.col.used')}</th><th>{ui('ipam.planning.col.free')}</th><th>{ui('ipam.planning.col.takenBy')}</th></tr></thead>
               <tbody>{plan.split.rows.map((row) => <tr key={row.cidr}><td>{row.cidr}</td><td><span className={`state-badge ${splitBadge(row).className}`}><i />{splitBadge(row).label}</span></td><td>{row.used}</td><td>{row.free}</td><td>{row.conflicts.map((item) => item.label).join(' · ') || '—'}</td></tr>)}</tbody>
             </table></div>
-            {plan.split.truncated && <div className="no-data">A divisão mostra só os primeiros {plan.split.rows.length} de {plan.split.total} blocos.</div>}
+            {plan.split.truncated && <div className="no-data">{ui('ipam.planning.splitTruncated', undefined, { shown: plan.split.rows.length, total: plan.split.total })}</div>}
           </>}
         </>}
-        <h3>Mapa da subnet</h3>
-        {plan.segments?.length ? <div className="ip-table-wrap" role="region" aria-label="Mapa da subnet" tabIndex={0}><table className="ip-table">
-          <thead><tr><th>Estado</th><th>Intervalo</th><th>Endereços</th><th>Detalhe</th></tr></thead>
+        <h3>{ui('ipam.planning.map')}</h3>
+        {plan.segments?.length ? <div className="ip-table-wrap" role="region" aria-label={ui('ipam.planning.map')} tabIndex={0}><table className="ip-table">
+          <thead><tr><th>{ui('ipam.planning.col.state')}</th><th>{ui('ipam.planning.col.range')}</th><th>{ui('ipam.planning.col.addresses')}</th><th>{ui('ipam.planning.col.detail')}</th></tr></thead>
           <tbody>{plan.segments.map((segment) => <tr key={`${segment.status}-${segment.start}`}><td><span className={`state-badge ${segmentBadge[segment.status].className}`}><i />{segmentBadge[segment.status].label}</span></td><td>{segment.start} – {segment.end}</td><td>{segment.count}</td><td>{segmentDetail(segment)}</td></tr>)}</tbody>
-        </table></div> : plan.segments ? <div className="no-data">Não existem gaps utilizáveis nesta subnet.</div> : <>
+        </table></div> : plan.segments ? <div className="no-data">{ui('ipam.planning.noGaps')}</div> : <>
           {/* An API that predates the parent map still returns the flat list of gaps. */}
-          {plan.usableGaps.map((gap) => <div className="activity-row" key={`${gap.start}-${gap.end}`}><span>{gap.start} – {gap.end}</span><small>{gap.count} endereços</small></div>)}
-          {!plan.usableGaps.length && <div className="no-data">Não existem gaps utilizáveis nesta subnet.</div>}
+          {plan.usableGaps.map((gap) => <div className="activity-row" key={`${gap.start}-${gap.end}`}><span>{gap.start} – {gap.end}</span><small>{ui('ipam.planning.addresses', undefined, { count: gap.count })}</small></div>)}
+          {!plan.usableGaps.length && <div className="no-data">{ui('ipam.planning.noGaps')}</div>}
         </>}
-        {plan.segmentsTruncated && <div className="no-data">O mapa mostra só as primeiras linhas.</div>}
+        {plan.segmentsTruncated && <div className="no-data">{ui('ipam.planning.mapTruncated')}</div>}
       </>}
     </div>}
     {confirmDialog}

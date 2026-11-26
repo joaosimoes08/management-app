@@ -7,6 +7,7 @@ import { formatNumber } from '@/lib/format/date';
 import { getRackPowerSummary, type RackPowerSummary, type RackPowerThresholds } from '../../api';
 import { formatWatts, powerLevelFromApi, type PowerLevel } from '../../power';
 import type { PowerFeedSource, Rack } from '../../types';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 const THRESHOLDS_KEY = 'mgmt.rack-power-thresholds';
 const MIN_PERCENT = 1;
@@ -88,6 +89,7 @@ export interface RackPowerSummaryStripProps {
 
 /** Power summary under the rack heading: totals, utilisation per feed, outlets and what is near the limit. */
 export function RackPowerSummaryStrip({ summary, error, onEditThresholds }: RackPowerSummaryStripProps) {
+  const ui = useUiText();
   const rackId = summary?.rack?.id;
   useEffect(() => {
     if (rackId && window.location.hash === '#rack-power-summary') {
@@ -115,8 +117,8 @@ export function RackPowerSummaryStrip({ summary, error, onEditThresholds }: Rack
       <button type="button" className="icon-button subtle" onClick={onEditThresholds} aria-label="Limiares de energia" title="Limiares de energia"><SlidersHorizontal size={14} aria-hidden="true" /></button>
     </div>
     <div className="detail-grid">
-      <div><span>Consumo estimado</span><strong>{capacity ? `${formatWatts(draw)} de ${formatWatts(capacity)}` : formatWatts(draw)}</strong></div>
-      {sources.map((source) => <div key={source}><span>{`Utilização ${SOURCE_LABEL[source]}`}</span><strong>{percent(summary.utilisation?.bySource?.[source])}</strong></div>)}
+      <div><span>Consumo estimado</span><strong>{capacity ? ui('infra.rack.powerOf', undefined, { draw: formatWatts(draw), capacity: formatWatts(capacity) }) : formatWatts(draw)}</strong></div>
+      {sources.map((source) => <div key={source}><span>{ui(`infra.rack.utilisation.${source}`)}</span><strong>{percent(summary.utilisation?.bySource?.[source])}</strong></div>)}
       {summary.utilisation?.worstFailoverPercent != null && <div><span>Pior caso em failover</span><strong>{percent(summary.utilisation.worstFailoverPercent)}</strong></div>}
       {outlets && <div><span>Tomadas ocupadas</span><strong>{`${outlets.used}/${outlets.total} (${percent(outlets.percent)})`}</strong></div>}
       {unconnected > 0 && <div><span>Equipamentos sem energia</span><strong>{unconnected}</strong></div>}

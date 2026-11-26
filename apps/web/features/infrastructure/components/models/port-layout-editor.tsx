@@ -7,6 +7,7 @@ import { compactPortGrid, PORT_TYPES, portMappingStatus, RACK_FACES, type PortMa
 import type { AssetFile, DeviceModel, PortLayout, PortLayoutPort, RackFace } from '../../types';
 import { AssetImage } from '../asset-image';
 import { useConfirm } from '@/components/ui/confirm-dialog';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 /** Editor state: one layout and one image per face. */
 export type PortLayoutFacesDraft = Record<RackFace, PortLayout>;
@@ -87,10 +88,6 @@ function draftSnapshot(faces: PortLayoutFacesDraft | null, assetIds: PortLayoutA
   return JSON.stringify({ front: faceSnapshot(faces?.front), rear: faceSnapshot(faces?.rear), assetIds });
 }
 
-const FACE_TEXT: Record<RackFace, { tab: string; image: string; select: string; alt: string }> = {
-  front: { tab: 'Frente', image: 'Imagem frontal do modelo', select: 'Seleciona uma imagem frontal para posicionar as portas.', alt: 'Imagem frontal do modelo' },
-  rear: { tab: 'Traseira', image: 'Imagem traseira do modelo', select: 'Seleciona uma imagem traseira para posicionar as portas.', alt: 'Imagem traseira do modelo' },
-};
 
 /**
  * Problems that block saving, mirroring the API: every listed port fully mapped; for a model with network ports
@@ -138,6 +135,7 @@ interface InteractivePortCanvasProps {
 type Interaction = { index: number; mode: 'move' | 'resize'; startX: number; startY: number; port: PortLayoutPort };
 
 function InteractivePortCanvas({ asset, alt, ports, ratio, onUpdate, onDimensions }: InteractivePortCanvasProps) {
+  const ui = useUiText();
   const canvas = useRef<HTMLDivElement | null>(null);
   const interaction = useRef<Interaction | null>(null);
   const updateFromPointer = (event: React.PointerEvent) => {
@@ -176,12 +174,13 @@ function InteractivePortCanvas({ asset, alt, ports, ratio, onUpdate, onDimension
 
   return <div ref={canvas} className="port-preview" style={{ aspectRatio: ratio }} onPointerMove={updateFromPointer} onPointerUp={stopInteraction} onPointerCancel={stopInteraction} aria-label="Imagem do modelo com posições das portas">
     <AssetImage asset={asset} alt={alt} onLoad={(event) => onDimensions(event.currentTarget.naturalWidth, event.currentTarget.naturalHeight)} />
-    {ports.map((port, index) => <button type="button" className="port-hotspot-editor" key={`${port.portKey}-${index}`} onPointerDown={(event) => startInteraction(event, index, 'move')} onKeyDown={(event) => moveByKeyboard(event, index)} style={{ left: `${port.x * 100}%`, top: `${port.y * 100}%`, width: `${port.width * 100}%`, height: `${port.height * 100}%` }} aria-label={`${port.label || port.portKey}, posição ${Math.round(port.x * 100)} por cento horizontal e ${Math.round(port.y * 100)} por cento vertical. Use as setas para mover; Alt mais setas para redimensionar.`} title={`${port.label} · arrastar para mover · setas para mover · Alt + setas para redimensionar`}><b>{port.label}</b><i className="port-resize-handle" aria-hidden="true" onPointerDown={(event) => startInteraction(event, index, 'resize')} /></button>)}
+    {ports.map((port, index) => <button type="button" className="port-hotspot-editor" key={`${port.portKey}-${index}`} onPointerDown={(event) => startInteraction(event, index, 'move')} onKeyDown={(event) => moveByKeyboard(event, index)} style={{ left: `${port.x * 100}%`, top: `${port.y * 100}%`, width: `${port.width * 100}%`, height: `${port.height * 100}%` }} aria-label={ui('infra.ports.canvasPortLabel', undefined, { port: port.label || port.portKey, x: Math.round(port.x * 100), y: Math.round(port.y * 100) })} title={ui('infra.ports.canvasPortTitle', undefined, { port: port.label ?? '' })}><b>{port.label}</b><i className="port-resize-handle" aria-hidden="true" onPointerDown={(event) => startInteraction(event, index, 'resize')} /></button>)}
   </div>;
 }
 
 /** Port mapping editor: one tab per face, each over that face's image, with the mapped total checked against the model. */
 export function PortLayoutEditor({ modal, close, layoutModel, faces, setFaces, face, setFace, assets, assetIds, setAssetId, detect, confirm, saving, error }: PortLayoutEditorProps) {
+  const ui = useUiText();
   const { confirm: askConfirm, confirmDialog } = useConfirm();
   const [baseline, setBaseline] = useState<string | null>(null);
   const wasOpen = useRef(false);
@@ -193,7 +192,8 @@ export function PortLayoutEditor({ modal, close, layoutModel, faces, setFaces, f
     wasOpen.current = isOpen;
   }, [modal, faces, assetIds]);
   if (!modal || !faces) return null;
-  const text = FACE_TEXT[face];
+  const faceText = (candidate: RackFace) => ({ tab: ui(`infra.ports.${candidate}.tab`), image: ui(`infra.ports.${candidate}.image`), select: ui(`infra.ports.${candidate}.select`), alt: ui(`infra.ports.${candidate}.image`) });
+  const text = faceText(face);
   const layout = faces[face];
   const ports = layout.ports;
   const dirty = baseline !== null && baseline !== draftSnapshot(faces, assetIds);
@@ -216,7 +216,7 @@ export function PortLayoutEditor({ modal, close, layoutModel, faces, setFaces, f
     const used = new Set(allPorts.map((port) => port.portKey));
     let next = allPorts.length + 1;
     while (used.has(`ethernet1/${next}`)) next += 1;
-    setLayout({ ...layout, ports: [...ports, { portKey: `ethernet1/${next}`, label: `Porta ${next}`, interfaceType: 'ETHERNET', x: .05, y: .05, width: .02, height: .16 }] });
+    setLayout({ ...layout, ports: [...ports, { portKey: `ethernet1/${next}`, label: ui('infra.portNamed', undefined, { port: next }), interfaceType: 'ETHERNET', x: .05, y: .05, width: .02, height: .16 }] });
   };
   const removePort = (index: number) => setLayout({ ...layout, ports: ports.filter((_, i) => i !== index) });
   const compactGrid = () => setLayout({ ...layout, ports: compactPortGrid(ports), warnings: ['Grelha geométrica compacta aplicada; confirma a posição sobre a imagem.'] });
@@ -233,7 +233,7 @@ export function PortLayoutEditor({ modal, close, layoutModel, faces, setFaces, f
     tabs.current[next]?.focus();
   };
 
-  return <>{confirmDialog}<Modal title={`Mapear portas · ${layoutModel?.manufacturer} ${layoutModel?.model}`} close={requestClose}><div className="port-editor">
+  return <>{confirmDialog}<Modal title={ui('infra.ports.mapTitle', undefined, { manufacturer: layoutModel?.manufacturer ?? '', model: layoutModel?.model ?? '' })} close={requestClose}><div className="port-editor">
     <p className="form-help">Mapeia as portas em cada face do equipamento e associa-as à interface correspondente. Arrasta para mover; usa as setas para ajustes precisos. Alt + setas redimensiona. As posições são relativas à imagem de cada face.</p>
     <div className={`port-mapping-total${status.complete ? ' complete' : ' incomplete'}`} role="status" aria-live="polite">
       <strong>{portMappingTotal(status)}</strong>
@@ -243,14 +243,14 @@ export function PortLayoutEditor({ modal, close, layoutModel, faces, setFaces, f
     {dirty && <p className="port-editor-unsaved" role="status">Alterações por guardar</p>}
     {error && <div className="ipam-alert error" role="alert">{error}</div>}
     <div className="infra-menu port-face-tabs" role="tablist" aria-label="Face do equipamento" onKeyDown={moveTab}>
-      {RACK_FACES.map((candidate) => <button key={candidate} ref={(element) => { tabs.current[candidate] = element; }} type="button" role="tab" id={`port-face-tab-${candidate}`} aria-controls="port-face-panel" aria-selected={face === candidate} tabIndex={face === candidate ? 0 : -1} className={face === candidate ? 'active' : ''} onClick={() => setFace(candidate)}>{FACE_TEXT[candidate].tab}<em>{faces[candidate].ports.length}</em></button>)}
+      {RACK_FACES.map((candidate) => <button key={candidate} ref={(element) => { tabs.current[candidate] = element; }} type="button" role="tab" id={`port-face-tab-${candidate}`} aria-controls="port-face-panel" aria-selected={face === candidate} tabIndex={face === candidate ? 0 : -1} className={face === candidate ? 'active' : ''} onClick={() => setFace(candidate)}>{faceText(candidate).tab}<em>{faces[candidate].ports.length}</em></button>)}
     </div>
     <div className="port-face-panel" role="tabpanel" id="port-face-panel" aria-labelledby={`port-face-tab-${face}`}>
       <label>{text.image}<select value={assetIds[face]} onChange={(event) => setAssetId(face, event.target.value)}><option value="">Seleciona um asset</option>{assets.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.filename}</option>)}</select></label>
       <div className="button-row"><button type="button" className="secondary-button" onClick={() => detect(face)} disabled={!assetIds[face]}><Plus size={14} /> Detetar grelha automaticamente</button><button type="button" className="secondary-button" onClick={compactGrid} disabled={!ports.length}>Alinhar e reduzir hotspots</button><button type="button" className="secondary-button" onClick={addPort}><Plus size={14} /> Adicionar porta</button><span className="form-help">Confiança: {layout.confidence ? `${Math.round(layout.confidence * 100)}%` : '—'}</span></div>
       {!ports.length && <p className="port-face-empty" role="status">0 portas nesta face. Podes guardar assim se todas as portas estiverem na outra face.</p>}
       {asset ? <InteractivePortCanvas asset={asset} alt={text.alt} ports={ports} ratio={ratio} onUpdate={updateCanvasPort} onDimensions={captureDimensions} /> : <div className="port-editor-empty" role="status">{text.select}</div>}
-      <div className="port-table" role="list" aria-label={`Portas mapeadas · ${text.tab}`}>{ports.map((port, index) => <div className="port-editor-row" role="listitem" key={`${port.portKey}-${index}`}><label><span>Nome</span><input aria-label={`Nome da porta ${index + 1}`} value={port.label ?? ''} onChange={(event) => updatePort(index, 'label', event.target.value)} placeholder="Nome" /></label><label><span>Interface</span><input aria-label={`Chave da interface ${index + 1}`} value={port.portKey ?? ''} onChange={(event) => updatePort(index, 'portKey', event.target.value)} placeholder="portKey" /></label><label><span>Tipo</span><select aria-label={`Tipo da porta ${index + 1}`} value={port.interfaceType ?? 'ETHERNET'} onChange={(event) => updatePort(index, 'interfaceType', event.target.value)}>{PORT_TYPES.map((type) => <option key={type}>{type}</option>)}</select></label>{(['x', 'y', 'width', 'height'] as const).map((field) => <label key={field}><span>{field === 'width' ? 'Largura' : field === 'height' ? 'Altura' : field.toUpperCase()}</span><input aria-label={`${field} da porta ${index + 1}`} type="number" min="0" max="1" step=".001" value={port[field] ?? 0} onChange={(event) => updatePort(index, field, event.target.value)} /></label>)}<button type="button" className="icon-button subtle" aria-label={`Remover porta ${port.label || index + 1}`} onClick={() => removePort(index)}><X size={14} /></button></div>)}</div>
+      <div className="port-table" role="list" aria-label={ui('infra.ports.mapped', undefined, { face: text.tab })}>{ports.map((port, index) => <div className="port-editor-row" role="listitem" key={`${port.portKey}-${index}`}><label><span>Nome</span><input aria-label={ui('infra.ports.nameOf', undefined, { index: index + 1 })} value={port.label ?? ''} onChange={(event) => updatePort(index, 'label', event.target.value)} placeholder="Nome" /></label><label><span>Interface</span><input aria-label={ui('infra.ports.keyOf', undefined, { index: index + 1 })} value={port.portKey ?? ''} onChange={(event) => updatePort(index, 'portKey', event.target.value)} placeholder="portKey" /></label><label><span>Tipo</span><select aria-label={ui('infra.ports.typeOf', undefined, { index: index + 1 })} value={port.interfaceType ?? 'ETHERNET'} onChange={(event) => updatePort(index, 'interfaceType', event.target.value)}>{PORT_TYPES.map((type) => <option key={type}>{type}</option>)}</select></label>{(['x', 'y', 'width', 'height'] as const).map((field) => <label key={field}><span>{field === 'width' ? ui('infra.ports.width') : field === 'height' ? ui('infra.ports.height') : field.toUpperCase()}</span><input aria-label={ui('infra.ports.fieldOf', undefined, { field, index: index + 1 })} type="number" min="0" max="1" step=".001" value={port[field] ?? 0} onChange={(event) => updatePort(index, field, event.target.value)} /></label>)}<button type="button" className="icon-button subtle" aria-label={ui('infra.ports.removeNamed', undefined, { port: port.label || index + 1 })} onClick={() => removePort(index)}><X size={14} /></button></div>)}</div>
     </div>
     <div className="modal-actions port-layout-actions">{saveHint && <small id="port-layout-save-hint" className="port-layout-save-hint" aria-live="polite">{saveHint}</small>}<button type="button" className="secondary-button" onClick={requestClose}>Cancelar</button><button type="button" className="primary-button" onClick={confirm} disabled={saving || !layoutModel || blockers.length > 0} aria-describedby={saveHint ? 'port-layout-save-hint' : undefined}>{saving ? 'A guardar…' : <><Check size={14} /> Guardar template</>}</button></div>
   </div></Modal></>;

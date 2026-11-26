@@ -17,6 +17,7 @@ import { usePowerDefaults } from '../../use-power-defaults';
 import { RackZoomPicker } from './rack-zoom-picker';
 import { RackPowerSummaryStrip, RackPowerThresholdsModal, readPowerThresholds, summaryDeviceLevels, summaryPduLevels, useRackPowerSummary } from './rack-power-summary';
 import type { RackPowerThresholds } from '../../api';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 const RACK_WIDTH = RACK_IMAGE.width;
 const RACK_HEIGHT = RACK_IMAGE.height;
@@ -24,7 +25,6 @@ const RACK_HEIGHT = RACK_IMAGE.height;
 const FACE_GAP = 24;
 /** Height of the "Frente"/"Traseira" caption above each rack in "Ambas". */
 const FACE_CAPTION = 24;
-const FACE_LABEL: Record<RackFace, string> = { front: 'Frente', rear: 'Traseira' };
 /** Space between a PDU strip and the rack beside it. */
 const PDU_GAP = 10;
 /** PDU strip width as a share of the rack width: both are drawn at the rack's height. */
@@ -69,6 +69,7 @@ export interface RackDetailProps {
 
 /** Full 42U view of one rack, including placement preview/confirmation. */
 export function RackDetail({ rack, onOut, onDevice, onEdit, onDelete, deleting, canEdit, onPreviewPlacement, onPlaceDevice, onEditDevice, canEditPower = false, onDisconnectPdu, health }: RackDetailProps) {
+  const ui = useUiText();
   const { t, locale } = useI18n();
   const powerDefaults = usePowerDefaults();
   const [thresholds, setThresholds] = useState<RackPowerThresholds>(readPowerThresholds);
@@ -240,8 +241,8 @@ export function RackDetail({ rack, onOut, onDevice, onEdit, onDelete, deleting, 
         <div className="rack-stage-inner" style={{ width: `${innerWidth}px`, height: `${rackHeight + (both ? FACE_CAPTION : 0)}px` }}>
           {pduStrip(supplierPdu, 'left')}
           {faces.map((face, index) => <figure className="rack-face" key={face} data-face={face} style={{ width: `${rackWidth}px`, marginLeft: index > 0 ? `${FACE_GAP}px` : undefined }}>
-            {both && <figcaption className="rack-face-caption" style={{ height: `${FACE_CAPTION}px` }}>{FACE_LABEL[face]}</figcaption>}
-            <div className="rack-frame" style={{ width: `${rackWidth}px` }}><img src={FIXED_RACK_IMAGE} alt={`Bastidor ${rack.name}, ${FACE_LABEL[face].toLowerCase()}`} draggable={false} /><RackEquipmentOverlay health={health} rack={displayRack} face={face} onSelect={(id) => setZoomDevice({ id, face })} onDropDevice={preview} draggingDeviceId={draggingDeviceId} onDragging={setDraggingDeviceId} canEdit={canEdit && !pending} pendingDeviceId={pending?.target?.id} powerLevels={devicePowerLevels} /></div>
+            {both && <figcaption className="rack-face-caption" style={{ height: `${FACE_CAPTION}px` }}>{ui(`infra.ports.${face}.tab`)}</figcaption>}
+            <div className="rack-frame" style={{ width: `${rackWidth}px` }}><img src={FIXED_RACK_IMAGE} alt={ui('infra.rack.rackImageAlt', undefined, { name: rack.name, face: ui(`infra.ports.${face}.tab`).toLocaleLowerCase() })} draggable={false} /><RackEquipmentOverlay health={health} rack={displayRack} face={face} onSelect={(id) => setZoomDevice({ id, face })} onDropDevice={preview} draggingDeviceId={draggingDeviceId} onDragging={setDraggingDeviceId} canEdit={canEdit && !pending} pendingDeviceId={pending?.target?.id} powerLevels={devicePowerLevels} /></div>
           </figure>)}
           {pduStrip(upsPdu, 'right')}
         </div>
@@ -249,7 +250,7 @@ export function RackDetail({ rack, onOut, onDevice, onEdit, onDelete, deleting, 
       </div>
     </div>
     {pending && <aside className="rack-placement-confirmation" aria-live="polite">
-      <div className="rack-placement-summary"><strong>{pending.target.name} ficou em U{pending.target.rackUnitStart}{pending.target.rackUnitSize > 1 ? `–U${pending.target.rackUnitStart + pending.target.rackUnitSize - 1}` : ''}</strong><small>{pending.changes.length > 1 ? `${pending.changes.length - 1} equipamento(s) também serão reposicionados para libertar espaço.` : 'A nova posição está livre.'}</small>{!correctingUnit && <button type="button" className="rack-placement-correction-trigger" disabled={saving} onClick={() => { setCorrectedUnit(String(pending.target.rackUnitStart)); setCorrectingUnit(true); }}>Calhou no U errado?</button>}{correctingUnit && <form className="rack-placement-correction" onSubmit={adjustUnit}><label htmlFor="corrected-rack-unit">Em que U deveria ficar?</label><div><span>U</span><input id="corrected-rack-unit" type="number" inputMode="numeric" min="1" max={maximumCorrectedUnit} required autoFocus value={correctedUnit} onChange={(event) => setCorrectedUnit(event.target.value)} aria-describedby="corrected-rack-unit-help" /><button type="submit" className="secondary-button" disabled={adjustingUnit || !correctedUnit}>{adjustingUnit ? 'A ajustar…' : 'Ajustar automaticamente'}</button></div><small id="corrected-rack-unit-help">Escolhe um valor entre U1 e U{maximumCorrectedUnit}.</small></form>}</div>
+      <div className="rack-placement-summary"><strong>{ui('infra.rack.placedAt', undefined, { name: pending.target.name, units: pending.target.rackUnitSize > 1 ? `U${pending.target.rackUnitStart}–U${pending.target.rackUnitStart + pending.target.rackUnitSize - 1}` : `U${pending.target.rackUnitStart}` })}</strong><small>{pending.changes.length > 1 ? ui('infra.rack.alsoMoved', undefined, { count: pending.changes.length - 1 }) : ui('infra.rack.positionFree')}</small>{!correctingUnit && <button type="button" className="rack-placement-correction-trigger" disabled={saving} onClick={() => { setCorrectedUnit(String(pending.target.rackUnitStart)); setCorrectingUnit(true); }}>Calhou no U errado?</button>}{correctingUnit && <form className="rack-placement-correction" onSubmit={adjustUnit}><label htmlFor="corrected-rack-unit">Em que U deveria ficar?</label><div><span>U</span><input id="corrected-rack-unit" type="number" inputMode="numeric" min="1" max={maximumCorrectedUnit} required autoFocus value={correctedUnit} onChange={(event) => setCorrectedUnit(event.target.value)} aria-describedby="corrected-rack-unit-help" /><button type="submit" className="secondary-button" disabled={adjustingUnit || !correctedUnit}>{adjustingUnit ? 'A ajustar…' : 'Ajustar automaticamente'}</button></div><small id="corrected-rack-unit-help">{ui('infra.rack.pickUnitBetween', undefined, { max: maximumCorrectedUnit })}</small></form>}</div>
       <div className="button-row"><button type="button" className="secondary-button" disabled={saving || adjustingUnit} onClick={cancelPlacement}>Cancelar</button><button type="button" className="primary-button" disabled={saving || adjustingUnit || correctingUnit} onClick={confirm}><Check size={14} />{saving ? 'A guardar…' : 'Confirmar U'}</button></div>
     </aside>}
     {hasUnpositioned && <div className="no-data">Existem equipamentos por posicionar.</div>}

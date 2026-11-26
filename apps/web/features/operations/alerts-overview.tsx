@@ -21,6 +21,7 @@ import { AlertActionStatus, AlertBulkBar, AlertRowActions, isAlertActionable, OP
 import { AlertDetailDialog } from './alert-detail';
 import { SeverityLegend, SeverityTag } from './alert-severity';
 import { useLiveAlertRefresh } from './use-live-alert-refresh';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 export type AlertListUrlFilters = { severity: string; status: string; source: string; scope: string };
 /** `scope=all` lists every visible Site; otherwise the active Site. `q` is the search. */
@@ -52,6 +53,7 @@ const baseColumns = (openDetail: (row: AlertListItem) => void): DataTableColumn<
 
 /** Filtered list of unresolved alerts; filters live in the URL so dashboard links open it pre-filtered. */
 export function AlertList({ siteId, table }: { siteId: string; table: TableUrlState<AlertListUrlFilters> }) {
+  const tx = useUiText();
   const { filters, search, sort, setFilter, setSort, clearFilters, filtering, defaultSort } = table;
   const { hasRole } = useAuth();
   const canAct = OPERATOR_ROLES.some((role) => hasRole(role));
@@ -83,7 +85,7 @@ export function AlertList({ siteId, table }: { siteId: string; table: TableUrlSt
   }, [actions, canAct, isAdmin]);
   const rows = sortByColumns(items, columns, sort);
   const total = query.data?.total ?? 0;
-  const selection = canAct ? { selected, onChange: setSelected, isSelectable: (row: AlertListItem) => isAlertActionable(row, isAdmin), rowLabel: (row: AlertListItem, selectable: boolean) => (selectable ? `Selecionar ${row.title}` : `${row.title} sem ações disponíveis`), allLabel: 'Selecionar todos os alertas visíveis' } : undefined;
+  const selection = canAct ? { selected, onChange: setSelected, isSelectable: (row: AlertListItem) => isAlertActionable(row, isAdmin), rowLabel: (row: AlertListItem, selectable: boolean) => (selectable ? `Selecionar ${row.title}` : tx('groupB.alerts.noActions', undefined, { title: row.title })), allLabel: 'Selecionar todos os alertas visíveis' } : undefined;
   return <>
     {actions.confirmDialog}
     <PageToolbarPortal><div className="interface-toolbar-controls alerts-filters">

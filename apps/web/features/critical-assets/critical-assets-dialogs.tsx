@@ -5,6 +5,7 @@ import { CheckCircle2, X } from 'lucide-react';
 import { IpamModal } from '@/features/ipam/components/ipam-modal';
 import { DataTable } from '@/components/data-table/data-table';
 import { assetTypes, type AssetRow, type Attestation, type Group, type Mapping } from './workbench';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 export type DateFormatter = (value?: string | null, withTime?: boolean) => string;
 
@@ -43,6 +44,7 @@ export function CorrectionRequestDialog({ asset, attestation, formatDate, close,
   close: () => void;
   submit: (description: string) => Promise<string | null>;
 }) {
+  const tx = useUiText();
   const [description, setDescription] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -56,7 +58,7 @@ export function CorrectionRequestDialog({ asset, attestation, formatDate, close,
     if (failure) setError(failure);
   };
   return <IpamModal title={`Pedir correção de ${asset.name}`} close={close}><form className="modal-form" onSubmit={(event) => void onSubmit(event)}>
-    <p className="panel-description">{`Semana de ${formatDate(attestation.weekStart)}. Descreve o que está errado no inventário. Nada é alterado automaticamente.`}</p>
+    <p className="panel-description">{tx('groupB.assets.requestCorrectionWeek', undefined, { date: formatDate(attestation.weekStart) })}</p>
     {error && <div className="ipam-alert error" role="alert"><X size={15} />{error}</div>}
     <label>Dados a corrigir (obrigatório)<textarea autoFocus rows={4} maxLength={1000} required value={description} onChange={(event) => setDescription(event.target.value)} /></label>
     <div className="modal-actions"><button type="button" className="secondary-button" onClick={close}>Cancelar</button><button className="primary-button" disabled={saving}>{saving ? 'A guardar…' : 'Registar pedido de correção'}</button></div>
@@ -80,12 +82,13 @@ export function BulkConfirmDialog({ selectedCount, olderCount, items, results, r
   close: () => void;
   run: () => void;
 }) {
+  const tx = useUiText();
   const done = results !== null && !running;
   const recorded = Object.values(results ?? {}).filter((result) => result.state === 'recorded').length;
   return <IpamModal title="Confirmar selecionados" close={running ? () => undefined : close}><div className="modal-form">
-    <p className="panel-description">{`${selectedCount} ativos selecionados · ${items.length} revisões da semana atual. Cada revisão é registada como “Dados corretos”, sem notas.`}</p>
-    {olderCount > 0 && <div className="ipam-alert warning" role="note">{olderCount === 1 ? '1 ativo tem semanas anteriores por rever. Revê-as individualmente no histórico.' : `${olderCount} ativos têm semanas anteriores por rever. Revê-as individualmente no histórico.`}</div>}
-    {done && <div className={`ipam-alert ${recorded === items.length ? 'success' : 'error'}`} role="status">{recorded === items.length ? <CheckCircle2 size={15} /> : <X size={15} />}{`${recorded} de ${items.length} registadas.`}</div>}
+    <p className="panel-description">{tx('groupB.assets.bulkDescription', undefined, { selected: selectedCount, reviews: items.length })}</p>
+    {olderCount > 0 && <div className="ipam-alert warning" role="note">{tx('groupB.assets.olderWeeks', undefined, { count: olderCount })}</div>}
+    {done && <div className={`ipam-alert ${recorded === items.length ? 'success' : 'error'}`} role="status">{recorded === items.length ? <CheckCircle2 size={15} /> : <X size={15} />}{tx('groupB.assets.recorded', undefined, { recorded, total: items.length })}</div>}
     <DataTable rows={items} rowKey={(item) => item.key} label="Revisões a confirmar" className="critical-assets-bulk-table" columns={[
       { id: 'asset', header: 'Equipamento', cell: (item) => { const result = results?.[item.key]; return <><strong>{item.assetName}</strong>{result?.message && <small>{result.message}</small>}</>; } },
       { id: 'week', header: 'Semana', cell: (item) => formatDate(item.weekStart) },
@@ -137,6 +140,7 @@ export function CorrectionCloseDialog({ assetName, description, outcome, close, 
   close: () => void;
   submit: (value: string) => Promise<string | null>;
 }) {
+  const tx = useUiText();
   const [value, setValue] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -150,7 +154,7 @@ export function CorrectionCloseDialog({ assetName, description, outcome, close, 
     setSaving(false);
     if (failure) setError(failure);
   };
-  return <IpamModal title={`${resolved ? 'Resolver' : 'Rejeitar'} correção de ${assetName}`} close={close}><form className="modal-form" onSubmit={(event) => void onSubmit(event)}>
+  return <IpamModal title={tx(resolved ? 'groupB.assets.resolveCorrection' : 'groupB.assets.rejectCorrection', undefined, { name: assetName })} close={close}><form className="modal-form" onSubmit={(event) => void onSubmit(event)}>
     <p className="panel-description">{`Pedido: ${description}`}</p>
     {error && <div className="ipam-alert error" role="alert"><X size={15} />{error}</div>}
     <label>{resolved ? 'Alteração feita (ligação ou referência, obrigatório)' : 'Motivo da rejeição (obrigatório)'}<textarea autoFocus rows={3} maxLength={1000} required value={value} onChange={(event) => setValue(event.target.value)} /></label>

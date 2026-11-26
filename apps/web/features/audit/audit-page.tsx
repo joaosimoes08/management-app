@@ -8,6 +8,7 @@ import { DataTable, EntityLink, SavedViews, csvFileName, useTableUrlState, type 
 import { formatDateTime } from '@/lib/format/date';
 import { exportAuditCsv, facetWindowDays, getAuditFacets, getAuditPage, type AuditPageEvent } from './api';
 import { actorName, auditEntityRef, auditQueryFrom, auditTableConfig, dayBoundary, formatAuditValue, hasAuditFilters, metadataEntries } from './workspace';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 const dateTime = (value: string) => formatDateTime(value, { dateStyle: 'short', timeStyle: 'medium' });
 
@@ -27,6 +28,7 @@ function EntityCell({ event }: { event: AuditPageEvent }) {
 }
 
 export default function AuditPage() {
+  const tx = useUiText();
   const table = useTableUrlState(auditTableConfig);
   const { search, filters, setSearch, setFilter, clearFilters } = table;
   const debouncedSearch = useDebounced(search);
@@ -66,7 +68,7 @@ export default function AuditPage() {
     setExporting(true); setNotice(null);
     try {
       const result = await exportAuditCsv(query, csvFileName('auditoria'));
-      setNotice({ tone: 'success', text: result.rows === null ? 'CSV exportado.' : result.truncated ? `CSV exportado com ${result.rows} eventos (limite de 10 000). Reduz o período para exportar o resto.` : `CSV exportado com ${result.rows} eventos.` });
+      setNotice({ tone: 'success', text: result.rows === null ? 'CSV exportado.' : result.truncated ? tx('groupB.audit.csvTruncated', undefined, { count: result.rows }) : tx('groupB.audit.csvRows', undefined, { count: result.rows }) });
     } catch (cause) { setNotice({ tone: 'error', text: cause instanceof Error ? cause.message : 'Não foi possível exportar o CSV.' }); }
     finally { setExporting(false); }
   };

@@ -3,6 +3,7 @@ import { headers } from 'next/headers';
 import './globals.css';
 import { AuthProvider } from '@/lib/auth';
 import { AuthGate } from '@/components/layout/auth-gate';
+import { LocaleDocumentTitle } from '@/components/layout/locale-document-title';
 import { ToastProvider } from '@/components/ui/toast';
 import { I18nProvider } from '@/lib/i18n';
 import { QueryProvider } from '@/lib/query/query-provider';
@@ -11,8 +12,8 @@ import { AppearanceSync } from '@/components/theme/appearance-sync';
 import { appearanceBootScript } from '@/lib/theme/appearance-core';
 import { themeCss } from '@/lib/theme/themes';
 
+// No static title: LocaleDocumentTitle sets it from the app locale (a static one overrode it after hydration).
 export const metadata: Metadata = {
-  title: 'Civernode · Gestão de Infraestrutura',
   description: 'Centro de operações para infraestrutura e ciberdefesa.',
 };
 
@@ -36,7 +37,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         {/* eslint-disable-next-line @next/next/no-sync-scripts */}
         <script src="/runtime-config.js" />
       </head>
-      <body><AuthProvider><AppearanceSync /><I18nProvider><ToastProvider><QueryProvider><SiteProvider><AuthGate>{children}</AuthGate></SiteProvider></QueryProvider></ToastProvider></I18nProvider></AuthProvider></body>
+      <body><AuthProvider><AppearanceSync /><I18nProvider><LocaleDocumentTitle /><ToastProvider><QueryProvider><SiteProvider><AuthGate>{children}</AuthGate></SiteProvider></QueryProvider></ToastProvider></I18nProvider></AuthProvider></body>
     </html>
   );
 }

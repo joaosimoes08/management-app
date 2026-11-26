@@ -6,6 +6,7 @@ import { useMemo, useState } from 'react';
 import { apiFetch } from '@/lib/api/client';
 import type { DeviceModel } from '../../types';
 import { useConfirm } from '@/components/ui/confirm-dialog';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 export const deviceImportFields = ['name', 'type', 'hostname', 'managementIp', 'serialNumber', 'assetTag', 'status', 'modelId', 'rackId', 'rackUnitStart', 'rackUnitSize', 'notes'] as const;
 type Field = typeof deviceImportFields[number];
@@ -47,6 +48,7 @@ export function mapDeviceImportRows(values: string[][], mapping: Partial<Record<
 }
 
 export function DeviceImport({ siteId, models, close, onComplete }: { siteId: string; models: DeviceModel[]; close: () => void; onComplete: () => void }) {
+  const ui = useUiText();
   const { confirm: askConfirm, confirmDialog } = useConfirm();
   const [fileName, setFileName] = useState('');
   const [columns, setColumns] = useState<string[]>([]);
@@ -85,7 +87,7 @@ export function DeviceImport({ siteId, models, close, onComplete }: { siteId: st
     <label>Ficheiro CSV<input type="file" accept=".csv,text/csv" onChange={(event) => void readFile(event.target.files?.[0])} /></label>{fileName && <p>{fileName} · {Math.max(0, values.length - 1)} linhas</p>}
     {columns.length > 0 && <fieldset><legend>Associar colunas</legend>{deviceImportFields.map((field) => <label key={field} style={{ display: 'inline-flex', gap: 8, margin: 6 }}>{field}<select value={mapping[field] ?? ''} onChange={(event) => { setMapping({ ...mapping, [field]: event.target.value ? Number(event.target.value) : undefined }); setPreview(null); }}><option value="">Ignorar</option>{columns.map((column, index) => <option key={index} value={index}>{column}</option>)}</select></label>)}</fieldset>}
     {mapping.modelId !== undefined && <p>O modelo pode ser identificado pelo nome e fabricante, ou pelo ID.</p>}
-    {error && <div className="ipam-alert error">{error}</div>}{preview && <><p>{preview.valid} válidas · {preview.invalid} com erros</p><div style={{ maxHeight: 260, overflow: 'auto' }}>{preview.rows.map((item) => <div key={item.rowNumber} className={`host-row ${item.valid ? '' : 'error'}`}><strong>Linha {item.rowNumber}</strong><span>{String(item.data.name ?? '(sem nome)')}</span>{item.errors.length > 0 && <small>{item.errors.join(' · ')}</small>}</div>)}</div></>}
-    <footer className="modal-actions"><button className="secondary-button" onClick={close}>Cancelar</button><button className="secondary-button" disabled={!values.length || busy} onClick={() => void validate()}>{busy ? 'A validar…' : 'Pré-visualizar e validar'}</button>{preview && <button className="primary-button" disabled={busy || preview.invalid > 0 || preview.valid === 0} onClick={() => void confirmImport()}>{busy ? 'A importar…' : `Confirmar importação (${preview.valid})`}</button>}</footer>
+    {error && <div className="ipam-alert error">{error}</div>}{preview && <><p>{ui('infra.import.summary', undefined, { valid: preview.valid, invalid: preview.invalid })}</p><div style={{ maxHeight: 260, overflow: 'auto' }}>{preview.rows.map((item) => <div key={item.rowNumber} className={`host-row ${item.valid ? '' : 'error'}`}><strong>{ui('infra.import.row', undefined, { row: item.rowNumber })}</strong><span>{String(item.data.name ?? ui('infra.import.noName'))}</span>{item.errors.length > 0 && <small>{item.errors.join(' · ')}</small>}</div>)}</div></>}
+    <footer className="modal-actions"><button className="secondary-button" onClick={close}>Cancelar</button><button className="secondary-button" disabled={!values.length || busy} onClick={() => void validate()}>{busy ? 'A validar…' : 'Pré-visualizar e validar'}</button>{preview && <button className="primary-button" disabled={busy || preview.invalid > 0 || preview.valid === 0} onClick={() => void confirmImport()}>{busy ? ui('infra.import.importing') : ui('infra.import.confirm', undefined, { count: preview.valid })}</button>}</footer>
   </section></div></>;
 }

@@ -18,6 +18,7 @@ import { getSnmpReceiverSettings, snmpReceiverKey } from '@/features/snmp/api';
 import { isV2cAllowed, SnmpCommunityField, SnmpVersionField, type SnmpVersionChoice } from '@/features/snmp/snmp-version';
 import { DevicePowerFields } from './device-power-fields';
 import { AssetImage } from '../asset-image';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 export interface DeviceEditorProps {
   close: () => void;
@@ -47,6 +48,7 @@ const POWER_AUTO_NOTE = 'Ao guardar, as fichas são ligadas automaticamente a to
  * blocking one is missing, and a save attempt jumps to the first one.
  */
 export function DeviceEditor({ close, editingId, animateEntry = false, form, setForm, racks, models, assets, ips, save, formError = '', fieldErrors, initialTab, onDevicePower }: DeviceEditorProps) {
+  const ui = useUiText();
   const { hasRole } = useAuth();
   const admin = hasRole('ADMIN');
   const isNew = !editingId;
@@ -212,7 +214,7 @@ export function DeviceEditor({ close, editingId, animateEntry = false, form, set
           const hint = !errors && tabHasHint(key);
           return <button key={key} ref={(node) => { tabRefs.current[key] = node; }} type="button" role="tab" id={`device-tab-${key}`} aria-controls={`device-panel-${key}`} aria-selected={tab === key} tabIndex={tab === key ? 0 : -1} className="device-editor-tab" data-state={errors ? 'error' : hint ? 'hint' : undefined} onClick={() => setTab(key)} onKeyDown={onTabKeyDown}>
             {deviceEditorTabLabel(key, registry)}
-            {errors > 0 && <span className="device-editor-tab-badge" data-testid={`tab-errors-${key}`}><span aria-hidden="true">{errors}</span><span className="topology-sr-only">{errors === 1 ? ' · 1 campo obrigatório em falta' : ` · ${errors} campos obrigatórios em falta`}</span></span>}
+            {errors > 0 && <span className="device-editor-tab-badge" data-testid={`tab-errors-${key}`}><span aria-hidden="true">{errors}</span><span className="topology-sr-only">{` · ${ui('infra.missingRequired', undefined, { count: errors })}`}</span></span>}
             {hint && <span className="device-editor-tab-hint" data-testid={`tab-hint-${key}`}><span aria-hidden="true">!</span><span className="topology-sr-only"> · configuração em falta</span></span>}
           </button>;
         })}
@@ -293,7 +295,7 @@ export function DeviceEditor({ close, editingId, animateEntry = false, form, set
       <div className="device-editor-footer">
         <FormError message={formError} />
         <div className="modal-actions">
-          {totalErrors > 0 && <span className="device-editor-missing" role="status">{totalErrors === 1 ? '1 campo obrigatório em falta' : `${totalErrors} campos obrigatórios em falta`}</span>}
+          {totalErrors > 0 && <span className="device-editor-missing" role="status">{ui('infra.missingRequired', undefined, { count: totalErrors })}</span>}
           <button type="button" className="secondary-button" onClick={close}>Cancelar</button>
           <button className="primary-button" aria-disabled={totalErrors > 0 || undefined} data-blocked={totalErrors > 0 || undefined}><Check size={14} /> Guardar</button>
         </div>

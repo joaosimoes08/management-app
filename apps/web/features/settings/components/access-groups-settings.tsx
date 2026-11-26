@@ -41,27 +41,27 @@ export function AccessGroupsSettings({ sites }: { sites: Site[] }) {
   };
 
   const toggleSite = async (groupId: string, siteId: string, assigned: boolean) => {
-    if (assigned && !(await askConfirm({ title: 'Remover grupo do Site', message: 'Remover este grupo do Site? As permissões IPAM desse Site também serão removidas.', confirmLabel: 'Remover', destructive: true }))) return;
+    if (assigned && !(await askConfirm({ title: ui('settings.groups.removeSiteTitle'), message: ui('settings.groups.removeSiteMessage'), confirmLabel: ui('settings.groups.remove'), destructive: true }))) return;
     mutate(`/api/v1/settings/access-groups/${groupId}/sites/${siteId}`, assigned ? 'DELETE' : 'PUT', assigned ? undefined : { permissions: [] });
   };
 
   const setMemberPage = (groupId: string, page: number) => setMemberPages((current) => ({ ...current, [groupId]: page }));
 
   return <>{confirmDialog}<section className="ipam-card settings-panel permissions-panel">
-    <div className="panel-heading"><div><h2>Grupos de acesso</h2><p className="panel-description">Cria os grupos, define os membros e associa-os aos Sites. As permissões são configuradas nas tabs Permissões do IPAM e da Infraestrutura.</p></div></div>
+    <div className="panel-heading"><div><h2>{ui('settings.groups.title')}</h2><p className="panel-description">{ui('settings.groups.description')}</p></div></div>
     {error && <div className="ipam-alert error">{error}</div>}
     <form className="inline-create group-create-form" id="settings-access-groups-form" onSubmit={submit}>
-      <input required placeholder="Nome do grupo" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
-      <input placeholder="Descrição" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
-      {!form.id && <select required value={form.siteSelection} onChange={(event) => setForm({ ...form, siteSelection: event.target.value })}><option value="">Associar ao Site…</option><option value="__all__">Todos os sites</option>{sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</select>}
+      <input required placeholder={ui('settings.groups.name')} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
+      <input placeholder={ui('settings.groups.descriptionField')} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
+      {!form.id && <select required value={form.siteSelection} onChange={(event) => setForm({ ...form, siteSelection: event.target.value })}><option value="">{ui('settings.groups.assignSite')}</option><option value="__all__">{ui('settings.groups.allSites')}</option>{sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</select>}
 
-      {form.id && <button type="button" className="secondary-button" onClick={() => setForm(emptyForm)}>Cancelar</button>}
+      {form.id && <button type="button" className="secondary-button" onClick={() => setForm(emptyForm)}>{ui('settings.groups.cancel')}</button>}
     </form>
-    <PageToolbarPortal><button type="submit" form="settings-access-groups-form" className="primary-button" disabled={saving}><Check size={14} />{form.id ? 'Guardar' : 'Criar grupo'}</button></PageToolbarPortal>
+    <PageToolbarPortal><button type="submit" form="settings-access-groups-form" className="primary-button" disabled={saving}><Check size={14} />{form.id ? ui('settings.groups.save') : ui('settings.groups.create')}</button></PageToolbarPortal>
 
     <div className="group-accordion" aria-busy={groupsQuery.isLoading}>
       {groupsQuery.isLoading
-        ? <div className="settings-group-skeletons" aria-label="A carregar grupos de acesso">{[0, 1, 2].map((item) => <div className="content-skeleton settings-group-skeleton" key={item}><i/><span><i/><i/></span><i/></div>)}</div>
+        ? <div className="settings-group-skeletons" aria-label={ui('settings.groups.loading')}>{[0, 1, 2].map((item) => <div className="content-skeleton settings-group-skeleton" key={item}><i/><span><i/><i/></span><i/></div>)}</div>
         : groups.map((group) => {
         const expanded = expandedGroupId === group.id;
         const availableUsers = users.filter((user) => !group.members.some((member) => member.userId === user.id));
@@ -69,18 +69,18 @@ export function AccessGroupsSettings({ sites }: { sites: Site[] }) {
         const page = Math.min(memberPages[group.id] ?? 0, pageCount - 1);
         const visibleMembers = group.members.slice(page * membersPerPage, (page + 1) * membersPerPage);
         return <article className={`group-accordion-item ${expanded ? 'open' : ''}`} key={group.id}>
-          <button type="button" className="group-accordion-trigger" aria-expanded={expanded} onClick={() => { setExpandedGroupId(expanded ? '' : group.id); setAddingGroupId(''); }}><span><ChevronRight size={16} className={expanded ? 'expanded' : ''} /><strong>{group.name}</strong></span><span>{group.members.length} {group.members.length === 1 ? 'membro' : 'membros'}</span></button>
+          <button type="button" className="group-accordion-trigger" aria-expanded={expanded} onClick={() => { setExpandedGroupId(expanded ? '' : group.id); setAddingGroupId(''); }}><span><ChevronRight size={16} className={expanded ? 'expanded' : ''} /><strong>{group.name}</strong></span><span>{ui('settings.groups.memberCount', undefined, { count: group.members.length })}</span></button>
           {expanded && <div className="group-accordion-content">
-            <div className="group-detail-head"><div><small>Descrição</small><p>{group.description || 'Sem descrição'}</p></div><div className="row-actions"><button title="Editar grupo" onClick={() => setForm({ id: group.id, name: group.name, description: group.description || '', siteSelection: '' })}><Edit3 size={14} /></button><button title="Eliminar grupo" className="danger" onClick={() => void askConfirm({ message: `Eliminar o grupo ${group.name}?`, destructive: true }).then((confirmed) => { if (confirmed) mutate(`/api/v1/settings/access-groups/${group.id}`, 'DELETE'); })}><Trash2 size={14} /></button></div></div>
-            <div className="group-sites"><small>Sites</small><div className="permission-matrix">{sites.map((site) => { const assigned = group.siteAssignments.some((item) => item.siteId === site.id); return <label className={`permission-chip site-toggle ${assigned ? 'assigned' : ''}`} key={site.id}><input type="checkbox" checked={assigned} disabled={saving} onChange={() => toggleSite(group.id, site.id, assigned)} />{site.name}</label>; })}</div></div>
-            <div className="group-members-head"><small>Membros</small><button type="button" className="icon-button group-add-member" title="Adicionar membro" aria-label={`Adicionar membro a ${group.name}`} onClick={() => setAddingGroupId(addingGroupId === group.id ? '' : group.id)}><Plus size={15} /></button></div>
-            {addingGroupId === group.id && <div className="group-member-picker">{availableUsers.map((user) => <button type="button" key={user.id} disabled={saving} onClick={() => { setAddingGroupId(''); mutate(`/api/v1/settings/access-groups/${group.id}/members`, 'POST', { userId: user.id }); }}><span className="user-status-icon"><Users size={13} /></span><span><strong>{user.displayName || user.username}</strong><small>{user.username}{user.email ? ` · ${user.email}` : ''}</small></span></button>)}{!availableUsers.length && <span>Não existem mais utilizadores disponíveis.</span>}</div>}
-            <div className="group-member-grid">{visibleMembers.map((member) => <div className="group-member-card" key={member.userId}><span className="user-status-icon"><Users size={13} /></span><span><strong>{member.user.displayName || member.user.username}</strong><small>{member.user.username}</small></span><button type="button" aria-label={`Remover ${member.user.username}`} disabled={saving} onClick={() => mutate(`/api/v1/settings/access-groups/${group.id}/members/${member.userId}`, 'DELETE')}>×</button></div>)}{!group.members.length && <div className="group-members-empty">Este grupo ainda não tem membros.</div>}</div>
+            <div className="group-detail-head"><div><small>{ui('settings.groups.descriptionField')}</small><p>{group.description || ui('settings.groups.noDescription')}</p></div><div className="row-actions"><button title={ui('settings.groups.edit')} onClick={() => setForm({ id: group.id, name: group.name, description: group.description || '', siteSelection: '' })}><Edit3 size={14} /></button><button title={ui('settings.groups.delete')} className="danger" onClick={() => void askConfirm({ message: ui('settings.groups.deleteConfirm', undefined, { name: group.name }), destructive: true }).then((confirmed) => { if (confirmed) mutate(`/api/v1/settings/access-groups/${group.id}`, 'DELETE'); })}><Trash2 size={14} /></button></div></div>
+            <div className="group-sites"><small>{ui('settings.groups.sites')}</small><div className="permission-matrix">{sites.map((site) => { const assigned = group.siteAssignments.some((item) => item.siteId === site.id); return <label className={`permission-chip site-toggle ${assigned ? 'assigned' : ''}`} key={site.id}><input type="checkbox" checked={assigned} disabled={saving} onChange={() => toggleSite(group.id, site.id, assigned)} />{site.name}</label>; })}</div></div>
+            <div className="group-members-head"><small>{ui('settings.groups.members')}</small><button type="button" className="icon-button group-add-member" title={ui('settings.groups.addMember')} aria-label={ui('settings.groups.addMemberTo', undefined, { name: group.name })} onClick={() => setAddingGroupId(addingGroupId === group.id ? '' : group.id)}><Plus size={15} /></button></div>
+            {addingGroupId === group.id && <div className="group-member-picker">{availableUsers.map((user) => <button type="button" key={user.id} disabled={saving} onClick={() => { setAddingGroupId(''); mutate(`/api/v1/settings/access-groups/${group.id}/members`, 'POST', { userId: user.id }); }}><span className="user-status-icon"><Users size={13} /></span><span><strong>{user.displayName || user.username}</strong><small>{user.username}{user.email ? ` · ${user.email}` : ''}</small></span></button>)}{!availableUsers.length && <span>{ui('settings.groups.noMoreUsers')}</span>}</div>}
+            <div className="group-member-grid">{visibleMembers.map((member) => <div className="group-member-card" key={member.userId}><span className="user-status-icon"><Users size={13} /></span><span><strong>{member.user.displayName || member.user.username}</strong><small>{member.user.username}</small></span><button type="button" aria-label={ui('settings.groups.removeMember', undefined, { name: member.user.username })} disabled={saving} onClick={() => mutate(`/api/v1/settings/access-groups/${group.id}/members/${member.userId}`, 'DELETE')}>×</button></div>)}{!group.members.length && <div className="group-members-empty">{ui('settings.groups.noMembers')}</div>}</div>
             {pageCount > 1 && <div className="group-member-pagination"><button type="button" aria-label={ui('ui.previousPage')} disabled={page === 0} onClick={() => setMemberPage(group.id, page - 1)}><ChevronLeft size={15} /></button><span>{page + 1} / {pageCount}</span><button type="button" aria-label={ui('ui.nextPage')} disabled={page >= pageCount - 1} onClick={() => setMemberPage(group.id, page + 1)}><ChevronRight size={15} /></button></div>}
           </div>}
         </article>;
       })}
-      {!groups.length && !groupsQuery.isLoading && <div className="empty-context"><Users size={22} /><strong>Ainda não existem grupos</strong></div>}
+      {!groups.length && !groupsQuery.isLoading && <div className="empty-context"><Users size={22} /><strong>{ui('settings.groups.empty')}</strong></div>}
     </div>
   </section></>;
 }

@@ -8,6 +8,8 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
 import { apiDownload, apiFetch } from '@/lib/api/client';
 import { formatDateTime } from '@/lib/format/date';
+import { useUiText } from '@/components/ui/use-ui-text';
+import { settingsText } from '../i18n';
 import { REPORT_SECTIONS, reportCsvFilename, type ReportFrequency, type ReportSection, scheduleLabel, SECTION_LABEL, WEEKDAYS } from '@/features/reports/report-labels';
 
 export type ScheduledReportRecipient = { userId: string; username: string; displayName: string | null; hasEmail: boolean; unsubscribedAt: string | null };
@@ -42,6 +44,7 @@ const toggle = <T,>(list: T[], value: T, on: boolean) => (on ? [...new Set([...l
 /** Definições → Relatórios: scheduled weekly/monthly digests per Site, sent by email (with CSV) and Teams. ADMIN only. */
 export function ScheduledReportsSettings() {
   const { success, error: toastError } = useToast();
+  const ui = useUiText();
   const { confirm, confirmDialog } = useConfirm();
   const [state, setState] = useState<ScheduledReportsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -54,7 +57,7 @@ export function ScheduledReportsSettings() {
   const load = useCallback(async () => {
     setLoading(true);
     try { setState(await apiFetch<ScheduledReportsResponse>(ROOT)); setFeedback(''); }
-    catch (reason) { setFeedback(messageOf(reason, 'Não foi possível carregar os relatórios agendados.')); }
+    catch (reason) { setFeedback(messageOf(reason, settingsText('settings.reports.loadError'))); }
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -73,8 +76,8 @@ export function ScheduledReportsSettings() {
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
-    if (!draft.sections.length) { setFeedback('Escolhe pelo menos uma secção.'); return; }
-    if (!draft.sendEmail && !draft.sendTeams) { setFeedback('Escolhe pelo menos um canal de envio.'); return; }
+    if (!draft.sections.length) { setFeedback(ui('settings.reports.needSection')); return; }
+    if (!draft.sendEmail && !draft.sendTeams) { setFeedback(ui('settings.reports.needChannel')); return; }
     setBusy('save'); setFeedback('');
     const body = {
       name: draft.name.trim(), enabled: draft.enabled, frequency: draft.frequency, hour: draft.hour, timezone: draft.timezone.trim(),
@@ -83,103 +86,103 @@ export function ScheduledReportsSettings() {
     };
     try {
       await apiFetch(editing === 'new' ? ROOT : `${ROOT}/${editing}`, { method: editing === 'new' ? 'POST' : 'PUT', body: JSON.stringify(body) });
-      success('Relatórios', editing === 'new' ? 'Relatório criado' : 'Relatório guardado');
+      success(ui('settings.reports.toast'), editing === 'new' ? ui('settings.reports.created') : ui('settings.reports.saved'));
       setEditing(null);
       await load();
-    } catch (reason) { const message = messageOf(reason, 'Não foi possível guardar o relatório.'); setFeedback(message); toastError('Relatórios', message); }
+    } catch (reason) { const message = messageOf(reason, ui('settings.reports.saveError')); setFeedback(message); toastError(ui('settings.reports.toast'), message); }
     finally { setBusy(''); }
   };
 
   const remove = async (report: ScheduledReport) => {
-    if (!(await confirm({ title: 'Remover relatório', message: `Remover “${report.name}”? Os destinatários deixam de o receber e os relatórios gerados são apagados.`, confirmLabel: 'Remover', destructive: true }))) return;
+    if (!(await confirm({ title: ui('settings.reports.removeTitle'), message: ui('settings.reports.removeMessage', undefined, { name: report.name }), confirmLabel: ui('settings.reports.remove'), destructive: true }))) return;
     setBusy(`remove:${report.id}`);
-    try { await apiFetch(`${ROOT}/${report.id}`, { method: 'DELETE' }); success('Relatórios', 'Relatório removido'); if (editing === report.id) setEditing(null); await load(); }
-    catch (reason) { toastError('Relatórios', messageOf(reason, 'Não foi possível remover o relatório.')); }
+    try { await apiFetch(`${ROOT}/${report.id}`, { method: 'DELETE' }); success(ui('settings.reports.toast'), ui('settings.reports.removed')); if (editing === report.id) setEditing(null); await load(); }
+    catch (reason) { toastError(ui('settings.reports.toast'), messageOf(reason, ui('settings.reports.removeError'))); }
     finally { setBusy(''); }
   };
 
   const run = async (report: ScheduledReport) => {
-    if (!(await confirm({ title: 'Enviar agora', message: `Enviar “${report.name}” agora a ${report.recipients.filter((item) => !item.unsubscribedAt).length} destinatário(s)? Cada um recebe apenas os Sites a que tem acesso.`, confirmLabel: 'Enviar' }))) return;
+    if (!(await confirm({ title: ui('settings.reports.sendNow'), message: ui('settings.reports.sendMessage', undefined, { name: report.name, recipients: report.recipients.filter((item) => !item.unsubscribedAt).length }), confirmLabel: ui('settings.reports.send') }))) return;
     setBusy(`run:${report.id}`);
     try {
       const result = await apiFetch<RunResult>(`${ROOT}/${report.id}/run`, { method: 'POST' });
       const queued = result.recipients.filter((item) => item.email === 'QUEUED').length;
       const noEmail = result.recipients.filter((item) => item.email === 'NO_EMAIL').length;
-      success('Relatórios', `${queued} email(s) em envio${result.teams === 'QUEUED' ? ' e resumo no Teams' : ''}${noEmail ? ` · ${noEmail} sem email` : ''}`);
+      success(ui('settings.reports.toast'), [ui(result.teams === 'QUEUED' ? 'settings.reports.queuedWithTeams' : 'settings.reports.queued', undefined, { emails: queued }), ...(noEmail ? [ui('settings.reports.noEmailCount', undefined, { users: noEmail })] : [])].join(' · '));
       await load();
-    } catch (reason) { toastError('Relatórios', messageOf(reason, 'Não foi possível enviar o relatório.')); }
+    } catch (reason) { toastError(ui('settings.reports.toast'), messageOf(reason, ui('settings.reports.sendError'))); }
     finally { setBusy(''); }
   };
 
   const download = async (report: ScheduledReport) => {
     setBusy(`csv:${report.id}`);
     try { await apiDownload(`${ROOT}/${report.id}/csv`, reportCsvFilename(report.name)); }
-    catch (reason) { toastError('Relatórios', messageOf(reason, 'Não foi possível descarregar o CSV.')); }
+    catch (reason) { toastError(ui('settings.reports.toast'), messageOf(reason, ui('settings.reports.csvError'))); }
     finally { setBusy(''); }
   };
 
   const columns: DataTableColumn<ScheduledReport>[] = [
-    { id: 'name', header: 'Relatório', cell: (report) => <><strong>{report.name}</strong><br /><small>{report.sections.map((section) => SECTION_LABEL[section] ?? section).join(' · ')}</small></> },
-    { id: 'schedule', header: 'Agendamento', cell: (report) => <><span>{scheduleLabel(report)}</span><br /><small>{!report.enabled ? 'Desativado' : report.nextRunAt ? `Próximo envio ${formatDateTime(report.nextRunAt)}` : '—'}</small></> },
-    { id: 'scope', header: 'Sites', cell: (report) => report.siteIds.length ? report.siteIds.map((id) => sites.get(id) ?? id).join(', ') : <small>Todos os Sites de cada destinatário</small> },
-    { id: 'recipients', header: 'Destinatários', cell: (report) => { const unsubscribed = report.recipients.filter((item) => item.unsubscribedAt).length; return <><span>{report.recipients.length}</span>{unsubscribed ? <><br /><small>{unsubscribed} cancelou a subscrição</small></> : null}</>; } },
-    { id: 'channels', header: 'Canais', cell: (report) => [report.sendEmail && 'Email', report.sendTeams && 'Teams'].filter(Boolean).join(' + ') },
-    { id: 'lastRun', header: 'Último envio', cell: (report) => report.lastRun ? <><span>{formatDateTime(report.lastRun.createdAt)}</span><br /><small>{report.lastRun.trigger === 'MANUAL' ? 'Manual' : 'Agendado'} · {report.lastRun.outputs} relatório(s)</small></> : '—' },
-    { id: 'actions', header: 'Ações', cell: (report) => <div className="modal-actions">
-      <button type="button" className="secondary-button" disabled={Boolean(busy)} onClick={() => startEdit(report)} aria-label={`Editar ${report.name}`}><Pencil size={14} />Editar</button>
-      <button type="button" className="secondary-button" disabled={Boolean(busy) || !report.recipients.length} onClick={() => void run(report)} aria-label={`Enviar ${report.name} agora`}><Send size={14} />{busy === `run:${report.id}` ? 'A enviar…' : 'Enviar agora'}</button>
-      <button type="button" className="secondary-button" disabled={Boolean(busy)} onClick={() => void download(report)} aria-label={`Descarregar CSV de ${report.name}`}><Download size={14} />CSV</button>
-      <button type="button" className="secondary-button" disabled={Boolean(busy)} onClick={() => void remove(report)} aria-label={`Remover ${report.name}`}><Trash2 size={14} />Remover</button>
+    { id: 'name', header: ui('settings.reports.col.report'), cell: (report) => <><strong>{report.name}</strong><br /><small>{report.sections.map((section) => SECTION_LABEL[section] ?? section).join(' · ')}</small></> },
+    { id: 'schedule', header: ui('settings.reports.col.schedule'), cell: (report) => <><span>{scheduleLabel(report)}</span><br /><small>{!report.enabled ? ui('settings.reports.disabled') : report.nextRunAt ? ui('settings.reports.nextRun', undefined, { date: formatDateTime(report.nextRunAt) }) : '—'}</small></> },
+    { id: 'scope', header: ui('settings.reports.col.sites'), cell: (report) => report.siteIds.length ? report.siteIds.map((id) => sites.get(id) ?? id).join(', ') : <small>{ui('settings.reports.allRecipientSites')}</small> },
+    { id: 'recipients', header: ui('settings.reports.col.recipients'), cell: (report) => { const unsubscribed = report.recipients.filter((item) => item.unsubscribedAt).length; return <><span>{report.recipients.length}</span>{unsubscribed ? <><br /><small>{ui('settings.reports.unsubscribed', undefined, { count: unsubscribed })}</small></> : null}</>; } },
+    { id: 'channels', header: ui('settings.reports.col.channels'), cell: (report) => [report.sendEmail && 'Email', report.sendTeams && 'Teams'].filter(Boolean).join(' + ') },
+    { id: 'lastRun', header: ui('settings.reports.col.lastRun'), cell: (report) => report.lastRun ? <><span>{formatDateTime(report.lastRun.createdAt)}</span><br /><small>{report.lastRun.trigger === 'MANUAL' ? ui('settings.reports.manual') : ui('settings.reports.scheduled')} · {ui('settings.reports.outputs', undefined, { outputs: report.lastRun.outputs })}</small></> : '—' },
+    { id: 'actions', header: ui('settings.reports.col.actions'), cell: (report) => <div className="modal-actions">
+      <button type="button" className="secondary-button" disabled={Boolean(busy)} onClick={() => startEdit(report)} aria-label={ui('settings.reports.editNamed', undefined, { name: report.name })}><Pencil size={14} />{ui('settings.reports.edit')}</button>
+      <button type="button" className="secondary-button" disabled={Boolean(busy) || !report.recipients.length} onClick={() => void run(report)} aria-label={ui('settings.reports.sendNamed', undefined, { name: report.name })}><Send size={14} />{busy === `run:${report.id}` ? ui('settings.reports.sending') : ui('settings.reports.sendNow')}</button>
+      <button type="button" className="secondary-button" disabled={Boolean(busy)} onClick={() => void download(report)} aria-label={ui('settings.reports.csvNamed', undefined, { name: report.name })}><Download size={14} />CSV</button>
+      <button type="button" className="secondary-button" disabled={Boolean(busy)} onClick={() => void remove(report)} aria-label={ui('settings.reports.removeNamed', undefined, { name: report.name })}><Trash2 size={14} />{ui('settings.reports.remove')}</button>
     </div> },
   ];
 
   const maxRecipients = state?.maxRecipients ?? 100;
   return <section className="ipam-card settings-panel">
-    <div className="panel-heading"><div><h2>Relatórios agendados</h2><p className="panel-description">Resumo semanal ou mensal por Site: conformidade das atestações, datas de ciclo de vida, qualidade do inventário, capacidade e alterações. Cada destinatário recebe apenas os Sites a que tem acesso. O email inclui o relatório e um CSV; o Teams recebe só um resumo com ligação, sem números.</p></div><FileText size={19} /></div>
-    {state && !state.channels.email && !state.channels.teams && <div className="ipam-alert">Nenhum canal de envio está ativo. Ativa o email (servidor SMTP) ou os alertas operacionais do Teams no separador Notificações; até lá, os relatórios só podem ser descarregados.</div>}
-    {state && !state.publicLinks && <div className="ipam-alert warning" role="status">APP_PUBLIC_URL não está definido: os emails seguem sem ligação para a aplicação nem ligação de cancelamento (o destinatário pode cancelar em Perfil → Notificações).<small className="settings-env-help">Quem instala o servidor define este endereço público (por exemplo, https://gestao.exemplo.pt) no ficheiro .env do servidor e reinicia a API; não se altera nesta página.</small></div>}
+    <div className="panel-heading"><div><h2>{ui('settings.reports.title')}</h2><p className="panel-description">{ui('settings.reports.description')}</p></div><FileText size={19} /></div>
+    {state && !state.channels.email && !state.channels.teams && <div className="ipam-alert">{ui('settings.reports.noChannel')}</div>}
+    {state && !state.publicLinks && <div className="ipam-alert warning" role="status">{ui('settings.reports.noPublicUrl')}<small className="settings-env-help">{ui('settings.reports.noPublicUrlHelp')}</small></div>}
     {feedback && <div className="ipam-alert error">{feedback}</div>}
 
-    {editing && <form className="settings-form" id="settings-reports-form" onSubmit={(event) => void save(event)} aria-label={editing === 'new' ? 'Novo relatório' : 'Editar relatório'}>
+    {editing && <form className="settings-form" id="settings-reports-form" onSubmit={(event) => void save(event)} aria-label={editing === 'new' ? ui('settings.reports.new') : ui('settings.reports.editTitle')}>
       <fieldset className="notification-channel-fieldset" disabled={busy === 'save'}>
-        <legend>{editing === 'new' ? 'Novo relatório' : 'Editar relatório'}</legend>
+        <legend>{editing === 'new' ? ui('settings.reports.new') : ui('settings.reports.editTitle')}</legend>
         <div className="notification-channel-grid">
-          <label>Nome<input required maxLength={120} value={draft.name} onChange={(event) => set({ name: event.target.value })} placeholder="Ex.: Operação semanal" /></label>
-          <label>Frequência<select value={draft.frequency} onChange={(event) => set({ frequency: event.target.value as ReportFrequency })}><option value="WEEKLY">Semanal (7 dias anteriores)</option><option value="MONTHLY">Mensal (mês anterior)</option></select></label>
+          <label>{ui('settings.reports.name')}<input required maxLength={120} value={draft.name} onChange={(event) => set({ name: event.target.value })} placeholder={ui('settings.reports.namePlaceholder')} /></label>
+          <label>{ui('settings.reports.frequency')}<select value={draft.frequency} onChange={(event) => set({ frequency: event.target.value as ReportFrequency })}><option value="WEEKLY">{ui('settings.reports.weeklyOption')}</option><option value="MONTHLY">{ui('settings.reports.monthlyOption')}</option></select></label>
           {draft.frequency === 'WEEKLY'
-            ? <label>Dia da semana<select value={draft.dayOfWeek} onChange={(event) => set({ dayOfWeek: Number(event.target.value) })}>{WEEKDAYS.map((label, index) => <option key={label} value={index + 1}>{label}</option>)}</select></label>
-            : <label>Dia do mês<input type="number" min={1} max={28} value={draft.dayOfMonth} onChange={(event) => set({ dayOfMonth: Number(event.target.value) })} /><small>1 a 28, para existir em todos os meses.</small></label>}
-          <label>Hora<select value={draft.hour} onChange={(event) => set({ hour: Number(event.target.value) })}>{Array.from({ length: 24 }, (_, hour) => <option key={hour} value={hour}>{String(hour).padStart(2, '0')}:00</option>)}</select></label>
-          <label>Fuso horário<input required maxLength={64} spellCheck={false} value={draft.timezone} onChange={(event) => set({ timezone: event.target.value })} placeholder="Europe/Lisbon" /></label>
+            ? <label>{ui('settings.reports.dayOfWeek')}<select value={draft.dayOfWeek} onChange={(event) => set({ dayOfWeek: Number(event.target.value) })}>{WEEKDAYS.map((label, index) => <option key={label} value={index + 1}>{label}</option>)}</select></label>
+            : <label>{ui('settings.reports.dayOfMonth')}<input type="number" min={1} max={28} value={draft.dayOfMonth} onChange={(event) => set({ dayOfMonth: Number(event.target.value) })} /><small>{ui('settings.reports.dayOfMonthHint')}</small></label>}
+          <label>{ui('settings.reports.hour')}<select value={draft.hour} onChange={(event) => set({ hour: Number(event.target.value) })}>{Array.from({ length: 24 }, (_, hour) => <option key={hour} value={hour}>{String(hour).padStart(2, '0')}:00</option>)}</select></label>
+          <label>{ui('settings.reports.timezone')}<input required maxLength={64} spellCheck={false} value={draft.timezone} onChange={(event) => set({ timezone: event.target.value })} placeholder="Europe/Lisbon" /></label>
         </div>
-        <fieldset className="notification-channel-fieldset"><legend>Secções</legend>
+        <fieldset className="notification-channel-fieldset"><legend>{ui('settings.reports.sections')}</legend>
           {REPORT_SECTIONS.map(({ value, label, description }) => <label key={value} className="settings-check"><input type="checkbox" checked={draft.sections.includes(value)} onChange={(event) => set({ sections: toggle(draft.sections, value, event.target.checked) })} /> <span><strong>{label}</strong> <small>{description}</small></span></label>)}
         </fieldset>
-        <fieldset className="notification-channel-fieldset"><legend>Sites</legend>
-          <p className="panel-description">Sem nenhum escolhido, o relatório inclui todos os Sites a que cada destinatário tem acesso.</p>
+        <fieldset className="notification-channel-fieldset"><legend>{ui('settings.reports.col.sites')}</legend>
+          <p className="panel-description">{ui('settings.reports.sitesHint')}</p>
           {(state?.sites ?? []).map((site) => <label key={site.id} className="settings-check"><input type="checkbox" checked={draft.siteIds.includes(site.id)} onChange={(event) => set({ siteIds: toggle(draft.siteIds, site.id, event.target.checked) })} /> {site.name}</label>)}
         </fieldset>
-        <fieldset className="notification-channel-fieldset"><legend>Destinatários ({draft.recipientIds.length}/{maxRecipients})</legend>
-          <p className="panel-description">Quem cancelar a subscrição continua na lista mas deixa de receber, até voltar a subscrever em Perfil → Notificações.</p>
-          {draft.recipientIds.length > 0 && <div className="modal-actions">{draft.recipientIds.map((id) => { const user = users.get(id); return <button key={id} type="button" className="secondary-button" onClick={() => set({ recipientIds: toggle(draft.recipientIds, id, false) })} aria-label={`Retirar ${user ? userLabel(user) : id}`}><X size={12} />{user ? userLabel(user) : id}{user && !user.hasEmail ? ' · sem email' : ''}</button>; })}</div>}
-          <label>Procurar utilizador<input type="search" value={recipientQuery} onChange={(event) => setRecipientQuery(event.target.value)} placeholder="Nome ou utilizador" /></label>
-          {filteredUsers.map((user) => <label key={user.id} className="settings-check"><input type="checkbox" disabled={!draft.recipientIds.includes(user.id) && draft.recipientIds.length >= maxRecipients} checked={draft.recipientIds.includes(user.id)} onChange={(event) => set({ recipientIds: toggle(draft.recipientIds, user.id, event.target.checked) })} /> {userLabel(user)}{!user.hasEmail && <small> · sem email</small>}</label>)}
+        <fieldset className="notification-channel-fieldset"><legend>{ui('settings.reports.recipientsLegend', undefined, { selected: draft.recipientIds.length, max: maxRecipients })}</legend>
+          <p className="panel-description">{ui('settings.reports.recipientsHint')}</p>
+          {draft.recipientIds.length > 0 && <div className="modal-actions">{draft.recipientIds.map((id) => { const user = users.get(id); return <button key={id} type="button" className="secondary-button" onClick={() => set({ recipientIds: toggle(draft.recipientIds, id, false) })} aria-label={ui('settings.reports.removeRecipient', undefined, { name: user ? userLabel(user) : id })}><X size={12} />{user ? userLabel(user) : id}{user && !user.hasEmail ? ` · ${ui('settings.reports.noEmail')}` : ''}</button>; })}</div>}
+          <label>{ui('settings.reports.searchUser')}<input type="search" value={recipientQuery} onChange={(event) => setRecipientQuery(event.target.value)} placeholder={ui('settings.reports.searchUserPlaceholder')} /></label>
+          {filteredUsers.map((user) => <label key={user.id} className="settings-check"><input type="checkbox" disabled={!draft.recipientIds.includes(user.id) && draft.recipientIds.length >= maxRecipients} checked={draft.recipientIds.includes(user.id)} onChange={(event) => set({ recipientIds: toggle(draft.recipientIds, user.id, event.target.checked) })} /> {userLabel(user)}{!user.hasEmail && <small> · {ui('settings.reports.noEmail')}</small>}</label>)}
         </fieldset>
-        <fieldset className="notification-channel-fieldset"><legend>Envio</legend>
-          <label className="settings-check"><input type="checkbox" checked={draft.sendEmail} onChange={(event) => set({ sendEmail: event.target.checked })} /> Email a cada destinatário (relatório + CSV){state && !state.channels.email && <small> · servidor SMTP desativado</small>}</label>
-          <label className="settings-check"><input type="checkbox" checked={draft.sendTeams} onChange={(event) => set({ sendTeams: event.target.checked })} /> Resumo no canal de alertas operacionais do Teams (sem números){state && !state.channels.teams && <small> · canal desativado</small>}</label>
-          <label className="settings-check"><input type="checkbox" checked={draft.enabled} onChange={(event) => set({ enabled: event.target.checked })} /> Envio agendado ativo</label>
+        <fieldset className="notification-channel-fieldset"><legend>{ui('settings.reports.delivery')}</legend>
+          <label className="settings-check"><input type="checkbox" checked={draft.sendEmail} onChange={(event) => set({ sendEmail: event.target.checked })} /> {ui('settings.reports.sendEmail')}{state && !state.channels.email && <small> · {ui('settings.reports.smtpDisabled')}</small>}</label>
+          <label className="settings-check"><input type="checkbox" checked={draft.sendTeams} onChange={(event) => set({ sendTeams: event.target.checked })} /> {ui('settings.reports.sendTeams')}{state && !state.channels.teams && <small> · {ui('settings.reports.channelDisabled')}</small>}</label>
+          <label className="settings-check"><input type="checkbox" checked={draft.enabled} onChange={(event) => set({ enabled: event.target.checked })} /> {ui('settings.reports.enabled')}</label>
         </fieldset>
         <div className="modal-actions">
-          <button type="button" className="secondary-button" onClick={() => { setEditing(null); setFeedback(''); }}><X size={14} />Cancelar</button>
-          <button type="submit" className="primary-button" disabled={busy === 'save'}><Check size={14} />{busy === 'save' ? 'A guardar…' : 'Guardar relatório'}</button>
+          <button type="button" className="secondary-button" onClick={() => { setEditing(null); setFeedback(''); }}><X size={14} />{ui('settings.reports.cancel')}</button>
+          <button type="submit" className="primary-button" disabled={busy === 'save'}><Check size={14} />{busy === 'save' ? ui('settings.reports.saving') : ui('settings.reports.save')}</button>
         </div>
       </fieldset>
     </form>}
 
-    {loading && !state ? <div className="content-skeleton settings-loading-title" aria-label="A carregar" />
-      : <DataTable rows={state?.reports ?? []} columns={columns} rowKey={(report) => report.id} label="Relatórios agendados" empty={<p className="no-data">Sem relatórios agendados.</p>} />}
-    <PageToolbarPortal><button type="button" className="primary-button" disabled={loading || Boolean(editing)} onClick={startNew}><Plus size={14} />Novo relatório</button></PageToolbarPortal>
+    {loading && !state ? <div className="content-skeleton settings-loading-title" aria-label={ui('settings.reports.loading')} />
+      : <DataTable rows={state?.reports ?? []} columns={columns} rowKey={(report) => report.id} label={ui('settings.reports.title')} empty={<p className="no-data">{ui('settings.reports.empty')}</p>} />}
+    <PageToolbarPortal><button type="button" className="primary-button" disabled={loading || Boolean(editing)} onClick={startNew}><Plus size={14} />{ui('settings.reports.new')}</button></PageToolbarPortal>
     {confirmDialog}
   </section>;
 }

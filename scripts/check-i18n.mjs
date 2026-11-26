@@ -143,6 +143,54 @@ const missingPortuguese = [...enKeys].filter((key) => !ptKeys.has(key));
 const legacySource = sourceFile('apps/web/lib/i18n/legacy-messages.ts', ts.ScriptKind.TS);
 const legacyKeys = objectKeys('enUS', legacySource);
 const portuguese = /[áàãâéêíóôõúçÁÀÃÂÉÊÍÓÔÕÚÇ]|\b(Não|Sem|Criar|Editar|Eliminar|Guardar|Cancelar|Pesquisar|Definições|Descoberta|Infraestrutura|Equipamento|Bastidor|Sala|Edifício|Porta|permitidas|Aplicações|Auditoria|Ajuda|Anterior|Seguinte|Nome|Descrição|Estado|Operacional|disponível|associad|resultados|execução|utilizador|serviço|serviços|Últim|Novo|Nova|Voltar|Abrir|Fechar|Selecion|Carregar|Configura|Imagem|Modelo|Localização|Organização|Membros|Permissões|Ativa|Verificar|Ordem|Ainda|Apenas|Todos|Todas|livres|ocupados|manual|observado|Origem|Notas|Sistema operativo|Portas|Página|Nenhuma|Reordenar|Remover)\b/i;
+// `npm run i18n:check -- --locales[=es-ES,fr-FR]`: what each added language still lacks compared with en-US.
+// Report only: translators fill these files in over time, so missing entries do not fail the run.
+const localesArg = process.argv.slice(2).find((arg) => arg === '--locales' || arg.startsWith('--locales='));
+if (localesArg) {
+  const addedLocales = ['es-ES', 'fr-FR', 'de-DE', 'it-IT'];
+  const wanted = localesArg.includes('=') ? localesArg.split('=')[1].split(',').filter(Boolean) : addedLocales;
+  const unknown = wanted.filter((locale) => !addedLocales.includes(locale));
+  if (unknown.length) {
+    console.error(`Unknown locale(s): ${unknown.join(', ')}. Added locales: ${addedLocales.join(', ')}.`);
+    process.exit(1);
+  }
+  const englishSubstitutions = (() => {
+    let count = 0;
+    (function visit(node) {
+      if (ts.isVariableDeclaration(node) && node.name.getText(legacySource) === 'substitutions' && node.initializer && ts.isArrayLiteralExpression(node.initializer)) count = node.initializer.elements.length;
+      ts.forEachChild(node, visit);
+    })(legacySource);
+    return count;
+  })();
+  const summary = [];
+  for (const locale of wanted) {
+    const relative = `apps/web/lib/i18n/locales/${locale}.ts`;
+    const source = sourceFile(relative, ts.ScriptKind.TS);
+    const keyed = objectKeys('messages', source);
+    const legacy = objectKeys('legacy', source);
+    let substitutions = 0;
+    (function visit(node) {
+      if (ts.isVariableDeclaration(node) && node.name.getText(source) === 'substitutions' && node.initializer && ts.isArrayLiteralExpression(node.initializer)) substitutions = node.initializer.elements.length;
+      ts.forEachChild(node, visit);
+    })(source);
+    const missingKeyed = [...enKeys].filter((key) => !keyed.has(key));
+    const missingLegacy = [...legacyKeys].filter((key) => !legacy.has(key));
+    const extraKeyed = [...keyed].filter((key) => !enKeys.has(key));
+    const extraLegacy = [...legacy].filter((key) => !legacyKeys.has(key));
+    console.log(`\n== ${locale} (${relative})`);
+    console.log(`Missing keyed messages (${missingKeyed.length} of ${enKeys.size}):`);
+    for (const key of missingKeyed) console.log(`  ${key}`);
+    console.log(`Missing legacy entries (${missingLegacy.length} of ${legacyKeys.size}):`);
+    for (const key of missingLegacy) console.log(`  ${JSON.stringify(key)}`);
+    if (extraKeyed.length) console.log(`Keyed messages not in en-US (unused): ${extraKeyed.join(', ')}`);
+    if (extraLegacy.length) console.log(`Legacy entries not in the English table (unused): ${extraLegacy.map((key) => JSON.stringify(key)).join(', ')}`);
+    summary.push({ locale, keyed: `${enKeys.size - missingKeyed.length}/${enKeys.size}`, legacy: `${legacyKeys.size - missingLegacy.length}/${legacyKeys.size}`, substitutions: `${substitutions} (en-US has ${englishSubstitutions})` });
+  }
+  console.log('\nSummary (translated / en-US total); anything missing shows in English:');
+  console.table(summary);
+  process.exit(0);
+}
+
 const uncovered = [];
 for (const relative of operationalFiles) {
   const source = sourceFile(relative);

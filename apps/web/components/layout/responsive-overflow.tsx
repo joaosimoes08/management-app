@@ -2,6 +2,7 @@
 
 import { Children, cloneElement, Fragment, isValidElement, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactElement, type ReactNode } from 'react';
 import { MoreHorizontal } from 'lucide-react';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 /** Prioritize the active entry, then retain earlier entries until the menu reserve is needed. */
 export function visibleOverflowIndexes(widths: number[], activeIndex: number, availableWidth: number, menuWidth = 36, itemGap = 0, navPadding = 0, menuGap = 0): number[] {
@@ -127,6 +128,7 @@ export function visibleTabLayout(widths: number[], activeIndex: number, availabl
 
 /** Keeps an active tab visible and moves lower-priority tabs into a keyboard-operable menu. */
 export function ResponsiveTabNavigation({ navigation }: { navigation: ReactElement<{ children?: ReactNode; className?: string }> }) {
+  const ui = useUiText();
   const items = Children.toArray(navigation.props.children);
   const activeIndex = Math.max(0, items.findIndex((item) => isValidElement(item) && (item.props as { className?: string; 'aria-current'?: string })['aria-current'] === 'page' || isValidElement(item) && String((item.props as { className?: string }).className ?? '').split(' ').includes('active')));
   const containerRef = useRef<HTMLDivElement>(null);
@@ -143,7 +145,7 @@ export function ResponsiveTabNavigation({ navigation }: { navigation: ReactEleme
   });
   return <div className="responsive-tab-navigation" ref={containerRef}>
     {renderedNavigation}
-    {!!hiddenItems.length && <ResponsiveOverflowMenu label="Mais secções" onSelect={() => {}}>{hiddenItems}</ResponsiveOverflowMenu>}
+    {!!hiddenItems.length && <ResponsiveOverflowMenu label={ui('topbar.moreSections')} onSelect={() => {}}>{hiddenItems}</ResponsiveOverflowMenu>}
     <div className="responsive-overflow-measure" ref={measureRef} aria-hidden="true">{cloneElement(navigation, { children: items })}</div>
   </div>;
 }
@@ -164,6 +166,7 @@ export function flattenToolbarChildren(children: ReactNode, prefix = ''): ReactN
 
 /** Moves secondary direct toolbar actions into a menu when they do not fit beside primary actions. */
 export function ResponsiveToolbarActions({ children }: { children: ReactNode }) {
+  const ui = useUiText();
   const items = flattenToolbarChildren(children);
   const containerRef = useRef<HTMLDivElement>(null);
   const { available, widths, measureRef } = useMeasuredWidths(containerRef, items.length);
@@ -179,7 +182,7 @@ export function ResponsiveToolbarActions({ children }: { children: ReactNode }) 
   const minimumWidth = widths.length === items.length ? Math.ceil(primaryWidths.reduce((sum, width) => sum + width, 0) + Math.max(0, primaryWidths.length - 1) * 6 + (isPrimary.some((primaryItem) => !primaryItem) ? 50 : 0)) : undefined;
   return <div className="responsive-toolbar-actions" ref={containerRef} style={naturalWidth ? { '--toolbar-actions-width': `${naturalWidth}px`, '--toolbar-actions-min': `${minimumWidth}px` } as React.CSSProperties : undefined}>
     <div className="responsive-toolbar-actions-visible">{items.filter((_, index) => visibleIndexes.has(index))}</div>
-    {!!hidden.length && <ResponsiveOverflowMenu label="Mais ações" onSelect={() => {}}>{hidden}</ResponsiveOverflowMenu>}
+    {!!hidden.length && <ResponsiveOverflowMenu label={ui('topbar.moreActions')} onSelect={() => {}}>{hidden}</ResponsiveOverflowMenu>}
     <div className="responsive-overflow-measure" ref={measureRef} aria-hidden="true">{items.map((item, index) => <span className="responsive-overflow-measure-item" key={isValidElement(item) ? item.key ?? index : index}>{item}</span>)}</div>
   </div>;
 }

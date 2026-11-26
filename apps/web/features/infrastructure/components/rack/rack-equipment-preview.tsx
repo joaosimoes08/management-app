@@ -4,6 +4,7 @@ import { EquipmentTypeIcon } from '../equipment-type-icon';
 import { deviceFaceImage, RACK_UNITS, RACK_VIEWPORT, rackUnitBox, rackUnitFromDrop } from '../../utils';
 import type { Rack } from '../../types';
 import { AssetImage } from '../asset-image';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 export interface RackEquipmentPreviewProps {
   rack: Rack;
@@ -20,6 +21,7 @@ export interface RackEquipmentPreviewProps {
  * In reordering mode devices can be dragged to another rack or rack unit.
  */
 export function RackEquipmentPreview({ rack, racks, reordering = false, movingDeviceId = '', onMove, onMoving }: RackEquipmentPreviewProps) {
+  const ui = useUiText();
   const placed = (rack.devices ?? []).filter((device) => {
     const start = Number(device.rackUnitStart);
     const size = Math.max(1, Number(device.rackUnitSize) || 1);
@@ -52,7 +54,7 @@ export function RackEquipmentPreview({ rack, racks, reordering = false, movingDe
       const { top, height } = rackUnitBox(start, size);
       // Room overview: the front face, or the rear image until a front image is uploaded.
       const visual = deviceFaceImage(device, 'front') ?? deviceFaceImage(device, 'rear');
-      return <span className={`rack-preview-device${movingDeviceId === device.id ? ' moving' : ''}`} key={device.id} style={{ top: `${top}%`, height: `${height}%` }} draggable={reordering} role={reordering ? 'button' : undefined} tabIndex={reordering ? 0 : undefined} aria-label={reordering ? `Mover ${device.name}, atualmente em U${start}` : undefined} onKeyDown={(event) => {
+      return <span className={`rack-preview-device${movingDeviceId === device.id ? ' moving' : ''}`} key={device.id} style={{ top: `${top}%`, height: `${height}%` }} draggable={reordering} role={reordering ? 'button' : undefined} tabIndex={reordering ? 0 : undefined} aria-label={reordering ? ui('infra.rack.moveDevice', undefined, { name: device.name, unit: start }) : undefined} onKeyDown={(event) => {
         if (!reordering) return;
         const rackIndex = racks.findIndex((item) => item.id === rack.id);
         if (event.key === 'ArrowUp') { event.preventDefault(); void onMove(device.id, rack.id, start + 1); }

@@ -150,7 +150,7 @@ export function Device360Page({ deviceId }: { deviceId: string }) {
 
   return <AppShell section="Mapa físico"><div className="module-page device-360">
     <header className="workspace-head device-360-head">
-      {imageAsset && <AssetImage asset={imageAsset} className="device-360-image" alt={`Frente de ${modelName || device.name}`} loading="eager" fallback={false} />}
+      {imageAsset && <AssetImage asset={imageAsset} className="device-360-image" alt={t('infra.frontOf', undefined, { name: modelName || device.name })} loading="eager" fallback={false} />}
       <div>
         <h1>{device.name}</h1>
         <p>{[device.type, modelName, location || 'Sem localização'].filter(Boolean).join(' · ')}</p>
@@ -196,11 +196,11 @@ export function Device360Page({ deviceId }: { deviceId: string }) {
       </Section>
 
       <Section id="ligacoes" title="Ligações" fullHref={`/topology${q({ siteId, deviceId: device.id })}`} fullLabel="Ver na Topologia">
-        <SectionBody query={connections} empty={(list) => (list.length ? null : 'Sem ligações registadas.')}>{(list) => <ul className="device-360-list">{list.map((c) => { const outgoing = c.sourceDeviceId === deviceId; const other = outgoing ? c.targetDevice : c.sourceDevice; const local = outgoing ? c.sourceInterface : c.targetInterface; const remote = outgoing ? c.targetInterface : c.sourceInterface; return <li key={c.id}>{local?.name ?? '—'} → {other ? <a href={`/infraestrutura/equipamentos/${encodeURIComponent(other.id)}${q({ siteId })}`}>{other.name}</a> : '—'}{remote?.name ? ` (${remote.name})` : ''}{c.type ? ` · ${c.type === 'LOGICAL' ? 'Lógica' : 'Física'}` : ''}</li>; })}</ul>}</SectionBody>
+        <SectionBody query={connections} empty={(list) => (list.length ? null : 'Sem ligações registadas.')}>{(list) => <ul className="device-360-list">{list.map((c) => { const outgoing = c.sourceDeviceId === deviceId; const other = outgoing ? c.targetDevice : c.sourceDevice; const local = outgoing ? c.sourceInterface : c.targetInterface; const remote = outgoing ? c.targetInterface : c.sourceInterface; return <li key={c.id}>{local?.name ?? '—'} → {other ? <a href={`/infraestrutura/equipamentos/${encodeURIComponent(other.id)}${q({ siteId })}`}>{other.name}</a> : '—'}{remote?.name ? ` (${remote.name})` : ''}{c.type ? t(`infra.device360.connectionType.${c.type === 'LOGICAL' ? 'logical' : 'physical'}`) : ''}</li>; })}</ul>}</SectionBody>
       </Section>
 
       <Section id="energia" title="Energia" fullHref={rackHref ?? undefined} fullLabel="Ver energia do rack">
-        {outlets.length ? <ul className="device-360-list">{outlets.map((o, i) => <li key={`${o.pduId ?? ''}:${o.outletIndex ?? i}`}>{o.pduName ?? 'PDU'} · tomada {o.outletIndex ?? '—'}</li>)}</ul> : <EmptyLine>Sem tomadas de PDU ligadas.</EmptyLine>}
+        {outlets.length ? <ul className="device-360-list">{outlets.map((o, i) => <li key={`${o.pduId ?? ''}:${o.outletIndex ?? i}`}>{t('infra.device360.outlet', undefined, { pdu: o.pduName ?? 'PDU', outlet: o.outletIndex ?? '—' })}</li>)}</ul> : <EmptyLine>Sem tomadas de PDU ligadas.</EmptyLine>}
       </Section>
 
       {showHealth && <Section id="saude" title={t('snmpHealth.panel.title')} fullHref={`/snmp${q({ deviceId: device.id })}`} fullLabel={t('snmpHealth.panel.full')}>
@@ -215,7 +215,7 @@ export function Device360Page({ deviceId }: { deviceId: string }) {
       </Section>}
 
       {can('hosts') && <Section id="host" title="Host e serviços" fullHref={`/infraestrutura${q({ tab: 'devices', type: 'SERVER', 'hosts-site': siteId })}`} fullLabel="Ver servidores em Equipamentos">
-        {siteId ? <SectionBody query={hosts} empty={(list) => (list.length ? null : 'Sem host associado.')}>{(list) => <ul className="device-360-list">{list.map((h) => <li key={h.id}><strong>{h.name}</strong>{h.operatingSystem ? ` · ${h.operatingSystem}` : ''}{h.agent?.state ? ` · agente ${h.agent.state}` : ''}{h.services.length ? <ul className="device-360-list">{h.services.map((sv) => <li key={sv.id}>{sv.name}{sv.port ? `:${sv.port}` : ''}{sv.protocol ? ` (${sv.protocol})` : ''}{sv.observedStatus ? ` · ${sv.observedStatus}` : ''}</li>)}</ul> : <EmptyLine>Sem serviços registados.</EmptyLine>}</li>)}</ul>}</SectionBody> : <EmptyLine>Sem host associado.</EmptyLine>}
+        {siteId ? <SectionBody query={hosts} empty={(list) => (list.length ? null : 'Sem host associado.')}>{(list) => <ul className="device-360-list">{list.map((h) => <li key={h.id}><strong>{h.name}</strong>{h.operatingSystem ? ` · ${h.operatingSystem}` : ''}{h.agent?.state ? t('infra.device360.agentState', undefined, { state: h.agent.state }) : ''}{h.services.length ? <ul className="device-360-list">{h.services.map((sv) => <li key={sv.id}>{sv.name}{sv.port ? `:${sv.port}` : ''}{sv.protocol ? ` (${sv.protocol})` : ''}{sv.observedStatus ? ` · ${sv.observedStatus}` : ''}</li>)}</ul> : <EmptyLine>Sem serviços registados.</EmptyLine>}</li>)}</ul>}</SectionBody> : <EmptyLine>Sem host associado.</EmptyLine>}
       </Section>}
 
       <Section id="ciclo" title="Ciclo de vida" fullHref={`/infraestrutura${q({ siteId, tab: 'lifecycle' })}`} fullLabel="Ver datas de ciclo de vida">

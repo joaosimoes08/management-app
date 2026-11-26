@@ -9,6 +9,7 @@ import { useOperationalEvents } from './use-operational-events';
 import { alertNextStep, alertTargetHref } from './alert-meta';
 import { OPERATOR_ROLES, ReadOnlyAlertNote, SnoozeSelect } from './alert-actions';
 import { SeverityLegend, SeverityTag } from './alert-severity';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 export { SeverityTag };
 const severityRank: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, WARNING: 2, LOW: 3, INFO: 3 };
@@ -34,6 +35,7 @@ type LoadResults = [
 ];
 
 export function OperationsPanel({ showAlerts = true, showQuality = true, compact = false, siteId: scopedSiteId }: { showAlerts?: boolean; showQuality?: boolean; compact?: boolean; siteId?: string }) {
+  const tx = useUiText();
   const { siteId: contextSiteId } = useSiteContext(); const { hasRole } = useAuth();
   const siteId = scopedSiteId || contextSiteId;
   const [alerts, setAlerts] = useState<OperationalAlert[]>([]); const [alertTotal, setAlertTotal] = useState(0); const [quality, setQuality] = useState<InventoryQuality>(); const [findings, setFindings] = useState<InventoryFinding[]>();
@@ -77,7 +79,7 @@ export function OperationsPanel({ showAlerts = true, showQuality = true, compact
   useOperationalEvents({ fallback: () => load(), onEvent: (event) => { if (event.event !== 'heartbeat') void load(true); } });
   const act = async (fn: () => Promise<unknown>) => { await fn(); await load(true); };
   const resolve = async (alert: OperationalAlert) => {
-    if (!await confirm({ title: 'Resolver alertas', message: `Resolver o alerta "${alert.title}"?\nSai da lista de alertas ativos; se o problema voltar a ocorrer, abre um novo alerta.`, confirmLabel: 'Resolver' })) return;
+    if (!await confirm({ title: 'Resolver alertas', message: tx('groupB.alerts.resolveOne', undefined, { title: alert.title }), confirmLabel: 'Resolver' })) return;
     await act(() => resolveOperationalAlert(alert.id));
   };
   // Global alerts (no Site) can only be changed by ADMIN, as the API enforces.
@@ -88,7 +90,7 @@ export function OperationsPanel({ showAlerts = true, showQuality = true, compact
   });
   const alertError = <div className="no-data panel-load-error" role="alert">{alerts.length ? 'Não foi possível atualizar os alertas. A lista pode estar desatualizada.' : 'Não foi possível carregar os alertas. Tenta atualizar.'}</div>;
   const alertEmpty = !loaded ? <div className="no-data" role="status">A carregar alertas…</div> : loadError ? null : <div className="no-data">Sem alertas ativos.</div>;
-  return <section className={`content-grid ${compact ? 'operations-compact' : ''}`.trim()} aria-label="Operações">{confirmDialog}{showAlerts && <article className="panel"><div className="panel-heading"><div><h2>Alertas ativos{compact && alertTotal > 0 ? <span className="panel-count"> · {alertTotal > alerts.length ? `${alerts.length} de ${alertTotal}` : alertTotal}</span> : null}</h2></div><span className="button-row"><a className="text-button" href={siteId ? `/alertas?siteId=${encodeURIComponent(siteId)}` : '/alertas'}>{compact ? 'Ver tudo' : 'Lista de alertas'}</a>{!compact && hasRole('ADMIN') && <a className="text-button" href="/alertas#regras">Regras</a>}<button className="icon-button subtle" onClick={() => void load()} aria-label="Atualizar alertas"><RefreshCw size={16} /></button></span></div>{loadError && alertError}{compact && <p className="panel-description alert-card-note">Adiados não aparecem aqui. <a href={siteId ? `/alertas?siteId=${encodeURIComponent(siteId)}&status=SNOOZED` : '/alertas?status=SNOOZED'}>Ver adiados</a></p>}{!canEdit && alerts.length > 0 && <ReadOnlyAlertNote />}<SeverityLegend />{alerts.length ? (compact ? <div className="alert-list dashboard-scroll" tabIndex={0} role="region" aria-label="Lista de alertas ativos">{alertRows}</div> : <div className="alert-list">{alertRows}</div>) : alertEmpty}{alerts.length > 0 && <button className="text-button" onClick={() => void readAllOperationalAlerts().then(() => load())}>Marcar tudo como lido</button>}</article>}{showQuality && <InventoryQualityCard quality={quality} findings={compact ? findings : undefined} compact={compact} error={qualityError} />}</section>;
+  return <section className={`content-grid ${compact ? 'operations-compact' : ''}`.trim()} aria-label="Operações">{confirmDialog}{showAlerts && <article className="panel"><div className="panel-heading"><div><h2>Alertas ativos{compact && alertTotal > 0 ? <span className="panel-count"> · {alertTotal > alerts.length ? tx('groupB.common.countOf', undefined, { shown: alerts.length, total: alertTotal }) : alertTotal}</span> : null}</h2></div><span className="button-row"><a className="text-button" href={siteId ? `/alertas?siteId=${encodeURIComponent(siteId)}` : '/alertas'}>{compact ? 'Ver tudo' : 'Lista de alertas'}</a>{!compact && hasRole('ADMIN') && <a className="text-button" href="/alertas#regras">Regras</a>}<button className="icon-button subtle" onClick={() => void load()} aria-label="Atualizar alertas"><RefreshCw size={16} /></button></span></div>{loadError && alertError}{compact && <p className="panel-description alert-card-note">Adiados não aparecem aqui. <a href={siteId ? `/alertas?siteId=${encodeURIComponent(siteId)}&status=SNOOZED` : '/alertas?status=SNOOZED'}>Ver adiados</a></p>}{!canEdit && alerts.length > 0 && <ReadOnlyAlertNote />}<SeverityLegend />{alerts.length ? (compact ? <div className="alert-list dashboard-scroll" tabIndex={0} role="region" aria-label="Lista de alertas ativos">{alertRows}</div> : <div className="alert-list">{alertRows}</div>) : alertEmpty}{alerts.length > 0 && <button className="text-button" onClick={() => void readAllOperationalAlerts().then(() => load())}>Marcar tudo como lido</button>}</article>}{showQuality && <InventoryQualityCard quality={quality} findings={compact ? findings : undefined} compact={compact} error={qualityError} />}</section>;
 }
 
 /** pt-PT count phrase: singular for exactly 1, plural otherwise. */

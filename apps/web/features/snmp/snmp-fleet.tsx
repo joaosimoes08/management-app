@@ -9,6 +9,7 @@ import { useTableUrlState } from '@/components/data-table/use-table-url-state';
 import { FilterChipBar, FilterChips } from '@/components/ui/filter-chips';
 import { applyChipFilters, chipOptions, facetCounts, type ChipAccessors } from '@/lib/filter-chips';
 import { getSnmpFleetSummary, type SnmpAttentionReason, type SnmpFleetSummary } from './api';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 const reasonBadges: Record<string, { tone: string; label: string }> = {
   FAILED: { tone: 'excluded', label: 'Polling falhou' },
@@ -65,6 +66,7 @@ export function SnmpFleetSummaryView({ siteId, openDevice, openDrifts, configure
 }
 
 function FleetSummaryContent({ data, openDevice, openDrifts, configureDevice }: { data: SnmpFleetSummary; openDevice: (deviceId: string) => void; openDrifts: () => void; configureDevice?: Props['configureDevice'] }) {
+  const tx = useUiText();
   const byStatus = data.polling?.byStatus ?? {};
   const attention = data.attention ?? [];
   const attentionTotal = data.attentionTotal ?? attention.length;
@@ -78,10 +80,10 @@ function FleetSummaryContent({ data, openDevice, openDrifts, configureDevice }: 
       <div><strong>{count(data.devices?.enabled)}</strong><span>{`Polling ativo · ${count(data.devices?.disabled)} desativados`}</span></div>
       <div><strong>{count(data.devices?.notConfigured)}</strong><span>Sem configuração SNMP</span></div>
       <div><strong>{count(byStatus.FAILED)}</strong><span>{`Polling falhou · ${count(byStatus.BLOCKED)} bloqueados`}</span></div>
-      <div><strong>{count(data.polling?.stale)}</strong><span>{`Desatualizados · ${count(byStatus.NEVER_POLLED)} nunca sincronizados${data.polling?.noSchedule ? ` · ${data.polling.noSchedule} sem agendamento` : ''}`}</span></div>
+      <div><strong>{count(data.polling?.stale)}</strong><span>{data.polling?.noSchedule ? tx('groupB.snmp.staleUnscheduled', undefined, { never: count(byStatus.NEVER_POLLED), unscheduled: data.polling.noSchedule }) : tx('groupB.snmp.stale', undefined, { never: count(byStatus.NEVER_POLLED) })}</span></div>
       <div><strong>{count(data.drift?.pending)}</strong><span>{`Divergências pendentes em ${count(data.drift?.devicesWithPending)} equipamentos`}</span></div>
     </div>
-    <p className="ipam-scope-note">{`Último poll: ${data.polling?.lastPollAt ? formatDateTime(data.polling.lastPollAt) : '—'} · Poll mais antigo: ${data.polling?.oldestPollAt ? formatDateTime(data.polling.oldestPollAt) : '—'}`}{data.generatedAt ? ` · Gerado em ${formatDateTime(data.generatedAt)}` : ''}{data.scheduler?.ok === false ? ` · Agendamento do polling com falhas (${data.scheduler.errorCode ?? `${data.scheduler.failed} equipamento(s)`})` : ''}</p>
+    <p className="ipam-scope-note">{tx('groupB.snmp.pollTimes', undefined, { last: data.polling?.lastPollAt ? formatDateTime(data.polling.lastPollAt) : '—', oldest: data.polling?.oldestPollAt ? formatDateTime(data.polling.oldestPollAt) : '—' })}{data.generatedAt ? tx('groupB.snmp.generatedAt', undefined, { date: formatDateTime(data.generatedAt) }) : ''}{data.scheduler?.ok === false ? tx('groupB.snmp.schedulerFailed', undefined, { reason: data.scheduler.errorCode ?? tx('groupB.snmp.devicesCount', undefined, { count: data.scheduler.failed ?? 0 }) }) : ''}</p>
     <section className="ipam-card">
       <div className="panel-heading"><div><h2>Equipamentos que precisam de atenção</h2><p className="panel-description">{attentionTotal > attention.length ? `A mostrar ${attention.length} de ${attentionTotal} equipamentos.` : 'Polling falhado, bloqueado, desatualizado, nunca executado ou SNMP por configurar.'}</p></div>{count(data.drift?.pending) > 0 && <button type="button" className="secondary-button" onClick={openDrifts}>Rever divergências</button>}</div>
       {attention.length > 0 && <FilterChipBar><FilterChips label="Motivo" value={filters.reason} options={reasonOptions} total={attention.length} onChange={(value) => setFilter('reason', value)} /></FilterChipBar>}

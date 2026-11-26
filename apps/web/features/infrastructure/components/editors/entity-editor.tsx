@@ -8,6 +8,7 @@ import { AssetUploadPicker, FormError, ModalActions } from './editor-shared';
 import { DeviceEditor } from './device-editor';
 import type { DeviceEditorTab, MappedFieldError } from '../../device-requirements';
 import { RackPowerFields, type RackPowerFieldsProps } from './rack-power-fields';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 export interface EntityEditorProps {
   modal: string;
@@ -41,6 +42,7 @@ export interface EntityEditorProps {
 
 /** Device, rack and model create/edit modals (the interface modal lives in InterfaceEditor). */
 export function EntityEditor({ modal, close, editingId, animateDeviceEntry = false, form, setForm, rooms, racks, models, assets, ips, save, formError = '', saveRack, rackPower, onDevicePower, deviceFieldErrors, deviceTab }: EntityEditorProps) {
+  const ui = useUiText();
   if (!modal || modal === 'layout') return null;
 
   if (modal === 'device') return <DeviceEditor key={editingId || 'new'} close={close} editingId={editingId} animateEntry={animateDeviceEntry} form={form.device} setForm={setForm.device} racks={racks} models={models} assets={assets} ips={ips} save={save} formError={formError} fieldErrors={deviceFieldErrors} initialTab={deviceTab} onDevicePower={onDevicePower} />;
@@ -81,8 +83,8 @@ export function EntityEditor({ modal, close, editingId, animateDeviceEntry = fal
     <label className="checkbox-label"><input type="checkbox" checked={form.model.supportsNetworkPorts} onChange={(event) => setForm.model({ ...form.model, supportsNetworkPorts: event.target.checked })} /> Tem portas de rede configuráveis</label>
     <label>Portas de rede<input type="number" min="1" value={form.model.networkPortCount} onChange={(event) => setForm.model({ ...form.model, networkPortCount: event.target.value })} /></label>
     <div className="model-face-images">
-      <AssetUploadPicker label="Imagem frontal" required={frontRequired} value={form.model.frontAssetId} assets={assets} onChange={(value) => setForm.model({ ...form.model, frontAssetId: value })} help={frontRequired ? 'Obrigatória. Vista da frente do equipamento no bastidor.' : 'Vista da frente do equipamento no bastidor.'} warning={missingFrontWarning} />
-      <AssetUploadPicker label="Imagem traseira" value={form.model.backAssetId} assets={assets} onChange={(value) => setForm.model({ ...form.model, backAssetId: value })} help="Recomendada. Vista da traseira, onde está a maioria das portas." />
+      <AssetUploadPicker label={ui('infra.model.frontImage')} required={frontRequired} value={form.model.frontAssetId} assets={assets} onChange={(value) => setForm.model({ ...form.model, frontAssetId: value })} help={frontRequired ? ui('infra.model.frontImageRequiredHelp') : ui('infra.model.frontImageHelp')} warning={missingFrontWarning} />
+      <AssetUploadPicker label={ui('infra.model.rearImage')} value={form.model.backAssetId} assets={assets} onChange={(value) => setForm.model({ ...form.model, backAssetId: value })} help={ui('infra.model.rearImageHelp')} />
     </div>
     {form.model.supportsNetworkPorts && <p className="form-help">Depois de guardar, mapeia todas as portas em “Mapear portas”: o total das duas faces tem de ser igual ao número de portas de rede.</p>}
     <FormError message={formError} />

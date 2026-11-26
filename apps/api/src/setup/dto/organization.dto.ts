@@ -1,5 +1,6 @@
 import { IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { IsIanaTimeZone } from '../../common/time-zone';
+import { SUPPORTED_LOCALES } from '../../common/locales';
 
 export class OrganizationDto {
   @IsString() @MinLength(2) @MaxLength(120)
@@ -11,6 +12,6 @@ export class OrganizationDto {
   @IsOptional() @IsIanaTimeZone()
   timezone?: string;
 
-  @IsOptional() @IsIn(['pt-PT', 'en-US'])
+  @IsOptional() @IsIn(SUPPORTED_LOCALES)
   locale?: string;
 }

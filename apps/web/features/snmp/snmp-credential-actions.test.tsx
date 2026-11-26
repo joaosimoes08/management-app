@@ -4,6 +4,8 @@ import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/api/client';
 import { ApiRequestError, apiErrorMessage, localizedApiErrors } from '@/lib/api/errors';
+import { translateMessage } from '@/lib/i18n/i18n';
+import { translateLegacyText } from '@/lib/i18n/legacy-messages';
 import SnmpPage from './snmp-page';
 import { snmpCredentialBusy, snmpCredentialDeleteMessage, snmpCredentialUsage } from './snmp-credential-usage';
 
@@ -143,6 +145,14 @@ describe('snmpCredentialUsage', () => {
 
   it('names exactly one credential in the confirmation text', () => {
     expect(snmpCredentialDeleteMessage({ purpose: 'TRAP', version: 'V3', username: null, label: null }, undefined, [])).toBe('Eliminar a credencial TRAP · V3 deste equipamento?\nSó esta credencial é removida; as outras credenciais e a configuração SNMP ficam como estão. Não é possível desfazer.');
+  });
+
+  it('builds the confirmation, usage warning and delete toast in en-US', () => {
+    const english = (key: string, fallback?: string, params?: Record<string, string | number>) => translateMessage('en-US', key, fallback, params);
+    const usage = snmpCredentialUsage('READ', overview({ config }) as never, english);
+    expect(snmpCredentialDeleteMessage({ purpose: 'TRAP', version: 'V3', username: null, label: null }, undefined, usage, english)).toBe('Delete the TRAP · V3 credential of this device?\nOnly this credential is removed; the other credentials and the SNMP configuration stay as they are. This cannot be undone.\n\nWarning, this credential is in use:\n• SNMP polling is on for this device and uses this credential: it stops working until you save another READ credential.');
+    expect(translateMessage('en-US', 'groupB.snmp.credentialDeleted', undefined, { purpose: 'READ' })).toBe('READ credential deleted.');
+    expect(translateLegacyText('en-US', 'Credencial READ eliminada.')).toBe('READ credential deleted.');
   });
 });
 

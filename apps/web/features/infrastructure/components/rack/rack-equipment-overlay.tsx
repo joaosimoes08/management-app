@@ -26,15 +26,10 @@ export interface RackEquipmentOverlayProps {
   health?: ReadonlyMap<string, SnmpHealthSummaryItem>;
 }
 
-const FACE_TEXT: Record<RackFace, { name: string; image: string; missing: string }> = {
-  front: { name: 'frente', image: 'Vista frontal de', missing: 'Sem imagem frontal' },
-  rear: { name: 'traseira', image: 'Vista traseira de', missing: 'Sem imagem traseira' },
-};
-
 /** Interactive overlay over the 42U rack picture in the rack detail view. */
 export function RackEquipmentOverlay({ rack, onSelect, onDropDevice, draggingDeviceId, onDragging, canEdit, pendingDeviceId, face = 'front', powerLevels, health }: RackEquipmentOverlayProps) {
   const t = useUiText();
-  const text = FACE_TEXT[face];
+  const text = { name: t(`infra.ports.${face}.tab`).toLocaleLowerCase(), missing: t(`infra.rack.noImage.${face}`) };
   // One card at a time across the front and rear overlays: the store is shared, keyed by face and device.
   const active = useActiveRackCard();
   const cardKey = (id: string) => `${face}:${id}`;
@@ -92,9 +87,9 @@ export function RackEquipmentOverlay({ rack, onSelect, onDropDevice, draggingDev
       }} onDragEnd={() => window.setTimeout(() => onDragging(''), 0)} onClick={() => {
         hide(device.id);
         if (!draggingDeviceId) onSelect(device.id);
-      }} data-face={face} aria-label={`${canEdit ? 'Arrastar ou abrir' : 'Abrir'} ${device.name}, U${start}${size > 1 ? ` a U${end}` : ''}, ${text.name}${healthItem !== undefined ? `, ${snmpHealthDescription(t, healthItem)}` : ''}`}>
-      <span className={`rack-device-media${visual ? '' : ' rack-device-media-missing'}`}>{visual ? <AssetImage asset={visual} alt={`${text.image} ${device.name}`} /> : <><EquipmentTypeIcon type={device.type} alt={`Ícone de ${device.type}`} className="rack-device-type-icon" /><span className="rack-device-missing-face">{text.missing}</span></>}</span>
-      {showCard && active && <RackDeviceHoverCard id={cardId} anchor={active.anchor}><strong>{device.name}</strong><span><small>Localização:</small><b>{rack.name}</b></span><span><small>U:</small><b>{size > 1 ? `U${start}–U${end}` : `U${start}`}</b></span><span><small>IP Management:</small><b>{device.managementIp || 'não definido'}</b></span><span><small>Status:</small><b>{String(device.status || 'unknown').toLowerCase()}</b></span>{healthItem !== undefined && <span><small>{t('snmpHealth.column')}:</small><b>{snmpHealthStatusLabel(t, healthItem?.status)}{healthItem?.issueCount ? ` · ${t('snmpHealth.issues', undefined, { count: healthItem.issueCount })}` : ''}</b></span>}{!visual && <span><small>Imagem:</small><b>{text.missing}</b></span>}</RackDeviceHoverCard>}
+      }} data-face={face} aria-label={[t(canEdit ? 'infra.rack.dragOrOpenDevice' : 'infra.rack.openDevice', undefined, { name: device.name, units: size > 1 ? t('infra.rack.unitRange', undefined, { start, end }) : `U${start}`, face: text.name }), healthItem !== undefined ? snmpHealthDescription(t, healthItem) : ''].filter(Boolean).join(', ')}>
+      <span className={`rack-device-media${visual ? '' : ' rack-device-media-missing'}`}>{visual ? <AssetImage asset={visual} alt={t(`infra.rack.faceImageOf.${face}`, undefined, { name: device.name })} /> : <><EquipmentTypeIcon type={device.type} alt={t('infra.typeIconOf', undefined, { type: device.type })} className="rack-device-type-icon" /><span className="rack-device-missing-face">{text.missing}</span></>}</span>
+      {showCard && active && <RackDeviceHoverCard id={cardId} anchor={active.anchor}><strong>{device.name}</strong><span><small>{t('infra.rack.card.location')}</small><b>{rack.name}</b></span><span><small>U:</small><b>{size > 1 ? `U${start}–U${end}` : `U${start}`}</b></span><span><small>IP Management:</small><b>{device.managementIp || t('infra.rack.card.notSet')}</b></span><span><small>Status:</small><b>{String(device.status || 'unknown').toLowerCase()}</b></span>{healthItem !== undefined && <span><small>{t('snmpHealth.column')}:</small><b>{snmpHealthStatusLabel(t, healthItem?.status)}{healthItem?.issueCount ? ` · ${t('snmpHealth.issues', undefined, { count: healthItem.issueCount })}` : ''}</b></span>}{!visual && <span><small>{t('infra.rack.card.image')}</small><b>{text.missing}</b></span>}</RackDeviceHoverCard>}
       {healthItem !== undefined && <span className="rack-equipment-health" data-health={badgeStatus(healthItem?.status)} aria-hidden="true" />}
     </button>;
     })}

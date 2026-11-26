@@ -9,6 +9,8 @@ import type { NetworkMapVlan, RipeDiffItem, RipeOverlap, RipeDiffReason, RipeDif
 import { Empty, IpamModal } from './ipam-modal';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { formatDateTime } from '@/lib/format/date';
+import { useUiText } from '@/components/ui/use-ui-text';
+import { ipamText } from '../i18n';
 import { DataTable, type DataTableColumn } from '@/components/data-table/data-table';
 
 const statusLabel: Record<RipeDiffStatus, string> = { new: 'Novo', changed: 'Alterado', exists: 'Já existe', conflict: 'Conflito' };
@@ -22,7 +24,7 @@ const reasonLabel: Record<RipeDiffReason, string> = {
   EXISTS_OUTSIDE_SITE: 'Já existe noutro Site ou sem Site; os CIDR são únicos na aplicação.',
 };
 const fieldLabel: Record<string, string> = { vrfId: 'VRF', purpose: 'Finalidade', environment: 'Ambiente' };
-const importStatusLabel: Record<string, string> = { PREVIEW: 'Pré-visualização', IMPORTED: 'Importado', PARTIAL: 'Parcial', FAILED: 'Falhou' };
+const importStatusLabel: Record<string, string> = { get PREVIEW() { return ipamText('ipam.ripe.importStatus.PREVIEW'); }, get IMPORTED() { return ipamText('ipam.ripe.importStatus.IMPORTED'); }, get PARTIAL() { return ipamText('ipam.ripe.importStatus.PARTIAL'); }, get FAILED() { return ipamText('ipam.ripe.importStatus.FAILED'); } };
 const importStatusBadge: Record<string, string> = { PREVIEW: '', IMPORTED: 'occupied', PARTIAL: 'reserved', FAILED: 'excluded' };
 const queryTypeLabel: Record<string, string> = { asn: 'ASN', prefix: 'Prefixo', organisation: 'Organização', paste: 'Lista colada' };
 
@@ -41,10 +43,11 @@ const formatDate = (value: string) => formatDateTime(value);
 /** The server diff is tied to the target Site + VRF; changing either makes it stale. */
 const targetKey = (siteId: string, vrfId: string) => `${siteId}|${vrfId}`;
 
-const subnetLabel = (ref?: RipeSubnetRef) => (!ref || ref.hidden || !ref.cidr ? 'uma subnet sem acesso de leitura' : ref.cidr);
+const subnetLabel = (ref?: RipeSubnetRef) => (!ref || ref.hidden || !ref.cidr ? ipamText('ipam.ripe.hiddenSubnet') : ref.cidr);
+const fieldText = (field: string) => (field === 'purpose' || field === 'environment' ? ipamText(`ipam.ripe.field.${field}`) : fieldLabel[field] ?? field);
 const overlapLine = (overlap: RipeOverlap) => {
-  if (overlap.source === 'paste') return `Sobrepõe-se a ${overlap.prefix} (nesta lista)`;
-  return `${overlap.relation === 'within' ? 'Dentro de' : 'Contém'} ${subnetLabel(overlap.subnet)}${overlap.sameScope ? '' : ' (outro Site/VRF)'}`;
+  if (overlap.source === 'paste') return ipamText('ipam.ripe.overlapPaste', { prefix: overlap.prefix ?? '' });
+  return ipamText(`ipam.ripe.${overlap.relation === 'within' ? 'within' : 'contains'}${overlap.sameScope ? '' : 'OtherScope'}`, { subnet: subnetLabel(overlap.subnet) });
 };
 /** An OVERLAP caused only by earlier prefixes of the same paste is not about the inventory. */
 const pasteOnlyOverlap = (item: RipeDiffItem) => item.reason === 'OVERLAP' && Boolean(item.overlaps?.length) && (item.overlaps ?? []).every((overlap) => overlap.source === 'paste');
@@ -52,12 +55,12 @@ const reasonText = (item: RipeDiffItem) => (pasteOnlyOverlap(item) ? 'Sobrepõe 
 
 /** Extra detail for a diff row: the colliding subnet, the overlaps or the attribute differences. */
 export function ripeDiffDetail(item: RipeDiffItem, vrfs: Vrf[] = []): string[] {
-  const vrfName = (id: string | null) => (id ? vrfs.find((vrf) => vrf.id === id)?.name ?? id : 'sem VRF');
+  const vrfName = (id: string | null) => (id ? vrfs.find((vrf) => vrf.id === id)?.name ?? id : ipamText('ipam.ripe.noVrf'));
   const value = (field: string, raw: string | null) => (field === 'vrfId' ? vrfName(raw) : raw || '—');
   const lines: string[] = [];
-  if (item.existing && item.reason !== 'EXISTS_SAME') lines.push(`Subnet existente: ${subnetLabel(item.existing)}`);
+  if (item.existing && item.reason !== 'EXISTS_SAME') lines.push(ipamText('ipam.ripe.existing', { subnet: subnetLabel(item.existing) }));
   const changes = Array.isArray(item.changes) ? item.changes : [];
-  for (const change of changes) lines.push(`${fieldLabel[change.field] ?? change.field}: ${value(change.field, change.current)} → ${value(change.field, change.proposed)}`);
+  for (const change of changes) lines.push(ipamText('ipam.ripe.change', { field: fieldText(change.field), from: value(change.field, change.current), to: value(change.field, change.proposed) }));
   if (item.status === 'changed' && !changes.length) lines.push('Os valores atuais estão ocultos: sem acesso de leitura a esta subnet.');
   for (const overlap of Array.isArray(item.overlaps) ? item.overlaps : []) lines.push(overlapLine(overlap));
   return lines;
@@ -74,6 +77,7 @@ function ImportStatusBadge({ status }: { status: string }) {
 /** RIPE import: RIPEstat lookup or pasted/uploaded list → server diff against the Site/VRF → confirm import; plus import history. */
 export function RipeView({ siteId, search, vlans, canPreview, canImport, success, toastError }: RipeViewProps) {
   const { confirm: askConfirm, confirmDialog } = useConfirm();
+  const ui = useUiText();
   const queryClient = useQueryClient();
   const [pasteOpen, setPasteOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -105,13 +109,13 @@ export function RipeView({ siteId, search, vlans, canPreview, canImport, success
   const term = search.trim().toLowerCase();
   const visibleHistory = (history ?? []).filter((item) => !term || `${item.query} ${item.queryType} ${item.status}`.toLowerCase().includes(term));
   const historyColumns: DataTableColumn<RipeImportRecord>[] = [
-    { id: 'date', header: 'Data', cell: (item) => formatDate(item.createdAt) },
+    { id: 'date', header: ui('ipam.ripe.col.date'), cell: (item) => formatDate(item.createdAt) },
     { id: 'query', header: 'Consulta', className: 'mono', cell: (item) => item.query },
     { id: 'type', header: 'Tipo', cell: (item) => queryTypeLabel[item.queryType] ?? item.queryType },
     { id: 'status', header: 'Estado', cell: (item) => <ImportStatusBadge status={item.status} /> },
     { id: 'prefixes', header: 'Prefixos', cell: (item) => item.result?.prefixes?.length ?? 0 },
     { id: 'outcome', header: 'Criadas / ignoradas', cell: (item) => (item.status === 'PREVIEW' ? '—' : `${item.result?.created?.length ?? 0} / ${item.result?.skipped?.length ?? 0}`) },
-    { id: 'actions', header: 'Ações', className: 'table-actions', cell: (item) => <button className="icon-button subtle" title={`Ver importação ${item.query}`} aria-label={`Ver importação ${item.query}`} onClick={() => setDetailId(item.id)}><Eye size={14} /></button> },
+    { id: 'actions', header: 'Ações', className: 'table-actions', cell: (item) => <button className="icon-button subtle" title={ui('ipam.ripe.viewImport', undefined, { query: item.query })} aria-label={ui('ipam.ripe.viewImport', undefined, { query: item.query })} onClick={() => setDetailId(item.id)}><Eye size={14} /></button> },
   ];
 
   if (!canPreview) return <Empty title="Importação RIPE" text="A pré-visualização e importação RIPE estão disponíveis apenas para ADMIN e NETWORK_OPERATOR." />;
@@ -150,7 +154,7 @@ export function RipeView({ siteId, search, vlans, canPreview, canImport, success
   const runImport = async (event: FormEvent) => {
     event.preventDefault();
     if (!preview || stale || !chosen.length) return;
-    if (!(await askConfirm({ title: 'Importar prefixos RIPE', message: `Importar ${chosen.length} prefixo(s) como subnets deste Site?`, confirmLabel: 'Importar' }))) return;
+    if (!(await askConfirm({ title: 'Importar prefixos RIPE', message: ui('ipam.ripe.importConfirm', undefined, { prefixes: chosen.length }), confirmLabel: 'Importar' }))) return;
     const target = preview.target ?? { siteId, vrfId: vrfId || null };
     setImporting(true);
     try {
@@ -158,8 +162,8 @@ export function RipeView({ siteId, search, vlans, canPreview, canImport, success
       setLastResult(result);
       setPreview(null);
       setSelected([]);
-      if (result.status === 'FAILED') toastError('Importação RIPE', `Nenhum prefixo foi importado (${result.skipped.length} ignorado(s)).`);
-      else success('Importação RIPE', `${result.created.length} subnet(s) criada(s)${result.skipped.length ? `, ${result.skipped.length} ignorada(s)` : ''}.`);
+      if (result.status === 'FAILED') toastError('Importação RIPE', ui('ipam.ripe.nothingImported', undefined, { skipped: result.skipped.length }));
+      else success('Importação RIPE', result.skipped.length ? ui('ipam.ripe.importedSkipped', undefined, { created: result.created.length, skipped: result.skipped.length }) : ui('ipam.ripe.imported', undefined, { created: result.created.length }));
       await queryClient.invalidateQueries({ queryKey: ['ipam'] });
     } catch (cause) {
       // A stale diff (target changed) cannot be imported: drop it so the user previews again.
@@ -178,56 +182,56 @@ export function RipeView({ siteId, search, vlans, canPreview, canImport, success
     <section className="ipam-card calculator-panel">
       <div className="panel-heading"><div><h2>Importar prefixos RIPE</h2><p className="panel-description">Consulta o RIPEstat ou cola uma lista de prefixos, revê as diferenças calculadas pelo servidor e confirma a importação.</p></div><button className="secondary-button" onClick={() => { setPreviewError(''); setPasteOpen(true); }}><ClipboardList size={14} /> Colar ou carregar lista</button></div>
       <form className="calculator-form" onSubmit={(event) => void runPreview(event, 'ripestat')}>
-        <label>Consulta RIPEstat<input required minLength={2} maxLength={160} placeholder="AS3243, 193.136.0.0/15 ou organização" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
+        <label>Consulta RIPEstat<input required minLength={2} maxLength={160} placeholder={ui('ipam.ripe.queryPlaceholder')} value={query} onChange={(event) => setQuery(event.target.value)} /></label>
         <label>Tipo<select value={queryType} onChange={(event) => setQueryType(event.target.value as RipeQueryType | '')}><option value="">Detetar automaticamente</option><option value="asn">ASN</option><option value="prefix">Prefixo</option><option value="organisation">Organização</option></select></label>
         {vrfSelect}
         <button className="primary-button" disabled={previewing}><Eye size={14} /> {previewing ? 'A pré-visualizar…' : 'Pré-visualizar'}</button>
       </form>
       {previewError && !pasteOpen && <div className="ipam-alert error" role="alert"><X size={15} />{previewError}</div>}
-      {lastResult && <div className="usage-summary" role="status"><strong>{`${lastResult.created.length} subnet(s) criada(s)`}</strong><span>{`${lastResult.skipped.length} ignorada(s) · ${importStatusLabel[lastResult.status] ?? lastResult.status}`}</span>{lastResult.skipped.map((item) => <span key={item.cidr} className="mono">{item.cidr}: {item.reason}</span>)}</div>}
+      {lastResult && <div className="usage-summary" role="status"><strong>{ui('ipam.ripe.createdCount', undefined, { created: lastResult.created.length })}</strong><span>{ui('ipam.ripe.skippedStatus', undefined, { skipped: lastResult.skipped.length, status: importStatusLabel[lastResult.status] ?? lastResult.status })}</span>{lastResult.skipped.map((item) => <span key={item.cidr} className="mono">{item.cidr}: {item.reason}</span>)}</div>}
     </section>
 
     {preview && stale && <p className="ipam-scope-note" role="status">O Site ou o VRF de destino mudou depois da pré-visualização. Pré-visualiza novamente para atualizar as diferenças antes de importar.</p>}
 
     {preview && !stale && <section className="ipam-card">
       <div className="panel-heading"><div><h2>{preview.query}</h2></div></div>
-      {summary && <div className="usage-summary" aria-label="Resumo das diferenças"><strong>{`${summary.importable} importáveis`}</strong><span>{`${summary.new} novos · ${summary.changed} alterados · ${summary.exists} já existem · ${summary.conflict} em conflito`}</span><span>{`${summary.invalid} inválidos · ${summary.duplicates} duplicados`}</span></div>}
-      {diff.length || preview.invalid?.length ? <div className="ip-table-wrap" role="region" aria-label="Diferenças RIPE" tabIndex={0}><table className="ip-table">
+      {summary && <div className="usage-summary" aria-label={ui('ipam.ripe.summaryLabel')}><strong>{ui('ipam.ripe.importable', undefined, { importable: summary.importable })}</strong><span>{ui('ipam.ripe.summaryCounts', undefined, { new: summary.new, changed: summary.changed, exists: summary.exists, conflict: summary.conflict })}</span><span>{ui('ipam.ripe.summaryInvalid', undefined, { invalid: summary.invalid, duplicates: summary.duplicates })}</span></div>}
+      {diff.length || preview.invalid?.length ? <div className="ip-table-wrap" role="region" aria-label={ui('ipam.ripe.diffLabel')} tabIndex={0}><table className="ip-table">
         <thead><tr><th>Importar</th><th>Prefixo</th><th>Resultado</th><th>Detalhe</th></tr></thead>
         <tbody>
           {diff.map((item) => <tr key={item.prefix}>
-            <td><input type="checkbox" aria-label={`Importar ${item.prefix}`} disabled={!item.importable || !canImport} checked={chosen.includes(item.prefix)} onChange={(event) => toggle(item.prefix, event.target.checked)} /></td>
-            <td className="mono">{item.prefix}{item.input !== item.prefix && <small>{`Introduzido: ${item.input}`}</small>}</td>
+            <td><input type="checkbox" aria-label={ui('ipam.ripe.importPrefix', undefined, { prefix: item.prefix })} disabled={!item.importable || !canImport} checked={chosen.includes(item.prefix)} onChange={(event) => toggle(item.prefix, event.target.checked)} /></td>
+            <td className="mono">{item.prefix}{item.input !== item.prefix && <small>{ui('ipam.ripe.input', undefined, { input: item.input })}</small>}</td>
             <td><DiffBadge status={item.status} /></td>
             <td>{reasonText(item)}{ripeDiffDetail(item, vrfs).map((line) => <small key={line}>{line}</small>)}</td>
           </tr>)}
           {(preview.invalid ?? []).map((item) => <tr key={`invalid-${item.input}`}>
-            <td><input type="checkbox" aria-label={`Importar ${item.input}`} disabled checked={false} readOnly /></td>
+            <td><input type="checkbox" aria-label={ui('ipam.ripe.importPrefix', undefined, { prefix: item.input })} disabled checked={false} readOnly /></td>
             <td className="mono">{item.input}</td>
             <td><span className="state-badge excluded"><i />Inválido</span></td>
             <td>{item.reason === 'MISSING_PREFIX_LENGTH' ? 'Falta o comprimento do prefixo (por exemplo /24).' : 'Não é um prefixo IPv4/IPv6 válido em notação CIDR.'}</td>
           </tr>)}
         </tbody>
       </table></div> : <Empty title="Sem prefixos" text="A consulta não devolveu prefixos." />}
-      {Boolean(preview.duplicates?.length) && <p className="ipam-scope-note">{`Duplicados ignorados: ${(preview.duplicates ?? []).join(', ')}`}</p>}
+      {Boolean(preview.duplicates?.length) && <p className="ipam-scope-note">{ui('ipam.ripe.duplicates', undefined, { prefixes: (preview.duplicates ?? []).join(', ') })}</p>}
       {canImport ? diff.length > 0 && <form className="calculator-form" onSubmit={(event) => void runImport(event)}>
         <label>VLAN<select value={vlanId} onChange={(event) => setVlanId(event.target.value)}><option value="">Sem VLAN</option>{vlans.map((vlan) => <option key={vlan.id} value={vlan.id}>VLAN {vlan.vlanId} · {vlan.name}</option>)}</select></label>
         <label>Finalidade<input maxLength={100} value={purpose} onChange={(event) => setPurpose(event.target.value)} /></label>
         <label>Ambiente<input maxLength={50} value={environment} onChange={(event) => setEnvironment(event.target.value)} /></label>
-        <button className="primary-button" disabled={importing || !chosen.length}><Upload size={14} /> {importing ? 'A importar…' : `Importar ${chosen.length} prefixo(s)`}</button>
+        <button className="primary-button" disabled={importing || !chosen.length}><Upload size={14} /> {importing ? 'A importar…' : ui('ipam.ripe.importButton', undefined, { prefixes: chosen.length })}</button>
       </form> : <p className="ipam-scope-note">Não tens permissão IMPORT neste Site: podes rever a pré-visualização, mas não importar.</p>}
     </section>}
 
     <section className="ipam-card">
       <div className="panel-heading"><div><h2>Histórico de importações</h2><p className="panel-description">As 50 consultas e importações RIPE mais recentes.</p></div></div>
       {historyError && <div className="ipam-alert error"><X size={15} />{message(historyError)}</div>}
-      <DataTable rows={visibleHistory} columns={historyColumns} rowKey={(item) => item.id} label="Histórico de importações RIPE" loading={loadingHistory} skeletonRows={3} empty={!historyError && <Empty title={term ? 'Sem importações correspondentes' : 'Ainda não existem importações RIPE'} text={term ? 'Experimenta outra pesquisa.' : 'As pré-visualizações e importações aparecem aqui.'} />} />
+      <DataTable rows={visibleHistory} columns={historyColumns} rowKey={(item) => item.id} label="Histórico de importações RIPE" loading={loadingHistory} skeletonRows={3} empty={!historyError && <Empty title={term ? 'Sem importações correspondentes' : 'Ainda não existem importações RIPE'} text={term ? ui('ipam.subnets.tryAnotherSearch') : 'As pré-visualizações e importações aparecem aqui.'} />} />
     </section>
 
     {pasteOpen && <IpamModal title="Colar ou carregar prefixos" close={() => setPasteOpen(false)}><form className="modal-form" onSubmit={(event) => void runPreview(event, 'paste')}>
       {previewError && <div className="ipam-alert error" role="alert"><X size={15} />{previewError}</div>}
       <label>Prefixos<textarea required rows={8} maxLength={20000} placeholder={'193.0.0.0/21\n2001:db8::/32'} aria-describedby="ripe-paste-help" value={pasted} onChange={(event) => { setPasted(event.target.value); setFileName(''); }} /><small id="ripe-paste-help">Um ou mais prefixos CIDR separados por linhas, espaços, vírgulas ou ponto e vírgula. Máximo 500.</small></label>
-      <label>Ficheiro .txt ou .csv<input type="file" accept=".txt,.csv,text/plain,text/csv" onChange={(event) => void readFile(event)} />{fileName && <small>{`Carregado: ${fileName}`}</small>}</label>
+      <label>Ficheiro .txt ou .csv<input type="file" accept=".txt,.csv,text/plain,text/csv" onChange={(event) => void readFile(event)} />{fileName && <small>{ui('ipam.ripe.loaded', undefined, { file: fileName })}</small>}</label>
       {vrfSelect}
       <button className="primary-button" disabled={previewing || !pasted.trim()}><Eye size={14} /> {previewing ? 'A pré-visualizar…' : 'Pré-visualizar'}</button>
     </form></IpamModal>}
@@ -241,9 +245,10 @@ function RipeImportPanel({ item, vrfs, close }: { item: RipeImportRecord | null;
   const selectedPrefixes = new Set(item?.result?.selected ?? []);
   const skipped = item?.result?.skipped ?? [];
   const diffByPrefix = new Map((item?.result?.diff ?? []).map((entry) => [entry.prefix, entry]));
-  return <aside className="host-panel" aria-label="Detalhe da importação RIPE">
+  const ui = useUiText();
+  return <aside className="host-panel" aria-label={ui('ipam.ripe.detailLabel')}>
     <div className="host-panel-head"><div><h2>{item?.query ?? '…'}</h2><span>{item ? formatDate(item.createdAt) : ''}</span></div><button className="icon-button" onClick={close} aria-label="Fechar"><X size={18} /></button></div>
-    {!item ? <div className="content-skeleton ip-table-skeleton-line" aria-label="A carregar importação" aria-busy="true" /> : <>
+    {!item ? <div className="content-skeleton ip-table-skeleton-line" aria-label={ui('ipam.ripe.loadingImport')} aria-busy="true" /> : <>
       <div className="host-detail-grid">
         <div><span>Tipo</span><strong>{queryTypeLabel[item.queryType] ?? item.queryType}</strong></div>
         <div><span>Estado</span><strong><ImportStatusBadge status={item.status} /></strong></div>

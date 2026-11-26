@@ -3,7 +3,8 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatDate, formatDateTime } from '@/lib/format/date';
 import type { CalendarChangePlan, CalendarMaintenanceWindow } from './api';
-import { calendarWeeks, changeStatuses, isToday, monthKey, overlapsFor, shiftMonth, statusLabels, type OverlapData } from './workspace';
+import { statusText, useChangeT } from './i18n';
+import { calendarWeeks, changeStatuses, isToday, monthKey, overlapsFor, shiftMonth, type OverlapData } from './workspace';
 
 /** 1 Jan 2024 was a Monday: short weekday names in the app language, Monday first. */
 const weekdays = () => Array.from({ length: 7 }, (_, index) => formatDate(new Date(2024, 0, 1 + index), { weekday: 'short' }));
@@ -25,6 +26,7 @@ export type ChangeCalendarProps = {
 
 /** Month grid (Monday first) in the app's table style; overlapping windows carry a "Sobreposição" badge. */
 export function ChangeCalendar({ month, plans, windows, overlaps, overlapError, onMonthChange, onOpen }: ChangeCalendarProps) {
+  const t = useChangeT();
   const weeks = calendarWeeks(month, plans, windows);
   const title = formatDate(month, { month: 'long', year: 'numeric' });
   const inMonth = new Set(weeks.flat().filter((day) => day.inMonth).flatMap((day) => day.plans.map((plan) => plan.id)));
@@ -32,7 +34,7 @@ export function ChangeCalendar({ month, plans, windows, overlaps, overlapError, 
 
   return <section aria-labelledby="change-calendar-title">
     <div className="change-section-heading panel-heading">
-      <div><h2 id="change-calendar-title">{title}</h2><p className="panel-description">{overlapError ? 'Não foi possível verificar as sobreposições.' : conflicting ? `${conflicting} alterações com janelas sobrepostas neste mês.` : 'Sem janelas sobrepostas neste mês.'}</p></div>
+      <div><h2 id="change-calendar-title">{title}</h2><p className="panel-description">{overlapError ? 'Não foi possível verificar as sobreposições.' : conflicting ? t('changePlans.calendar.overlapsInMonth', { count: conflicting }) : 'Sem janelas sobrepostas neste mês.'}</p></div>
       <div className="change-actions">
         <button type="button" className="secondary-button" aria-label="Mês anterior" onClick={() => onMonthChange(monthKey(shiftMonth(month, -1)))}><ChevronLeft size={14} /></button>
         <button type="button" className="secondary-button" onClick={() => onMonthChange('')}>Hoje</button>
@@ -40,7 +42,7 @@ export function ChangeCalendar({ month, plans, windows, overlaps, overlapError, 
       </div>
     </div>
     <ul className="change-calendar-legend" aria-label="Legenda do calendário">
-      {changeStatuses.map((status) => <li key={status}><span className={`change-status status-${status.toLowerCase()}`}>{statusLabels[status]}</span></li>)}
+      {changeStatuses.map((status) => <li key={status}><span className={`change-status status-${status.toLowerCase()}`}>{statusText(t, status)}</span></li>)}
       <li><span className="state-badge reserved"><i />Manutenção</span></li>
       <li className="muted-cell">As canceladas aparecem no separador Canceladas.</li>
     </ul>
@@ -56,7 +58,7 @@ export function ChangeCalendar({ month, plans, windows, overlaps, overlapError, 
             </span>)}
             {day.plans.map((plan) => {
               const others = overlapsFor(overlaps, plan.id);
-              return <button key={plan.id} type="button" className="link-button" title={`${plan.title} · ${statusLabels[plan.status]}${others.length ? ` · sobrepõe-se a ${others.map((other) => other.title).join(', ')}` : ''}`} onClick={() => onOpen(plan)}>
+              return <button key={plan.id} type="button" className="link-button" title={others.length ? t('changePlans.calendar.planTitleOverlaps', { title: plan.title, status: statusText(t, plan.status), others: others.map((other) => other.title).join(', ') }) : `${plan.title} · ${statusText(t, plan.status)}`} onClick={() => onOpen(plan)}>
                 <span className={`change-status status-${plan.status.toLowerCase()}`}>{hour(plan.plannedStartAt)}</span>
                 <span>{plan.title}</span>
                 {others.length > 0 && <span className="state-badge excluded"><i />Sobreposição</span>}

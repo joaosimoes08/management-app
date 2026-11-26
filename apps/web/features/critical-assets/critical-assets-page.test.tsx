@@ -7,7 +7,7 @@ import { apiFetch } from '@/lib/api/client';
 import { ApiRequestError } from '@/lib/api/errors';
 import { CriticalAssetsPage } from './critical-assets-page';
 import { BulkConfirmDialog } from './critical-assets-dialogs';
-import { translateLegacyText } from '@/lib/i18n/legacy-messages';
+import { translateMessage } from '@/lib/i18n/i18n';
 import { buildRows, countRows, emptyFilters, filterRows, NO_OWNER, withRecordedAttestation, type CriticalAssetsResult } from './workbench';
 
 vi.mock('@/components/layout/app-shell', async (importOriginal) => ({
@@ -377,8 +377,8 @@ describe('CriticalAssetsPage', () => {
     one.unmount();
     dialog(3);
     expect(screen.getByRole('note')).toHaveTextContent('3 ativos têm semanas anteriores por rever. Revê-as individualmente no histórico.');
-    expect(translateLegacyText('en-US', '1 ativo tem semanas anteriores por rever. Revê-as individualmente no histórico.')).toBe('1 asset has earlier weeks to review. Review them individually in the history.');
-    expect(translateLegacyText('en-US', '3 ativos têm semanas anteriores por rever. Revê-as individualmente no histórico.')).toBe('3 assets have earlier weeks to review. Review them individually in the history.');
+    expect(translateMessage('en-US', 'groupB.assets.olderWeeks', undefined, { count: 1 })).toBe('1 asset has earlier weeks to review. Review them individually in the history.');
+    expect(translateMessage('en-US', 'groupB.assets.olderWeeks', undefined, { count: 3 })).toBe('3 assets have earlier weeks to review. Review them individually in the history.');
   });
 
   it('reports a failed bulk item without stopping the others', async () => {
