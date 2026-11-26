@@ -16,8 +16,6 @@ import { formatDateTime } from '@/lib/format/date';
 import { useUiText } from '@/components/ui/use-ui-text';
 
 export interface AppHeaderProps {
-  /** The page section; kept for callers, the tab group label is generic so it reads in every language. */
-  section: string;
   moduleTabs?: ReactNode;
   onOpenSidebar: () => void;
   onOpenGlobalSearch: () => void;

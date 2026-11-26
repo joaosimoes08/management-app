@@ -175,6 +175,7 @@ const messages: Record<'pt-PT' | 'en-US', Record<string, string>> = {
     'infra.rack.card.notSet': 'não definido',
     'infra.rack.card.image': 'Imagem:',
     'meta.title': 'Civernode · Gestão de Infraestrutura',
+    'meta.description': 'Centro de operações para infraestrutura e ciberdefesa.',
     'filterChips.all': 'Todos', 'filterChips.bar': 'Filtros rápidos',
     'discoverySchedules.title': 'Schedules de todas as subnets',
     'discoverySchedules.description': 'Estado da descoberta agendada de cada subnet deste Site. Abre uma subnet para alterar o schedule e os limites de carga.',
@@ -1621,6 +1622,7 @@ const messages: Record<'pt-PT' | 'en-US', Record<string, string>> = {
     'infra.rack.card.notSet': 'not set',
     'infra.rack.card.image': 'Image:',
     'meta.title': 'Civernode · Infrastructure Management',
+    'meta.description': 'Operations center for infrastructure and cyber defense.',
     'filterChips.all': 'All', 'filterChips.bar': 'Quick filters',
     'discoverySchedules.title': 'Schedules for all subnets',
     'discoverySchedules.description': 'Scheduled discovery for every subnet of this Site. Open a subnet to change its schedule and load limits.',
@@ -3104,7 +3106,7 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     document.documentElement.lang = locale;
     const applyMetadata = () => {
       applyDocumentTitle(translateMessage(locale, 'meta.title'));
-      document.querySelector('meta[name="description"]')?.setAttribute('content', locale === 'pt-PT' ? 'Centro de operações para infraestrutura e ciberdefesa.' : 'Operations center for infrastructure and cyber defense.');
+      document.querySelector('meta[name="description"]')?.setAttribute('content', translateMessage(locale, 'meta.description'));
     };
     applyMetadata();
     const frame = window.requestAnimationFrame(applyMetadata);

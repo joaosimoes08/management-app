@@ -2,14 +2,18 @@ import { ApiRequestError, apiErrorMessage, clientErrorMessage, type ApiErrorPayl
 import { getPublicRuntimeConfig } from '@/lib/runtime-config';
 import { STORAGE_KEYS, getLocalItem } from '@/lib/storage-keys';
 import { isAppLocale } from '@/lib/i18n/locales/catalog';
+import type { AppLocale } from '@/lib/i18n/i18n';
 
 type TokenProvider = () => Promise<string>;
 
-/** API errors exist in Portuguese and English; every other language gets the English text. */
-const activeLocale = (): ApiLocale => {
+/** The stored app locale (any supported language), or pt-PT when none is stored or it is not supported. */
+const storedAppLocale = (): AppLocale => {
   const stored = typeof window !== 'undefined' ? getLocalItem(STORAGE_KEYS.locale) : null;
-  return isAppLocale(stored) && stored !== 'pt-PT' ? 'en-US' : 'pt-PT';
+  return isAppLocale(stored) ? stored : 'pt-PT';
 };
+
+/** API errors exist in Portuguese and English; every other language gets the English text. */
+const activeLocale = (): ApiLocale => (storedAppLocale() === 'pt-PT' ? 'pt-PT' : 'en-US');
 
 let tokenProvider: TokenProvider | null = null;
 let onUnauthorized: (() => void) | null = null;
@@ -37,6 +41,7 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
   const headers = {
     ...init.headers,
     Authorization: `Bearer ${accessToken}`,
+    'Accept-Language': storedAppLocale(),
     ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
   };
   const response = await fetch(`${getPublicRuntimeConfig().apiUrl}${path}`, {
@@ -66,7 +71,7 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
 export async function apiDownload(path: string, filename: string): Promise<Headers> {
   if (!tokenProvider) throw new Error(clientErrorMessage('notInitialized', activeLocale()));
   const accessToken = await tokenProvider();
-  const response = await fetch(`${getPublicRuntimeConfig().apiUrl}${path}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const response = await fetch(`${getPublicRuntimeConfig().apiUrl}${path}`, { headers: { Authorization: `Bearer ${accessToken}`, 'Accept-Language': storedAppLocale() } });
   if (!response.ok) throw new Error(clientErrorMessage('exportFailed', activeLocale(), response.status));
   const url = URL.createObjectURL(await response.blob()); const link = document.createElement('a'); link.href = url; link.download = filename; link.click();
   // Some browsers start the download after the click returns: keep the URL alive for a moment.

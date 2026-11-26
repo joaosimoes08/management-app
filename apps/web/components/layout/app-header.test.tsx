@@ -25,7 +25,7 @@ describe('AppHeader persistent Next Steps alert', () => {
     mocks.load.mockReturnValue(undefined);
     const onOpenGlobalSearch = vi.fn();
 
-    render(<AppHeader section="Infraestrutura" onOpenSidebar={vi.fn()} onOpenGlobalSearch={onOpenGlobalSearch} />);
+    render(<AppHeader onOpenSidebar={vi.fn()} onOpenGlobalSearch={onOpenGlobalSearch} />);
     expect(await screen.findByRole('button', { name: 'Pesquisar na aplicação ou neste separador' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Operacional' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Pesquisar na aplicação ou neste separador' }));
@@ -38,7 +38,7 @@ describe('AppHeader persistent Next Steps alert', () => {
     mocks.readAll.mockResolvedValue({ updated: 0 });
     mocks.load.mockReturnValue(undefined);
 
-    const view = render(<AppHeader section="Infraestrutura" onOpenSidebar={vi.fn()} onOpenGlobalSearch={vi.fn()} />);
+    const view = render(<AppHeader onOpenSidebar={vi.fn()} onOpenGlobalSearch={vi.fn()} />);
     const bell = await screen.findByRole('button', { name: '1 alerta ativo · 1 tarefa de configuração' });
     expect(bell.querySelector('.alert-count')).toHaveTextContent('1');
     fireEvent.click(bell);
@@ -61,7 +61,7 @@ describe('AppHeader persistent Next Steps alert', () => {
     mocks.apiFetch.mockResolvedValue(state);
     mocks.load.mockReturnValue(undefined);
 
-    render(<AppHeader section="Infraestrutura" onOpenSidebar={vi.fn()} onOpenGlobalSearch={vi.fn()} />);
+    render(<AppHeader onOpenSidebar={vi.fn()} onOpenGlobalSearch={vi.fn()} />);
     await waitFor(() => expect(screen.getByRole('button', { name: '0 alertas ativos' })).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: '0 alertas ativos' }));
     expect(screen.queryByRole('link', { name: /Próximos passos/ })).not.toBeInTheDocument();
@@ -84,7 +84,7 @@ describe('AppHeader missing device config alert', () => {
     ] });
     mocks.load.mockReturnValue(undefined);
 
-    render(<AppHeader section="Infraestrutura" onOpenSidebar={vi.fn()} onOpenGlobalSearch={vi.fn()} />);
+    render(<AppHeader onOpenSidebar={vi.fn()} onOpenGlobalSearch={vi.fn()} />);
     await waitFor(() => expect(screen.getByRole('button', { name: '1 alerta ativo · 1 tarefa de configuração' })).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: '1 alerta ativo · 1 tarefa de configuração' }));
     const link = within(screen.getByRole('group', { name: 'Tarefas de configuração' })).getByRole('link', { name: /3 dispositivos sem tomadas de energia/ });
@@ -104,7 +104,7 @@ describe('AppHeader missing device config alert', () => {
     mocks.apiFetch.mockResolvedValue({ ...state, alerts: [single] });
     mocks.load.mockReturnValue(undefined);
 
-    render(<AppHeader section="Infraestrutura" onOpenSidebar={vi.fn()} onOpenGlobalSearch={vi.fn()} />);
+    render(<AppHeader onOpenSidebar={vi.fn()} onOpenGlobalSearch={vi.fn()} />);
     await waitFor(() => expect(screen.getByRole('button', { name: '0 alertas ativos · 1 tarefa de configuração' })).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: '0 alertas ativos · 1 tarefa de configuração' }));
     expect(screen.getByRole('link', { name: /1 dispositivo sem imagem traseira/ })).toHaveAttribute('href', '/infraestrutura?siteId=s1&tab=devices&deviceId=d9&settingsTab=imagens');
@@ -121,7 +121,7 @@ it('refreshes the badge immediately when a notification read state changes', asy
     notificationUnreadCount: 2,
     alerts: [{ id: 'notification-a', severity: 'INFO', title: 'Review', detail: 'Pending', href: '/perfil?tab=notifications', occurredAt: state.updatedAt }],
   }).mockResolvedValueOnce({ ...state, notificationUnreadCount: 1 });
-  render(<AppHeader section="Perfil" onOpenSidebar={vi.fn()} onOpenGlobalSearch={vi.fn()} />);
+  render(<AppHeader onOpenSidebar={vi.fn()} onOpenGlobalSearch={vi.fn()} />);
   expect(await screen.findByRole('button', { name: '2 alertas ativos' })).toBeInTheDocument();
   window.dispatchEvent(new Event('civernode:notifications-changed'));
   expect(await screen.findByRole('button', { name: '1 alerta ativo' })).toBeInTheDocument();
@@ -137,7 +137,7 @@ describe('AppHeader topbar state requests', () => {
     mocks.load.mockImplementation((value: Options) => { options = value; });
     let release!: (value: unknown) => void;
     mocks.apiFetch.mockReturnValue(new Promise((resolve) => { release = resolve; }));
-    render(<AppHeader section="Infraestrutura" onOpenSidebar={vi.fn()} onOpenGlobalSearch={vi.fn()} />);
+    render(<AppHeader onOpenSidebar={vi.fn()} onOpenGlobalSearch={vi.fn()} />);
     const polled = options.fallback?.();
     expect(topbarCalls()).toBe(1);
     release(state);
@@ -153,7 +153,7 @@ describe('AppHeader topbar state requests', () => {
     mocks.hasRole.mockReturnValue(false);
     mocks.load.mockImplementation((value: Options) => { options = value; });
     mocks.apiFetch.mockReturnValueOnce(new Promise(() => undefined)).mockResolvedValue(state);
-    render(<AppHeader section="Infraestrutura" onOpenSidebar={vi.fn()} onOpenGlobalSearch={vi.fn()} />);
+    render(<AppHeader onOpenSidebar={vi.fn()} onOpenGlobalSearch={vi.fn()} />);
     options.onEvent?.({ data: { alertId: 'a1' } });
     await waitFor(() => expect(topbarCalls()).toBe(2));
   });
