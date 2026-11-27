@@ -1,4 +1,6 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render as rtlRender, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { ReactElement, ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GlobalSearchPalette, expandSearchResults, filterRackSearchItems, type RackSearchItem } from './global-search';
 
@@ -9,6 +11,11 @@ const { push, apiFetch } = vi.hoisted(() => ({
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push }) }));
 vi.mock('@/lib/api/client', () => ({ apiFetch: (...args: unknown[]) => apiFetch(...args) }));
 
+
+function render(ui: ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return rtlRender(ui, { wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
+}
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 const rackFixtures: RackSearchItem[] = [

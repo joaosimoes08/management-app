@@ -1,7 +1,7 @@
 'use client';
 
 import { DateTimeInput } from '@/components/ui/date-time-input';
-import { FormEvent, useCallback, useEffect, useId, useState } from 'react';
+import { FormEvent, useId, useState } from 'react';
 import { Pencil, RefreshCw, X } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppShell } from '@/components/layout/app-shell';
@@ -9,17 +9,17 @@ import { useTableUrlState } from '@/components/data-table';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { CompactModal } from '@/components/ui/compact-modal';
 import { alertListHref } from '@/features/dashboard/drill-through';
-import { listSites } from '@/features/infrastructure/api';
 import { useAuth } from '@/lib/auth';
-import { apiFetch } from '@/lib/api/client';
 import { formatDateTime } from '@/lib/format/date';
 import { useSiteContext } from '@/lib/site-context';
-import { listAlertSources, patchAlertRule, patchMaintenanceWindow, type AlertRule as Rule, type AlertRulePatch, type MaintenanceWindowPatch } from './api';
+import {
+  createAlertRule, createMaintenanceWindow, deleteAlertRule, deleteMaintenanceWindow, getAlertConfigurationPageData, listAlertSources, operationsKeys, patchAlertRule, patchMaintenanceWindow,
+  type AlertRule as Rule, type AlertRulePatch, type MaintenanceWindow as Window, type MaintenanceWindowPatch,
+} from './api';
 import { AlertList, MaintenanceSummaryPanel, alertListConfig, alertSeverities } from './alerts-overview';
 import { alertSourceLabel, alertSourceLabels, severityMeanings, severityName } from './alert-meta';
 import { useUiText } from '@/components/ui/use-ui-text';
 
-type Window = { id: string; name: string; reason?: string | null; siteId?: string | null; startsAt: string; endsAt: string; site?: { id: string; name: string } | null };
 type Site = { id: string; name: string };
 const blankRule = { name: '', source: '', siteId: '', minSeverity: 'WARNING', enabled: true };
 const blankWindow = { name: '', reason: '', siteId: '', startsAt: '', endsAt: '' };
@@ -33,17 +33,22 @@ export default function AlertConfigurationPage() {
   const { hasRole } = useAuth(); const admin = hasRole('ADMIN'); const { siteId } = useSiteContext(); const queryClient = useQueryClient();
   const table = useTableUrlState(alertListConfig);
   const { confirm, confirmDialog } = useConfirm();
-  const [rules, setRules] = useState<Rule[]>([]); const [windows, setWindows] = useState<Window[]>([]); const [sites, setSites] = useState<Site[]>([]); const [rule, setRule] = useState(blankRule); const [windowForm, setWindowForm] = useState(blankWindow); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
+  const [rule, setRule] = useState(blankRule); const [windowForm, setWindowForm] = useState(blankWindow); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
   const [editingRule, setEditingRule] = useState<Rule | null>(null); const [editingWindow, setEditingWindow] = useState<Window | null>(null);
-  const load = useCallback(async () => { const [config, siteResult] = await Promise.all([apiFetch<{ rules: Rule[]; windows: Window[] }>('/api/v1/operations/configuration'), listSites()]); setRules(config.rules); setWindows(config.windows); setSites(siteResult.items ?? []); }, []);
-  useEffect(() => { if (admin) void load().catch((cause) => setError(errorText(cause, 'Não foi possível carregar a configuração.'))); }, [admin, load]);
-  const refreshOverview = () => queryClient.invalidateQueries({ queryKey: ['operations'] });
+  // Rules, windows and Sites load together (ADMIN only), on every visit and after every change, as before.
+  const config = useQuery({ queryKey: operationsKeys.configuration, queryFn: getAlertConfigurationPageData, enabled: admin, retry: false, staleTime: 0, refetchOnReconnect: false });
+  const rules: Rule[] = config.data?.rules ?? []; const windows: Window[] = config.data?.windows ?? []; const sites: Site[] = config.data?.sites ?? [];
+  // A failed load reports in the page's error line; an action clears it, as before.
+  const [seenError, setSeenError] = useState(0);
+  if (config.error && config.errorUpdatedAt !== seenError) { setSeenError(config.errorUpdatedAt); setError(errorText(config.error, 'Não foi possível carregar a configuração.')); }
+  const load = () => config.refetch({ throwOnError: true });
+  const refreshOverview = () => queryClient.invalidateQueries({ queryKey: operationsKeys.all });
   const act = async (fn: () => Promise<unknown>) => { setBusy(true); setError(''); try { await fn(); await load(); void refreshOverview(); return true; } catch (cause) { setError(errorText(cause, 'Não foi possível guardar.')); return false; } finally { setBusy(false); } };
-  const saveRule = (event: FormEvent) => { event.preventDefault(); void act(() => apiFetch('/api/v1/operations/configuration/rules', { method: 'POST', body: JSON.stringify({ ...rule, siteId: rule.siteId || null }) })); setRule(blankRule); };
-  const saveWindow = (event: FormEvent) => { event.preventDefault(); void act(() => apiFetch('/api/v1/operations/configuration/maintenance-windows', { method: 'POST', body: JSON.stringify({ ...windowForm, siteId: windowForm.siteId || null, startsAt: new Date(windowForm.startsAt).toISOString(), endsAt: new Date(windowForm.endsAt).toISOString() }) })); setWindowForm(blankWindow); };
+  const saveRule = (event: FormEvent) => { event.preventDefault(); void act(() => createAlertRule({ ...rule, siteId: rule.siteId || null })); setRule(blankRule); };
+  const saveWindow = (event: FormEvent) => { event.preventDefault(); void act(() => createMaintenanceWindow({ ...windowForm, siteId: windowForm.siteId || null, startsAt: new Date(windowForm.startsAt).toISOString(), endsAt: new Date(windowForm.endsAt).toISOString() })); setWindowForm(blankWindow); };
   const toggleRule = (item: Rule) => void act(() => patchAlertRule(item.id, { enabled: !item.enabled }));
-  const deleteRule = async (item: Rule) => { if (await confirm({ title: 'Eliminar regra', message: `Eliminar a regra "${item.name}"? Os alertas deste tipo voltam a seguir as restantes regras.`, confirmLabel: 'Eliminar', cancelLabel: 'Voltar', destructive: true })) void act(() => apiFetch(`/api/v1/operations/configuration/rules/${item.id}`, { method: 'DELETE' })); };
-  const deleteWindow = async (item: Window) => { if (await confirm({ title: 'Cancelar janela', message: `Cancelar a janela de manutenção "${item.name}"?`, confirmLabel: 'Cancelar janela', cancelLabel: 'Voltar', destructive: true })) void act(() => apiFetch(`/api/v1/operations/configuration/maintenance-windows/${item.id}`, { method: 'DELETE' })); };
+  const deleteRule = async (item: Rule) => { if (await confirm({ title: 'Eliminar regra', message: `Eliminar a regra "${item.name}"? Os alertas deste tipo voltam a seguir as restantes regras.`, confirmLabel: 'Eliminar', cancelLabel: 'Voltar', destructive: true })) void act(() => deleteAlertRule(item.id)); };
+  const deleteWindow = async (item: Window) => { if (await confirm({ title: 'Cancelar janela', message: `Cancelar a janela de manutenção "${item.name}"?`, confirmLabel: 'Cancelar janela', cancelLabel: 'Voltar', destructive: true })) void act(() => deleteMaintenanceWindow(item.id)); };
   /** Returns an error message, or '' when saved. */
   const submitRule = async (patch: AlertRulePatch) => { if (!editingRule) return ''; try { await patchAlertRule(editingRule.id, patch); setEditingRule(null); await load(); void refreshOverview(); return ''; } catch (cause) { return errorText(cause, 'Não foi possível guardar a regra.'); } };
   const submitWindow = async (patch: MaintenanceWindowPatch) => { if (!editingWindow) return ''; try { await patchMaintenanceWindow(editingWindow.id, patch); setEditingWindow(null); await load(); void refreshOverview(); return ''; } catch (cause) { return errorText(cause, 'Não foi possível guardar a janela.'); } };
@@ -71,7 +76,7 @@ function RuleAlertCountsLine({ rule }: { rule: Rule }) {
  * (GET /operations/alerts/sources). A rule saved with another code keeps it as an option.
  */
 function SourceSelect({ value, onChange }: { value: string; onChange: (source: string) => void }) {
-  const query = useQuery({ queryKey: ['operations', 'alert-sources'], queryFn: listAlertSources, retry: false, staleTime: 60_000 });
+  const query = useQuery({ queryKey: operationsKeys.alertSources, queryFn: listAlertSources, retry: false, staleTime: 60_000 });
   const known = query.data?.items ?? Object.keys(alertSourceLabels);
   const options = value && !known.includes(value) ? [...known, value] : known;
   const tx = useUiText();

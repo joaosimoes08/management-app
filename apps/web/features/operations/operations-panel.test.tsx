@@ -1,4 +1,6 @@
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render as rtlRender, screen, waitFor, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { ReactElement, ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OperationsPanel } from './operations-panel';
 
@@ -11,7 +13,8 @@ const mocks = vi.hoisted(() => ({
   roles: [] as string[],
 }));
 
-vi.mock('./api', () => ({
+vi.mock('./api', async (importOriginal) => ({
+  operationsKeys: (await importOriginal<typeof import('./api')>()).operationsKeys,
   listOperationalAlerts: mocks.listOperationalAlerts,
   getInventoryQuality: mocks.getInventoryQuality,
   getInventoryQualityItems: mocks.getInventoryQualityItems,
@@ -26,6 +29,11 @@ vi.mock('./use-operational-events', () => ({ useOperationalEvents: (options: Eve
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: (role: string) => mocks.roles.includes(role) }) }));
 vi.mock('@/lib/site-context', () => ({ useSiteContext: () => ({ siteId: mocks.contextSiteId }) }));
 
+
+function render(ui: ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return rtlRender(ui, { wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
+}
 beforeEach(() => {
   mocks.contextSiteId = 'context-site';
   mocks.roles = [];

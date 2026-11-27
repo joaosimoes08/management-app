@@ -15,7 +15,7 @@ import { chipOptions, totalOf } from '@/lib/filter-chips';
 import { useServerChipCounts } from '@/lib/use-server-chip-counts';
 import { useAuth } from '@/lib/auth';
 import { formatDateTime } from '@/lib/format/date';
-import { getMaintenanceSummary, listAlerts, type AlertListItem, type MaintenanceWindowSummaryItem } from './api';
+import { getMaintenanceSummary, listAlerts, operationsKeys, type AlertListItem, type MaintenanceWindowSummaryItem } from './api';
 import { alertKindLabel, alertNextStep, alertSourceLabel, alertStatusLabels, alertTargetHref, deviceHref, SEVERITY_ORDER, severityNames } from './alert-meta';
 import { AlertActionStatus, AlertBulkBar, AlertRowActions, isAlertActionable, OPERATOR_ROLES, ReadOnlyAlertNote, useAlertActions } from './alert-actions';
 import { AlertDetailDialog } from './alert-detail';
@@ -60,14 +60,14 @@ export function AlertList({ siteId, table }: { siteId: string; table: TableUrlSt
   const isAdmin = hasRole('ADMIN');
   const scopedSiteId = filters.scope === 'all' ? undefined : siteId || undefined;
   const query = useQuery({
-    queryKey: ['operations', 'alert-list', scopedSiteId ?? 'all', filters.severity, filters.status, filters.source, search],
+    queryKey: operationsKeys.alertList(scopedSiteId ?? 'all', filters.severity, filters.status, filters.source, search),
     queryFn: () => listAlerts({ siteId: scopedSiteId, severity: filters.severity, status: filters.status, source: filters.source, search: search.trim() }, PAGE_SIZE),
     enabled: filters.scope === 'all' || Boolean(siteId),
     retry: false,
   });
   const listEnabled = filters.scope === 'all' || Boolean(siteId);
   // Severity chips: one total-only request per severity with every other filter and the search applied.
-  const severityCounts = useServerChipCounts(SEVERITY_ORDER, ['operations', 'alert-list', scopedSiteId ?? 'all', filters.status, filters.source, search],
+  const severityCounts = useServerChipCounts(SEVERITY_ORDER, operationsKeys.alertListCounts(scopedSiteId ?? 'all', filters.status, filters.source, search),
     async (severity) => (await listAlerts({ siteId: scopedSiteId, severity, status: filters.status, source: filters.source, search: search.trim() }, 1)).total, listEnabled);
   const severityOptions = chipOptions(severityChipLabels, severityCounts, { selected: filters.severity });
   useLiveAlertRefresh();
@@ -115,7 +115,7 @@ const windowLine = (item: MaintenanceWindowSummaryItem) => `${item.site?.name ??
 
 /** Active and upcoming maintenance windows (GET /operations/maintenance/summary). */
 export function MaintenanceSummaryPanel({ siteId }: { siteId: string }) {
-  const query = useQuery({ queryKey: ['operations', 'maintenance-summary', siteId], queryFn: () => getMaintenanceSummary(siteId || undefined), retry: false });
+  const query = useQuery({ queryKey: operationsKeys.maintenanceSummary(siteId), queryFn: () => getMaintenanceSummary(siteId || undefined), retry: false });
   const data = query.data;
   return <section className="panel settings-panel" aria-labelledby="maintenance-summary-title">
     <div className="panel-heading"><div><h2 id="maintenance-summary-title">Janelas ativas e próximas</h2>{data && <p className="panel-description"><span>{`${data.counts.active} ativas · ${data.counts.upcoming} nos próximos ${data.horizonDays} dias`}</span>{data.criticalAlertsUnaffected !== false && <> · <span>Alertas críticos continuam visíveis durante as janelas.</span></>}</p>}</div></div>

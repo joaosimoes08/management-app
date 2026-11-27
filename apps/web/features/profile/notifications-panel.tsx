@@ -6,7 +6,7 @@ import { Bell, X } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 import {
   getNotificationPreferences, listNotifications, markNotificationRead, markNotificationsRead,
-  notificationTopics, saveNotificationPreference, type NotificationItem, type NotificationPreferenceChange, type NotificationTopic,
+  notificationTopics, profileKeys, saveNotificationPreference, type NotificationItem, type NotificationPreferenceChange, type NotificationTopic,
 } from './api';
 import styles from './notifications-panel.module.css';
 import { ReportSubscriptions } from './report-subscriptions';
@@ -21,11 +21,11 @@ export function NotificationsPanel({ userId }: { userId: string }) {
   const [active, setActive] = useState<NotificationItem | null>(null);
   const opener = useRef<HTMLButtonElement | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
-  const listKey = ['profile', 'notifications', userId] as const;
-  const preferenceKey = ['profile', 'notification-preferences', userId] as const;
+  const listKey = profileKeys.notifications(userId);
+  const preferenceKey = profileKeys.notificationPreferences(userId);
 
   const notifications = useInfiniteQuery({
-    queryKey: [...listKey, status, type],
+    queryKey: profileKeys.notificationList(userId, status, type),
     queryFn: ({ pageParam }) => listNotifications(status, type, pageParam),
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.nextCursor ?? undefined,

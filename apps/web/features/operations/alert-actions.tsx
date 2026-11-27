@@ -10,7 +10,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Check, CheckCircle2, Clock3, Info, X } from 'lucide-react';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { formatDateTime } from '@/lib/format/date';
-import { bulkOperationalAlerts, BULK_ALERT_LIMIT, type BulkAlertAction, type BulkAlertResponse } from './api';
+import { bulkOperationalAlerts, operationsKeys, BULK_ALERT_LIMIT, type BulkAlertAction, type BulkAlertResponse } from './api';
 import { SNOOZE_CHOICES } from './alert-meta';
 import { useUiText } from '@/components/ui/use-ui-text';
 
@@ -87,7 +87,7 @@ export function useAlertActions(onDone?: (outcome: AlertActionOutcome, ids: stri
       setError(reason instanceof Error ? reason.message : 'Não foi possível aplicar a ação.');
     } finally {
       setRunning(false);
-      await queryClient.invalidateQueries({ queryKey: ['operations'] });
+      await queryClient.invalidateQueries({ queryKey: operationsKeys.all });
       await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
     }
   }, [confirm, onDone, queryClient, tx]);

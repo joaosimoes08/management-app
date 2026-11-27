@@ -1,4 +1,6 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render as rtlRender, screen, waitFor, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { ReactElement, ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppHeader } from './app-header';
 
@@ -13,6 +15,11 @@ vi.mock('./site-switcher', () => ({ SiteSwitcher: () => <span>Site</span> }));
 
 const state = { environment: { state: 'OPERATIONAL', setup: { completed: true }, services: [{ key: 'api', label: 'API', state: 'OPERATIONAL' }, { key: 'postgres', label: 'PostgreSQL', state: 'OPERATIONAL' }] }, alerts: [], processes: [], updatedAt: '2026-11-15T00:00:00.000Z' };
 
+
+function render(ui: ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return rtlRender(ui, { wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
+}
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();

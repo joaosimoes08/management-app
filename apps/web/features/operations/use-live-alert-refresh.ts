@@ -2,12 +2,13 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useOperationalEvents } from './use-operational-events';
+import { operationsKeys } from './api';
 
 /**
  * Refreshes every operations query when an alert changes (SSE, or the 30 s poll when the stream
  * is down). Events arriving in a burst are folded into one refresh.
  */
-export function useLiveAlertRefresh(queryKeys: ReadonlyArray<readonly unknown[]> = [['operations']]) {
+export function useLiveAlertRefresh(queryKeys: ReadonlyArray<readonly unknown[]> = [operationsKeys.all]) {
   const queryClient = useQueryClient();
   const timer = useRef<number | undefined>(undefined);
   const keys = useRef(queryKeys); keys.current = queryKeys;

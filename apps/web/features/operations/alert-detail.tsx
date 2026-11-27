@@ -6,7 +6,7 @@ import { X } from 'lucide-react';
 import { HistoryBlock, type HistoryEvent } from '@/components/data-table/history-block';
 import { CompactModal } from '@/components/ui/compact-modal';
 import { formatDateTime } from '@/lib/format/date';
-import { getOperationalAlert, type AlertDetail, type AlertHistoryEntry, type AlertPerson, type BulkAlertAction } from './api';
+import { getOperationalAlert, operationsKeys, type AlertDetail, type AlertHistoryEntry, type AlertPerson, type BulkAlertAction } from './api';
 import { alertKindLabel, alertNextStep, alertStatusLabels, alertTargetHref, deviceHref, severityMeanings } from './alert-meta';
 import { AlertRowActions, ReadOnlyAlertNote } from './alert-actions';
 import { SeverityTag } from './alert-severity';
@@ -36,7 +36,7 @@ export const alertHistoryEvents = (detail: Pick<AlertDetail, 'history'>): Histor
 }));
 
 export function AlertDetailDialog({ alertId, title, close, run, running }: { alertId: string; title: string; close: () => void; run: (action: BulkAlertAction, alerts: Array<{ id: string; title: string; status: string; siteId?: string | null }>, hours?: number) => void; running: boolean }) {
-  const query = useQuery({ queryKey: ['operations', 'alert-detail', alertId], queryFn: () => getOperationalAlert(alertId), retry: false });
+  const query = useQuery({ queryKey: operationsKeys.alertDetail(alertId), queryFn: () => getOperationalAlert(alertId), retry: false });
   const detail = query.data;
   const href = detail ? alertTargetHref(detail) : null;
   return <CompactModal title={title} close={close}>
