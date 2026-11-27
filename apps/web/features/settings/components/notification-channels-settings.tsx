@@ -1,51 +1,26 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useId, useState } from 'react';
+import { FormEvent, useId, useState } from 'react';
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { Bell, Check, Mail, RefreshCw, RotateCcw, Send, Trash2 } from 'lucide-react';
 import { DataTable, type DataTableColumn } from '@/components/data-table';
 import { PageToolbarPortal } from '@/components/layout/app-shell';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
-import { apiFetch } from '@/lib/api/client';
 import { formatDateTime, getFormatLocale } from '@/lib/format/date';
 import { useUiText } from '@/components/ui/use-ui-text';
 import { settingsText } from '../i18n';
+import { clearNotificationChannel, getNotificationChannels, listNotificationDeliveries, retryNotificationDelivery, settingsKeys, settingsQueryOptions, testNotificationChannel, updateNotificationChannel } from '../api';
+import type { ChannelKind, ChannelsResponse, ChannelStatus, DeliveryItem, DeliveryPage, DeliveryStatus, DeliveryTarget, GroupDeliveryMissing, SmtpSecurity, SmtpView } from '../types';
 
-export type DeliveryTarget = 'USER_NOTIFICATIONS' | 'GROUP_ALERTS';
-export type ChannelKind = 'TEAMS' | 'EMAIL';
-export type SmtpSecurity = 'TLS' | 'STARTTLS' | 'NONE';
-export type SmtpView = { host: string; port: number; security: SmtpSecurity; username: string | null; from: string; passwordSet: boolean };
-export type ChannelStatus = {
-  kind: ChannelKind; target: DeliveryTarget; enabled: boolean; configured: boolean; minSeverity: 'CRITICAL' | 'HIGH' | null; updatedAt: string | null;
-  /** EMAIL/USER_NOTIFICATIONS only: the SMTP server, without the password. */
-  smtp?: SmtpView | null;
-  /** EMAIL/GROUP_ALERTS only. */
-  recipients?: string[]; serverConfigured?: boolean;
-  /** GROUP_ALERTS only: what the channel still needs before it sends alerts (empty when ready). */
-  delivery?: { ready: boolean; missing: GroupDeliveryMissing[] };
-};
-export type GroupDeliveryMissing = 'enabled' | 'destination' | 'minSeverity';
-type ChannelsResponse = {
-  channels: ChannelStatus[]; keyringAvailable: boolean; publicLinks: boolean; maxAttempts: number; maxTotalAttempts?: number;
-  /** True when no group channel can send operational alerts. */
-  groupAlertsUnconfigured?: boolean;
-};
-type DeliveryStatus = 'PENDING' | 'SENDING' | 'SENT' | 'FAILED';
-export type DeliveryItem = {
-  id: string; channel?: ChannelKind; target: DeliveryTarget; status: DeliveryStatus; topic: string; title: string; attempts: number;
-  failureReason: string | null; createdAt: string; sentAt: string | null; nextAttemptAt: string | null;
-  recipient: { username: string; displayName: string | null } | null;
-};
-type DeliveryPage = { items: DeliveryItem[]; nextCursor: string | null; counts: Partial<Record<DeliveryStatus, number>> };
+export type { ChannelKind, ChannelStatus, DeliveryItem, DeliveryTarget, GroupDeliveryMissing, SmtpSecurity, SmtpView } from '../types';
+
 /** '' = not chosen yet. There is no default: a group channel without a minimum severity sends nothing. */
 type GroupSeverity = 'CRITICAL' | 'HIGH' | '';
 type Draft = { enabled: boolean; webhookUrl: string; minSeverity: GroupSeverity };
 type SmtpDraft = { enabled: boolean; host: string; port: string; security: SmtpSecurity; username: string; password: string; from: string };
 type GroupEmailDraft = { enabled: boolean; minSeverity: GroupSeverity; recipients: string };
 
-const ROOT = '/api/v1/settings/notification-channels';
-const BASE = `${ROOT}/TEAMS`;
-const EMAIL_BASE = `${ROOT}/EMAIL`;
 const DEFAULT_PORT: Record<SmtpSecurity, string> = { STARTTLS: '587', TLS: '465', NONE: '25' };
 const TARGETS: { target: DeliveryTarget; title: string; description: string }[] = [
   { target: 'USER_NOTIFICATIONS', get title() { return settingsText('settings.notifications.target.USER_NOTIFICATIONS'); }, get description() { return settingsText('settings.notifications.target.USER_NOTIFICATIONS.description'); } },
@@ -109,43 +84,54 @@ export function NotificationChannelsSettings() {
   const { success, error: toastError } = useToast();
   const ui = useUiText();
   const { confirm, confirmDialog } = useConfirm();
-  const [state, setState] = useState<ChannelsResponse | null>(null);
+  const queryClient = useQueryClient();
   const [drafts, setDrafts] = useState<Record<DeliveryTarget, Draft>>({ USER_NOTIFICATIONS: draftOf(), GROUP_ALERTS: draftOf() });
   const [smtpDraft, setSmtpDraft] = useState<SmtpDraft>(smtpDraftOf());
   const [groupEmail, setGroupEmail] = useState<GroupEmailDraft>(groupEmailDraftOf());
   const [channelFilter, setChannelFilter] = useState<ChannelKind | ''>('');
-  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState('');
   const [feedback, setFeedback] = useState('');
   const [statusFilter, setStatusFilter] = useState<DeliveryStatus | ''>('');
-  const [log, setLog] = useState<DeliveryPage | null>(null);
-  const [logError, setLogError] = useState('');
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const next = await apiFetch<ChannelsResponse>('/api/v1/settings/notification-channels');
-      setState(next);
-      const find = (kind: ChannelKind, target: DeliveryTarget) => next.channels.find((item) => (item.kind ?? 'TEAMS') === kind && item.target === target);
-      setDrafts({ USER_NOTIFICATIONS: draftOf(find('TEAMS', 'USER_NOTIFICATIONS')), GROUP_ALERTS: draftOf(find('TEAMS', 'GROUP_ALERTS')) });
-      setSmtpDraft(smtpDraftOf(find('EMAIL', 'USER_NOTIFICATIONS')));
-      setGroupEmail(groupEmailDraftOf(find('EMAIL', 'GROUP_ALERTS')));
-    } catch (reason) { setFeedback(messageOf(reason, settingsText('settings.notifications.loadError'))); }
-    finally { setLoading(false); }
-  }, []);
-  const loadLog = useCallback(async (cursor?: string) => {
-    const query = new URLSearchParams();
-    if (statusFilter) query.set('status', statusFilter);
-    if (channelFilter) query.set('channel', channelFilter);
-    if (cursor) query.set('cursor', cursor);
-    try {
-      const page = await apiFetch<DeliveryPage>(`/api/v1/settings/notification-deliveries${query.size ? `?${query}` : ''}`);
-      setLog((current) => cursor && current ? { ...page, items: [...current.items, ...page.items] } : page);
-      setLogError('');
-    } catch (reason) { setLogError(messageOf(reason, settingsText('settings.notifications.logLoadError'))); }
-  }, [statusFilter, channelFilter]);
-  useEffect(() => { void load(); }, [load]);
-  useEffect(() => { void loadLog(); }, [loadLog]);
+  const channelsQuery = useQuery({ queryKey: settingsKeys.notificationChannels, queryFn: getNotificationChannels, ...settingsQueryOptions });
+  const state: ChannelsResponse | null = channelsQuery.data ?? null;
+  const loading = channelsQuery.isFetching;
+  // Every load replaces the drafts with what is saved; a failed load reports in the feedback line.
+  const [seen, setSeen] = useState({ data: 0, error: 0 });
+  if (channelsQuery.data && channelsQuery.dataUpdatedAt !== seen.data) {
+    const next = channelsQuery.data;
+    const find = (kind: ChannelKind, target: DeliveryTarget) => next.channels.find((item) => (item.kind ?? 'TEAMS') === kind && item.target === target);
+    setSeen((current) => ({ ...current, data: channelsQuery.dataUpdatedAt }));
+    setDrafts({ USER_NOTIFICATIONS: draftOf(find('TEAMS', 'USER_NOTIFICATIONS')), GROUP_ALERTS: draftOf(find('TEAMS', 'GROUP_ALERTS')) });
+    setSmtpDraft(smtpDraftOf(find('EMAIL', 'USER_NOTIFICATIONS')));
+    setGroupEmail(groupEmailDraftOf(find('EMAIL', 'GROUP_ALERTS')));
+  }
+  if (channelsQuery.error && channelsQuery.errorUpdatedAt !== seen.error) {
+    setSeen((current) => ({ ...current, error: channelsQuery.errorUpdatedAt }));
+    setFeedback(messageOf(channelsQuery.error, settingsText('settings.notifications.loadError')));
+  }
+  const load = () => channelsQuery.refetch();
+
+  // Delivery log: "Load more" appends the next cursor page; filters start again from the first page.
+  const logKey = settingsKeys.notificationDeliveries(statusFilter, channelFilter);
+  const logQuery = useInfiniteQuery({
+    queryKey: logKey,
+    queryFn: ({ pageParam }) => listNotificationDeliveries({ status: statusFilter, channel: channelFilter, cursor: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    placeholderData: keepPreviousData,
+    ...settingsQueryOptions,
+  });
+  const log: DeliveryPage | null = logQuery.data?.pages.length ? { ...logQuery.data.pages[logQuery.data.pages.length - 1], items: logQuery.data.pages.flatMap((page) => page.items) } : null;
+  const logError = logQuery.error ? messageOf(logQuery.error, settingsText('settings.notifications.logLoadError')) : '';
+  /** Reload from the first page only, as the log did before. */
+  const loadLog = async () => {
+    queryClient.setQueryData<InfiniteData<DeliveryPage, string | undefined>>(logKey, (current) => current && { pages: current.pages.slice(0, 1), pageParams: current.pageParams.slice(0, 1) });
+    await logQuery.refetch();
+  };
+  /** Channel saves, removals and retries; each caller keeps its own busy label and messages. */
+  const request = useMutation({ mutationFn: (call: () => Promise<unknown>) => call() });
+  const testMutation = useMutation({ mutationFn: ({ kind, target }: { kind: ChannelKind; target: DeliveryTarget }) => testNotificationChannel(kind, target) });
 
   const channelOf = (kind: ChannelKind, target: DeliveryTarget) => state?.channels.find((item) => (item.kind ?? 'TEAMS') === kind && item.target === target);
   const channel = (target: DeliveryTarget) => channelOf('TEAMS', target);
@@ -171,7 +157,7 @@ export function NotificationChannelsSettings() {
         const url = draft.webhookUrl.trim();
         const changed = url || draft.enabled !== current?.enabled || (target === 'GROUP_ALERTS' && draft.minSeverity !== (current?.minSeverity ?? ''));
         if (!changed) continue;
-        await apiFetch(`${BASE}/${target}`, { method: 'PUT', body: JSON.stringify({ enabled: draft.enabled, ...(url ? { webhookUrl: url } : {}), ...(target === 'GROUP_ALERTS' && draft.minSeverity ? { minSeverity: draft.minSeverity } : {}) }) });
+        await request.mutateAsync(() => updateNotificationChannel('TEAMS', target, { enabled: draft.enabled, ...(url ? { webhookUrl: url } : {}), ...(target === 'GROUP_ALERTS' && draft.minSeverity ? { minSeverity: draft.minSeverity } : {}) }));
       }
       // The SMTP server is saved before the group e-mail settings, which depend on it.
       const serverChanged = smtpChanged(smtpDraft, emailServer?.smtp);
@@ -180,12 +166,12 @@ export function NotificationChannelsSettings() {
           host: smtpDraft.host.trim(), port: Number(smtpDraft.port), security: smtpDraft.security, username: smtpDraft.username.trim() || null,
           ...(smtpDraft.password ? { password: smtpDraft.password } : {}), from: smtpDraft.from.trim(),
         } : undefined;
-        await apiFetch(`${EMAIL_BASE}/USER_NOTIFICATIONS`, { method: 'PUT', body: JSON.stringify({ enabled: smtpDraft.enabled, ...(smtp ? { smtp } : {}) }) });
+        await request.mutateAsync(() => updateNotificationChannel('EMAIL', 'USER_NOTIFICATIONS', { enabled: smtpDraft.enabled, ...(smtp ? { smtp } : {}) }));
       }
       const recipients = splitRecipients(groupEmail.recipients);
       const recipientsChanged = recipients.join(',') !== (emailGroup?.recipients ?? []).join(',');
       if (recipientsChanged || groupEmail.enabled !== Boolean(emailGroup?.enabled) || groupEmail.minSeverity !== (emailGroup?.minSeverity ?? '')) {
-        await apiFetch(`${EMAIL_BASE}/GROUP_ALERTS`, { method: 'PUT', body: JSON.stringify({ enabled: groupEmail.enabled, ...(groupEmail.minSeverity ? { minSeverity: groupEmail.minSeverity } : {}), ...(recipientsChanged && recipients.length ? { recipients } : {}) }) });
+        await request.mutateAsync(() => updateNotificationChannel('EMAIL', 'GROUP_ALERTS', { enabled: groupEmail.enabled, ...(groupEmail.minSeverity ? { minSeverity: groupEmail.minSeverity } : {}), ...(recipientsChanged && recipients.length ? { recipients } : {}) }));
       }
       setFeedback(ui('settings.notifications.savedDetail'));
       success(ui('settings.notifications.toast'), ui('settings.notifications.saved'));
@@ -197,7 +183,7 @@ export function NotificationChannelsSettings() {
     const label = kind === 'EMAIL' ? 'Email' : 'Microsoft Teams';
     setBusy(`test:${kind}:${target}`); setFeedback('');
     try {
-      const result = await apiFetch<{ status: DeliveryStatus; failureReason: string | null }>(`${ROOT}/${kind}/${target}/test`, { method: 'POST' });
+      const result = await testMutation.mutateAsync({ kind, target });
       if (result.status === 'SENT') success(label, ui(`settings.notifications.test.${kind}.sent`));
       else { const message = ui(`settings.notifications.test.${kind}.failed`, undefined, { reason: failureLabel(result.failureReason) }); setFeedback(message); toastError(label, message); }
       await loadLog();
@@ -209,13 +195,13 @@ export function NotificationChannelsSettings() {
     const message = email ? ui(`settings.notifications.clear.EMAIL.${target}`) : ui('settings.notifications.clear.TEAMS', undefined, { title });
     if (!(await confirm({ title: email ? ui('settings.notifications.clear.EMAIL.title') : ui('settings.notifications.clear.TEAMS.title'), message, confirmLabel: ui('settings.notifications.remove'), destructive: true }))) return;
     setBusy(`clear:${kind}:${target}`);
-    try { await apiFetch(`${ROOT}/${kind}/${target}`, { method: 'DELETE' }); success(email ? 'Email' : 'Microsoft Teams', email ? ui('settings.notifications.clear.EMAIL.done') : ui('settings.notifications.clear.TEAMS.done')); await load(); }
+    try { await request.mutateAsync(() => clearNotificationChannel(kind, target)); success(email ? 'Email' : 'Microsoft Teams', email ? ui('settings.notifications.clear.EMAIL.done') : ui('settings.notifications.clear.TEAMS.done')); await load(); }
     catch (reason) { toastError(email ? 'Email' : 'Microsoft Teams', messageOf(reason, ui('settings.notifications.clear.error'))); }
     finally { setBusy(''); }
   };
   const retry = async (item: DeliveryItem) => {
     setBusy(`retry:${item.id}`);
-    try { await apiFetch(`/api/v1/settings/notification-deliveries/${item.id}/retry`, { method: 'POST' }); success(ui('settings.notifications.toast'), ui('settings.notifications.retried')); await loadLog(); }
+    try { await request.mutateAsync(() => retryNotificationDelivery(item.id)); success(ui('settings.notifications.toast'), ui('settings.notifications.retried')); await loadLog(); }
     catch (reason) { toastError(ui('settings.notifications.toast'), messageOf(reason, ui('settings.notifications.retryError'))); }
     finally { setBusy(''); }
   };
@@ -298,7 +284,7 @@ export function NotificationChannelsSettings() {
     </div>
     {logError && <div className="ipam-alert error">{logError}</div>}
     {log && <DataTable rows={log.items} columns={columns} rowKey={(item) => item.id} label={ui('settings.notifications.log.title')} empty={<p className="no-data">{ui('settings.notifications.log.empty')}</p>} />}
-    {log?.nextCursor && <div className="form-actions"><button type="button" className="secondary-button" onClick={() => void loadLog(log.nextCursor!)}>{ui('settings.notifications.loadMore')}</button></div>}
+    {log?.nextCursor && <div className="form-actions"><button type="button" className="secondary-button" onClick={() => void logQuery.fetchNextPage()}>{ui('settings.notifications.loadMore')}</button></div>}
     <PageToolbarPortal><button type="submit" form="settings-notifications-form" className="primary-button" disabled={loading || Boolean(busy) || !state?.keyringAvailable}><Check size={14} />{busy === 'save' ? ui('settings.notifications.saving') : ui('settings.notifications.save')}</button></PageToolbarPortal>
     {confirmDialog}
   </section>;

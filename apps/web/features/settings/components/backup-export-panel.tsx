@@ -1,25 +1,30 @@
 'use client';
 
 import { DateTimeInput } from '@/components/ui/date-time-input';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Download, RefreshCw, ShieldCheck } from 'lucide-react';
 import { PageToolbarPortal } from '@/components/layout/app-shell';
 import { ResponsiveToolbarActions } from '@/components/layout/responsive-overflow';
-import { apiDownload, apiFetch } from '@/lib/api/client';
 import { formatDateTime } from '@/lib/format/date';
 import { useUiText } from '@/components/ui/use-ui-text';
+import { downloadAnsibleInventory, downloadExport, getBackupStatus, recordBackupCheck, settingsKeys, settingsQueryOptions } from '../api';
+import type { BackupCheckInput } from '../types';
 type Site = { id: string; name: string };
-
-type BackupState = { mechanism: string; integration: string; latestBackup: null | { completedAt: string; recordedAt: string; reference?: string; notes?: string; recordedBy?: string }; latestRestoreVerification: null | { outcome: string; completedAt: string; recordedAt: string; reference?: string; notes?: string; recordedBy?: string }; restoreVerified: boolean };
 
 export function BackupExportPanel({ sites }: { sites: Site[] }) {
   const ui = useUiText();
-  const [status, setStatus] = useState<BackupState | null>(null); const [statusLoading, setStatusLoading] = useState(true); const [kind, setKind] = useState('devices'); const [format, setFormat] = useState('csv'); const [siteId, setSiteId] = useState(''); const [checkKind, setCheckKind] = useState('BACKUP_COMPLETED'); const [completedAt, setCompletedAt] = useState(new Date().toISOString().slice(0, 16)); const [reference, setReference] = useState(''); const [notes, setNotes] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
-  const refresh = async () => { setStatusLoading(true); try { setStatus(await apiFetch<BackupState>('/api/v1/settings/backups')); setError(''); } catch (reason) { setError(reason instanceof Error ? reason.message : ui('settings.backup.loadError')); } finally { setStatusLoading(false); } };
-  useEffect(() => { void refresh(); }, []);
-  const record = async (event: React.FormEvent) => { event.preventDefault(); setBusy(true); setError(''); try { setStatus(await apiFetch<BackupState>('/api/v1/settings/backups/checks', { method: 'POST', body: JSON.stringify({ kind: checkKind, completedAt: new Date(completedAt).toISOString(), reference: reference || undefined, notes: notes || undefined }) })); setReference(''); setNotes(''); } catch (reason) { setError(reason instanceof Error ? reason.message : ui('settings.backup.recordError')); } finally { setBusy(false); } };
-  const download = async () => { setBusy(true); setError(''); try { const query = siteId ? `?siteId=${encodeURIComponent(siteId)}` : ''; await apiDownload(`/api/v1/exports/${kind}/${format}${query}`, `${kind}-export.${format}`); } catch (reason) { setError(reason instanceof Error ? reason.message : ui('settings.backup.exportError')); } finally { setBusy(false); } };
-  const downloadAnsible = async () => { setBusy(true); setError(''); try { const query = siteId ? `?siteId=${encodeURIComponent(siteId)}` : ''; await apiDownload(`/api/v1/exports/ansible${query}`, 'ansible-inventory.json'); } catch (reason) { setError(reason instanceof Error ? reason.message : ui('settings.backup.ansibleError')); } finally { setBusy(false); } };
+  const queryClient = useQueryClient();
+  const [kind, setKind] = useState('devices'); const [format, setFormat] = useState('csv'); const [siteId, setSiteId] = useState(''); const [checkKind, setCheckKind] = useState('BACKUP_COMPLETED'); const [completedAt, setCompletedAt] = useState(new Date().toISOString().slice(0, 16)); const [reference, setReference] = useState(''); const [notes, setNotes] = useState(''); const [downloading, setDownloading] = useState(false); const [actionError, setActionError] = useState('');
+  const statusQuery = useQuery({ queryKey: settingsKeys.backups, queryFn: getBackupStatus, ...settingsQueryOptions });
+  const recordMutation = useMutation({ mutationFn: (body: BackupCheckInput) => recordBackupCheck(body), onSuccess: (next) => queryClient.setQueryData(settingsKeys.backups, next) });
+  const status = statusQuery.data ?? null; const statusLoading = statusQuery.isFetching; const busy = downloading || recordMutation.isPending;
+  /** One message slot, as before: the latest action's failure, else the status load failure. */
+  const error = actionError || (statusQuery.error ? (statusQuery.error instanceof Error ? statusQuery.error.message : ui('settings.backup.loadError')) : '');
+  const refresh = async () => { setActionError(''); await statusQuery.refetch(); };
+  const record = async (event: React.FormEvent) => { event.preventDefault(); setActionError(''); try { await recordMutation.mutateAsync({ kind: checkKind, completedAt: new Date(completedAt).toISOString(), reference: reference || undefined, notes: notes || undefined }); setReference(''); setNotes(''); } catch (reason) { setActionError(reason instanceof Error ? reason.message : ui('settings.backup.recordError')); } };
+  const download = async () => { setDownloading(true); setActionError(''); try { await downloadExport(kind, format, siteId); } catch (reason) { setActionError(reason instanceof Error ? reason.message : ui('settings.backup.exportError')); } finally { setDownloading(false); } };
+  const downloadAnsible = async () => { setDownloading(true); setActionError(''); try { await downloadAnsibleInventory(siteId); } catch (reason) { setActionError(reason instanceof Error ? reason.message : ui('settings.backup.ansibleError')); } finally { setDownloading(false); } };
   return <>
     <PageToolbarPortal><div className="backup-export-toolbar-actions"><ResponsiveToolbarActions><button className="secondary-button" disabled={busy || statusLoading} onClick={() => void refresh()}><RefreshCw size={14}/>{ui('settings.backup.refresh')}</button><button className="secondary-button" disabled={busy} onClick={() => void download()}><Download size={14}/>{ui('settings.backup.download')}</button><button className="secondary-button" disabled={busy} onClick={() => void downloadAnsible()}><Download size={14}/>{ui('settings.backup.ansible')}</button><button className="primary-button" type="submit" form="settings-backup-check-form" disabled={busy}><ShieldCheck size={14}/>{ui('settings.backup.record')}</button></ResponsiveToolbarActions></div></PageToolbarPortal>
     <div className="settings-workspace">

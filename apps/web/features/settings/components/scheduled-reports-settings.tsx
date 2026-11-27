@@ -1,36 +1,26 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useMemo, useState } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, Download, FileText, Pencil, Plus, Send, Trash2, X } from 'lucide-react';
 import { DataTable, type DataTableColumn } from '@/components/data-table';
 import { PageToolbarPortal } from '@/components/layout/app-shell';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
-import { apiDownload, apiFetch } from '@/lib/api/client';
 import { formatDateTime } from '@/lib/format/date';
 import { useUiText } from '@/components/ui/use-ui-text';
 import { settingsText } from '../i18n';
+import { createScheduledReport, deleteScheduledReport, downloadScheduledReportCsv, listScheduledReports, runScheduledReport, settingsKeys, settingsQueryOptions, updateScheduledReport } from '../api';
+import type { ScheduledReport, ScheduledReportInput, ScheduledReportsResponse } from '../types';
+
+export type { ScheduledReport, ScheduledReportRecipient, ScheduledReportsResponse } from '../types';
 import { REPORT_SECTIONS, reportCsvFilename, type ReportFrequency, type ReportSection, scheduleLabel, SECTION_LABEL, WEEKDAYS } from '@/features/reports/report-labels';
 
-export type ScheduledReportRecipient = { userId: string; username: string; displayName: string | null; hasEmail: boolean; unsubscribedAt: string | null };
-export type ScheduledReport = {
-  id: string; name: string; enabled: boolean; frequency: ReportFrequency; dayOfWeek: number | null; dayOfMonth: number | null; hour: number; timezone: string;
-  sections: ReportSection[]; siteIds: string[]; sendEmail: boolean; sendTeams: boolean; nextRunAt: string | null; lastRunAt: string | null;
-  recipients: ScheduledReportRecipient[];
-  lastRun: { id: string; trigger: 'SCHEDULE' | 'MANUAL'; periodStart: string; periodEnd: string; createdAt: string; outputs: number } | null;
-};
-type UserOption = { id: string; username: string; displayName: string | null; hasEmail: boolean };
-export type ScheduledReportsResponse = {
-  reports: ScheduledReport[]; users: UserOption[]; sites: { id: string; name: string }[];
-  channels: { email: boolean; teams: boolean }; publicLinks: boolean; maxRecipients: number;
-};
-type RunResult = { runId: string; periodStart: string; periodEnd: string; teams: string; recipients: { userId: string; siteIds: string[]; email: string }[] };
 type Draft = {
   name: string; enabled: boolean; frequency: ReportFrequency; dayOfWeek: number; dayOfMonth: number; hour: number; timezone: string;
   sections: ReportSection[]; siteIds: string[]; recipientIds: string[]; sendEmail: boolean; sendTeams: boolean;
 };
 
-const ROOT = '/api/v1/settings/scheduled-reports';
 const browserZone = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Lisbon'; } catch { return 'Europe/Lisbon'; } };
 const emptyDraft = (): Draft => ({ name: '', enabled: true, frequency: 'WEEKLY', dayOfWeek: 1, dayOfMonth: 1, hour: 8, timezone: browserZone(), sections: REPORT_SECTIONS.map(({ value }) => value), siteIds: [], recipientIds: [], sendEmail: true, sendTeams: false });
 const draftOf = (report: ScheduledReport): Draft => ({
@@ -46,21 +36,23 @@ export function ScheduledReportsSettings() {
   const { success, error: toastError } = useToast();
   const ui = useUiText();
   const { confirm, confirmDialog } = useConfirm();
-  const [state, setState] = useState<ScheduledReportsResponse | null>(null);
-  const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState('');
   const [busy, setBusy] = useState('');
   const [editing, setEditing] = useState<string | 'new' | null>(null);
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   const [recipientQuery, setRecipientQuery] = useState('');
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try { setState(await apiFetch<ScheduledReportsResponse>(ROOT)); setFeedback(''); }
-    catch (reason) { setFeedback(messageOf(reason, settingsText('settings.reports.loadError'))); }
-    finally { setLoading(false); }
-  }, []);
-  useEffect(() => { void load(); }, [load]);
+  const reportsQuery = useQuery({ queryKey: settingsKeys.scheduledReports, queryFn: listScheduledReports, ...settingsQueryOptions });
+  const state: ScheduledReportsResponse | null = reportsQuery.data ?? null;
+  const loading = reportsQuery.isFetching;
+  // As before: a successful load clears the feedback line, a failed one reports in it.
+  const [seen, setSeen] = useState({ data: 0, error: 0 });
+  if (reportsQuery.data && reportsQuery.dataUpdatedAt !== seen.data) { setSeen((current) => ({ ...current, data: reportsQuery.dataUpdatedAt })); setFeedback(''); }
+  if (reportsQuery.error && reportsQuery.errorUpdatedAt !== seen.error) { setSeen((current) => ({ ...current, error: reportsQuery.errorUpdatedAt })); setFeedback(messageOf(reportsQuery.error, settingsText('settings.reports.loadError'))); }
+  const load = () => reportsQuery.refetch();
+  /** Report saves and removals; each caller keeps its own busy label and messages. */
+  const request = useMutation({ mutationFn: (call: () => Promise<unknown>) => call() });
+  const runMutation = useMutation({ mutationFn: (id: string) => runScheduledReport(id) });
 
   const users = useMemo(() => new Map((state?.users ?? []).map((user) => [user.id, user])), [state]);
   const sites = useMemo(() => new Map((state?.sites ?? []).map((site) => [site.id, site.name])), [state]);
@@ -79,13 +71,14 @@ export function ScheduledReportsSettings() {
     if (!draft.sections.length) { setFeedback(ui('settings.reports.needSection')); return; }
     if (!draft.sendEmail && !draft.sendTeams) { setFeedback(ui('settings.reports.needChannel')); return; }
     setBusy('save'); setFeedback('');
-    const body = {
+    const body: ScheduledReportInput = {
       name: draft.name.trim(), enabled: draft.enabled, frequency: draft.frequency, hour: draft.hour, timezone: draft.timezone.trim(),
       ...(draft.frequency === 'WEEKLY' ? { dayOfWeek: draft.dayOfWeek } : { dayOfMonth: draft.dayOfMonth }),
       sections: draft.sections, siteIds: draft.siteIds, recipientIds: draft.recipientIds, sendEmail: draft.sendEmail, sendTeams: draft.sendTeams,
     };
     try {
-      await apiFetch(editing === 'new' ? ROOT : `${ROOT}/${editing}`, { method: editing === 'new' ? 'POST' : 'PUT', body: JSON.stringify(body) });
+      const target = editing;
+      await request.mutateAsync(() => (target === 'new' || !target ? createScheduledReport(body) : updateScheduledReport(target, body)));
       success(ui('settings.reports.toast'), editing === 'new' ? ui('settings.reports.created') : ui('settings.reports.saved'));
       setEditing(null);
       await load();
@@ -96,7 +89,7 @@ export function ScheduledReportsSettings() {
   const remove = async (report: ScheduledReport) => {
     if (!(await confirm({ title: ui('settings.reports.removeTitle'), message: ui('settings.reports.removeMessage', undefined, { name: report.name }), confirmLabel: ui('settings.reports.remove'), destructive: true }))) return;
     setBusy(`remove:${report.id}`);
-    try { await apiFetch(`${ROOT}/${report.id}`, { method: 'DELETE' }); success(ui('settings.reports.toast'), ui('settings.reports.removed')); if (editing === report.id) setEditing(null); await load(); }
+    try { await request.mutateAsync(() => deleteScheduledReport(report.id)); success(ui('settings.reports.toast'), ui('settings.reports.removed')); if (editing === report.id) setEditing(null); await load(); }
     catch (reason) { toastError(ui('settings.reports.toast'), messageOf(reason, ui('settings.reports.removeError'))); }
     finally { setBusy(''); }
   };
@@ -105,7 +98,7 @@ export function ScheduledReportsSettings() {
     if (!(await confirm({ title: ui('settings.reports.sendNow'), message: ui('settings.reports.sendMessage', undefined, { name: report.name, recipients: report.recipients.filter((item) => !item.unsubscribedAt).length }), confirmLabel: ui('settings.reports.send') }))) return;
     setBusy(`run:${report.id}`);
     try {
-      const result = await apiFetch<RunResult>(`${ROOT}/${report.id}/run`, { method: 'POST' });
+      const result = await runMutation.mutateAsync(report.id);
       const queued = result.recipients.filter((item) => item.email === 'QUEUED').length;
       const noEmail = result.recipients.filter((item) => item.email === 'NO_EMAIL').length;
       success(ui('settings.reports.toast'), [ui(result.teams === 'QUEUED' ? 'settings.reports.queuedWithTeams' : 'settings.reports.queued', undefined, { emails: queued }), ...(noEmail ? [ui('settings.reports.noEmailCount', undefined, { users: noEmail })] : [])].join(' · '));
@@ -116,7 +109,7 @@ export function ScheduledReportsSettings() {
 
   const download = async (report: ScheduledReport) => {
     setBusy(`csv:${report.id}`);
-    try { await apiDownload(`${ROOT}/${report.id}/csv`, reportCsvFilename(report.name)); }
+    try { await downloadScheduledReportCsv(report.id, reportCsvFilename(report.name)); }
     catch (reason) { toastError(ui('settings.reports.toast'), messageOf(reason, ui('settings.reports.csvError'))); }
     finally { setBusy(''); }
   };

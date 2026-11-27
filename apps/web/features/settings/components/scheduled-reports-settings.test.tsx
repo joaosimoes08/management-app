@@ -1,5 +1,6 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import type { ReactNode } from 'react';
+import { cleanup, fireEvent, render as rtlRender, screen, waitFor, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { ReactElement, ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ScheduledReportsSettings, type ScheduledReport, type ScheduledReportsResponse } from './scheduled-reports-settings';
 
@@ -9,6 +10,12 @@ vi.mock('@/components/ui/toast', () => ({ useToast: () => ({ success: mocks.succ
 vi.mock('@/components/ui/confirm-dialog', () => ({ useConfirm: () => ({ confirm: mocks.confirm, confirmDialog: null }) }));
 vi.mock('@/components/layout/app-shell', () => ({ PageToolbarPortal: ({ children }: { children: ReactNode }) => <>{children}</> }));
 vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ locale: 'pt-PT', t: (key: string, fallback?: string) => fallback ?? key }) }));
+
+/** Each render gets its own query cache, without retries, as in the app's tests elsewhere. */
+const render = (ui: ReactElement) => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  return rtlRender(ui, { wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
+};
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
@@ -53,7 +60,10 @@ describe('ScheduledReportsSettings', () => {
   it('creates a monthly report with the chosen sections, Sites and recipients', async () => {
     api(base({ reports: [] }));
     render(<ScheduledReportsSettings />);
-    fireEvent.click(await screen.findByRole('button', { name: /Novo relatório/ }));
+    // The toolbar button stays disabled until the reports have loaded.
+    const newReport = await screen.findByRole('button', { name: /Novo relatório/ });
+    await waitFor(() => expect(newReport).toBeEnabled());
+    fireEvent.click(newReport);
     const form = screen.getByRole('form', { name: 'Novo relatório' });
     fireEvent.change(within(form).getByLabelText('Nome'), { target: { value: ' Mensal Porto ' } });
     fireEvent.change(within(form).getByLabelText('Frequência'), { target: { value: 'MONTHLY' } });
@@ -75,7 +85,10 @@ describe('ScheduledReportsSettings', () => {
   it('refuses to save without a section or a channel', async () => {
     api(base({ reports: [] }));
     render(<ScheduledReportsSettings />);
-    fireEvent.click(await screen.findByRole('button', { name: /Novo relatório/ }));
+    // The toolbar button stays disabled until the reports have loaded.
+    const newReport = await screen.findByRole('button', { name: /Novo relatório/ });
+    await waitFor(() => expect(newReport).toBeEnabled());
+    fireEvent.click(newReport);
     const form = screen.getByRole('form', { name: 'Novo relatório' });
     fireEvent.change(within(form).getByLabelText('Nome'), { target: { value: 'X' } });
     fireEvent.click(within(form).getByRole('checkbox', { name: /Email a cada destinatário/ }));
