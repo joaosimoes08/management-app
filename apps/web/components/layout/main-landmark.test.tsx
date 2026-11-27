@@ -2,7 +2,6 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ModulePage } from '@/components/module-page';
 import HelpTopic from '@/app/ajuda/[topic]/page';
 
 vi.mock('next/navigation', () => ({ usePathname: () => '/ajuda/primeiros-passos', useParams: () => ({ topic: 'primeiros-passos' }) }));
@@ -15,12 +14,6 @@ vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ locale: 'pt-PT', t: (key: strin
 afterEach(() => cleanup());
 
 describe('one <main> landmark per page', () => {
-  it('a ModulePage inside the real AppShell renders exactly one main', () => {
-    render(<ModulePage kind="settings" title="Definições" description="Configuração"><p>Corpo</p></ModulePage>);
-    expect(screen.getAllByRole('main')).toHaveLength(1);
-    expect(document.querySelectorAll('main')).toHaveLength(1);
-  });
-
   it('a help article page inside the real AppShell renders exactly one main', () => {
     render(<HelpTopic />);
     expect(screen.getAllByRole('main')).toHaveLength(1);

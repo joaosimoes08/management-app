@@ -1,7 +1,7 @@
 'use client';
 
 import { BookOpen } from 'lucide-react';
-import { getBookStackLink, type BookStackContextType } from '@/lib/bookstack';
+import { getBookStackLink, type BookStackContextType } from '@/features/runbooks/bookstack';
 import { useUiText } from '@/components/ui/use-ui-text';
 
 export function BookStackContextLink({ type, id }: { type: BookStackContextType; id: string }) {

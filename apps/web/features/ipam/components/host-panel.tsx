@@ -3,7 +3,7 @@
 import { useEscapeClose } from '@/components/ui/use-escape-close';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Edit3, Plus, Trash2, X } from 'lucide-react';
-import { BookStackContextLink } from '@/components/bookstack-context-link';
+import { BookStackContextLink } from '@/features/runbooks/bookstack-context-link';
 import {
   createService,
   deleteHost,
