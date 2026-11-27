@@ -5,6 +5,7 @@ export interface RoleRequest {
   requestedRoles: string[];
   status: string;
   createdAt: string;
+  processingAt?: string | null;
   decidedAt?: string | null;
 }
 
@@ -20,14 +21,14 @@ export function getMyRoleRequests(requestId?: string): Promise<RoleResponse> {
   return apiFetch<RoleResponse>(`/api/v1/settings/role-requests/me${query}`);
 }
 
-export function submitRoleRequest(roles: string[]): Promise<unknown> {
-  return apiFetch('/api/v1/settings/role-requests', { method: 'POST', body: JSON.stringify({ roles }) });
+export function submitRoleRequest(roles: string[]): Promise<RoleRequest> {
+  return apiFetch<RoleRequest>('/api/v1/settings/role-requests', { method: 'POST', body: JSON.stringify({ roles }) });
 }
 
 export const NOTIFICATIONS_CHANGED = 'civernode:notifications-changed';
 
 export async function markNotificationsRead(): Promise<void> {
-  await apiFetch('/api/v1/dashboard/notifications/read-all', { method: 'PATCH' });
+  await apiFetch<{ updated: number }>('/api/v1/dashboard/notifications/read-all', { method: 'PATCH' });
   window.dispatchEvent(new Event(NOTIFICATIONS_CHANGED));
 }
 
@@ -59,7 +60,7 @@ export function listNotifications(status: 'all' | 'unread', type: string, cursor
 }
 
 export async function markNotificationRead(id: string, read: boolean): Promise<void> {
-  await apiFetch(`/api/v1/notifications/${encodeURIComponent(id)}/read`, { method: 'PATCH', body: JSON.stringify({ read }) });
+  await apiFetch<{ id: string; read: boolean }>(`/api/v1/notifications/${encodeURIComponent(id)}/read`, { method: 'PATCH', body: JSON.stringify({ read }) });
   window.dispatchEvent(new Event(NOTIFICATIONS_CHANGED));
 }
 

@@ -37,10 +37,15 @@ export const saveSnmpCredential = (deviceId: string, body: Record<string, unknow
 export const deleteSnmpCredential = (deviceId: string, purpose: SnmpCredentialPurpose, force = false) => apiFetch<{ success: boolean; forced?: boolean }>(`/api/v1/snmp/devices/${deviceId}/credentials/${purpose}${force ? '?force=true' : ''}`, { method: 'DELETE' });
 export const testSnmpCredential = (deviceId: string, purpose: SnmpCredentialPurpose) => apiFetch<SnmpJobView>(`/api/v1/snmp/devices/${deviceId}/credentials/${purpose}/test`, { method: 'POST' });
 export const runSnmpPoll = (deviceId: string) => apiFetch<SnmpJobView>(`/api/v1/snmp/devices/${deviceId}/poll`, { method: 'POST' });
-export const reviewSnmpDrift = (id: string, status: 'ACCEPTED' | 'IGNORED') => apiFetch(`/api/v1/snmp/drifts/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
+/** Raw SnmpDrift row, as the review answers it (no device or interface names). */
+export type SnmpDriftRecord = { id: string; deviceId: string; interfaceId: string | null; snapshotId: string; field: string; documentedValue: unknown; observedValue: unknown; status: SnmpDriftStatus; reviewedBy: string | null; reviewedAt: string | null; createdAt: string };
+export const reviewSnmpDrift = (id: string, status: 'ACCEPTED' | 'IGNORED') => apiFetch<SnmpDriftRecord>(`/api/v1/snmp/drifts/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
 export type SnmpImpactPreview = { applicable: boolean; summary: string; knownImpacts: { id: string; name: string; type: string; href: string; source: string; observedAt?: string }[]; coverage: { status: string; source?: string; lastObservedAt?: string | null; reason: string } };
 export const previewSnmpWrite = (deviceId: string, operation: string, parameters: Record<string, unknown>) => apiFetch<{ id: string; status: string; impactPreview: SnmpImpactPreview }>(`/api/v1/snmp/devices/${deviceId}/write-requests/preview`, { method: 'POST', body: JSON.stringify({ operation, parameters }) });
-export const executeSnmpWrite = (id: string, impactAcknowledged: boolean) => apiFetch(`/api/v1/snmp/write-requests/${id}/execute`, { method: 'POST', body: JSON.stringify({ impactAcknowledged }) });
+export type SnmpWriteStatus = 'PREVIEW' | 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'BLOCKED' | 'NEEDS_ATTENTION';
+/** Raw SnmpWriteRequest row after submission: status PENDING and the queued job's id. */
+export type SnmpWriteRequestRecord = { id: string; deviceId: string; jobId: string | null; operation: 'INTERFACE_ADMIN_STATUS' | 'SYSTEM_IDENTITY'; parameters: unknown; beforeValues: unknown; desiredValues: unknown; impactPreview: SnmpImpactPreview | null; previewAcknowledgedAt: string | null; previewAcknowledgedBy: string | null; verifiedValues: unknown; status: SnmpWriteStatus; requestedBy: string; errorCode: string | null; requestedAt: string; startedAt: string | null; completedAt: string | null; changePlanId: string | null };
+export const executeSnmpWrite = (id: string, impactAcknowledged: boolean) => apiFetch<SnmpWriteRequestRecord>(`/api/v1/snmp/write-requests/${id}/execute`, { method: 'POST', body: JSON.stringify({ impactAcknowledged }) });
 
 // Phase E: fleet summary and drift review across devices. Types are kept loose
 // (optional fields, string unions open-ended) so API additions never break the UI.

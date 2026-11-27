@@ -20,6 +20,8 @@ export interface DashboardEnvironment { state: 'OPERATIONAL' | 'DEGRADED' | 'UNA
 export const getDashboardWorkspaces = (siteId?: string) => apiFetch<{ items: DashboardWorkspace[] }>(`/api/v1/dashboard/workspaces${siteId ? `?siteId=${encodeURIComponent(siteId)}` : ''}`);
 export const getDashboardLayout = (siteId: string, role: DashboardRole) => apiFetch<DashboardLayout>(`/api/v1/dashboard/layout?siteId=${encodeURIComponent(siteId)}&role=${encodeURIComponent(role)}`);
 export const saveDashboardLayout = (layout: DashboardLayout) => apiFetch<DashboardLayout>('/api/v1/dashboard/layout', { method: 'PUT', body: JSON.stringify(layout) });
-export const saveDashboardPreference = (siteId: string, role: DashboardRole) => apiFetch('/api/v1/dashboard/preference', { method: 'PUT', body: JSON.stringify({ siteId, role }) });
+/** The stored per-Site role choice (UserDashboardPreference row). */
+export interface DashboardPreference { userId: string; siteId: string; selectedRole: DashboardRole; updatedAt: string }
+export const saveDashboardPreference = (siteId: string, role: DashboardRole) => apiFetch<DashboardPreference>('/api/v1/dashboard/preference', { method: 'PUT', body: JSON.stringify({ siteId, role }) });
 export const getOperationalSummary = (siteId: string, role: DashboardRole) => apiFetch<OperationalSummary>(`/api/v1/dashboard/operational-summary?siteId=${encodeURIComponent(siteId)}&role=${encodeURIComponent(role)}`);
 export const getDashboardEnvironment = () => apiFetch<{ environment: DashboardEnvironment; updatedAt: string }>('/api/v1/dashboard/topbar-state');

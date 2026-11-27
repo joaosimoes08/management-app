@@ -1,4 +1,5 @@
 import { apiFetch } from '@/lib/api/client';
+import type { SuccessResponse } from '@/lib/api/types';
 import type { BulkReviewResponse } from '@/features/discovery/bulk-review-dialog';
 import { translateMessage } from '@/lib/i18n/i18n';
 type Translate = (key: string, fallback?: string, params?: Record<string, string | number>) => string;
@@ -307,8 +308,18 @@ export function compareDiscoveryJobs(currentId: string, previousId: string): Pro
   return apiFetch<DiscoveryComparison>(`/api/v1/discovery/jobs/${currentId}/compare?with=${encodeURIComponent(previousId)}`);
 }
 
-export function reviewDiscoveryResult(resultId: string, status: 'APPROVED' | 'IGNORED'): Promise<unknown> {
-  return apiFetch(`/api/v1/discovery/results/${resultId}/review`, { method: 'POST', body: JSON.stringify({ status }) });
+export type DiscoveryResultStatus = 'PENDING' | 'APPROVED' | 'IGNORED';
+/** Raw DiscoveryResult row, as the single review answers it: no device, IPAM record or identity enrichment. */
+export type DiscoveryResultRecord = Omit<DiscoveryResult, 'status' | 'deviceId' | 'device' | 'ipam' | 'identity'> & {
+  jobId: string;
+  status: DiscoveryResultStatus;
+  reviewedAt: string | null;
+  reviewedBy: string | null;
+  createdAt: string;
+};
+
+export function reviewDiscoveryResult(resultId: string, status: 'APPROVED' | 'IGNORED'): Promise<DiscoveryResultRecord> {
+  return apiFetch<DiscoveryResultRecord>(`/api/v1/discovery/results/${resultId}/review`, { method: 'POST', body: JSON.stringify({ status }) });
 }
 
 /** Approves or ignores up to 200 results; each item succeeds or fails on its own. */
@@ -330,8 +341,8 @@ export function rotateSnmpPreRegistration(id: string): Promise<SnmpPreRegistrati
   return apiFetch<SnmpPreRegistration>(`/api/v1/snmp/discovery/enrollments/${id}/renew`, { method: 'POST' });
 }
 
-export function cancelSnmpPreRegistration(id: string): Promise<unknown> {
-  return apiFetch(`/api/v1/snmp/discovery/enrollments/${id}`, { method: 'DELETE' });
+export function cancelSnmpPreRegistration(id: string): Promise<SuccessResponse> {
+  return apiFetch<SuccessResponse>(`/api/v1/snmp/discovery/enrollments/${id}`, { method: 'DELETE' });
 }
 
 export function acceptSnmpPreRegistration(id: string, body: DiscoveryAcceptInput): Promise<{ id: string }> {
@@ -357,6 +368,7 @@ export function listMissingIps(siteId = ''): Promise<MissingIpsResponse> {
   return apiFetch<MissingIpsResponse>(`/api/v1/discovery/missing${siteId ? `?siteId=${encodeURIComponent(siteId)}` : ''}`);
 }
 
-export function markMissingIpsFree(ipIds: string[]): Promise<{ results: MarkFreeResult[]; succeeded: number; failed: number }> {
-  return apiFetch('/api/v1/discovery/missing/mark-free', { method: 'POST', body: JSON.stringify({ ipIds }) });
+export interface MarkFreeResponse { results: MarkFreeResult[]; succeeded: number; failed: number }
+export function markMissingIpsFree(ipIds: string[]): Promise<MarkFreeResponse> {
+  return apiFetch<MarkFreeResponse>('/api/v1/discovery/missing/mark-free', { method: 'POST', body: JSON.stringify({ ipIds }) });
 }

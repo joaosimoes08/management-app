@@ -19,5 +19,11 @@ export type InfrastructurePermission = {
   permission: InfrastructureAction;
   group?: { id: string; name: string };
 };
-export type SettingsMutation = { path: string; method: string; body?: unknown };
+/** Raw AccessGroup row: what PATCH /settings/access-groups/:id answers. */
+export type AccessGroupRecord = { id: string; name: string; description?: string | null; createdAt: string; updatedAt: string };
+/** POST /settings/access-groups: the new group with its site assignments (no members yet). */
+export type CreatedAccessGroup = AccessGroupRecord & { siteAssignments: AccessGroupSiteAssignment[] };
+/** Raw AccessGroupMember row: what POST /settings/access-groups/:id/members answers. */
+export type AccessGroupMemberRecord = { groupId: string; userId: string };
+export type AccessGroupInput = { name: string; description?: string };
 export type { BuildingWithRooms };
