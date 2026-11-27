@@ -1,9 +1,10 @@
 import { apiFetch } from '@/lib/api/client';
-import type { PaginatedResponse } from '@/lib/api/types';
+import type { PaginatedResponse, SuccessResponse } from '@/lib/api/types';
 import { deviceFilterQuery, type DeviceUrlFilters } from './device-filters';
 import type {
   ApiLoadLevel,
   AssetFile,
+  Building,
   BuildingWithRooms,
   Device,
   DeviceInterface,
@@ -49,8 +50,8 @@ export function createInfrastructurePermission(body: { groupId: string; scopeTyp
   return apiFetch<InfrastructurePermission>('/api/v1/infrastructure/permissions', { method: 'POST', body: JSON.stringify(body) });
 }
 
-export function deleteInfrastructurePermission(id: string): Promise<unknown> {
-  return apiFetch(`/api/v1/infrastructure/permissions/${id}`, { method: 'DELETE' });
+export function deleteInfrastructurePermission(id: string): Promise<SuccessResponse> {
+  return apiFetch<SuccessResponse>(`/api/v1/infrastructure/permissions/${id}`, { method: 'DELETE' });
 }
 
 // ── Sites and physical hierarchy ───────────────────────────────────────────
@@ -67,12 +68,12 @@ export function getSiteRacks(siteId: string): Promise<Rack[]> {
   return apiFetch<Rack[]>(`/api/v1/sites/${siteId}/racks`);
 }
 
-export function createBuilding(siteId: string, body: { name: string; description?: string }): Promise<unknown> {
-  return apiFetch(`/api/v1/sites/${siteId}/buildings`, { method: 'POST', body: JSON.stringify(body) });
+export function createBuilding(siteId: string, body: { name: string; description?: string }): Promise<Building> {
+  return apiFetch<Building>(`/api/v1/sites/${siteId}/buildings`, { method: 'POST', body: JSON.stringify(body) });
 }
 
-export function updateBuilding(id: string, body: { name: string; description?: string }): Promise<unknown> {
-  return apiFetch(`/api/v1/buildings/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+export function updateBuilding(id: string, body: { name: string; description?: string }): Promise<Building> {
+  return apiFetch<Building>(`/api/v1/buildings/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
 export function createRoom(buildingId: string, body: { name: string }): Promise<Room> {
@@ -101,8 +102,8 @@ export function updateRack(id: string, body: { name?: string; roomId?: string })
   return apiFetch<Rack>(`/api/v1/racks/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
-export function deleteRack(id: string): Promise<unknown> {
-  return apiFetch(`/api/v1/racks/${id}`, { method: 'DELETE' });
+export function deleteRack(id: string): Promise<SuccessResponse> {
+  return apiFetch<SuccessResponse>(`/api/v1/racks/${id}`, { method: 'DELETE' });
 }
 
 export function getRack(id: string): Promise<Rack> {
@@ -120,8 +121,10 @@ export function setRackPower(rackId: string, input: RackPowerInput): Promise<Rac
 }
 
 /** Replaces every plug → PDU/outlet assignment of a device in one go. Plugs left out are "Não ligado". */
-export function setDevicePower(deviceId: string, input: DevicePowerInput): Promise<RackPowerResponse & { unplugged?: unknown[]; warnings?: string[] }> {
-  return apiFetch(`/api/v1/devices/${encodeURIComponent(deviceId)}/power`, { method: 'PUT', body: JSON.stringify(input) });
+/** The rack's power after the change, plus this device's plugs, the plugs left unplugged and any warnings. */
+export type DevicePowerResponse = RackPowerResponse & { deviceId: string; rackId: string; device?: unknown; unplugged?: unknown[]; warnings?: string[] };
+export function setDevicePower(deviceId: string, input: DevicePowerInput): Promise<DevicePowerResponse> {
+  return apiFetch<DevicePowerResponse>(`/api/v1/devices/${encodeURIComponent(deviceId)}/power`, { method: 'PUT', body: JSON.stringify(input) });
 }
 
 /** PDU / power defaults, defined once in the API (`power-defaults.ts`). */
@@ -197,7 +200,7 @@ export interface DeviceModelPortLayoutResponse {
 const faceQuery = (face: RackFace) => `?face=${face}`;
 
 export function getDeviceModelPortLayout(id: string, face: RackFace = 'rear'): Promise<DeviceModelPortLayoutResponse> {
-  return apiFetch(`/api/v1/device-models/${id}/port-layout${faceQuery(face)}`);
+  return apiFetch<DeviceModelPortLayoutResponse>(`/api/v1/device-models/${id}/port-layout${faceQuery(face)}`);
 }
 
 /** Both faces of a model layout. A v1 answer (API before faces) is the rear face. */
@@ -215,7 +218,7 @@ export function detectDeviceModelPortLayout(id: string, body: { assetId?: string
  * Each face: an object replaces it (assetId sets its image), null clears its map and keeps the image, absent leaves it.
  */
 export function saveDeviceModelPortLayoutFaces(id: string, body: { revision: string; faces: Partial<Record<RackFace, unknown>> }): Promise<DeviceModelPortLayoutResponse & { mapping?: unknown }> {
-  return apiFetch(`/api/v1/device-models/${id}/port-layout/faces`, { method: 'PUT', body: JSON.stringify(body) });
+  return apiFetch<DeviceModelPortLayoutResponse & { mapping?: unknown }>(`/api/v1/device-models/${id}/port-layout/faces`, { method: 'PUT', body: JSON.stringify(body) });
 }
 
 /** Replaces one face of the model layout; the other face is left as stored. */
@@ -223,16 +226,16 @@ export function saveDeviceModelPortLayout(id: string, body: Record<string, unkno
   return apiFetch<PortLayoutV2 | PortLayout>(`/api/v1/device-models/${id}/port-layout${faceQuery(face)}`, { method: 'PUT', body: JSON.stringify(body) });
 }
 
-export function setDeviceModelFrontAsset(id: string, assetId: string): Promise<unknown> {
-  return apiFetch(`/api/v1/device-models/${id}/assets/front`, { method: 'POST', body: JSON.stringify({ assetId }) });
+export function setDeviceModelFrontAsset(id: string, assetId: string): Promise<DeviceModel> {
+  return apiFetch<DeviceModel>(`/api/v1/device-models/${id}/assets/front`, { method: 'POST', body: JSON.stringify({ assetId }) });
 }
 
-export function setDeviceModelRearAsset(id: string, assetId: string): Promise<unknown> {
-  return apiFetch(`/api/v1/device-models/${id}/assets/rear`, { method: 'POST', body: JSON.stringify({ assetId }) });
+export function setDeviceModelRearAsset(id: string, assetId: string): Promise<DeviceModel> {
+  return apiFetch<DeviceModel>(`/api/v1/device-models/${id}/assets/rear`, { method: 'POST', body: JSON.stringify({ assetId }) });
 }
 
 /** Links an uploaded image to one face of a model. */
-export function setDeviceModelFaceAsset(id: string, face: RackFace, assetId: string): Promise<unknown> {
+export function setDeviceModelFaceAsset(id: string, face: RackFace, assetId: string): Promise<DeviceModel> {
   return face === 'rear' ? setDeviceModelRearAsset(id, assetId) : setDeviceModelFrontAsset(id, assetId);
 }
 
@@ -253,8 +256,9 @@ export function createAsset(body: AssetUploadInput): Promise<AssetFile> {
   return apiFetch<AssetFile>('/api/v1/assets', { method: 'POST', body: JSON.stringify(body) });
 }
 
-export function deleteAsset(id: string): Promise<unknown> {
-  return apiFetch(`/api/v1/assets/${id}`, { method: 'DELETE' });
+/** Detaches the image from every model, rack and device that used it, then deletes it. */
+export function deleteAsset(id: string): Promise<SuccessResponse & { detached: boolean }> {
+  return apiFetch<SuccessResponse & { detached: boolean }>(`/api/v1/assets/${id}`, { method: 'DELETE' });
 }
 
 // ── Devices ────────────────────────────────────────────────────────────────
@@ -302,7 +306,7 @@ export function getDevice(id: string): Promise<Device> {
 }
 export type DeviceRetirementReview = { device: { id: string; name: string }; interfaces: Array<{ id: string; name: string }>; ipAddresses: Array<{ id: string; address: string; subnet: { cidr: string }; interface?: { id: string; name: string } | null }>; mapReferences: Array<{ id: string; name: string; type: string }> };
 export const getDeviceRetirementReview = (id: string) => apiFetch<DeviceRetirementReview>(`/api/v1/devices/${id}/retirement-review`);
-export const retireDevice = (id: string) => apiFetch(`/api/v1/devices/${id}/retire`, { method: 'POST', body: JSON.stringify({ operatorConfirmed: true }) });
+export const retireDevice = (id: string) => apiFetch<SuccessResponse & { device: Device }>(`/api/v1/devices/${id}/retire`, { method: 'POST', body: JSON.stringify({ operatorConfirmed: true }) });
 
 export function createSnmpOnboardedDevice(body: Record<string, unknown>): Promise<Device> {
   return apiFetch<Device>('/api/v1/snmp/onboarding/devices', { method: 'POST', body: JSON.stringify(body) });
@@ -342,8 +346,9 @@ export function createInterface(deviceId: string, body: InterfaceInput): Promise
   return apiFetch<DeviceInterface>(`/api/v1/devices/${deviceId}/interfaces`, { method: 'POST', body: JSON.stringify(body) });
 }
 
-export function generateInterfaces(deviceId: string): Promise<unknown> {
-  return apiFetch(`/api/v1/devices/${deviceId}/interfaces/generate`, { method: 'POST' });
+/** Creates the model's missing ports as interfaces; `created` of `total` ports were new. */
+export function generateInterfaces(deviceId: string): Promise<{ created: number; total: number }> {
+  return apiFetch<{ created: number; total: number }>(`/api/v1/devices/${deviceId}/interfaces/generate`, { method: 'POST' });
 }
 
 // ── IPAM reads used by infrastructure views ────────────────────────────────
@@ -377,5 +382,5 @@ export function createRackUnitReservation(rackId: string, body: { startUnit: num
 }
 
 export function releaseRackUnitReservation(rackId: string, reservationId: string): Promise<{ id: string; releasedAt: string | null }> {
-  return apiFetch(`/api/v1/racks/${encodeURIComponent(rackId)}/unit-reservations/${encodeURIComponent(reservationId)}`, { method: 'DELETE' });
+  return apiFetch<{ id: string; releasedAt: string | null }>(`/api/v1/racks/${encodeURIComponent(rackId)}/unit-reservations/${encodeURIComponent(reservationId)}`, { method: 'DELETE' });
 }

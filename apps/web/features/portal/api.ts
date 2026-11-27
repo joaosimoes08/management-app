@@ -1,4 +1,5 @@
 import { apiFetch } from '@/lib/api/client';
+import type { SuccessResponse } from '@/lib/api/types';
 
 export interface ApplicationLink {
   id: string;
@@ -41,8 +42,8 @@ export function updateApplicationLink(id: string, payload: ApplicationLinkPayloa
   return apiFetch<ApplicationLink>(`/api/v1/application-links/${id}`, { method: 'PATCH', body: JSON.stringify(payload) });
 }
 
-export function removeApplicationLink(id: string): Promise<unknown> {
-  return apiFetch(`/api/v1/application-links/${id}`, { method: 'DELETE' });
+export function removeApplicationLink(id: string): Promise<SuccessResponse> {
+  return apiFetch<SuccessResponse>(`/api/v1/application-links/${id}`, { method: 'DELETE' });
 }
 
 export function checkApplicationLink(id: string): Promise<ApplicationLink & Pick<CheckAllItem, 'code'>> {
@@ -59,12 +60,13 @@ export function listFavoriteApplicationLinks(): Promise<{ items: FavoriteApplica
 }
 
 /** Idempotent. 404 APPLICATION_LINK_NOT_FOUND when the link is gone or not visible. */
-export function addFavoriteApplicationLink(id: string, sortOrder?: number): Promise<{ linkId: string; isFavorite: true; sortOrder: number }> {
-  return apiFetch(`/api/v1/application-links/${encodeURIComponent(id)}/favorite`, { method: 'PUT', body: JSON.stringify(sortOrder === undefined ? {} : { sortOrder }) });
+export type FavoriteAdded = { linkId: string; isFavorite: true; sortOrder: number; createdAt: string };
+export function addFavoriteApplicationLink(id: string, sortOrder?: number): Promise<FavoriteAdded> {
+  return apiFetch<FavoriteAdded>(`/api/v1/application-links/${encodeURIComponent(id)}/favorite`, { method: 'PUT', body: JSON.stringify(sortOrder === undefined ? {} : { sortOrder }) });
 }
 
 export function removeFavoriteApplicationLink(id: string): Promise<{ linkId: string; isFavorite: false }> {
-  return apiFetch(`/api/v1/application-links/${encodeURIComponent(id)}/favorite`, { method: 'DELETE' });
+  return apiFetch<{ linkId: string; isFavorite: false }>(`/api/v1/application-links/${encodeURIComponent(id)}/favorite`, { method: 'DELETE' });
 }
 
 // ── Check all (ADMIN, #85) ─────────────────────────────────────────────────

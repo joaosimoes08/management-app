@@ -1,6 +1,7 @@
 import { subnetFilterQuery, type SubnetUrlFilters } from './subnet-filters';
 import { apiFetch } from '@/lib/api/client';
-import type { PaginatedResponse } from '@/lib/api/types';
+import type { PaginatedResponse, SuccessResponse } from '@/lib/api/types';
+import type { AccessGroupSiteAssignment } from '@/features/settings/types';
 import { listSites } from '@/features/infrastructure/api';
 import type {
   CalculatorInput,
@@ -8,6 +9,7 @@ import type {
   HostDetail,
   HostInput,
   IpAddressInput,
+  IpAddressRecord,
   IpAddressRow,
   IpReservation,
   CreateIpReservationInput,
@@ -23,6 +25,7 @@ import type {
   Vlan,
   VlanInput,
   ServiceInput,
+  ServiceRecord,
   IpamAction,
   IpamPermissionGroup,
   NatRule,
@@ -42,8 +45,8 @@ export function listPermissionGroups(siteId?: string): Promise<IpamPermissionGro
   return apiFetch<IpamPermissionGroup[]>(`/api/v1/settings/access-groups${siteId ? `?siteId=${encodeURIComponent(siteId)}` : ''}`);
 }
 
-export function updateGroupSitePermissions(groupId: string, siteId: string, permissions: IpamAction[]): Promise<unknown> {
-  return apiFetch(`/api/v1/settings/access-groups/${groupId}/sites/${siteId}`, { method: 'PUT', body: JSON.stringify({ permissions }) });
+export function updateGroupSitePermissions(groupId: string, siteId: string, permissions: IpamAction[]): Promise<AccessGroupSiteAssignment | null> {
+  return apiFetch<AccessGroupSiteAssignment | null>(`/api/v1/settings/access-groups/${groupId}/sites/${siteId}`, { method: 'PUT', body: JSON.stringify({ permissions }) });
 }
 
 export { listSites };
@@ -131,8 +134,9 @@ export interface IpCheckHistoryEntry { id: string; createdAt: string; metadata?:
 export function getIpCheckHistory(id: string, page = 1): Promise<PaginatedResponse<IpCheckHistoryEntry>> {
   return apiFetch<PaginatedResponse<IpCheckHistoryEntry>>(`/api/v1/ip-addresses/${id}/check-history?page=${page}&pageSize=20`);
 }
-export function checkIpAddress(id: string): Promise<IpAddressRow & { lastCheckAt?: string | null; lastCheckMethod?: string | null; responseMs?: number | null }> {
-  return apiFetch(`/api/v1/ip-addresses/${id}/check`, { method: 'POST' });
+/** Probes the address (TCP 443) and answers the updated IpAddress row, without relations. */
+export function checkIpAddress(id: string): Promise<IpAddressRecord> {
+  return apiFetch<IpAddressRecord>(`/api/v1/ip-addresses/${id}/check`, { method: 'POST' });
 }
 
 export function listVlans(siteId: string): Promise<PaginatedResponse<Vlan>> {
@@ -157,8 +161,8 @@ export function updateVlan(id: string, body: Partial<VlanInput>): Promise<Vlan> 
   return apiFetch<Vlan>(`/api/v1/vlans/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
-export function deleteVlan(id: string): Promise<unknown> {
-  return apiFetch(`/api/v1/vlans/${id}`, { method: 'DELETE' });
+export function deleteVlan(id: string): Promise<SuccessResponse> {
+  return apiFetch<SuccessResponse>(`/api/v1/vlans/${id}`, { method: 'DELETE' });
 }
 
 export function createSubnet(body: SubnetInput): Promise<Subnet> {
@@ -207,24 +211,24 @@ export function updateHost(id: string, body: Partial<{ [Key in keyof HostInput]:
   return apiFetch<HostDetail>(`/api/v1/hosts/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
-export function deleteHost(id: string): Promise<unknown> {
-  return apiFetch(`/api/v1/hosts/${id}`, { method: 'DELETE' });
+export function deleteHost(id: string): Promise<SuccessResponse> {
+  return apiFetch<SuccessResponse>(`/api/v1/hosts/${id}`, { method: 'DELETE' });
 }
 
-export function unlinkHostIpAddress(hostId: string, ipId: string): Promise<unknown> {
-  return apiFetch(`/api/v1/hosts/${hostId}/ip-addresses/${ipId}`, { method: 'DELETE' });
+export function unlinkHostIpAddress(hostId: string, ipId: string): Promise<IpAddressRecord> {
+  return apiFetch<IpAddressRecord>(`/api/v1/hosts/${hostId}/ip-addresses/${ipId}`, { method: 'DELETE' });
 }
 
-export function createService(body: ServiceInput): Promise<unknown> {
-  return apiFetch('/api/v1/services', { method: 'POST', body: JSON.stringify(body) });
+export function createService(body: ServiceInput): Promise<ServiceRecord> {
+  return apiFetch<ServiceRecord>('/api/v1/services', { method: 'POST', body: JSON.stringify(body) });
 }
 
-export function updateService(id: string, body: Partial<{ [Key in keyof Omit<ServiceInput, 'hostId'>]: Omit<ServiceInput, 'hostId'>[Key] | null }>): Promise<unknown> {
-  return apiFetch(`/api/v1/services/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+export function updateService(id: string, body: Partial<{ [Key in keyof Omit<ServiceInput, 'hostId'>]: Omit<ServiceInput, 'hostId'>[Key] | null }>): Promise<ServiceRecord> {
+  return apiFetch<ServiceRecord>(`/api/v1/services/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
-export function deleteService(id: string): Promise<unknown> {
-  return apiFetch(`/api/v1/services/${id}`, { method: 'DELETE' });
+export function deleteService(id: string): Promise<SuccessResponse> {
+  return apiFetch<SuccessResponse>(`/api/v1/services/${id}`, { method: 'DELETE' });
 }
 
 // ── VRFs ───────────────────────────────────────────────────────────────────
@@ -245,8 +249,8 @@ export function updateVrf(id: string, body: VrfInput): Promise<Vrf> {
   return apiFetch<Vrf>(`/api/v1/vrfs/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
-export function deleteVrf(id: string): Promise<unknown> {
-  return apiFetch(`/api/v1/vrfs/${id}`, { method: 'DELETE' });
+export function deleteVrf(id: string): Promise<SuccessResponse> {
+  return apiFetch<SuccessResponse>(`/api/v1/vrfs/${id}`, { method: 'DELETE' });
 }
 
 // ── NAT rules ──────────────────────────────────────────────────────────────
@@ -266,8 +270,8 @@ export function updateNatRule(id: string, body: NatRuleInput): Promise<NatRule> 
   return apiFetch<NatRule>(`/api/v1/nat-rules/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
-export function deleteNatRule(id: string): Promise<unknown> {
-  return apiFetch(`/api/v1/nat-rules/${id}`, { method: 'DELETE' });
+export function deleteNatRule(id: string): Promise<SuccessResponse> {
+  return apiFetch<SuccessResponse>(`/api/v1/nat-rules/${id}`, { method: 'DELETE' });
 }
 
 // ── RIPE ───────────────────────────────────────────────────────────────────

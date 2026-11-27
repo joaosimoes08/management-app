@@ -8,12 +8,29 @@ export type FindingSeverity = 'CRITICAL' | 'HIGH' | 'WARNING' | 'INFO';
 export type FindingPerson = { id: string; username: string; displayName?: string | null };
 export type InventoryFinding = { id: string; siteId: string; rule: string; entityType: string; entityId: string; actionHref?: string | null; suggestedCorrection: string; severity: FindingSeverity; status: FindingStatus; title: string; detail: string; lastDetectedAt: string; assignedTo?: FindingPerson | null; snoozedUntil?: string | null; acknowledgedAt?: string | null; occurrenceCount?: number };
 
+/** Raw OperationalAlert row: what acknowledge, snooze and resolve answer (no device, people or action label). */
+export type OperationalAlertRecord = {
+  id: string; dedupKey: string; source: string; severity: 'CRITICAL' | 'HIGH' | 'WARNING' | 'INFO'; status: 'OPEN' | 'ACKNOWLEDGED' | 'SNOOZED' | 'RESOLVED';
+  siteId: string | null; entityType: string | null; entityId: string | null; title: string; detail: string; actionHref: string | null;
+  occurrenceCount: number; firstOccurredAt: string; lastOccurredAt: string;
+  acknowledgedById: string | null; acknowledgedAt: string | null; snoozedUntil: string | null; snoozeReason: string | null;
+  resolvedById: string | null; resolvedAt: string | null; resolutionReason: string | null; createdAt: string; updatedAt: string;
+};
+/** Raw InventoryFinding row: what acknowledge, assign and snooze answer (no assignee object, actionHref or suggestedCorrection). */
+export type InventoryFindingRecord = {
+  id: string; dedupKey: string; siteId: string | null; rule: string; severity: FindingSeverity; status: FindingStatus;
+  entityType: string; entityId: string; title: string; detail: string; metadata: Record<string, unknown> | null;
+  occurrenceCount: number; firstDetectedAt: string; lastDetectedAt: string; assignedToId: string | null;
+  acknowledgedById: string | null; acknowledgedAt: string | null; snoozedUntil: string | null; snoozeReason: string | null;
+  resolvedAt: string | null; createdAt: string; updatedAt: string;
+};
+
 export type OperationalAlertPage = { items: OperationalAlert[]; total: number; page: number; pageSize: number };
 export const listOperationalAlerts = (siteId?: string, pageSize = 25, page = 1, status?: 'OPEN' | 'ACKNOWLEDGED' | 'SNOOZED' | 'RESOLVED') => apiFetch<OperationalAlertPage>(`/api/v1/operations/alerts?${siteId ? `siteId=${encodeURIComponent(siteId)}&` : ''}${status ? `status=${status}&` : ''}page=${page}&pageSize=${pageSize}`);
-export const acknowledgeOperationalAlert = (id: string) => apiFetch(`/api/v1/operations/alerts/${encodeURIComponent(id)}/acknowledge`, { method: 'PATCH' });
+export const acknowledgeOperationalAlert = (id: string) => apiFetch<OperationalAlertRecord>(`/api/v1/operations/alerts/${encodeURIComponent(id)}/acknowledge`, { method: 'PATCH' });
 /** Snoozes for a number of hours (1 to 720); the server works out the end time. */
-export const snoozeOperationalAlert = (id: string, durationHours = 1) => apiFetch(`/api/v1/operations/alerts/${encodeURIComponent(id)}/snooze`, { method: 'PATCH', body: JSON.stringify({ durationHours }) });
-export const resolveOperationalAlert = (id: string, reason?: string) => apiFetch(`/api/v1/operations/alerts/${encodeURIComponent(id)}/resolve`, { method: 'PATCH', body: JSON.stringify(reason ? { reason } : {}) });
+export const snoozeOperationalAlert = (id: string, durationHours = 1) => apiFetch<OperationalAlertRecord>(`/api/v1/operations/alerts/${encodeURIComponent(id)}/snooze`, { method: 'PATCH', body: JSON.stringify({ durationHours }) });
+export const resolveOperationalAlert = (id: string, reason?: string) => apiFetch<OperationalAlertRecord>(`/api/v1/operations/alerts/${encodeURIComponent(id)}/resolve`, { method: 'PATCH', body: JSON.stringify(reason ? { reason } : {}) });
 export type BulkAlertAction = 'ACKNOWLEDGE' | 'SNOOZE' | 'RESOLVE';
 export type BulkAlertRequest = { action: BulkAlertAction; ids: string[]; durationHours?: number; reason?: string };
 export type BulkAlertResult = { id: string; ok: true; status?: string } | { id: string; ok: false; code: 'NOT_FOUND' | 'FORBIDDEN' | 'INVALID' | 'ERROR' | (string & {}); message?: string };
@@ -27,13 +44,13 @@ export type AlertDetail = AlertListItem & { entityType?: string | null; entityId
 export const getOperationalAlert = (id: string) => apiFetch<AlertDetail>(`/api/v1/operations/alerts/${encodeURIComponent(id)}`);
 /** Known event types for alert rules (known producers plus any stored source). */
 export const listAlertSources = () => apiFetch<{ items: string[] }>('/api/v1/operations/alerts/sources');
-export const readAllOperationalAlerts = () => apiFetch('/api/v1/operations/alerts/read-all', { method: 'PATCH' });
+export const readAllOperationalAlerts = () => apiFetch<{ updated: number }>('/api/v1/operations/alerts/read-all', { method: 'PATCH' });
 export const getInventoryQuality = (siteId?: string) => apiFetch<InventoryQuality>(`/api/v1/inventory-quality/summary${siteId ? `?siteId=${encodeURIComponent(siteId)}` : ''}`);
 export const getInventoryQualityItems = (siteId?: string) => apiFetch<{ items: InventoryFinding[] }>(`/api/v1/inventory-quality/findings${siteId ? `?siteId=${encodeURIComponent(siteId)}` : ''}`);
 export const getInventoryQualityAssignees = (siteId: string) => apiFetch<Array<{ id: string; username: string; displayName?: string | null }>>(`/api/v1/inventory-quality/assignees?siteId=${encodeURIComponent(siteId)}`);
-export const acknowledgeInventoryFinding = (id: string) => apiFetch(`/api/v1/inventory-quality/findings/${encodeURIComponent(id)}/acknowledge`, { method: 'PATCH' });
-export const assignInventoryFinding = (id: string, userId?: string) => apiFetch(`/api/v1/inventory-quality/findings/${encodeURIComponent(id)}/assign`, { method: 'PATCH', body: JSON.stringify({ userId: userId || null }) });
-export const snoozeInventoryFinding = (id: string, until = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()) => apiFetch(`/api/v1/inventory-quality/findings/${encodeURIComponent(id)}/snooze`, { method: 'PATCH', body: JSON.stringify({ until }) });
+export const acknowledgeInventoryFinding = (id: string) => apiFetch<InventoryFindingRecord>(`/api/v1/inventory-quality/findings/${encodeURIComponent(id)}/acknowledge`, { method: 'PATCH' });
+export const assignInventoryFinding = (id: string, userId?: string) => apiFetch<InventoryFindingRecord>(`/api/v1/inventory-quality/findings/${encodeURIComponent(id)}/assign`, { method: 'PATCH', body: JSON.stringify({ userId: userId || null }) });
+export const snoozeInventoryFinding = (id: string, until = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()) => apiFetch<InventoryFindingRecord>(`/api/v1/inventory-quality/findings/${encodeURIComponent(id)}/snooze`, { method: 'PATCH', body: JSON.stringify({ until }) });
 
 /** Server filters of the findings list and its facets. `assignee` is a user id, `me` or `unassigned`. */
 export type FindingQuery = { siteId?: string; status?: FindingStatus; severity?: FindingSeverity; rule?: string; search?: string; assignee?: string };
@@ -82,4 +99,6 @@ export type AlertRule = { id: string; name: string; source: string; siteId?: str
 export type AlertRulePatch = Partial<{ name: string; source: string; siteId: string | null; minSeverity: string; enabled: boolean }>;
 export const patchAlertRule = (id: string, patch: AlertRulePatch) => apiFetch<AlertRule>(`/api/v1/operations/configuration/rules/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) });
 export type MaintenanceWindowPatch = Partial<{ name: string; reason: string | null; siteId: string | null; startsAt: string; endsAt: string }>;
-export const patchMaintenanceWindow = (id: string, patch: MaintenanceWindowPatch) => apiFetch(`/api/v1/operations/configuration/maintenance-windows/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) });
+/** Raw MaintenanceWindow row, as PATCH answers it (no site object). */
+export type MaintenanceWindowRecord = { id: string; name: string; reason: string | null; siteId: string | null; startsAt: string; endsAt: string; createdById: string | null; createdAt: string };
+export const patchMaintenanceWindow = (id: string, patch: MaintenanceWindowPatch) => apiFetch<MaintenanceWindowRecord>(`/api/v1/operations/configuration/maintenance-windows/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) });

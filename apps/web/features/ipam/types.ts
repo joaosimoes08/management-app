@@ -167,6 +167,27 @@ export interface IpAddressRow extends Omit<IpAddress, 'state'> {
   reservations?: IpReservation[];
 }
 
+/** Raw IpAddress row (no relations): what the probe and the Host unlink answer. */
+export interface IpAddressRecord extends Omit<IpAddress, 'state' | 'hostname' | 'version' | 'deviceId' | 'interfaceId'> {
+  state: IpState;
+  hostname: string | null;
+  version: number;
+  deviceId: string | null;
+  interfaceId: string | null;
+  hostId: string | null;
+  source: SourceType;
+  macAddress: string | null;
+  notes: string | null;
+  lastSeenAt: string | null;
+  observedState: string | null;
+  lastCheckAt: string | null;
+  lastCheckMethod: string | null;
+  icmpReachable: boolean | null;
+  responseMs: number | null;
+  openPorts: unknown;
+  updatedAt: string;
+}
+
 export interface IpReservation {
   id: string;
   ipAddressId?: string;
@@ -224,6 +245,14 @@ export interface Service {
   version?: string | null;
   notes?: string | null;
   source?: SourceType;
+}
+
+/** Raw Service row: what create and update answer. */
+export interface ServiceRecord extends Service {
+  hostId: string;
+  lastSeenAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface HostRelationIpAddress {
