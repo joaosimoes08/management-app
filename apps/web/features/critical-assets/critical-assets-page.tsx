@@ -5,23 +5,22 @@ import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-quer
 import { CheckCircle2, Server, ShieldCheck, Users, X } from 'lucide-react';
 import { AppShell, PageToolbarPortal } from '@/components/layout/app-shell';
 import { CsvExportButton, DataTable, EntityLink, HistoryBlock, csvColumnsOf, sortByColumns, useTableUrlState, type DataTableColumn, type TableStateConfig } from '@/components/data-table';
-import { apiFetch } from '@/lib/api/client';
 import { ApiRequestError } from '@/lib/api/errors';
 import { useAuth } from '@/lib/auth';
 import { useSiteContext } from '@/lib/site-context';
 import { Empty } from '@/features/ipam/components/ipam-modal';
 import { translateLegacyText } from '@/lib/i18n/legacy-messages';
+import { closeCorrection as postCloseCorrection, confirmAttestation, confirmAttestations, criticalAssetsKeys, getCriticalAssets, listAssetConnections, listCorrections, listCriticalAssetsPage, listOwnerGroups, saveOwnerMapping } from './api';
 import { BulkConfirmDialog, CorrectionCloseDialog, CorrectionRequestDialog, OwnerDialog, ReviewDialog, type BulkItem, type BulkResult } from './critical-assets-dialogs';
 import {
   assetTypes, buildRows, countRows, dueLabels, dueOrder, dueTone, emptyFilters, filterRows, hasActiveFilters, MAX_SERVER_PAGE, NO_OUTCOME, NO_OWNER, outcomeLabel, outcomeTone, PAGE_SIZE, toRow, withRecordedAttestation, currentCycle, hasOlderPending,
-  type AssetPage, type AssetRow, type Attestation, type ComplianceCell, type CriticalAssetsResult, type Correction, type Filters, type Group, type Outcome, complianceCells,
+  type AssetRow, type Attestation, type ComplianceCell, type CriticalAssetsResult, type Correction, type Filters, type Group, type Outcome, complianceCells,
 } from './workbench';
 import { useUiText } from '@/components/ui/use-ui-text';
 import { STORAGE_KEYS, getLocalItem } from '@/lib/storage-keys';
 import { isAppLocale } from '@/lib/i18n/locales/catalog';
 
 type View = 'assets' | 'corrections' | 'compliance';
-type Connection = { id: string; label?: string | null; type?: string; sourceDevice: { id: string; name: string }; targetDevice: { id: string; name: string } };
 
 const reviewerRoles = ['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'STORAGE_OPERATOR'];
 const errorText = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
@@ -31,21 +30,9 @@ type Review = { asset: AssetRow; attestation: Attestation };
 type Notice = { tone: 'success' | 'error'; text: string } | null;
 
 const noGroups: Group[] = [];
-/** The server's "no owner" / "no review" filter value (see NO_FILTER_VALUE in the API). */
-const SERVER_NONE = 'NONE';
 /** Bulk confirm is capped per request on the server (BULK_CONFIRM_LIMIT); bigger selections go in chunks. */
 const BULK_CHUNK = 100;
 
-/** Query string for the paged endpoint: the same filters the table shows, applied on the server. */
-export function assetsPageUrl(siteId: string, filters: Filters, search: string, page: number, pageSize: number) {
-  const params = new URLSearchParams({ siteId, page: String(page), pageSize: String(pageSize) });
-  if (search.trim()) params.set('q', search.trim());
-  for (const key of ['type', 'owner', 'outcome', 'due', 'tier'] as const) {
-    const value = filters[key];
-    if (value) params.set(key, value === NO_OWNER || value === NO_OUTCOME ? SERVER_NONE : value);
-  }
-  return `/api/v1/critical-assets/assets?${params.toString()}`;
-}
 /** Search, filters and sort live in the URL (`?q=&type=&owner=&outcome=&due=&sort=`); no sort keeps the overdue-first order. */
 const tableConfig: TableStateConfig<Filters> = { filters: emptyFilters, sortable: ['name', 'type', 'owner', 'outcome', 'due'] };
 
@@ -80,14 +67,14 @@ export function CriticalAssetsPage() {
   const [correctionDialog, setCorrectionDialog] = useState<{ correction: Correction; outcome: 'RESOLVED' | 'REJECTED' } | null>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
 
-  const queryKey = ['critical-assets', siteId];
-  const { data: queryData, error: queryError, isLoading } = useQuery({ queryKey, queryFn: () => apiFetch<CriticalAssetsResult>(`/api/v1/critical-assets?siteId=${encodeURIComponent(siteId)}`), enabled: Boolean(siteId) });
-  const { data: queryGroups } = useQuery({ queryKey: ['critical-asset-groups', siteId], queryFn: () => apiFetch<Group[]>(`/api/v1/settings/access-groups?siteId=${encodeURIComponent(siteId)}`), enabled: Boolean(siteId) && isAdmin });
-  const { data: correctionData, isLoading: correctionsLoading, error: correctionsError } = useQuery({ queryKey: ['critical-asset-corrections', siteId], queryFn: () => apiFetch<{ items: Correction[] }>(`/api/v1/critical-assets/corrections?siteId=${encodeURIComponent(siteId)}`), enabled: Boolean(siteId) && hydrated && view === 'corrections' });
+  const queryKey = criticalAssetsKeys.list(siteId);
+  const { data: queryData, error: queryError, isLoading } = useQuery({ queryKey, queryFn: () => getCriticalAssets(siteId), enabled: Boolean(siteId) });
+  const { data: queryGroups } = useQuery({ queryKey: criticalAssetsKeys.groups(siteId), queryFn: () => listOwnerGroups(siteId), enabled: Boolean(siteId) && isAdmin });
+  const { data: correctionData, isLoading: correctionsLoading, error: correctionsError } = useQuery({ queryKey: criticalAssetsKeys.corrections(siteId), queryFn: () => listCorrections(siteId), enabled: Boolean(siteId) && hydrated && view === 'corrections' });
   const data = hydrated ? queryData : undefined;
   // The table pages through the server: filters, search and paging are applied there, one page at a time.
-  const pageKey = ['critical-assets', 'page', siteId, filters, search, page];
-  const { data: pageData, error: pageError, isLoading: pageLoading } = useQuery({ queryKey: pageKey, queryFn: () => apiFetch<AssetPage>(assetsPageUrl(siteId, filters, search, page, PAGE_SIZE)), enabled: Boolean(siteId) && hydrated && view === 'assets', placeholderData: keepPreviousData });
+  const pageKey = criticalAssetsKeys.page(siteId, filters, search, page);
+  const { data: pageData, error: pageError, isLoading: pageLoading } = useQuery({ queryKey: pageKey, queryFn: () => listCriticalAssetsPage(siteId, filters, search, page, PAGE_SIZE), enabled: Boolean(siteId) && hydrated && view === 'assets', placeholderData: keepPreviousData });
   // The server render has no query data, so it is always "loading" until hydration finishes.
   const loading = hydrated ? (view === 'assets' ? pageLoading : isLoading) : true;
   const error = hydrated ? queryError ?? (view === 'assets' ? pageError : null) : null;
@@ -127,7 +114,7 @@ export function CriticalAssetsPage() {
   const bulkOlder = selectedRows.filter(hasOlderPending).length;
   const detail = rows.find((row) => row.id === detailId) ?? null;
   // Dependencies: topology connections that name this device at either end (search matches the device name, so filter by id).
-  const { data: connectionData } = useQuery({ queryKey: ['critical-asset-connections', siteId, detail?.id], queryFn: () => apiFetch<{ items: Connection[] }>(`/api/v1/topology/connections?siteId=${encodeURIComponent(siteId)}&search=${encodeURIComponent(detail?.name ?? '')}&pageSize=100`), enabled: Boolean(detail && siteId && hydrated) });
+  const { data: connectionData } = useQuery({ queryKey: criticalAssetsKeys.connections(siteId, detail?.id), queryFn: () => listAssetConnections(siteId, detail?.name ?? ''), enabled: Boolean(detail && siteId && hydrated) });
   const dependencies = detail ? (connectionData?.items ?? []).filter((item) => item.sourceDevice.id === detail.id || item.targetDevice.id === detail.id).map((item) => (item.sourceDevice.id === detail.id ? { item, other: item.targetDevice, direction: 'Liga a' } : { item, other: item.sourceDevice, direction: 'Liga de' })) : [];
   // The compliance view and CSV export use the full asset list, not the current page: acceptable at current site sizes; move to a server aggregate if a site outgrows it.
   const compliance = useMemo(() => complianceCells(rows), [rows]);
@@ -184,16 +171,15 @@ export function CriticalAssetsPage() {
   const panelClose = useRef<HTMLButtonElement>(null);
   useEffect(() => { if (detailId) panelClose.current?.focus(); }, [detailId]);
 
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ['critical-assets'] });
+  const refresh = () => queryClient.invalidateQueries({ queryKey: criticalAssetsKeys.all });
   // The full list is patched at once; the paged table refetches with the rest of the 'critical-assets' queries.
   const applySaved = (saved: Attestation) => queryClient.setQueryData<CriticalAssetsResult>(queryKey, (current) => withRecordedAttestation(current, saved));
-  const postReview = (attestationId: string, outcome: Outcome, notes?: string) => apiFetch<Attestation>(`/api/v1/critical-assets/${attestationId}/confirm`, { method: 'POST', body: JSON.stringify({ outcome, notes: notes || undefined }) });
 
   /** Single review. Returns an error text for the dialog, or null on success. */
   const record = async (asset: AssetRow, attestation: Attestation, outcome: Outcome, notes?: string): Promise<string | null> => {
     setNotice(null);
     try {
-      const saved = await postReview(attestation.id, outcome, notes);
+      const saved = await confirmAttestation(attestation.id, outcome, notes);
       applySaved({ ...saved, id: attestation.id });
       setNotice({ tone: 'success', text: outcome === 'CONFIRMED' ? `${asset.name}: confirmação registada.` : `${asset.name}: pedido de correção registado.` });
       void refresh();
@@ -227,7 +213,7 @@ export function CriticalAssetsPage() {
       const collected: AssetRow[] = [];
       const pages = Math.ceil(total / MAX_SERVER_PAGE);
       for (let number = 1; number <= pages; number += 1) {
-        const response = await apiFetch<AssetPage>(assetsPageUrl(siteId, filters, search, number, MAX_SERVER_PAGE));
+        const response = await listCriticalAssetsPage(siteId, filters, search, number, MAX_SERVER_PAGE);
         collected.push(...response.items.map((asset) => toRow(asset, data?.mappings ?? [])));
       }
       setSelection((current) => {
@@ -250,7 +236,7 @@ export function CriticalAssetsPage() {
       const chunk = bulkPlan.items.slice(start, start + BULK_CHUNK);
       try {
         // One request per chunk, one transaction on the server; it answers with a result per item.
-        const response = await apiFetch<{ results: Array<{ id: string; ok: true; outcome: string } | { id: string; ok: false; code: string; message: string }> }>('/api/v1/critical-assets/confirm-bulk', { method: 'POST', body: JSON.stringify({ items: chunk.map((item) => ({ id: item.attestationId, outcome: 'CONFIRMED' })) }) });
+        const response = await confirmAttestations(chunk.map((item) => item.attestationId));
         const byId = new Map(response.results.map((result) => [result.id, result]));
         for (const item of chunk) {
           const result = byId.get(item.attestationId);
@@ -271,10 +257,10 @@ export function CriticalAssetsPage() {
 
   const closeCorrection = async (correction: Correction, outcome: 'RESOLVED' | 'REJECTED', value: string): Promise<string | null> => {
     try {
-      await apiFetch(`/api/v1/critical-assets/corrections/${correction.id}/${outcome === 'RESOLVED' ? 'resolve' : 'reject'}`, { method: 'POST', body: JSON.stringify(outcome === 'RESOLVED' ? { changeReference: value } : { note: value }) });
+      await postCloseCorrection(correction.id, outcome, value);
       setNotice({ tone: 'success', text: outcome === 'RESOLVED' ? ui('groupB.assets.correctionResolved', undefined, { name: correction.device?.name ?? ui('groupB.assets.asset') }) : ui('groupB.assets.correctionRejected', undefined, { name: correction.device?.name ?? ui('groupB.assets.asset') }) });
       setCorrectionDialog(null);
-      await queryClient.invalidateQueries({ queryKey: ['critical-asset-corrections'] });
+      await queryClient.invalidateQueries({ queryKey: criticalAssetsKeys.correctionsAll });
       return null;
     } catch (cause) {
       return errorText(cause, 'Não foi possível fechar a correção.');
@@ -283,7 +269,7 @@ export function CriticalAssetsPage() {
 
   const saveOwner = async (input: { assetType: string; groupId: string; timezone: string }) => {
     try {
-      await apiFetch(`/api/v1/critical-assets/mapping?siteId=${encodeURIComponent(siteId)}`, { method: 'POST', body: JSON.stringify(input) });
+      await saveOwnerMapping(siteId, input);
       setNotice({ tone: 'success', text: `Responsável por ${input.assetType} guardado.` });
       setOwnerType(null);
       if (!detailId) restoreFocus();
