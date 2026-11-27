@@ -1,6 +1,5 @@
 import { apiFetch } from '@/lib/api/client';
-import type { SiteListResponse } from '@/features/infrastructure/types';
-import { listSites } from '@/features/infrastructure/api';
+import { listSiteOptions, type SiteOption } from '@/lib/api/sites';
 
 /**
  * Query keys of the Operations feature. Everything under `all` refreshes together after an alert change
@@ -138,9 +137,9 @@ export type MaintenanceWindow = { id: string; name: string; reason?: string | nu
 export type AlertConfiguration = { rules: AlertRule[]; windows: MaintenanceWindow[] };
 export const getAlertConfiguration = () => apiFetch<AlertConfiguration>('/api/v1/operations/configuration');
 /** The configuration page loads its rules, windows and the Site list together, and reloads all three after every change. */
-export type AlertConfigurationPageData = AlertConfiguration & { sites: NonNullable<SiteListResponse['items']> };
+export type AlertConfigurationPageData = AlertConfiguration & { sites: SiteOption[] };
 export const getAlertConfigurationPageData = async (): Promise<AlertConfigurationPageData> => {
-  const [config, siteResult] = await Promise.all([getAlertConfiguration(), listSites()]);
+  const [config, siteResult] = await Promise.all([getAlertConfiguration(), listSiteOptions()]);
   return { ...config, sites: siteResult.items ?? [] };
 };
 export type AlertRuleInput = { name: string; source: string; siteId: string | null; minSeverity: string; enabled: boolean };
