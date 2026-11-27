@@ -2,8 +2,9 @@
 
 import { infrastructureHelpTopic } from '@/features/help/articles';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { usePowerDefaults } from './use-power-defaults';
+import { useAssets, useDeviceInterfaces, useDeviceModels, useDevices, useEffectiveAccess, useSiteLocations, useSiteRacks, useSiteVlans } from './hooks/infrastructure-queries';
 import { Boxes, CalendarDays, Edit3, HardDrive, KeyRound, Layers, MapPinned, Server, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { AppShell } from '@/components/layout/app-shell';
@@ -41,22 +42,15 @@ import {
   generateInterfaces as apiGenerateInterfaces,
   getDevice,
   getDeviceModelPortLayoutFaces,
-  getEffectiveAccess,
   getSiteLocations,
-  getSiteRacks,
-  listAssets,
-  listDeviceModels,
-  listDevices,
   countDevices,
-  listInterfaces,
-  listVlansForSite,
   placeDevice as apiPlaceDevice,
   previewDevicePlacement,
   reorderRacks as apiReorderRacks,
   saveDeviceModelPortLayoutFaces,
   setDeviceModelFaceAsset,
 } from './api';
-import { expectedPortCount, naturalInterfaceCompare, primaryPortFace, readInfrastructureContext, writeInfrastructureContext } from './utils';
+import { expectedPortCount, primaryPortFace, readInfrastructureContext, writeInfrastructureContext } from './utils';
 import { BuildingModal } from './components/sites/building-modal';
 import { RoomModal } from './components/sites/room-modal';
 import { RackWorkspace } from './components/rack/rack-workspace';
@@ -252,46 +246,23 @@ export function InfrastructureWorkspace() {
 
   // ── Server state (React Query) ───────────────────────────────────────────
 
-  const { data: accessData, error: accessError, isFetching: fetchingAccess } = useQuery({
-    queryKey: ['access', 'effective', siteId],
-    queryFn: () => getEffectiveAccess(siteId),
-    enabled: Boolean(siteId),
-  });
-  const { data: locationsData, error: locationsError, isFetching: fetchingLocations } = useQuery({
-    queryKey: ['infrastructure', 'locations', siteId],
-    queryFn: () => getSiteLocations(siteId),
-    enabled: Boolean(siteId),
-  });
-  const { data: racksData, error: racksError, isFetching: fetchingRacks } = useQuery({
-    queryKey: ['infrastructure', 'racks', siteId],
-    queryFn: () => getSiteRacks(siteId),
-    enabled: Boolean(siteId),
-  });
+  const { data: accessData, error: accessError, isFetching: fetchingAccess } = useEffectiveAccess(siteId);
+  const { data: locationsData, error: locationsError, isFetching: fetchingLocations } = useSiteLocations(siteId);
+  const { data: racksData, error: racksError, isFetching: fetchingRacks } = useSiteRacks(siteId);
   const canUseCatalog = Boolean(accessData?.tabs?.models || accessData?.tabs?.assets);
   const canUseInterfaces = Boolean(accessData?.tabs?.interfaces);
-  const { data: modelsData, error: modelsError } = useQuery({
-    queryKey: ['infrastructure', 'device-models'],
-    queryFn: listDeviceModels,
-    enabled: Boolean(siteId) && canUseCatalog,
-  });
-  const { data: assetsData, error: assetsError } = useQuery({
-    queryKey: ['infrastructure', 'assets'],
-    queryFn: listAssets,
-    enabled: Boolean(siteId) && canUseCatalog,
-  });
-  const { data: vlansData, error: vlansError } = useQuery({
-    queryKey: ['infrastructure', 'vlans', siteId],
-    queryFn: () => listVlansForSite(siteId),
-    enabled: Boolean(siteId) && canUseInterfaces,
-  });
+  const { data: modelsData, error: modelsError } = useDeviceModels(siteId, canUseCatalog);
+  const { data: assetsData, error: assetsError } = useAssets(siteId, canUseCatalog);
+  const { data: vlansData, error: vlansError } = useSiteVlans(siteId, canUseInterfaces);
   // Drill-through filters (dashboard links) apply to the Equipamentos tab only.
   // SNMP Phase 2 step 10: one Site-wide health request shared by the device list and the rack view (no per-row fetch).
   const snmpHealth = useSnmpHealthMap(siteId, Boolean(siteId) && (tab === 'devices' || tab === 'racks'));
   const activeDeviceFilters = tab === 'devices' && hasDeviceUrlFilters(deviceFilters) ? deviceFilters : null;
-  const { data: devicesData, error: devicesError } = useQuery({
-    queryKey: ['infrastructure', 'devices', siteId, tab === 'devices' ? debouncedSearch : '', missingConfigAllSites ? '' : missingConfig, activeDeviceFilters],
-    queryFn: () => listDevices(siteId, tab === 'devices' ? debouncedSearch : '', 1, { ...(activeDeviceFilters ?? {}), missingConfig: missingConfigAllSites ? '' : missingConfig }),
-    enabled: Boolean(siteId),
+  const { data: devicesData, error: devicesError } = useDevices({
+    siteId,
+    search: tab === 'devices' ? debouncedSearch : '',
+    missingConfig: missingConfigAllSites ? '' : missingConfig,
+    filters: activeDeviceFilters,
   });
   // Estado and Tipo chips: one total-only request per value, with the search and every other filter applied.
   const chipBaseFilters = { ...deviceFilters, missingConfig: missingConfigAllSites ? '' : missingConfig };
@@ -307,12 +278,7 @@ export function InfrastructureWorkspace() {
   // ?focus=device&deviceId=… or the alert link ?tab=devices&deviceId=…&settingsTab=… opens the device's settings.
   const deepLinkedDeviceId = deepLinkQuery?.get('focus') === 'device' || deepLinkQuery?.get('settingsTab') ? deepLinkQuery.get('deviceId') : null;
   const deviceId = device?.id ?? '';
-  const { data: interfacesData } = useQuery({
-    queryKey: ['infrastructure', 'interfaces', deviceId],
-    queryFn: () => listInterfaces(deviceId),
-    enabled: Boolean(deviceId),
-    select: (data) => [...data].sort(naturalInterfaceCompare),
-  });
+  const { data: interfacesData } = useDeviceInterfaces(deviceId);
   useEffect(() => {
     const requested = new URLSearchParams(location.search).get('interfaceId');
     if (!requested || !interfacesData) return;

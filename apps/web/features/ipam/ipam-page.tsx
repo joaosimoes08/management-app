@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { ArrowLeftRight, Calculator, CalendarRange, KeyRound, Map, Network, RefreshCw, Route, Server, Upload, X } from 'lucide-react';
 import { AppShell } from '@/components/layout/app-shell';
 import { useAuth } from '@/lib/auth';
@@ -13,15 +13,12 @@ import { useUiText } from '@/components/ui/use-ui-text';
 import { useSiteContext } from '@/lib/site-context';
 import { apiFetch } from '@/lib/api/client';
 import { useToast } from '@/components/ui/toast';
-import { getEffectiveAccess } from '@/features/infrastructure/api';
+import { useEffectiveAccess } from '@/features/infrastructure/hooks/infrastructure-queries';
+import { useFilteredSubnets, useHost, useNetworkMap, useSubnet, useSubnetPanels, useSubnets, useVrfs } from './hooks/ipam-queries';
 import {
   calculateSubnets,
   createIpReservation,
-  getHost,
-  getNetworkMap,
   getSubnet,
-  listSubnets,
-  listVrfs,
   releaseIpReservation,
   searchHosts,
 } from './api';
@@ -35,7 +32,7 @@ import type {
   SubnetInput,
   VlanInput,
 } from './types';
-import { prefetchSubnetDetail, subnetDetailQueries } from './subnet-detail-queries';
+import { prefetchSubnetDetail } from './subnet-detail-queries';
 import { Empty } from './components/ipam-modal';
 import { CompactModal } from '@/components/ui/compact-modal';
 import { CalculatorView } from './components/calculator-view';
@@ -122,52 +119,23 @@ export default function IpamPage() {
 
   // ── Server state (React Query) ───────────────────────────────────────────
 
-  const { data: mapData, isFetching: fetchingMap } = useQuery({
-    queryKey: ['ipam', 'network-map', siteId],
-    queryFn: () => getNetworkMap(siteId),
-    enabled: Boolean(siteId),
-  });
+  const { data: mapData, isFetching: fetchingMap } = useNetworkMap(siteId);
   // Same endpoint/resource as the infrastructure domain: shared cache key.
-  const { data: effective, isFetching: fetchingAccess } = useQuery({
-    queryKey: ['access', 'effective', siteId],
-    queryFn: () => getEffectiveAccess(siteId),
-    enabled: Boolean(siteId),
-  });
-  const { data: subnetsData, isLoading: loadingSubnets } = useQuery({
-    queryKey: ['ipam', 'subnets', siteId],
-    queryFn: () => listSubnets(siteId),
-    enabled: Boolean(siteId),
-  });
-  const { data: filteredSubnetsData, isLoading: loadingFilteredSubnets, error: filteredSubnetsError } = useQuery({
-    queryKey: ['ipam', 'subnets', siteId, 'filtered', activeSubnetFilters],
-    queryFn: () => listSubnets(siteId, activeSubnetFilters ?? undefined),
-    enabled: Boolean(siteId && activeSubnetFilters),
-    retry: false,
-  });
-  const { data: vrfsData } = useQuery({
-    queryKey: ['ipam', 'vrfs', siteId],
-    queryFn: () => listVrfs(siteId),
-    enabled: Boolean(siteId),
-  });
-  const { data: selected } = useQuery({
-    queryKey: ['ipam', 'subnet', selectedSubnetId],
-    queryFn: () => getSubnet(selectedSubnetId),
-    enabled: Boolean(selectedSubnetId),
-  });
+  const { data: effective, isFetching: fetchingAccess } = useEffectiveAccess(siteId);
+  const { data: subnetsData, isLoading: loadingSubnets } = useSubnets(siteId);
+  const { data: filteredSubnetsData, isLoading: loadingFilteredSubnets, error: filteredSubnetsError } = useFilteredSubnets(siteId, activeSubnetFilters);
+  const { data: vrfsData } = useVrfs(siteId);
+  const { data: selected } = useSubnet(selectedSubnetId);
   // The IP list is paged on the server; a new subnet or search starts again at page 1.
   const ipListKey = `${selectedSubnetId}\n${ipSearch}`;
   const [ipPageState, setIpPageState] = useState({ key: ipListKey, page: 1 });
   const ipPage = ipPageState.key === ipListKey ? ipPageState.page : 1;
   const setIpPage = (page: number) => setIpPageState({ key: ipListKey, page });
-  const subnetQueries = subnetDetailQueries(selectedSubnetId, ipSearch, reservationMutationEpoch, ipPage);
-  const { data: usage, isLoading: loadingUsage } = useQuery({ ...subnetQueries.usage, enabled: Boolean(selectedSubnetId) });
-  const { data: capacityHistory, isLoading: loadingCapacityHistory } = useQuery({ ...subnetQueries.capacityHistory, enabled: Boolean(selectedSubnetId) });
-  const { data: ipsData, isLoading: loadingIps } = useQuery({ ...subnetQueries.ips, enabled: Boolean(selectedSubnetId) });
-  const { data: hostDetail } = useQuery({
-    queryKey: ['ipam', 'host', hostDetailId],
-    queryFn: () => getHost(hostDetailId),
-    enabled: Boolean(hostDetailId),
-  });
+  const subnetPanels = useSubnetPanels(selectedSubnetId, ipSearch, reservationMutationEpoch, ipPage);
+  const { data: usage, isLoading: loadingUsage } = subnetPanels.usage;
+  const { data: capacityHistory, isLoading: loadingCapacityHistory } = subnetPanels.capacityHistory;
+  const { data: ipsData, isLoading: loadingIps } = subnetPanels.ips;
+  const { data: hostDetail } = useHost(hostDetailId);
 
   const vlans = mapData?.vlans ?? [];
   const subnets: Subnet[] = subnetsData?.items ?? [];
