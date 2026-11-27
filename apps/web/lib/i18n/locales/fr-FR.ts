@@ -1,6 +1,6 @@
 /**
- * Français (fr-FR). Keyed messages follow the en-US block in i18n.tsx; legacy entries are keyed by the
- * Portuguese source strings in legacy-messages.ts; substitutions mirror its rules in the same order.
+ * Français (fr-FR). Keyed messages follow the en-US block in i18n.tsx; source-text entries are keyed by the
+ * Portuguese source strings in source-text-messages.ts; substitutions mirror its rules in the same order.
  * Run `npm run i18n:check -- --locales=fr-FR` to list what is still missing compared with en-US.
  * Anything missing here shows in English, never in Portuguese.
  */
@@ -187,6 +187,38 @@ export const messages: LocaleBundle['messages'] = {
   'infra.rack.rangeOf': '{start}–{end} sur {total}',
   'infra.frontOf': 'Face avant de {name}',
   'tags.deleteNamed': 'Supprimer {name}',
+  'tags.label': 'Étiquettes',
+  'tags.manage': 'Gérer les étiquettes',
+  'tags.saveError': 'Impossible d’enregistrer les étiquettes.',
+  'tags.loading': 'Chargement des étiquettes…',
+  'tags.color.gray': 'Gris',
+  'tags.color.blue': 'Bleu',
+  'tags.color.green': 'Vert',
+  'tags.color.amber': 'Ambre',
+  'tags.color.red': 'Rouge',
+  'tags.color.purple': 'Violet',
+  'tags.filter.label': 'Filtrer par étiquette',
+  'tags.filter.all': 'Toutes les étiquettes',
+  'tags.filter.removed': 'Étiquette supprimée',
+  'tags.new.nameLabel': 'Nom de la nouvelle étiquette',
+  'tags.new.placeholder': 'Nouvelle étiquette',
+  'tags.new.colorLabel': 'Couleur de la nouvelle étiquette',
+  'tags.new.create': 'Créer',
+  'tags.empty.canCreate': 'Ce site n’a pas encore d’étiquettes. Créez la première ci-dessous.',
+  'tags.empty.readOnly': 'Ce site n’a pas encore d’étiquettes. Un administrateur peut les créer.',
+  'tags.editor.title': 'Étiquettes · {name}',
+  'tags.editor.options': 'Étiquettes du site',
+  'tags.editor.cancel': 'Annuler',
+  'tags.editor.save': 'Enregistrer les étiquettes',
+  'tags.manager.nameLabel': 'Nom de l’étiquette',
+  'tags.manager.colorLabel': 'Couleur de l’étiquette',
+  'tags.manager.usesTitle': 'Équipements · Sous-réseaux',
+  'tags.manager.save': 'Enregistrer',
+  'tags.manager.confirmDeleteUsed': 'Supprimer l’étiquette « {name} » ? Elle sera retirée de {uses} éléments.',
+  'tags.manager.confirmDelete': 'Supprimer l’étiquette « {name} » ?',
+  'tags.manager.description': 'Les étiquettes appartiennent à ce site et s’appliquent aux équipements et aux sous-réseaux. Nombre : équipements · sous-réseaux.',
+  'tags.manager.readOnlyNote': 'Seuls les administrateurs et les opérateurs système peuvent créer, renommer ou supprimer des étiquettes.',
+  'tags.manager.close': 'Fermer',
   'infra.ports.front.tab': 'Avant',
   'infra.ports.rear.tab': 'Arrière',
   'infra.ports.front.image': 'Image avant du modèle',
@@ -2034,7 +2066,7 @@ export const messages: LocaleBundle['messages'] = {
 };
 
 /** Hard-coded Portuguese UI text (source) → translation. */
-export const legacy: LocaleBundle['legacy'] = {
+export const sourceText: LocaleBundle['sourceText'] = {
   // Observed topology: API errors for non-network or out-of-scope devices (2026-11-26)
   'SNMP só pode ser configurado em equipamentos de rede.': 'Le SNMP ne peut être configuré que sur des équipements réseau.',
   'Recurso de infraestrutura não encontrado.': 'Ressource d’infrastructure introuvable.',
@@ -4464,7 +4496,7 @@ export const legacy: LocaleBundle['legacy'] = {
   'SNMP: não tentado (política da execução)': 'SNMP : non tenté (politique de l’exécution)',
 };
 
-/** Rules for Portuguese text with variable parts (same patterns and order as in legacy-messages.ts). */
+/** Rules for Portuguese text with variable parts (same patterns and order as in source-text-messages.ts). */
 export const substitutions: NonNullable<LocaleBundle['substitutions']> = [
   [/Eliminar a credencial (READ|WRITE|TRAP) · (V2C|V3)( \([^)\n]*\))? deste equipamento\?/g, 'Supprimer l’identifiant $1 · $2$3 de cet équipement ?'],
   [/Eliminar a credencial (READ|WRITE|TRAP) · (V2C|V3)( \([^)\n]*\))? de ([^\n]+)\?/g, 'Supprimer l’identifiant $1 · $2$3 de $4 ?'],

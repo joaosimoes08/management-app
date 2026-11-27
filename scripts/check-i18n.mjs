@@ -144,8 +144,8 @@ const enKeys = localeKeys['en-US'] ?? new Set();
 const missingEnglish = [...ptKeys].filter((key) => !enKeys.has(key));
 const missingPortuguese = [...enKeys].filter((key) => !ptKeys.has(key));
 
-const legacySource = sourceFile('apps/web/lib/i18n/legacy-messages.ts', ts.ScriptKind.TS);
-const legacyKeys = objectKeys('enUS', legacySource);
+const sourceTextSource = sourceFile('apps/web/lib/i18n/source-text-messages.ts', ts.ScriptKind.TS);
+const sourceTextKeys = objectKeys('enUS', sourceTextSource);
 const portuguese = /[áàãâéêíóôõúçÁÀÃÂÉÊÍÓÔÕÚÇ]|\b(Não|Sem|Criar|Editar|Eliminar|Guardar|Cancelar|Pesquisar|Definições|Descoberta|Infraestrutura|Equipamento|Bastidor|Sala|Edifício|Porta|permitidas|Aplicações|Auditoria|Ajuda|Anterior|Seguinte|Nome|Descrição|Estado|Operacional|disponível|associad|resultados|execução|utilizador|serviço|serviços|Últim|Novo|Nova|Voltar|Abrir|Fechar|Selecion|Carregar|Configura|Imagem|Modelo|Localização|Organização|Membros|Permissões|Ativa|Verificar|Ordem|Ainda|Apenas|Todos|Todas|livres|ocupados|manual|observado|Origem|Notas|Sistema operativo|Portas|Página|Nenhuma|Reordenar|Remover)\b/i;
 // `npm run i18n:check -- --locales[=es-ES,fr-FR]`: what each added language still lacks compared with en-US.
 // Report only: translators fill these files in over time, so missing entries do not fail the run.
@@ -161,9 +161,9 @@ if (localesArg) {
   const englishSubstitutions = (() => {
     let count = 0;
     (function visit(node) {
-      if (ts.isVariableDeclaration(node) && node.name.getText(legacySource) === 'substitutions' && node.initializer && ts.isArrayLiteralExpression(node.initializer)) count = node.initializer.elements.length;
+      if (ts.isVariableDeclaration(node) && node.name.getText(sourceTextSource) === 'substitutions' && node.initializer && ts.isArrayLiteralExpression(node.initializer)) count = node.initializer.elements.length;
       ts.forEachChild(node, visit);
-    })(legacySource);
+    })(sourceTextSource);
     return count;
   })();
   const summary = [];
@@ -171,24 +171,24 @@ if (localesArg) {
     const relative = `apps/web/lib/i18n/locales/${locale}.ts`;
     const source = sourceFile(relative, ts.ScriptKind.TS);
     const keyed = objectKeys('messages', source);
-    const legacy = objectKeys('legacy', source);
+    const sourceText = objectKeys('sourceText', source);
     let substitutions = 0;
     (function visit(node) {
       if (ts.isVariableDeclaration(node) && node.name.getText(source) === 'substitutions' && node.initializer && ts.isArrayLiteralExpression(node.initializer)) substitutions = node.initializer.elements.length;
       ts.forEachChild(node, visit);
     })(source);
     const missingKeyed = [...enKeys].filter((key) => !keyed.has(key));
-    const missingLegacy = [...legacyKeys].filter((key) => !legacy.has(key));
+    const missingSourceText = [...sourceTextKeys].filter((key) => !sourceText.has(key));
     const extraKeyed = [...keyed].filter((key) => !enKeys.has(key));
-    const extraLegacy = [...legacy].filter((key) => !legacyKeys.has(key));
+    const extraSourceText = [...sourceText].filter((key) => !sourceTextKeys.has(key));
     console.log(`\n== ${locale} (${relative})`);
     console.log(`Missing keyed messages (${missingKeyed.length} of ${enKeys.size}):`);
     for (const key of missingKeyed) console.log(`  ${key}`);
-    console.log(`Missing legacy entries (${missingLegacy.length} of ${legacyKeys.size}):`);
-    for (const key of missingLegacy) console.log(`  ${JSON.stringify(key)}`);
+    console.log(`Missing source-text entries (${missingSourceText.length} of ${sourceTextKeys.size}):`);
+    for (const key of missingSourceText) console.log(`  ${JSON.stringify(key)}`);
     if (extraKeyed.length) console.log(`Keyed messages not in en-US (unused): ${extraKeyed.join(', ')}`);
-    if (extraLegacy.length) console.log(`Legacy entries not in the English table (unused): ${extraLegacy.map((key) => JSON.stringify(key)).join(', ')}`);
-    summary.push({ locale, keyed: `${enKeys.size - missingKeyed.length}/${enKeys.size}`, legacy: `${legacyKeys.size - missingLegacy.length}/${legacyKeys.size}`, substitutions: `${substitutions} (en-US has ${englishSubstitutions})` });
+    if (extraSourceText.length) console.log(`Source-text entries not in the English table (unused): ${extraSourceText.map((key) => JSON.stringify(key)).join(', ')}`);
+    summary.push({ locale, keyed: `${enKeys.size - missingKeyed.length}/${enKeys.size}`, sourceText: `${sourceTextKeys.size - missingSourceText.length}/${sourceTextKeys.size}`, substitutions: `${substitutions} (en-US has ${englishSubstitutions})` });
   }
   console.log('\nSummary (translated / en-US total); anything missing shows in English:');
   console.table(summary);
@@ -201,7 +201,7 @@ for (const relative of operationalFiles) {
   function visit(node) {
     const snmpText = relative.endsWith('/snmp-page.tsx') && ts.isJsxText(node);
     const value = snmpText ? node.text.trim() : node.text;
-    if ((snmpText || ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) && portuguese.test(value) && !value.startsWith('/') && !legacyKeys.has(value)) {
+    if ((snmpText || ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) && portuguese.test(value) && !value.startsWith('/') && !sourceTextKeys.has(value)) {
       const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
       uncovered.push(`${relative}:${line + 1}: ${JSON.stringify(value)}`);
     }
@@ -213,7 +213,7 @@ for (const relative of operationalFiles) {
 if (missingEnglish.length || missingPortuguese.length || uncovered.length) {
   if (missingEnglish.length) console.error(`Missing en-US keys: ${missingEnglish.join(', ')}`);
   if (missingPortuguese.length) console.error(`Missing pt-PT keys: ${missingPortuguese.join(', ')}`);
-  if (uncovered.length) console.error(`Uncovered legacy UI messages:\n${uncovered.join('\n')}`);
+  if (uncovered.length) console.error(`Uncovered source-text UI messages:\n${uncovered.join('\n')}`);
   process.exit(1);
 }
-console.log(`i18n OK: ${ptKeys.size} keyed messages and ${legacyKeys.size} covered legacy messages.`);
+console.log(`i18n OK: ${ptKeys.size} keyed messages and ${sourceTextKeys.size} covered source-text messages.`);

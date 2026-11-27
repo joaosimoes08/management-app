@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DISCOVERY_INTERVAL_MAX_HOURS, DISCOVERY_INTERVAL_MIN_HOURS, discoveryIntervalChoices, discoveryIntervalOptions, formatDiscoveryInterval } from './discovery-intervals';
-import { translateLegacyText } from '@/lib/i18n/legacy-messages';
+import { translateSourceText } from '@/lib/i18n/source-text-messages';
 
 describe('discovery intervals', () => {
   it('stays inside the 1–168 h range the API accepts', () => {
@@ -20,7 +20,7 @@ describe('discovery intervals', () => {
     expect(formatDiscoveryInterval(36)).toBe('36 h');
     expect(formatDiscoveryInterval(24)).toBe('1 dia');
     expect(formatDiscoveryInterval(168)).toBe('7 dias');
-    expect(translateLegacyText('en-US', '1 dia')).toBe('1 day');
-    expect(translateLegacyText('en-US', '7 dias')).toBe('7 days');
+    expect(translateSourceText('en-US', '1 dia')).toBe('1 day');
+    expect(translateSourceText('en-US', '7 dias')).toBe('7 days');
   });
 });

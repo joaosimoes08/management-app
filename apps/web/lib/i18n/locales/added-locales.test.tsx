@@ -1,6 +1,6 @@
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { I18nProvider, loadLocaleTexts, translateLegacyDom, translateMessage, useI18n } from '../i18n';
+import { I18nProvider, loadLocaleTexts, translateSourceTextDom, translateMessage, useI18n } from '../i18n';
 import { getFormatLocale } from '@/lib/format/date';
 import { APP_LOCALES, LAZY_LOCALES, LOCALE_NATIVE_NAMES, isAppLocale, type LocaleBundle } from './catalog';
 import { getLoadedLocaleBundle, loadLocaleBundle, translateWithBundle } from './loader';
@@ -20,12 +20,12 @@ describe('locale catalog', () => {
 });
 
 describe('added locale files', () => {
-  it('load on demand and expose messages, legacy texts and rules', async () => {
+  it('load on demand and expose messages, source texts and rules', async () => {
     for (const locale of LAZY_LOCALES) {
       const bundle = await loadLocaleBundle(locale);
       expect(getLoadedLocaleBundle(locale)).toBe(bundle);
       expect(bundle.messages['common.cancel']).toBeTruthy();
-      expect(bundle.legacy['Cidade']).toBeTruthy();
+      expect(bundle.sourceText['Cidade']).toBeTruthy();
       expect(bundle.substitutions?.length).toBeGreaterThan(0);
     }
   });
@@ -71,7 +71,7 @@ describe('added locale files', () => {
     await loadLocaleTexts('es-ES');
     const root = document.createElement('div');
     root.innerHTML = '<span>Cidade</span><span>TCP 22: aberta</span><span>Etiquetas · Core</span><input placeholder="País">';
-    translateLegacyDom('es-ES', root);
+    translateSourceTextDom('es-ES', root);
     const spans = root.querySelectorAll('span');
     expect(spans[0].textContent).toBe('Ciudad');
     expect(spans[1].textContent).toBe('TCP 22: abierto');
@@ -81,11 +81,11 @@ describe('added locale files', () => {
 
     // Switching language re-translates from the Portuguese source, not from the Spanish text.
     await loadLocaleTexts('de-DE');
-    translateLegacyDom('de-DE', root);
+    translateSourceTextDom('de-DE', root);
     expect(spans[0].textContent).toBe('Stadt');
     expect(spans[2].textContent).toBe('Tags · Core');
     expect(root.querySelector('input')?.getAttribute('placeholder')).toBe('Land');
-    translateLegacyDom('pt-PT', root);
+    translateSourceTextDom('pt-PT', root);
     expect(spans[0].textContent).toBe('Cidade');
   });
 });
@@ -94,7 +94,7 @@ describe('translateWithBundle', () => {
   const english = (text: string) => `EN(${text.trim()})`;
   const stub: LocaleBundle = {
     messages: {},
-    legacy: { Cidade: 'Ciudad', Igual: 'Igual' },
+    sourceText: { Cidade: 'Ciudad', Igual: 'Igual' },
     substitutions: [[/^Abrir (\S+)$/g, 'Abrir $1'], [/^Porta (\d+)$/g, 'Puerto $1']],
   };
 

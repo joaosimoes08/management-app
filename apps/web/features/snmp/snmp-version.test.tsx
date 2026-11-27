@@ -1,7 +1,7 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isV2cAllowed, SnmpVersionField, V2C_DISABLED, V2C_PENDING } from './snmp-version';
-import { translateLegacyText } from '@/lib/i18n/legacy-messages';
+import { translateSourceText } from '@/lib/i18n/source-text-messages';
 
 afterEach(cleanup);
 
@@ -29,6 +29,6 @@ describe('SNMP version choice while the receiver settings load', () => {
     expect(screen.queryByRole('radio', { name: 'SNMPv2c' })).not.toBeInTheDocument();
     expect(screen.getByText(V2C_DISABLED)).toBeInTheDocument();
     expect(onChange).not.toHaveBeenCalled();
-    expect(translateLegacyText('en-US', V2C_PENDING)).not.toBe(V2C_PENDING);
+    expect(translateSourceText('en-US', V2C_PENDING)).not.toBe(V2C_PENDING);
   });
 });

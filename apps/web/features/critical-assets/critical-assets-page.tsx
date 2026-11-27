@@ -9,7 +9,7 @@ import { ApiRequestError } from '@/lib/api/errors';
 import { useAuth } from '@/lib/auth';
 import { useSiteContext } from '@/lib/site-context';
 import { Empty } from '@/features/ipam/components/ipam-modal';
-import { translateLegacyText } from '@/lib/i18n/legacy-messages';
+import { translateSourceText } from '@/lib/i18n/source-text-messages';
 import { closeCorrection as postCloseCorrection, confirmAttestation, confirmAttestations, criticalAssetsKeys, getCriticalAssets, listAssetConnections, listCorrections, listCriticalAssetsPage, listOwnerGroups, saveOwnerMapping } from './api';
 import { BulkConfirmDialog, CorrectionCloseDialog, CorrectionRequestDialog, OwnerDialog, ReviewDialog, type BulkItem, type BulkResult } from './critical-assets-dialogs';
 import {
@@ -282,7 +282,7 @@ export function CriticalAssetsPage() {
 
   const toggleCountFilter = (key: keyof Filters, value: string) => changeFilter(key, filters[key] === value ? '' : value);
 
-  const tr = (text: string) => translateLegacyText(locale, text);
+  const tr = (text: string) => translateSourceText(locale, text);
   const columns: DataTableColumn<AssetRow>[] = [
     {
       id: 'name', header: 'Equipamento', sortValue: (row) => row.name,
@@ -456,7 +456,7 @@ export function CriticalAssetsPage() {
         empty="Ainda não existem revisões para este ativo."
         events={detail.attestations.map((attestation) => ({
           id: attestation.id,
-          title: <>{ui('groupB.assets.weekOf', undefined, { date: formatDate(attestation.weekStart) })}{attestation.weekStart.slice(0, 10) === linkedWeek && <> · {translateLegacyText(locale, 'Revisão ligada à notificação')}</>}</>,
+          title: <>{ui('groupB.assets.weekOf', undefined, { date: formatDate(attestation.weekStart) })}{attestation.weekStart.slice(0, 10) === linkedWeek && <> · {translateSourceText(locale, 'Revisão ligada à notificação')}</>}</>,
           status: <span className={`state-badge ${outcomeTone(attestation.outcome)}`}><i />{outcomeLabel(attestation.outcome)}</span>,
           at: attestation.outcome ? attestation.confirmedAt : null,
           actor: attestation.outcome ? attestation.confirmedByName ?? 'Revisor desconhecido' : null,

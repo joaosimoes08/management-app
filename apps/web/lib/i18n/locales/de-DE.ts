@@ -186,6 +186,38 @@ export const messages: LocaleBundle['messages'] = {
   'infra.rack.rangeOf': '{start}–{end} von {total}',
   'infra.frontOf': 'Vorderseite von {name}',
   'tags.deleteNamed': '{name} löschen',
+  'tags.label': 'Tags',
+  'tags.manage': 'Tags verwalten',
+  'tags.saveError': 'Die Tags konnten nicht gespeichert werden.',
+  'tags.loading': 'Tags werden geladen…',
+  'tags.color.gray': 'Grau',
+  'tags.color.blue': 'Blau',
+  'tags.color.green': 'Grün',
+  'tags.color.amber': 'Bernstein',
+  'tags.color.red': 'Rot',
+  'tags.color.purple': 'Violett',
+  'tags.filter.label': 'Nach Tag filtern',
+  'tags.filter.all': 'Alle Tags',
+  'tags.filter.removed': 'Entfernter Tag',
+  'tags.new.nameLabel': 'Name des neuen Tags',
+  'tags.new.placeholder': 'Neuer Tag',
+  'tags.new.colorLabel': 'Farbe des neuen Tags',
+  'tags.new.create': 'Erstellen',
+  'tags.empty.canCreate': 'Dieser Standort hat noch keine Tags. Erstellen Sie unten den ersten.',
+  'tags.empty.readOnly': 'Dieser Standort hat noch keine Tags. Ein Administrator kann sie erstellen.',
+  'tags.editor.title': 'Tags · {name}',
+  'tags.editor.options': 'Standort-Tags',
+  'tags.editor.cancel': 'Abbrechen',
+  'tags.editor.save': 'Tags speichern',
+  'tags.manager.nameLabel': 'Tag-Name',
+  'tags.manager.colorLabel': 'Tag-Farbe',
+  'tags.manager.usesTitle': 'Geräte · Subnetze',
+  'tags.manager.save': 'Speichern',
+  'tags.manager.confirmDeleteUsed': 'Tag „{name}“ löschen? Er wird von {uses} Elementen entfernt.',
+  'tags.manager.confirmDelete': 'Tag „{name}“ löschen?',
+  'tags.manager.description': 'Tags gehören zu diesem Standort und gelten für Geräte und Subnetze. Anzahl: Geräte · Subnetze.',
+  'tags.manager.readOnlyNote': 'Nur Administratoren und System-Operatoren können Tags erstellen, umbenennen oder löschen.',
+  'tags.manager.close': 'Schließen',
   'infra.ports.front.tab': 'Vorderseite',
   'infra.ports.rear.tab': 'Rückseite',
   'infra.ports.front.image': 'Frontansicht des Modells',
@@ -2033,7 +2065,7 @@ export const messages: LocaleBundle['messages'] = {
 };
 
 /** Hard-coded Portuguese UI text (source) → translation. */
-export const legacy: LocaleBundle['legacy'] = {
+export const sourceText: LocaleBundle['sourceText'] = {
   // Observed topology: API errors for non-network or out-of-scope devices (2026-11-26)
   'SNMP só pode ser configurado em equipamentos de rede.': 'SNMP kann nur auf Netzwerkgeräten konfiguriert werden.',
   'Recurso de infraestrutura não encontrado.': 'Infrastrukturressource nicht gefunden.',
@@ -4463,7 +4495,7 @@ export const legacy: LocaleBundle['legacy'] = {
   'SNMP: não tentado (política da execução)': 'SNMP: nicht versucht (Richtlinie des Laufs)',
 };
 
-/** Rules for Portuguese text with variable parts (same patterns and order as in legacy-messages.ts). */
+/** Rules for Portuguese text with variable parts (same patterns and order as in source-text-messages.ts). */
 export const substitutions: NonNullable<LocaleBundle['substitutions']> = [
   [/Eliminar a credencial (READ|WRITE|TRAP) · (V2C|V3)( \([^)\n]*\))? deste equipamento\?/g, '$1 · $2$3-Zugangsdaten dieses Geräts löschen?'],
   [/Eliminar a credencial (READ|WRITE|TRAP) · (V2C|V3)( \([^)\n]*\))? de ([^\n]+)\?/g, '$1 · $2$3-Zugangsdaten von $4 löschen?'],

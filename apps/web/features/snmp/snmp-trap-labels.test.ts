@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { translateLegacyText } from '@/lib/i18n/legacy-messages';
+import { translateSourceText } from '@/lib/i18n/source-text-messages';
 import { snmpTrapCategoryLabel, snmpTrapCategoryLabels, snmpTrapStatusLabel, snmpTrapStatusLabels } from './snmp-trap-labels';
 
 const schema = readFileSync(resolve(process.cwd(), '../../packages/database/prisma/schema.prisma'), 'utf8');
@@ -26,11 +26,11 @@ describe('SNMP trap kind and status badges', () => {
   });
 
   it('has an English translation for every PT label', () => {
-    expect(translateLegacyText('en-US', 'Trap de fabricante')).toBe('Vendor trap');
-    expect(translateLegacyText('en-US', 'Processada')).toBe('Processed');
+    expect(translateSourceText('en-US', 'Trap de fabricante')).toBe('Vendor trap');
+    expect(translateSourceText('en-US', 'Processada')).toBe('Processed');
     for (const label of [...Object.values(snmpTrapCategoryLabels), ...Object.values(snmpTrapStatusLabels)]) {
-      expect(translateLegacyText('en-US', label), label).not.toBe(label);
-      expect(translateLegacyText('pt-PT', label)).toBe(label);
+      expect(translateSourceText('en-US', label), label).not.toBe(label);
+      expect(translateSourceText('pt-PT', label)).toBe(label);
     }
   });
 });

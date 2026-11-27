@@ -1,6 +1,6 @@
 /**
- * Italiano (it-IT). Keyed messages follow the en-US block in i18n.tsx; legacy entries follow enUS in legacy-messages.ts;
- * substitutions mirror the en-US rules in legacy-messages.ts (same order, same capture groups).
+ * Italiano (it-IT). Keyed messages follow the en-US block in i18n.tsx; source-text entries follow enUS in source-text-messages.ts;
+ * substitutions mirror the en-US rules in source-text-messages.ts (same order, same capture groups).
  * Formal address (Lei). Network terms used by professionals (VLAN, VRF, SNMP, NetApp, rack, subnet…) stay untranslated.
  * Run `npm run i18n:check -- --locales=it-IT` to list what is still missing compared with en-US.
  * Anything missing here shows in English, never in Portuguese.
@@ -188,6 +188,38 @@ export const messages: LocaleBundle['messages'] = {
   'infra.rack.rangeOf': '{start}–{end} di {total}',
   'infra.frontOf': 'Fronte di {name}',
   'tags.deleteNamed': 'Elimina {name}',
+  'tags.label': 'Tag',
+  'tags.manage': 'Gestisci tag',
+  'tags.saveError': 'Impossibile salvare i tag.',
+  'tags.loading': 'Caricamento dei tag…',
+  'tags.color.gray': 'Grigio',
+  'tags.color.blue': 'Blu',
+  'tags.color.green': 'Verde',
+  'tags.color.amber': 'Ambra',
+  'tags.color.red': 'Rosso',
+  'tags.color.purple': 'Viola',
+  'tags.filter.label': 'Filtra per tag',
+  'tags.filter.all': 'Tutti i tag',
+  'tags.filter.removed': 'Tag rimosso',
+  'tags.new.nameLabel': 'Nome del nuovo tag',
+  'tags.new.placeholder': 'Nuovo tag',
+  'tags.new.colorLabel': 'Colore del nuovo tag',
+  'tags.new.create': 'Crea',
+  'tags.empty.canCreate': 'Questo sito non ha ancora tag. Crei il primo qui sotto.',
+  'tags.empty.readOnly': 'Questo sito non ha ancora tag. Un amministratore può crearli.',
+  'tags.editor.title': 'Tag · {name}',
+  'tags.editor.options': 'Tag del sito',
+  'tags.editor.cancel': 'Annulla',
+  'tags.editor.save': 'Salva tag',
+  'tags.manager.nameLabel': 'Nome del tag',
+  'tags.manager.colorLabel': 'Colore del tag',
+  'tags.manager.usesTitle': 'Dispositivi · Subnet',
+  'tags.manager.save': 'Salva',
+  'tags.manager.confirmDeleteUsed': 'Eliminare il tag "{name}"? Verrà rimosso da {uses} elementi.',
+  'tags.manager.confirmDelete': 'Eliminare il tag "{name}"?',
+  'tags.manager.description': 'I tag appartengono a questo sito e si applicano a dispositivi e subnet. Conteggio: dispositivi · subnet.',
+  'tags.manager.readOnlyNote': 'Solo gli amministratori e gli operatori di sistema possono creare, rinominare o eliminare i tag.',
+  'tags.manager.close': 'Chiudi',
   'infra.ports.front.tab': 'Fronte',
   'infra.ports.rear.tab': 'Retro',
   'infra.ports.front.image': 'Immagine frontale del modello',
@@ -2035,7 +2067,7 @@ export const messages: LocaleBundle['messages'] = {
 };
 
 /** Hard-coded Portuguese UI text (source) → translation. */
-export const legacy: LocaleBundle['legacy'] = {
+export const sourceText: LocaleBundle['sourceText'] = {
   // Observed topology: API errors for non-network or out-of-scope devices (2026-11-26)
   'SNMP só pode ser configurado em equipamentos de rede.': 'SNMP può essere configurato solo sui dispositivi di rete.',
   'Recurso de infraestrutura não encontrado.': 'Risorsa di infrastruttura non trovata.',
@@ -4465,7 +4497,7 @@ export const legacy: LocaleBundle['legacy'] = {
   'SNMP: não tentado (política da execução)': 'SNMP: non tentato (criterio dell\'esecuzione)',
 };
 
-/** Rules for Portuguese text with variable parts (same patterns and order as in legacy-messages.ts). */
+/** Rules for Portuguese text with variable parts (same patterns and order as in source-text-messages.ts). */
 export const substitutions: NonNullable<LocaleBundle['substitutions']> = [
   [/Eliminar a credencial (READ|WRITE|TRAP) · (V2C|V3)( \([^)\n]*\))? deste equipamento\?/g, 'Eliminare la credenziale $1 · $2$3 di questo dispositivo?'],
   [/Eliminar a credencial (READ|WRITE|TRAP) · (V2C|V3)( \([^)\n]*\))? de ([^\n]+)\?/g, 'Eliminare la credenziale $1 · $2$3 di $4?'],

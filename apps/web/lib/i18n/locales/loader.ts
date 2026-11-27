@@ -23,7 +23,7 @@ export function loadLocaleBundle(locale: LazyLocale): Promise<LocaleBundle> {
   let load = pending.get(locale);
   if (!load) {
     load = importers[locale]().then((module) => {
-      const bundle: LocaleBundle = { messages: module.messages, legacy: module.legacy, substitutions: module.substitutions };
+      const bundle: LocaleBundle = { messages: module.messages, sourceText: module.sourceText, substitutions: module.substitutions };
       loaded.set(locale, bundle);
       pending.delete(locale);
       return bundle;
@@ -46,7 +46,7 @@ export function translateWithBundle(bundle: LocaleBundle, input: string, english
   const leading = input.match(/^\s*/)?.[0] ?? '';
   const trailing = input.match(/\s*$/)?.[0] ?? '';
   // Own entries only: inherited members ("constructor", "toString", "__proto__") are not translations.
-  const direct = Object.hasOwn(bundle.legacy, core) ? bundle.legacy[core] : undefined;
+  const direct = Object.hasOwn(bundle.sourceText, core) ? bundle.sourceText[core] : undefined;
   if (direct !== undefined) return `${leading}${direct}${trailing}`;
   // Track whether a rule matched, not whether the text changed: a translation can be spelled like the
   // Portuguese source (es-ES "Etiquetas · Core", "Abrir R1") and must not fall back to English.

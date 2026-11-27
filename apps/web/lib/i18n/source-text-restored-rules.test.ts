@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { translateLegacyText } from './legacy-messages';
+import { translateSourceText } from './source-text-messages';
 import { loadLocaleBundle, translateWithBundle } from './locales/loader';
 
-// Texts the old screens still emit through the legacy layer. Their rules were restored after the
+// Texts the old screens still emit through the source-text layer. Their rules were restored after the
 // review of #216; each one must come out in English and never stay in Portuguese in a new language.
 const cases: Array<[string, string]> = [
   ['3 selecionadas', '3 selected'],
@@ -13,9 +13,9 @@ const cases: Array<[string, string]> = [
   ['Credencial READ eliminada.', 'READ credential deleted.'],
 ];
 
-const english = (text: string) => translateLegacyText('en-US', text);
+const english = (text: string) => translateSourceText('en-US', text);
 
-describe('restored legacy rules', () => {
+describe('restored source-text rules', () => {
   it.each(cases)('translates "%s" to English', (input, expected) => {
     expect(english(input)).toBe(expected);
   });
