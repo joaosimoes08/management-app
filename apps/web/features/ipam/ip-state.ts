@@ -1,4 +1,19 @@
 import { ipamText } from './i18n';
+import type { AssetStatus } from '@/features/infrastructure/types';
+import type { ServiceStatus } from './types';
+
+/** Host/device statuses in the order the pickers list them. */
+export const ASSET_STATUSES: readonly AssetStatus[] = ['UNKNOWN', 'ACTIVE', 'INACTIVE', 'MAINTENANCE', 'RETIRED'];
+/** Service statuses accepted by Create/UpdateServiceDto, in picker order. */
+export const SERVICE_STATUSES: readonly ServiceStatus[] = ['UNKNOWN', 'OPEN', 'CLOSED', 'DEGRADED', 'DISABLED'];
+
+export function isAssetStatus(value: string): value is AssetStatus {
+  return (ASSET_STATUSES as readonly string[]).includes(value);
+}
+
+export function isServiceStatus(value: string): value is ServiceStatus {
+  return (SERVICE_STATUSES as readonly string[]).includes(value);
+}
 
 const stateLabels = new Map([
   ['FREE', 'Livre'],

@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createElement, type ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Subnet } from '@/features/ipam/types';
+import type { Device } from '@/features/infrastructure/types';
 import type { Tag } from './types';
 
 const api = vi.hoisted(() => ({
@@ -208,7 +209,7 @@ describe('Infraestrutura device list with tags', () => {
   it('shows chips, and the tag button only where the user may tag', async () => {
     const { DeviceList } = await import('@/features/infrastructure/components/devices/device-list');
     const onEditTags = vi.fn();
-    const devices = [
+    const devices: Device[] = [
       { id: 'd1', name: 'sw-core-01', type: 'SWITCH', status: 'ACTIVE', tags: [{ id: 't-core', name: 'core', color: 'blue' }] },
       { id: 'd2', name: 'srv-app-01', type: 'SERVER', status: 'ACTIVE', tags: [] },
     ];

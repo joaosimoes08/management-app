@@ -17,7 +17,7 @@ vi.mock('../api', () => ({
 const host: HostDetail = {
   id: 'host-1', name: 'edge-router', status: 'ACTIVE', source: 'MANUAL',
   ipAddresses: [],
-  services: [{ id: 'service-1', name: 'HTTPS', protocol: 'TCP', port: 443, status: 'ACTIVE', observedStatus: 'OPEN', version: '1.0', notes: 'public endpoint', source: 'MANUAL' }],
+  services: [{ id: 'service-1', name: 'HTTPS', protocol: 'TCP', port: 443, status: 'OPEN', observedStatus: 'OPEN', version: '1.0', notes: 'public endpoint', source: 'MANUAL' }],
 };
 
 describe('HostPanel service editing', () => {

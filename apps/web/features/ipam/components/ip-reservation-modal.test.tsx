@@ -1,9 +1,10 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { IpAddressRow } from '../types';
 import { IpReservationModal } from './ip-reservation-modal';
 
-const ip = { id: 'ip-1', address: '192.0.2.18', subnetId: 'subnet-1', state: 'FREE' };
+const ip: IpAddressRow = { id: 'ip-1', address: '192.0.2.18', subnetId: 'subnet-1', state: 'FREE' };
 
 afterEach(cleanup);
 

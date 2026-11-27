@@ -12,11 +12,12 @@ import {
   updateHost,
   updateService,
 } from '../api';
+import type { AssetStatus } from '@/features/infrastructure/types';
 import type { HostDetail, Service, ServiceInput } from '../types';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { formatDateTime } from '@/lib/format/date';
 import { useUiText } from '@/components/ui/use-ui-text';
-import { hostStatusLabel, observedStatusLabel, sourceLabel } from '../ip-state';
+import { ASSET_STATUSES, SERVICE_STATUSES, hostStatusLabel, isAssetStatus, isServiceStatus, observedStatusLabel, sourceLabel } from '../ip-state';
 type ServiceFormState = Omit<ServiceInput, 'port' | 'hostId'> & { port: string | number };
 
 const emptyService: ServiceFormState = { name: '', protocol: 'TCP', port: '', status: 'UNKNOWN', version: '', notes: '' };
@@ -36,7 +37,7 @@ type HostFormState = {
   operatingSystem: string;
   macAddress: string;
   notes: string;
-  status: string;
+  status: AssetStatus;
 };
 
 /** Host detail side panel: identity, IPs/VLANs relations and services. */
@@ -112,7 +113,7 @@ export function HostPanel({ host, canEdit, close, reload, success, toastError }:
     <label>Nome<input required placeholder="Nome do serviço" value={service.name} onChange={(event) => setService({ ...service, name: event.target.value })} /></label>
     <label>Protocolo<select value={service.protocol} onChange={(event) => setService({ ...service, protocol: event.target.value })}><option>TCP</option><option>UDP</option><option>OTHER</option></select></label>
     <label>Porta<input type="number" min="1" max="65535" required={service.protocol !== 'OTHER'} disabled={service.protocol === 'OTHER'} placeholder="Porta" value={service.port} onChange={(event) => setService({ ...service, port: event.target.value })} /></label>
-    <label>Estado<select value={service.status} onChange={(event) => setService({ ...service, status: event.target.value })}>{['UNKNOWN', 'OPEN', 'CLOSED', 'DEGRADED', 'DISABLED'].map((status) => <option key={status} value={status}>{observedStatusLabel(status)}</option>)}</select></label>
+    <label>Estado<select value={service.status} onChange={(event) => { const status = event.target.value; if (isServiceStatus(status)) setService({ ...service, status }); }}>{SERVICE_STATUSES.map((status) => <option key={status} value={status}>{observedStatusLabel(status)}</option>)}</select></label>
     <label>Versão<input placeholder="Versão" value={service.version} onChange={(event) => setService({ ...service, version: event.target.value })} /></label>
     <label>Notas<textarea placeholder="Notas" value={service.notes} onChange={(event) => setService({ ...service, notes: event.target.value })} /></label>
     <div className="form-actions"><button type="button" className="secondary-button" onClick={cancelServiceEdit}>Cancelar</button><button className="primary-button">{submitLabel}</button></div>
@@ -126,7 +127,7 @@ export function HostPanel({ host, canEdit, close, reload, success, toastError }:
       <label>Hostname<input value={form.hostname || ''} onChange={(event) => setForm({ ...form, hostname: event.target.value })} /></label>
       <label>Sistema operativo<input value={form.operatingSystem || ''} onChange={(event) => setForm({ ...form, operatingSystem: event.target.value })} /></label>
       <label>MAC<input value={form.macAddress || ''} onChange={(event) => setForm({ ...form, macAddress: event.target.value })} /></label>
-      <label>Estado<select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}>{['UNKNOWN', 'ACTIVE', 'INACTIVE', 'MAINTENANCE', 'RETIRED'].map((status) => <option key={status} value={status}>{hostStatusLabel(status)}</option>)}</select></label>
+      <label>Estado<select value={form.status} onChange={(event) => { const status = event.target.value; if (isAssetStatus(status)) setForm({ ...form, status }); }}>{ASSET_STATUSES.map((status) => <option key={status} value={status}>{hostStatusLabel(status)}</option>)}</select></label>
       <label>Notas<textarea value={form.notes || ''} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label>
       <div className="form-actions"><button type="button" className="secondary-button" onClick={() => setEditing(false)}>Cancelar</button><button className="primary-button">Guardar</button></div>
     </form> : <>

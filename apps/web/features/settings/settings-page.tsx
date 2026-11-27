@@ -21,6 +21,7 @@ import { useAuth } from '@/lib/auth';
 import { AppLocale, useI18n } from '@/lib/i18n';
 import { LAZY_LOCALES, LOCALE_NATIVE_NAMES } from '@/lib/i18n/locales/catalog';
 import { apiFetch } from '@/lib/api/client';
+import type { PaginatedResponse } from '@/lib/api/types';
 import { nextSingleUserSelection } from './single-user-selection';
 import { settingsText } from './i18n';
 import { discoveryIntervalChoices, formatDiscoveryInterval } from '@/features/discovery/discovery-intervals';
@@ -34,7 +35,7 @@ type DiscoveryDefaults = { methods: string[]; tcpPorts: number[]; reverseDns: bo
 type AuditPolicy = { retentionDays: number; totalEvents: number; oldestEventAt?: string | null; lastCleanupAt?: string | null; lastCleanupDeletedCount?: number | null; nextCleanupAt?: string | null };
 type SnmpListenerSettings = { listenAll: boolean; selectedInterfaceIds: string[]; interfaces: { id: string; instanceId: string; name: string; address: string; internal: boolean; lastSeenAt: string }[]; updatedAt?: string | null; refreshSeconds: number; engineId?: string | null; engineIdSource?: 'ENV' | 'STORED' | null; trapPort?: number; v2cAllowed?: boolean };
 type ManagedUser = { externalId: string; username: string; displayName: string; email?: string | null; enabled: boolean; directRoles: ApplicationRole[]; inheritedRoles: ApplicationRole[]; effectiveRoles: ApplicationRole[]; pendingRoleRequest?: { id: string; requestedRoles: ApplicationRole[]; status: 'PENDING' | 'PROCESSING'; createdAt: string } | null };
-type UserResult = { items: ManagedUser[]; page: number; pageSize: number; total: number; totalPages: number };
+type UserResult = PaginatedResponse<ManagedUser>;
 type Tab = 'organization' | 'sites' | 'groups' | 'users' | 'notifications' | 'reports' | 'discovery' | 'snmp' | 'health' | 'audit' | 'backup' | 'appearance';
 type SiteForm = { id: string; name: string; code: string; address: string; city: string; region: string; country: string };
 const emptySite: SiteForm = { id: '', name: '', code: '', address: '', city: '', region: '', country: 'Portugal' };

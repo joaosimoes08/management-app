@@ -14,7 +14,7 @@ const icons = {
   SWITCH: switchIcon,
 } as const;
 
-export function EquipmentTypeIcon({ type, alt = '', className = 'catalog-icon' }: { type?: string; alt?: string; className?: string }) {
+export function EquipmentTypeIcon({ type, alt = '', className = 'catalog-icon' }: { type?: string | null; alt?: string; className?: string }) {
   const icon = icons[String(type ?? 'OTHER').toUpperCase() as keyof typeof icons] ?? icons.OTHER;
 
   return <img src={icon.src} width={512} height={512} alt={alt} className={className} loading="lazy" />;

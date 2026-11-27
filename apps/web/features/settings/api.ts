@@ -1,4 +1,5 @@
 import { apiFetch } from '@/lib/api/client';
+import type { PaginatedResponse } from '@/lib/api/types';
 import type { AccessGroup, AccessGroupUser, SettingsMutation } from './types';
 
 export const settingsKeys = {
@@ -23,7 +24,8 @@ export interface RoleRequestItem {
   user?: RoleRequestPerson | null;
   reviewer?: RoleRequestPerson | null;
 }
-export interface RoleRequestPage { items: RoleRequestItem[]; page: number; pageSize: number; total: number; totalPages: number; pendingTotal?: number }
+/** GET /settings/role-requests: the standard page plus the PENDING count across every page. */
+export type RoleRequestPage = PaginatedResponse<RoleRequestItem> & { pendingTotal?: number };
 
 /** ADMIN queue. `status` is a comma list; the API defaults to PENDING,PROCESSING and answers 400 ROLE_REQUEST_STATUS_INVALID otherwise. */
 export const listRoleRequests = ({ status, page = 1, pageSize = 20 }: { status?: string; page?: number; pageSize?: number } = {}) => {
