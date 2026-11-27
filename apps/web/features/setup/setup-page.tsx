@@ -6,7 +6,7 @@ import * as m from 'motion/react-m';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, Building2, Check, DoorOpen, Flag, MapPin, ShieldCheck, type LucideIcon } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
-import { currentSearch, designPreviewStep, isDesignPreview } from '@/lib/design-preview';
+import { currentSearch, designPreviewStep, isDesignPreview } from './design-preview';
 import { AppLocale, useI18n } from '@/lib/i18n';
 import { APP_LOCALES, LOCALE_NATIVE_NAMES } from '@/lib/i18n/locales/catalog';
 import { getConfiguredLocale, resolveOrganizationLocale } from '@/lib/runtime-config';

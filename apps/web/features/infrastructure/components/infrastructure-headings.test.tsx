@@ -11,7 +11,7 @@ vi.mock('../api', () => ({
   deleteInfrastructurePermission: vi.fn(),
 }));
 vi.mock('./asset-image', () => ({ AssetImage: () => null }));
-vi.mock('@/components/bookstack-context-link', () => ({ BookStackContextLink: () => null }));
+vi.mock('@/features/runbooks/bookstack-context-link', () => ({ BookStackContextLink: () => null }));
 
 function renderWithQueryClient(ui: React.ReactNode) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

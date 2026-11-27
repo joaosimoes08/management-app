@@ -5,7 +5,7 @@ import { PageToolbarPortal } from '@/components/layout/app-shell';
 import type { AssetFile } from '../../types';
 import { assetDisplayName } from '../../utils';
 import { AssetImage } from '../asset-image';
-import { BookStackContextLink } from '@/components/bookstack-context-link';
+import { BookStackContextLink } from '@/features/runbooks/bookstack-context-link';
 
 export interface AssetListProps {
   assets: AssetFile[];

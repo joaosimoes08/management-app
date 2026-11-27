@@ -1,4 +1,4 @@
-import { getPublicRuntimeConfig } from './runtime-config';
+import { getPublicRuntimeConfig } from '@/lib/runtime-config';
 
 export type BookStackContextType = 'asset' | 'service';
 
