@@ -1,13 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronLeft, ChevronRight, RefreshCw, X } from 'lucide-react';
 import { DataTable, sortByColumns, type DataTableColumn, type SortState } from '@/components/data-table';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
 import { formatDateTime } from '@/lib/format/date';
 import { useI18n } from '@/lib/i18n';
-import { decideRoleRequest, listRoleRequests, type RoleRequestItem, type RoleRequestPage } from '../api';
+import { decideRoleRequest, listRoleRequests, settingsKeys, settingsQueryOptions, type RoleRequestItem, type RoleRequestPage } from '../api';
 import { useUiText } from '@/components/ui/use-ui-text';
 
 const PAGE_SIZE = 20;
@@ -34,8 +35,8 @@ const personName = (person?: RoleRequestItem['user']) => person?.displayName?.tr
 export interface RoleRequestQueueProps {
   /** Called after a decision so the user list (roles, pending badge) reloads. */
   onDecided: () => void;
-  /** Any change (e.g. the user list object) reloads the queue, so decisions taken in the user list show up here. */
-  reloadToken?: unknown;
+  /** Any change (the user list's load time) reloads the queue, so decisions taken in the user list show up here. */
+  reloadToken?: number;
 }
 
 /** Definições → Utilizadores: queue of role requests, pending first, with approve / reject. */
@@ -44,53 +45,46 @@ export function RoleRequestQueue({ onDecided, reloadToken }: RoleRequestQueuePro
   const { t } = useI18n();
   const { success, error: toastError } = useToast();
   const { confirm: askConfirm, confirmDialog } = useConfirm();
+  const queryClient = useQueryClient();
   const [status, setStatus] = useState<string>(ROLE_REQUEST_FILTERS[0].value);
   const [page, setPage] = useState(1);
-  const [data, setData] = useState<RoleRequestPage>(emptyPage);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
   /** Decision failures stay visible across the reload that follows them. */
   const [actionError, setActionError] = useState('');
   const [busyId, setBusyId] = useState('');
-  const [refresh, setRefresh] = useState(0);
   const defaultSort: SortState = { column: 'createdAt', direction: status === ROLE_REQUEST_FILTERS[0].value ? 'asc' : 'desc' };
   const [sort, setSort] = useState<SortState>(defaultSort);
 
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    listRoleRequests({ status, page, pageSize: PAGE_SIZE })
-      .then((next) => {
-        if (!active) return;
-        const items = Array.isArray(next.items) ? next.items : [];
-        // The last item of the last page was decided: step back instead of showing an empty page.
-        if (!items.length && page > 1) { setPage(page - 1); return; }
-        setData({ ...emptyPage, ...next, items });
-        setError('');
-      })
-      .catch((reason: unknown) => { if (active) { setData(emptyPage); setError(messageOf(reason, 'Não foi possível carregar os pedidos de roles.')); } })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [status, page, refresh, reloadToken]);
+  // The previous page stays on screen while the next one loads, as before. reloadToken is part of the key, so a new token loads the queue again.
+  const query = useQuery({ queryKey: settingsKeys.roleRequests(status, page, reloadToken ?? 0), queryFn: () => listRoleRequests({ status, page, pageSize: PAGE_SIZE }), placeholderData: keepPreviousData, ...settingsQueryOptions });
+  const decisionMutation = useMutation({ mutationFn: ({ id, decision: value }: { id: string; decision: 'APPROVE' | 'REJECT' }) => decideRoleRequest(id, value) });
+  const reload = () => queryClient.invalidateQueries({ queryKey: settingsKeys.roleRequestsAll });
+  const fetched = query.data && !query.isPlaceholderData ? query.data : undefined;
+  const fetchedItems = fetched && Array.isArray(fetched.items) ? fetched.items : [];
+  // The last item of the last page was decided: step back instead of showing an empty page.
+  const stepBack = Boolean(fetched && !fetchedItems.length && page > 1);
+  if (stepBack) setPage(page - 1);
+  const loading = query.isFetching || stepBack;
+  const error = query.isError ? messageOf(query.error, 'Não foi possível carregar os pedidos de roles.') : '';
+  const data: RoleRequestPage = query.isError || !query.data || stepBack ? emptyPage : { ...emptyPage, ...query.data, items: Array.isArray(query.data.items) ? query.data.items : [] };
 
   const roleLabels = (roles: string[]) => (roles.length ? roles.map((role) => t(`role.${role}`, role)).join(', ') : '—');
 
-  const decide = async (item: RoleRequestItem, decision: 'APPROVE' | 'REJECT') => {
+  const decide = async (item: RoleRequestItem, value: 'APPROVE' | 'REJECT') => {
     const name = personName(item.user);
-    if (decision === 'REJECT' && !(await askConfirm({ title: 'Rejeitar pedido', message: ui('settings.roleQueue.rejectConfirm', undefined, { name }), confirmLabel: 'Rejeitar', destructive: true }))) return;
+    if (value === 'REJECT' && !(await askConfirm({ title: 'Rejeitar pedido', message: ui('settings.roleQueue.rejectConfirm', undefined, { name }), confirmLabel: 'Rejeitar', destructive: true }))) return;
     setBusyId(item.id);
     setActionError('');
     try {
-      await decideRoleRequest(item.id, decision);
-      success('Pedidos de roles', decision === 'APPROVE' ? ui('settings.roleQueue.approved', undefined, { name }) : ui('settings.roleQueue.rejected', undefined, { name }));
-      setRefresh((value) => value + 1);
+      await decisionMutation.mutateAsync({ id: item.id, decision: value });
+      success('Pedidos de roles', value === 'APPROVE' ? ui('settings.roleQueue.approved', undefined, { name }) : ui('settings.roleQueue.rejected', undefined, { name }));
+      void reload();
       onDecided();
     } catch (reason) {
       const message = messageOf(reason, 'Não foi possível decidir o pedido.');
       setActionError(message);
       toastError('Pedidos de roles', message);
       // 409 "already processed": reload so the row shows its real state.
-      setRefresh((value) => value + 1);
+      void reload();
     } finally {
       setBusyId('');
     }
@@ -124,7 +118,7 @@ export function RoleRequestQueue({ onDecided, reloadToken }: RoleRequestQueuePro
       <div><h2 id="role-request-queue-title">Pedidos de roles</h2>{typeof pending === 'number' && <p className="panel-description">{ui('settings.roleQueue.pendingCount', undefined, { count: pending })}</p>}</div>
       <div className="table-actions">
         <label className="role-request-status-filter">Estado <select className="context-toolbar-selector" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); setActionError(''); setSort({ column: 'createdAt', direction: event.target.value === ROLE_REQUEST_FILTERS[0].value ? 'asc' : 'desc' }); }}>{ROLE_REQUEST_FILTERS.map((filter) => <option key={filter.value} value={filter.value}>{filter.label}</option>)}</select></label>
-        <button type="button" className="secondary-button" onClick={() => setRefresh((value) => value + 1)}><RefreshCw size={14} />Atualizar</button>
+        <button type="button" className="secondary-button" onClick={() => void reload()}><RefreshCw size={14} />Atualizar</button>
       </div>
     </div>
     {(error || actionError) && <div role="alert" className="ipam-alert error"><X size={15} />{error || actionError}</div>}
