@@ -76,6 +76,8 @@ jobs:
         run: npm run typecheck --workspace=@simoes/web
       - name: Frontend lint
         run: npm run lint --workspace=@simoes/web
+      - name: Frontend unit tests
+        run: npm run test --workspace=@simoes/web
       - name: Backend typecheck
         run: |
           npx tsc -p packages/snmp-core/tsconfig.json --noEmit
