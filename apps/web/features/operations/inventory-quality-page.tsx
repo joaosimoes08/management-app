@@ -10,7 +10,7 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useAuth } from '@/lib/auth';
 import { useSiteContext } from '@/lib/site-context';
 import { formatDateTime } from '@/lib/format/date';
-import { bulkInventoryFindings, getInventoryQualityAssignees, getInventoryQualityFacets, listInventoryFindings, type BulkFindingAction, type InventoryFinding } from './api';
+import { bulkInventoryFindings, inventoryQualityKeys, getInventoryQualityAssignees, getInventoryQualityFacets, listInventoryFindings, type BulkFindingAction, type InventoryFinding } from './api';
 import { QualityBulkDialog, type BulkParams } from './quality-bulk-dialog';
 import { useUiText } from '@/components/ui/use-ui-text';
 import {
@@ -51,14 +51,14 @@ export function InventoryQualityPage() {
   const [error, setError] = useState('');
 
   const pages = useInfiniteQuery({
-    queryKey: ['inventory-quality', 'findings', query],
+    queryKey: inventoryQualityKeys.findings(query),
     queryFn: ({ pageParam }) => listInventoryFindings(query, pageParam),
     initialPageParam: 1,
     getNextPageParam: (last, all) => (all.reduce((sum, page) => sum + page.items.length, 0) < last.total ? last.page + 1 : undefined),
     enabled: Boolean(siteId),
   });
-  const facets = useQuery({ queryKey: ['inventory-quality', 'facets', facetQuery], queryFn: () => getInventoryQualityFacets(facetQuery), enabled: Boolean(siteId) });
-  const assignees = useQuery({ queryKey: ['inventory-quality', 'assignees', siteId], queryFn: () => getInventoryQualityAssignees(siteId ?? ''), enabled: Boolean(siteId && canAct) });
+  const facets = useQuery({ queryKey: inventoryQualityKeys.facets(facetQuery), queryFn: () => getInventoryQualityFacets(facetQuery), enabled: Boolean(siteId) });
+  const assignees = useQuery({ queryKey: inventoryQualityKeys.assignees(siteId), queryFn: () => getInventoryQualityAssignees(siteId ?? ''), enabled: Boolean(siteId && canAct) });
 
   const rows = useMemo(() => pages.data?.pages.flatMap((page) => page.items) ?? [], [pages.data]);
   const total = pages.data?.pages[0]?.total ?? 0;
@@ -103,7 +103,7 @@ export function InventoryQualityPage() {
       setOutcome(result);
       const succeeded = new Set(result.items.filter((item) => item.ok).map((item) => item.id));
       setSelected((current) => new Set([...current].filter((id) => !succeeded.has(id))));
-      await queryClient.invalidateQueries({ queryKey: ['inventory-quality'] });
+      await queryClient.invalidateQueries({ queryKey: inventoryQualityKeys.all });
     } catch (cause) {
       setDialog(null); setOutcome(null);
       setError(cause instanceof Error ? cause.message : 'A operação em massa falhou.');
@@ -126,7 +126,7 @@ export function InventoryQualityPage() {
       const result = bulkOutcome(await bulkInventoryFindings({ action: 'ACKNOWLEDGE', ids: [row.id] }), titles);
       const failed = result.items.find((item) => !item.ok);
       if (failed) setError(`${row.title}: ${failed.message}`);
-      await queryClient.invalidateQueries({ queryKey: ['inventory-quality'] });
+      await queryClient.invalidateQueries({ queryKey: inventoryQualityKeys.all });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Não foi possível reconhecer o finding.');
     } finally { setRunning(false); }
@@ -154,7 +154,7 @@ export function InventoryQualityPage() {
       <button className="topbar-action secondary-button" disabled={disabled} aria-label={`Atribuir… (${actionable.length})`} title={`Atribuir… (${actionable.length})`} onClick={() => openDialog('ASSIGN')}><UserPlus size={14} /> <span className="toolbar-action-label">Atribuir…</span> <span className="toolbar-action-count">{`(${actionable.length})`}</span></button>
       <button className="topbar-action secondary-button" disabled={disabled} aria-label={`Adiar… (${actionable.length})`} title={`Adiar… (${actionable.length})`} onClick={() => openDialog('SNOOZE')}><Clock3 size={14} /> <span className="toolbar-action-label">Adiar…</span> <span className="toolbar-action-count">{`(${actionable.length})`}</span></button>
     </>}
-    <button className="topbar-action secondary-button" onClick={() => void queryClient.invalidateQueries({ queryKey: ['inventory-quality'] })} disabled={pages.isFetching} aria-label="Atualizar" title="Atualizar"><RefreshCw size={14} /> <span className="toolbar-action-label">Atualizar</span></button>
+    <button className="topbar-action secondary-button" onClick={() => void queryClient.invalidateQueries({ queryKey: inventoryQualityKeys.all })} disabled={pages.isFetching} aria-label="Atualizar" title="Atualizar"><RefreshCw size={14} /> <span className="toolbar-action-label">Atualizar</span></button>
   </>;
 
   const selection = canAct ? { selected, onChange: setSelected, isSelectable: isActionable, rowLabel: (row: InventoryFinding, selectable: boolean) => (selectable ? `Selecionar ${row.title}` : `${row.title} resolvido`), allLabel: 'Selecionar todos os findings visíveis' } : undefined;

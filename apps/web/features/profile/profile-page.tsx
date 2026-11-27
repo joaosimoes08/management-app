@@ -7,7 +7,7 @@ import { AppShell } from '@/components/layout/app-shell';
 import { useToast } from '@/components/ui/toast';
 import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
-import { getMyRoleRequests, submitRoleRequest } from './api';
+import { getMyRoleRequests, profileKeys, submitRoleRequest } from './api';
 import { NotificationsPanel } from './notifications-panel';
 import styles from './notifications-panel.module.css';
 
@@ -24,7 +24,7 @@ export default function ProfilePage() {
   const [selected, setSelected] = useState<RequestableRole[]>([]);
   const [saving, setSaving] = useState(false);
   const [submitError, setSubmitError] = useState('');
-  const { data, refetch, isPending: loading, error: queryError } = useQuery({ queryKey: ['profile', 'role-requests', requestId], queryFn: () => getMyRoleRequests(requestId), enabled: tab !== 'notifications' });
+  const { data, refetch, isPending: loading, error: queryError } = useQuery({ queryKey: profileKeys.roleRequests(requestId), queryFn: () => getMyRoleRequests(requestId), enabled: tab !== 'notifications' });
   const load = () => void refetch();
   const queryErrorMessage = queryError instanceof Error ? queryError.message : '';
   useEffect(() => {
@@ -53,7 +53,7 @@ export default function ProfilePage() {
   const submit = async () => {
     if (!selected.length) return;
     setSaving(true); setSubmitError('');
-    try { await submitRoleRequest(selected); setSelected([]); success(t('profile.roles'), t('profile.requestSent')); await queryClient.invalidateQueries({ queryKey: ['profile', 'role-requests'] }); }
+    try { await submitRoleRequest(selected); setSelected([]); success(t('profile.roles'), t('profile.requestSent')); await queryClient.invalidateQueries({ queryKey: profileKeys.roleRequestsAll }); }
     catch (reason) { const message = reason instanceof Error ? reason.message : t('profile.submitError'); setSubmitError(message); toastError(t('profile.roles'), message); }
     finally { setSaving(false); }
   };

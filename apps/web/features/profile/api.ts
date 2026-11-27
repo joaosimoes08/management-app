@@ -1,4 +1,16 @@
-import { apiFetch } from '@/lib/api/client';
+import { apiDownload, apiFetch } from '@/lib/api/client';
+import type { ReportFrequency } from '@/features/reports/report-labels';
+
+/** Query keys of the Profile feature, per signed-in user. */
+export const profileKeys = {
+  all: ['profile'] as const,
+  roleRequestsAll: ['profile', 'role-requests'] as const,
+  roleRequests: (requestId: string) => ['profile', 'role-requests', requestId] as const,
+  notifications: (userId: string) => ['profile', 'notifications', userId] as const,
+  notificationList: (userId: string, status: string, type: string) => ['profile', 'notifications', userId, status, type] as const,
+  notificationPreferences: (userId: string) => ['profile', 'notification-preferences', userId] as const,
+  reportSubscriptions: (userId: string) => ['profile', 'report-subscriptions', userId] as const,
+};
 
 export interface RoleRequest {
   id: string;
@@ -70,4 +82,19 @@ export function getNotificationPreferences() {
 
 export function saveNotificationPreference(type: NotificationTopic, change: NotificationPreferenceChange) {
   return apiFetch<NotificationPreference>(`/api/v1/notifications/preferences/${type}`, { method: 'PATCH', body: JSON.stringify(change) });
+}
+
+/** A scheduled report this person can receive (Perfil → Notificações). */
+export type ReportSubscription = {
+  reportId: string; name: string; enabled: boolean; frequency: ReportFrequency; dayOfWeek: number | null; dayOfMonth: number | null;
+  hour: number; timezone: string; sendEmail: boolean; subscribed: boolean;
+};
+export function listReportSubscriptions() {
+  return apiFetch<{ items: ReportSubscription[] }>('/api/v1/reports/subscriptions');
+}
+export function setReportSubscription(reportId: string, subscribed: boolean) {
+  return apiFetch<{ reportId: string; subscribed: boolean }>(`/api/v1/reports/subscriptions/${reportId}`, { method: 'PATCH', body: JSON.stringify({ subscribed }) });
+}
+export function downloadReportSubscriptionCsv(reportId: string, filename: string) {
+  return apiDownload(`/api/v1/reports/subscriptions/${reportId}/csv`, filename);
 }

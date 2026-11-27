@@ -3,10 +3,11 @@
 import { useEscapeClose } from '@/components/ui/use-escape-close';
 import { isValidElement, useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactElement, type ReactNode } from 'react';
 import { Activity, AlertTriangle, Bell, CheckCircle2, ChevronRight, ListChecks, Menu, Search, X } from 'lucide-react';
-import { apiFetch } from '@/lib/api/client';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SiteSwitcher } from './site-switcher';
 import { isMissingConfigAlert, unavailableTopbarState, type TopbarState } from './topbar-state';
 import { readAllOperationalAlerts } from '@/features/operations/api';
+import { dashboardKeys, getTopbarState } from '@/features/dashboard/api';
 import { useOperationalEvents } from '@/features/operations/use-operational-events';
 import { ResponsiveTabNavigation } from './responsive-overflow';
 import { useI18n } from '@/lib/i18n';
@@ -40,7 +41,6 @@ function PopoverHeading({ eyebrow, title, action, onClose, closeLabel }: { eyebr
 export function AppHeader({ moduleTabs, onOpenSidebar, onOpenGlobalSearch }: AppHeaderProps) {
   const ui = useUiText();
   const [alertsOpen, setAlertsOpen] = useState(false);
-  const [topbarState, setTopbarState] = useState<TopbarState>(unavailableTopbarState);
   const [dismissedAlertIds, setDismissedAlertIds] = useState<Set<string>>(() => new Set());
   const { t } = useI18n();
   const { hasRole } = useAuth();
@@ -49,23 +49,21 @@ export function AppHeader({ moduleTabs, onOpenSidebar, onOpenGlobalSearch }: App
   useOutsideClose(alertsRef, closeAlerts, alertsOpen);
   useEscapeClose(closeAlerts, alertsOpen);
 
-  const requestVersion = useRef(0);
-  const inFlight = useRef<Promise<TopbarState> | null>(null);
+  // Loads on mount; a failed request shows the unavailable state rather than an error. No retry, as before.
+  const topbar = useQuery({ queryKey: dashboardKeys.topbarState, queryFn: () => getTopbarState().catch(unavailableTopbarState), retry: false, staleTime: 0, refetchOnReconnect: false });
+  const topbarState: TopbarState = topbar.data ?? unavailableTopbarState();
+  const { refetch } = topbar;
   // Mount, the 30 s timer, focus and the events fallback poll can all ask at once (on page load the
   // fallback poll and the mount effect did); they share one request in flight. An operational event
   // passes fresh=true, because a request that started before the event may predate the change.
+  // The older request is cancelled first: React Query alone would reuse it while there is no data yet.
+  const queryClient = useQueryClient();
   const loadTopbarState = useCallback(async (fresh = false) => {
-    if (!fresh && inFlight.current) return inFlight.current;
-    const version = ++requestVersion.current;
-    const request = apiFetch<TopbarState>('/api/v1/dashboard/topbar-state').catch(unavailableTopbarState);
-    inFlight.current = request;
-    const state = await request.finally(() => { if (inFlight.current === request) inFlight.current = null; });
-    if (version === requestVersion.current) setTopbarState(state);
-    return state;
-  }, []);
+    if (fresh) await queryClient.cancelQueries({ queryKey: dashboardKeys.topbarState, exact: true });
+    return (await refetch({ cancelRefetch: fresh })).data ?? unavailableTopbarState();
+  }, [queryClient, refetch]);
   useOperationalEvents({ fallback: () => loadTopbarState(), onEvent: (event) => { const alertId = (event.data as { alertId?: string } | null)?.alertId; if (alertId) setDismissedAlertIds((current) => { const next = new Set(current); next.delete(alertId); return next; }); void loadTopbarState(true); } });
   useEffect(() => {
-    void loadTopbarState();
     const interval = window.setInterval(() => void loadTopbarState(), 30_000);
     const onFocus = () => loadTopbarState();
     window.addEventListener('focus', onFocus);

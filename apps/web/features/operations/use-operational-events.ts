@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/lib/auth';
 import { getPublicRuntimeConfig } from '@/lib/runtime-config';
+import { openOperationalEventStream } from './api';
 import { parseSseChunk, pubSubAvailability, type OperationEvent } from './sse';
 
 type StreamState = 'connecting' | 'up' | 'down';
@@ -30,7 +31,7 @@ function openStream(key: string, url: string, token: string): Stream {
   const connect = async () => {
     let response: Response;
     try {
-      response = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' }, cache: 'no-store', signal: stream.controller.signal });
+      response = await openOperationalEventStream(url, token, stream.controller.signal);
       if (!response.ok || !response.body) throw new Error(`SSE indisponível (${response.status})`);
     } catch (reason) { fail(reason, 'SSE indisponível.'); return; }
     if (stream.closed) return;

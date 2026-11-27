@@ -12,7 +12,6 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/api/client', () => ({ apiFetch: (...args: unknown[]) => mocks.apiFetch(...args) }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: (role: string) => mocks.admin && role === 'ADMIN' }) }));
 vi.mock('@/lib/site-context', () => ({ useSiteContext: () => ({ siteId: 'site-1' }) }));
-vi.mock('@/features/infrastructure/api', () => ({ listSites: vi.fn(async () => ({ items: [{ id: 'site-1', name: 'Lisboa' }] })) }));
 vi.mock('./use-operational-events', () => ({ useOperationalEvents: () => ({ data: undefined, connected: false, error: null }) }));
 vi.mock('@/components/layout/app-shell', () => ({
   AppShell: ({ children, actions }: { children: ReactNode; actions?: ReactNode }) => <div><div>{actions}</div>{children}</div>,
@@ -28,6 +27,7 @@ function route(path: string, init?: RequestInit) {
   if (path.startsWith('/api/v1/operations/alerts?')) return Promise.resolve({ items: [alertItem], total: 1, page: 1, pageSize: 100 });
   if (path.startsWith('/api/v1/operations/maintenance/summary')) return Promise.resolve(maintenance);
   if (path === '/api/v1/operations/alerts/sources') return Promise.resolve({ items: ['SNMP_DRIFT', 'SNMP_TRAP', 'SNMP_TRAP_SOURCE', 'SNMP_POLL', 'CUSTOM_HOOK'] });
+  if (path === '/api/v1/sites?pageSize=100') return Promise.resolve({ items: [{ id: 'site-1', name: 'Lisboa' }], total: 1, page: 1, pageSize: 100, totalPages: 1 });
   if (path === '/api/v1/operations/configuration') return Promise.resolve({ rules: [rule], windows: [windowItem] });
   if (init?.method === 'PATCH') return Promise.resolve({});
   return Promise.reject(new Error(`unexpected ${path}`));
@@ -149,5 +149,45 @@ describe('Alert rules and maintenance windows (ADMIN)', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Eliminar' }));
     expect(await screen.findByText(/Eliminar a regra "Drifts"\?/)).toBeInTheDocument();
     expect(calls().some((call) => call.init?.method === 'DELETE')).toBe(false);
+  });
+});
+
+describe('Alert configuration reload', () => {
+  const count = (path: string) => calls().filter((call) => call.path === path && !call.init?.method).length;
+
+  it('reloads rules, windows and Sites after a change and shows what the API returns', async () => {
+    let enabled = true;
+    mocks.apiFetch.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === '/api/v1/operations/configuration') return Promise.resolve({ rules: [{ ...rule, enabled }], windows: [windowItem] });
+      if (init?.method === 'PATCH') { enabled = false; return Promise.resolve({}); }
+      return route(path, init);
+    });
+    renderPage();
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Desativar regra Drifts' }));
+    expect(await screen.findByRole('checkbox', { name: 'Ativar regra Drifts' })).toBeInTheDocument();
+    expect(count('/api/v1/operations/configuration')).toBe(2);
+    expect(count('/api/v1/sites?pageSize=100')).toBe(2);
+  });
+
+  it('shows the load error in the page, and Atualizar loads the configuration again', async () => {
+    let fail = true;
+    mocks.apiFetch.mockImplementation((path: string, init?: RequestInit) => path === '/api/v1/operations/configuration' && fail ? Promise.reject(new Error('Configuração indisponível.')) : route(path, init));
+    renderPage();
+    expect(await screen.findByText('Configuração indisponível.')).toBeInTheDocument();
+    expect(count('/api/v1/operations/configuration')).toBe(1);
+    fail = false;
+    fireEvent.click(screen.getByRole('button', { name: /Atualizar/ }));
+    await waitFor(() => expect(count('/api/v1/operations/configuration')).toBe(2));
+    expect(await screen.findByRole('checkbox', { name: 'Desativar regra Drifts' })).toBeInTheDocument();
+  });
+
+  it('does not reload the configuration on a live alert refresh of the overview', async () => {
+    renderPage();
+    await screen.findByRole('checkbox', { name: 'Desativar regra Drifts' });
+    fireEvent.click(screen.getByRole('button', { name: /Atualizar/ }));
+    await waitFor(() => expect(count('/api/v1/operations/configuration')).toBe(2));
+    // Atualizar reloads it explicitly once; the overview invalidation must not add another.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(count('/api/v1/operations/configuration')).toBe(2);
   });
 });

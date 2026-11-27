@@ -1,4 +1,6 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render as rtlRender, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { ReactElement, ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GlobalSearchPalette, expandSearchResults, filterRackSearchItems, type RackSearchItem } from './global-search';
 
@@ -9,6 +11,11 @@ const { push, apiFetch } = vi.hoisted(() => ({
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push }) }));
 vi.mock('@/lib/api/client', () => ({ apiFetch: (...args: unknown[]) => apiFetch(...args) }));
 
+
+function render(ui: ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return rtlRender(ui, { wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
+}
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 const rackFixtures: RackSearchItem[] = [
@@ -90,6 +97,49 @@ describe('platform search with extended types (Phase D)', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Pesquisa global' }), { target: { value: 'main' } });
     expect(await screen.findByText('Não foi possível pesquisar.', undefined, { timeout: 1000 })).toBeInTheDocument();
     expect(apiFetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('platform search debounce and cancel', () => {
+  const searchPaths = () => apiFetch.mock.calls.map(([path]) => path as string);
+
+  it('waits 250 ms after the last keystroke and searches only the settled text', async () => {
+    render(<GlobalSearchPalette open onClose={vi.fn()} />);
+    const input = screen.getByRole('textbox', { name: 'Pesquisa global' });
+    fireEvent.change(input, { target: { value: 'ma' } });
+    fireEvent.change(input, { target: { value: 'mai' } });
+    fireEvent.change(input, { target: { value: 'main' } });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(apiFetch).not.toHaveBeenCalled();
+    expect(await screen.findByRole('option', { name: /Main site/ }, { timeout: 1000 })).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(searchPaths()).toEqual(['/api/v1/dashboard/search?q=main&limit=8&types=all']);
+  });
+
+  it('does not search below 2 characters', async () => {
+    render(<GlobalSearchPalette open onClose={vi.fn()} />);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Pesquisa global' }), { target: { value: 'm' } });
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(apiFetch).not.toHaveBeenCalled();
+  });
+
+  it('cancels the search in flight on the next keystroke, before the new search starts', async () => {
+    let firstSignal: AbortSignal | undefined;
+    apiFetch.mockImplementationOnce(async (_path: unknown, init: unknown) => {
+      firstSignal = (init as { signal?: AbortSignal }).signal;
+      return new Promise(() => undefined) as never;
+    });
+    render(<GlobalSearchPalette open onClose={vi.fn()} />);
+    const input = screen.getByRole('textbox', { name: 'Pesquisa global' });
+    fireEvent.change(input, { target: { value: 'ma' } });
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1), { timeout: 1000 });
+    expect(firstSignal?.aborted).toBe(false);
+    fireEvent.change(input, { target: { value: 'main' } });
+    // Within the 250 ms debounce: only the keystroke itself can have cancelled it.
+    await waitFor(() => expect(firstSignal?.aborted).toBe(true), { timeout: 100 });
+    expect(apiFetch).toHaveBeenCalledTimes(1);
+    expect(await screen.findByRole('option', { name: /Main site/ }, { timeout: 1000 })).toBeInTheDocument();
+    expect(searchPaths()).toEqual(['/api/v1/dashboard/search?q=ma&limit=8&types=all', '/api/v1/dashboard/search?q=main&limit=8&types=all']);
   });
 });
 

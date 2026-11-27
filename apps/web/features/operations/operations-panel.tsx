@@ -1,10 +1,10 @@
 'use client';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Check, RefreshCw } from 'lucide-react';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useAuth } from '@/lib/auth';
 import { useSiteContext } from '@/lib/site-context';
-import { acknowledgeOperationalAlert, getInventoryQuality, getInventoryQualityItems, listOperationalAlerts, readAllOperationalAlerts, resolveOperationalAlert, snoozeOperationalAlert, type InventoryFinding, type InventoryQuality, type OperationalAlert } from './api';
+import { acknowledgeOperationalAlert, getInventoryQuality, operationsKeys, getInventoryQualityItems, listOperationalAlerts, readAllOperationalAlerts, resolveOperationalAlert, snoozeOperationalAlert, type InventoryFinding, type InventoryQuality, type OperationalAlert } from './api';
 import { useOperationalEvents } from './use-operational-events';
 import { alertNextStep, alertTargetHref } from './alert-meta';
 import { OPERATOR_ROLES, ReadOnlyAlertNote, SnoozeSelect } from './alert-actions';
@@ -28,54 +28,42 @@ async function listProblemAlerts(siteId: string | undefined): Promise<{ items: O
  * `siteId` scopes the cards to one site (the dashboard passes its workspace site); when omitted or empty
  * the cards follow the global site selector, as before.
  */
-type LoadResults = [
-  PromiseSettledResult<{ items?: OperationalAlert[]; total?: number } | undefined>,
-  PromiseSettledResult<InventoryQuality | undefined>,
-  PromiseSettledResult<{ items?: InventoryFinding[] } | undefined>,
-];
-
 export function OperationsPanel({ showAlerts = true, showQuality = true, compact = false, siteId: scopedSiteId }: { showAlerts?: boolean; showQuality?: boolean; compact?: boolean; siteId?: string }) {
   const tx = useUiText();
   const { siteId: contextSiteId } = useSiteContext(); const { hasRole } = useAuth();
   const siteId = scopedSiteId || contextSiteId;
-  const [alerts, setAlerts] = useState<OperationalAlert[]>([]); const [alertTotal, setAlertTotal] = useState(0); const [quality, setQuality] = useState<InventoryQuality>(); const [findings, setFindings] = useState<InventoryFinding[]>();
-  const [loaded, setLoaded] = useState(false); const [loadError, setLoadError] = useState(false); const [qualityError, setQualityError] = useState(false);
+  const scope = siteId || undefined;
   const canEdit = OPERATOR_ROLES.some((role) => hasRole(role));
   const { confirm, confirmDialog } = useConfirm();
-  const requestRef = useRef(0);
-  // A new scope must never show the previous site's numbers, not even while loading or after a failed request.
-  useEffect(() => { setAlerts([]); setAlertTotal(0); setQuality(undefined); setFindings(undefined); setLoaded(false); setLoadError(false); setQualityError(false); }, [siteId]);
-  const inFlight = useRef<{ key: string; results: Promise<LoadResults> } | null>(null);
-  // The mount effect and the events fallback poll (which starts at once when the event stream is
-  // unavailable) both load on page load; they share one set of requests for the same scope.
-  // Events and actions pass fresh=true, because an older request may predate the change.
-  const load = useCallback(async (fresh = false) => {
-    const request = ++requestRef.current; // ignore a slower response for a previous site scope
-    const scope = siteId || undefined;
-    const key = JSON.stringify([scope ?? null, showAlerts, showQuality, compact]);
-    let results: Promise<LoadResults>;
-    if (!fresh && inFlight.current?.key === key) results = inFlight.current.results;
-    else {
-      // allSettled: one failing card must not drop the other card's update.
-      results = Promise.allSettled([
-        showAlerts ? (compact ? listProblemAlerts(scope) : listOperationalAlerts(scope)) : Promise.resolve(undefined),
-        showQuality ? getInventoryQuality(scope) : Promise.resolve(undefined),
-        showQuality && compact ? getInventoryQualityItems(scope) : Promise.resolve(undefined),
-      ]);
-      const entry = { key, results };
-      inFlight.current = entry;
-      void results.finally(() => { if (inFlight.current === entry) inFlight.current = null; });
-    }
-    const [alertsResult, qualityResult, findingsResult] = await results;
-    if (request !== requestRef.current) return;
-    if (alertsResult.status === 'fulfilled' && alertsResult.value) { setAlerts(alertsResult.value.items ?? []); setAlertTotal(alertsResult.value.total ?? alertsResult.value.items?.length ?? 0); }
-    if (qualityResult.status === 'fulfilled' && qualityResult.value) setQuality(qualityResult.value);
-    if (findingsResult.status === 'fulfilled' && findingsResult.value) setFindings(findingsResult.value.items ?? []);
-    setLoadError(alertsResult.status === 'rejected');
-    setQualityError(qualityResult.status === 'rejected' || findingsResult.status === 'rejected');
-    setLoaded(true);
-  }, [siteId, showAlerts, showQuality, compact]);
-  useEffect(() => { void load(); }, [load]);
+  // One query per card, keyed by Site scope: a new scope never shows the previous Site's numbers, not even
+  // while loading or after a failed request. Each card loads on every visit and keeps its last numbers when
+  // a refresh fails (one failing card never drops the other's update). No retries, as before.
+  const cardQuery = { retry: false, staleTime: 0, refetchOnReconnect: false } as const;
+  const queryClient = useQueryClient();
+  const alertsKey = operationsKeys.panelAlerts(scope ?? null, compact);
+  const qualityKey = operationsKeys.panelQuality(scope ?? null);
+  const findingsKey = operationsKeys.panelFindings(scope ?? null);
+  const alertsQuery = useQuery({ queryKey: alertsKey, queryFn: () => (compact ? listProblemAlerts(scope) : listOperationalAlerts(scope)), enabled: showAlerts, ...cardQuery });
+  const qualityQuery = useQuery({ queryKey: qualityKey, queryFn: () => getInventoryQuality(scope), enabled: showQuality, ...cardQuery });
+  const findingsQuery = useQuery({ queryKey: findingsKey, queryFn: () => getInventoryQualityItems(scope), enabled: showQuality && compact, ...cardQuery });
+  const cardEntries = [showAlerts && { query: alertsQuery, key: alertsKey }, showQuality && { query: qualityQuery, key: qualityKey }, showQuality && compact && { query: findingsQuery, key: findingsKey }].filter((entry) => entry !== false);
+  const cards = cardEntries.map((entry) => entry.query);
+  const alerts: OperationalAlert[] = alertsQuery.data?.items ?? [];
+  const alertTotal = alertsQuery.data ? (alertsQuery.data.total ?? alertsQuery.data.items?.length ?? 0) : 0;
+  const quality: InventoryQuality | undefined = qualityQuery.data;
+  const findings: InventoryFinding[] | undefined = findingsQuery.data ? (findingsQuery.data.items ?? []) : undefined;
+  const loaded = cards.every((query) => !query.isPending);
+  const loadError = alertsQuery.isError;
+  const qualityError = qualityQuery.isError || findingsQuery.isError;
+  // The mount, the refresh button and the events fallback poll share a request already in flight for the
+  // same scope. Events and actions pass fresh=true: an older request may predate the change, so it is
+  // cancelled and a new one starts (React Query alone would reuse it while the card has no data yet).
+  const load = async (fresh = false) => {
+    await Promise.all(cardEntries.map(async ({ query, key }) => {
+      if (fresh) await queryClient.cancelQueries({ queryKey: key, exact: true });
+      await query.refetch({ cancelRefetch: fresh });
+    }));
+  };
   useOperationalEvents({ fallback: () => load(), onEvent: (event) => { if (event.event !== 'heartbeat') void load(true); } });
   const act = async (fn: () => Promise<unknown>) => { await fn(); await load(true); };
   const resolve = async (alert: OperationalAlert) => {

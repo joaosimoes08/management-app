@@ -3,21 +3,16 @@
 import { useEscapeClose } from '@/components/ui/use-escape-close';
 import { useDialogFocusRef } from '@/components/ui/use-dialog-focus';
 import { useEffect, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, ClipboardCheck, GitPullRequestArrow, History, Loader2, Search, Wrench } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { apiFetch } from '@/lib/api/client';
+import { dashboardKeys, searchPlatform, type GlobalSearchResult } from '@/features/dashboard/api';
 import { entityHref } from '@/lib/routes';
 import { useUiText } from '@/components/ui/use-ui-text';
 
-type SearchResult = { id: string; type: string; title: string; detail: string; href: string; actionHref?: string };
+type SearchResult = GlobalSearchResult;
 
-/** Search params for the palette. `types=all` adds change plans, audit events and quality findings (PR #85). */
-export const globalSearchPath = (query: string, types?: 'all') => `/api/v1/dashboard/search?q=${encodeURIComponent(query)}&limit=8${types ? `&types=${types}` : ''}`;
-/** An API without the extended types answers 400 SEARCH_TYPES_INVALID; the palette then retries with the default types. */
-export const isSearchTypesInvalid = (cause: unknown) => {
-  const error = cause as { status?: number; code?: string; payload?: { code?: string } } | null;
-  return error?.status === 400 && (error.code ?? error.payload?.code) === 'SEARCH_TYPES_INVALID';
-};
+export { globalSearchPath, isSearchTypesInvalid } from '@/features/dashboard/api';
 /** Devices open on their Device 360 page (Step 29); the Site comes from the API's href. */
 const siteIdFromHref = (href: string) => { try { return new URL(href, 'http://local').searchParams.get('siteId'); } catch { return null; } };
 export const withDevicePage = (item: SearchResult): SearchResult => item.type === 'DEVICE' ? { ...item, href: entityHref({ kind: 'device', id: item.id, siteId: siteIdFromHref(item.href) }) } : item;
@@ -49,9 +44,8 @@ export function GlobalSearchPalette({ open, onClose, rackSearch, localSearch }: 
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState('');
-  const [items, setItems] = useState<SearchResult[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [failed, setFailed] = useState(false);
+  // The platform search runs 250 ms after the last keystroke, for 2+ characters; `term` is that settled text.
+  const [term, setTerm] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
   const [scope, setScope] = useState<'platform' | 'local'>('platform');
 
@@ -62,33 +56,27 @@ export function GlobalSearchPalette({ open, onClose, rackSearch, localSearch }: 
       window.setTimeout(() => inputRef.current?.focus(), 0);
     } else {
       setQuery('');
-      setItems([]);
-      setFailed(false);
     }
   }, [open]);
 
+  const queryClient = useQueryClient();
   useEffect(() => {
     const value = query.trim();
-    if (scope === 'local' || !open || value.length < 2) {
-      setItems([]);
-      setSearching(false);
-      return;
-    }
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => {
-      setSearching(true);
-      setFailed(false);
-      const search = (types?: 'all') => apiFetch<{ items: SearchResult[] }>(globalSearchPath(value, types), { signal: controller.signal });
-      void search('all')
-        .catch((cause) => { if (isSearchTypesInvalid(cause)) return search(); throw cause; })
-        .then((result) => { setItems(expandSearchResults(result.items)); setActiveIndex(0); })
-        .catch((cause) => {
-          if ((cause as Error).name !== 'AbortError') { setItems([]); setFailed(true); }
-        })
-        .finally(() => setSearching(false));
-    }, 250);
-    return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [open, query, scope]);
+    // Each keystroke drops the search in flight, as the palette always did.
+    void queryClient.cancelQueries({ queryKey: dashboardKeys.searchAll });
+    if (scope === 'local' || !open || value.length < 2) { setTerm(''); return; }
+    const timer = window.setTimeout(() => setTerm(value), 250);
+    return () => window.clearTimeout(timer);
+  }, [open, query, scope, queryClient]);
+  const platformSearch = scope !== 'local' && open && term.length >= 2;
+  // Fresh on every search and never kept once the palette moves on (gcTime 0); no retry, as before.
+  const search = useQuery({ queryKey: dashboardKeys.search(term), queryFn: ({ signal }) => searchPlatform(term, signal), enabled: platformSearch, retry: false, staleTime: 0, gcTime: 0, refetchOnReconnect: false });
+  const items: SearchResult[] = platformSearch && search.data ? expandSearchResults(search.data.items) : [];
+  const searching = platformSearch && search.isFetching;
+  const failed = platformSearch && search.isError;
+  // New results start with the first one selected.
+  const [seenResults, setSeenResults] = useState(0);
+  if (search.data && search.dataUpdatedAt !== seenResults) { setSeenResults(search.dataUpdatedAt); setActiveIndex(0); }
 
   const results: SearchResult[] = scope === 'local' && rackSearch
     ? filterRackSearchItems(rackSearch.racks, query).map((rack) => ({ id: rack.id, type: 'rack', title: rack.name, detail: ui('globalSearch.rackDevices', undefined, { count: rack.devices?.length ?? 0 }), href: rackSearch.hrefForRack(rack) }))

@@ -5,7 +5,8 @@ import { useDialogFocusRef } from '@/components/ui/use-dialog-focus';
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, ChevronDown, MapPin, Plus, X } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
-import { apiFetch } from '@/lib/api/client';
+import { useMutation } from '@tanstack/react-query';
+import { createSetupSite, type SetupSitePayload } from '@/features/setup/api';
 import { useI18n } from '@/lib/i18n';
 import { useSiteContext } from '@/lib/site-context';
 import { usePathname } from 'next/navigation';
@@ -67,19 +68,20 @@ function SiteWalkthrough({ onClose, onCreated, onActivate }: { onClose: () => vo
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<SiteForm>(emptyForm);
   const [created, setCreated] = useState<Site | null>(null);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const createSite = useMutation({ mutationFn: (payload: SetupSitePayload) => createSetupSite(payload) });
+  const saving = createSite.isPending;
   const update = (field: keyof SiteForm, value: string) => setForm((current) => ({ ...current, [field]: value }));
   useEscapeClose(() => { if (!saving) onClose(); });
   const dialogRef = useDialogFocusRef<HTMLElement>();
   const field = (name: keyof SiteForm, label: string, placeholder: string, required = false) => <label className="setup-field">{label}{required && <b> *</b>}<input autoFocus={name === 'name' && step === 0} required={required} value={form[name]} onChange={(event) => update(name, event.target.value)} placeholder={placeholder}/></label>;
   const create = async () => {
-    setSaving(true); setError('');
+    setError('');
     try {
-      const site = await apiFetch<Site>('/api/v1/setup/site', { method: 'POST', body: JSON.stringify(Object.fromEntries(Object.entries(form).map(([key, value]) => [key, value.trim() || undefined]))) });
+      // Blank fields are left out; name and code are required by the form.
+      const site = await createSite.mutateAsync(Object.fromEntries(Object.entries(form).map(([key, value]) => [key, value.trim() || undefined])) as unknown as SetupSitePayload);
       setCreated(site); onCreated(site); setStep(3);
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Não foi possível criar o Site.'); }
-    finally { setSaving(false); }
   };
   return <div className="site-walkthrough-backdrop" role="presentation" onMouseDown={() => { if (!saving) onClose(); }}><section ref={dialogRef} className="site-walkthrough" role="dialog" aria-modal="true" aria-labelledby="site-walkthrough-title" onMouseDown={(event) => event.stopPropagation()}>
     <aside className="site-walkthrough-aside"><h2 id="site-walkthrough-title">Adicionar localização</h2><p>Cria a base do Site e, se quiseres, a primeira hierarquia física.</p><div className="setup-steps">{['Identificação', 'Localização', 'Confirmar', 'Concluído'].map((label, index) => <div className={index === step ? 'setup-step active' : index < step ? 'setup-step done' : 'setup-step'} key={label}><span>{index < step ? <Check size={13}/> : index + 1}</span>{label}</div>)}</div></aside>

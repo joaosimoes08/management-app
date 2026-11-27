@@ -1,4 +1,33 @@
 import { apiFetch } from '@/lib/api/client';
+import { listSiteOptions, type SiteOption } from '@/lib/api/sites';
+
+/**
+ * Query keys of the Operations feature. Everything under `all` refreshes together after an alert change
+ * (live events, bulk actions, a saved rule). The Alertas configuration has its own root so none of those
+ * refreshes reload it: the page reloads it itself after each save, as before.
+ */
+export const operationsKeys = {
+  all: ['operations'] as const,
+  alertList: (siteId: string, severity: string, status: string, source: string, search: string) => ['operations', 'alert-list', siteId, severity, status, source, search] as const,
+  /** Base key of the per-severity chip totals; the chip hook appends the severity. */
+  alertListCounts: (siteId: string, status: string, source: string, search: string) => ['operations', 'alert-list', siteId, status, source, search] as const,
+  alertDetail: (id: string) => ['operations', 'alert-detail', id] as const,
+  alertSources: ['operations', 'alert-sources'] as const,
+  maintenanceSummary: (siteId: string) => ['operations', 'maintenance-summary', siteId] as const,
+  configuration: ['alert-configuration'] as const,
+  /** Dashboard alert and quality cards (OperationsPanel), per Site scope and card variant. */
+  panelAlerts: (siteId: string | null, compact: boolean) => ['operations', 'panel', 'alerts', siteId, compact] as const,
+  panelQuality: (siteId: string | null) => ['operations', 'panel', 'quality', siteId] as const,
+  panelFindings: (siteId: string | null) => ['operations', 'panel', 'findings', siteId] as const,
+};
+
+/** Query keys of the inventory-quality queue (/qualidade-inventario). */
+export const inventoryQualityKeys = {
+  all: ['inventory-quality'] as const,
+  findings: (query: FindingQuery) => ['inventory-quality', 'findings', query] as const,
+  facets: (query: FindingQuery) => ['inventory-quality', 'facets', query] as const,
+  assignees: (siteId: string | null | undefined) => ['inventory-quality', 'assignees', siteId] as const,
+};
 
 export type OperationalAlert = { id: string; title: string; detail?: string; severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'WARNING' | 'INFO'; status?: 'OPEN' | 'ACKNOWLEDGED' | 'SNOOZED' | 'RESOLVED'; entityType?: string | null; entityId?: string | null; relatedDeviceId?: string | null; occurredAt?: string; href?: string; source?: string; dedupKey?: string | null; siteId?: string | null; actionHref?: string | null; device?: AlertDevice | null };
 export type AlertDevice = { id: string; name: string; managementIp?: string | null };
@@ -102,3 +131,28 @@ export type MaintenanceWindowPatch = Partial<{ name: string; reason: string | nu
 /** Raw MaintenanceWindow row, as PATCH answers it (no site object). */
 export type MaintenanceWindowRecord = { id: string; name: string; reason: string | null; siteId: string | null; startsAt: string; endsAt: string; createdById: string | null; createdAt: string };
 export const patchMaintenanceWindow = (id: string, patch: MaintenanceWindowPatch) => apiFetch<MaintenanceWindowRecord>(`/api/v1/operations/configuration/maintenance-windows/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) });
+
+/** GET /operations/configuration: the alert rules and maintenance windows the Alertas page manages (ADMIN). */
+export type MaintenanceWindow = { id: string; name: string; reason?: string | null; siteId?: string | null; startsAt: string; endsAt: string; site?: { id: string; name: string } | null };
+export type AlertConfiguration = { rules: AlertRule[]; windows: MaintenanceWindow[] };
+export const getAlertConfiguration = () => apiFetch<AlertConfiguration>('/api/v1/operations/configuration');
+/** The configuration page loads its rules, windows and the Site list together, and reloads all three after every change. */
+export type AlertConfigurationPageData = AlertConfiguration & { sites: SiteOption[] };
+export const getAlertConfigurationPageData = async (): Promise<AlertConfigurationPageData> => {
+  const [config, siteResult] = await Promise.all([getAlertConfiguration(), listSiteOptions()]);
+  return { ...config, sites: siteResult.items ?? [] };
+};
+export type AlertRuleInput = { name: string; source: string; siteId: string | null; minSeverity: string; enabled: boolean };
+export const createAlertRule = (body: AlertRuleInput) => apiFetch<AlertRule>('/api/v1/operations/configuration/rules', { method: 'POST', body: JSON.stringify(body) });
+/** Ids are sent as they are, as the page always did. */
+export const deleteAlertRule = (id: string) => apiFetch<unknown>(`/api/v1/operations/configuration/rules/${id}`, { method: 'DELETE' });
+export type MaintenanceWindowInput = { name: string; reason: string; siteId: string | null; startsAt: string; endsAt: string };
+export const createMaintenanceWindow = (body: MaintenanceWindowInput) => apiFetch<MaintenanceWindowRecord>('/api/v1/operations/configuration/maintenance-windows', { method: 'POST', body: JSON.stringify(body) });
+export const deleteMaintenanceWindow = (id: string) => apiFetch<unknown>(`/api/v1/operations/configuration/maintenance-windows/${id}`, { method: 'DELETE' });
+
+/**
+ * Opens the operational event stream (Server-Sent Events). `url` is absolute (runtime API URL + path).
+ * A plain fetch, not apiFetch: the body is read as a stream and a 401 must not sign the person out.
+ */
+export const openOperationalEventStream = (url: string, token: string, signal: AbortSignal) =>
+  fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' }, cache: 'no-store', signal });
