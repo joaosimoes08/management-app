@@ -22,7 +22,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('./keycloak', () => ({ initializeKeycloak: mocks.initializeKeycloak, getKeycloakInstance: () => mocks.instance }));
 vi.mock('@/lib/api/client', () => ({ apiFetch: mocks.apiFetch, setApiTokenProvider: vi.fn(), setApiUnauthorizedHandler: vi.fn() }));
-vi.mock('@/lib/runtime-config', () => ({ getPublicRuntimeConfig: () => ({ apiUrl: 'http://api.test' }) }));
 
 function Probe() {
   const auth = useContext(AuthContext)!;
@@ -30,35 +29,41 @@ function Probe() {
 }
 const state = () => JSON.parse(screen.getByTestId('auth').textContent ?? '{}') as Record<string, unknown>;
 
+const apiUser = (username: string, roles: string[] = []) => ({ id: `id-${username}`, externalId: `kc-${username}`, username, roles });
+// The provider reaches the API only through the client: /auth/me and /setup/status are told apart by path.
+const identity = vi.fn();
+const setup = vi.fn();
 const fetchMock = vi.fn();
 beforeEach(() => {
   mocks.initializeKeycloak.mockReset().mockResolvedValue(true);
   mocks.instance.loadUserProfile.mockReset().mockResolvedValue({ username: 'kc-user' });
-  mocks.apiFetch.mockReset().mockResolvedValue({ setupCompleted: true, organizationName: 'Org', locale: 'en-US' });
-  fetchMock.mockReset().mockResolvedValue(new Response(JSON.stringify({ username: 'api-user', roles: ['ADMIN'] }), { status: 200 }));
+  identity.mockReset().mockResolvedValue(apiUser('api-user', ['ADMIN']));
+  setup.mockReset().mockResolvedValue({ setupCompleted: true, organizationName: 'Org', locale: 'en-US' });
+  mocks.apiFetch.mockReset().mockImplementation((path: string, init?: unknown) => (path === '/api/v1/auth/me' ? identity(init) : setup(init)));
+  fetchMock.mockReset();
   vi.stubGlobal('fetch', fetchMock);
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe('AuthProvider sign-in', () => {
   it('starts profile, identity and setup status together, before any of them answers', async () => {
-    const profile = deferred<{ username: string }>(); const identity = deferred<Response>(); const setup = deferred<unknown>();
+    const profile = deferred<{ username: string }>(); const identityAnswer = deferred<unknown>(); const setupAnswer = deferred<unknown>();
     mocks.instance.loadUserProfile.mockReturnValue(profile.promise);
-    fetchMock.mockReturnValue(identity.promise);
-    mocks.apiFetch.mockReturnValue(setup.promise);
+    identity.mockReturnValue(identityAnswer.promise);
+    setup.mockReturnValue(setupAnswer.promise);
     render(<AuthProvider><Probe /></AuthProvider>);
 
     await waitFor(() => {
       expect(mocks.instance.loadUserProfile).toHaveBeenCalledTimes(1);
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-      expect(mocks.apiFetch).toHaveBeenCalledWith('/api/v1/setup/status');
+      expect(mocks.apiFetch).toHaveBeenCalledWith('/api/v1/auth/me', expect.objectContaining({ cache: 'no-store', redirectOnUnauthorized: false }));
+      expect(mocks.apiFetch).toHaveBeenCalledWith('/api/v1/setup/status', { redirectOnUnauthorized: false });
     });
-    // Same token verification as before: /auth/me with the Keycloak bearer token.
-    expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/v1/auth/me', expect.objectContaining({ headers: { Authorization: 'Bearer access-token' } }));
+    // The identity goes through the API client (which adds the token): no raw fetch from the provider.
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(state().loading).toBe(true);
 
-    setup.resolve({ setupCompleted: true, organizationName: 'Org', locale: 'pt-PT' });
-    identity.resolve(new Response(JSON.stringify({ username: 'api-user', roles: [] }), { status: 200 }));
+    setupAnswer.resolve({ setupCompleted: true, organizationName: 'Org', locale: 'pt-PT' });
+    identityAnswer.resolve(apiUser('api-user'));
     expect(state().loading).toBe(true);
     profile.resolve({ username: 'kc-user' });
 
@@ -72,13 +77,37 @@ describe('AuthProvider sign-in', () => {
   });
 
   it('signs out of the app when the API rejects the identity, whatever the setup status said', async () => {
-    fetchMock.mockResolvedValue(new Response('{}', { status: 401 }));
+    identity.mockRejectedValue(Object.assign(new Error('Session expired'), { status: 401 }));
     render(<AuthProvider><Probe /></AuthProvider>);
     await waitFor(() => expect(state()).toMatchObject({ loading: false, authenticated: false, user: null, setupStatus: null }));
   });
 
+  it('shows the sign-in screen without a Keycloak login when only the setup status answers 401', async () => {
+    setup.mockRejectedValue(Object.assign(new Error('Session expired'), { status: 401 }));
+    render(<AuthProvider><Probe /></AuthProvider>);
+    await waitFor(() => expect(state()).toMatchObject({ loading: false, authenticated: false, user: null, setupStatus: null }));
+    // The setup call must not use the client's default 401 redirect, and the provider must not log in itself.
+    expect(mocks.apiFetch).toHaveBeenCalledWith('/api/v1/setup/status', { redirectOnUnauthorized: false });
+    expect(mocks.instance.login).not.toHaveBeenCalled();
+  });
+
+  it('signs out of the app when /auth/me answers a body that is not an ApiUser', async () => {
+    identity.mockResolvedValue({ username: 'api-user' });
+    render(<AuthProvider><Probe /></AuthProvider>);
+    await waitFor(() => expect(state()).toMatchObject({ loading: false, authenticated: false, user: null }));
+  });
+
+  it('exposes neither an access token nor the Keycloak adapter on the context', async () => {
+    function Keys() { return <pre data-testid="keys">{Object.keys(useContext(AuthContext)!).join(',')}</pre>; }
+    render(<AuthProvider><Keys /></AuthProvider>);
+    const keys = () => (screen.getByTestId('keys').textContent ?? '').split(',');
+    await waitFor(() => expect(keys()).toContain('user'));
+    expect(keys()).not.toContain('token');
+    expect(keys()).not.toContain('keycloak');
+  });
+
   it('reports a setup status failure without dropping the session', async () => {
-    mocks.apiFetch.mockRejectedValue(new Error('setup down'));
+    setup.mockRejectedValue(new Error('setup down'));
     render(<AuthProvider><Probe /></AuthProvider>);
     await waitFor(() => expect(state()).toMatchObject({ loading: false, authenticated: true, user: 'api-user', setupStatus: null, setupStatusError: 'setup down' }));
   });

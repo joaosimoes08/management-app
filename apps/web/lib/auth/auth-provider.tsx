@@ -3,9 +3,11 @@
 import type { KeycloakProfile } from 'keycloak-js';
 import { createContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiFetch, setApiTokenProvider, setApiUnauthorizedHandler } from '@/lib/api/client';
-import { getPublicRuntimeConfig } from '@/lib/runtime-config';
+import { fetchCurrentUser } from './api';
 import { getKeycloakInstance, initializeKeycloak } from './keycloak';
 import type { ApiUser, AuthContextValue, SetupStatus } from './types';
+
+const isUnauthorized = (error: unknown) => typeof error === 'object' && error !== null && (error as { status?: unknown }).status === 401;
 
 export const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
@@ -15,21 +17,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [authenticated, setAuthenticated] = useState(false);
   const [user, setUser] = useState<ApiUser | null>(null);
   const [profile, setProfile] = useState<KeycloakProfile | null>(null);
-  const [token, setToken] = useState<string>();
   const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null);
   const [setupStatusError, setSetupStatusError] = useState<string | null>(null);
   const refreshTimer = useRef<number | undefined>(undefined);
   const tokenRefreshPromise = useRef<Promise<string> | null>(null);
   const keycloakRef = useRef<ReturnType<typeof getKeycloakInstance> | null>(null);
 
-  const loadIdentity = useCallback(async (accessToken: string) => {
-    const apiUrl = getPublicRuntimeConfig().apiUrl;
-    const response = await fetch(`${apiUrl}/api/v1/auth/me`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      cache: 'no-store',
-    });
-    if (!response.ok) throw new Error(`Falha ao carregar identidade (${response.status})`);
-    setUser(await response.json() as ApiUser);
+  const loadIdentity = useCallback(async () => {
+    setUser(await fetchCurrentUser());
   }, []);
 
   const refreshToken = useCallback(async (): Promise<string> => {
@@ -44,13 +39,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const nextToken = keycloak.token;
           if (!nextToken) throw new Error('O Keycloak não devolveu um access token.');
           accessToken = nextToken;
-          setToken(nextToken);
         } catch (error) {
           setAuthError('A sessão expirou.');
           await keycloak.logout({ redirectUri: window.location.origin });
           throw error;
         }
-        if (refreshed) await loadIdentity(accessToken).catch(() => undefined);
+        // Not awaited: the identity request asks this same provider for its token, and awaiting
+        // it here would wait on the refresh it is part of. It gets this refresh's token.
+        if (refreshed) void loadIdentity().catch(() => undefined);
         return accessToken;
       })().finally(() => { tokenRefreshPromise.current = null; });
     }
@@ -85,10 +81,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const keycloak = getKeycloakInstance();
         keycloakRef.current = keycloak;
         keycloak.onTokenExpired = () => { void refreshToken().catch(() => undefined); };
-        keycloak.onAuthLogout = () => { setAuthenticated(false); setUser(null); setToken(undefined); };
+        keycloak.onAuthLogout = () => { setAuthenticated(false); setUser(null); };
         setAuthError(null);
         setAuthenticated(isAuthenticated);
-        setToken(keycloak.token);
         if (isAuthenticated) {
           // Profile, API identity and setup status only need the access token, so they load
           // together instead of one after another. `loading` stays true until all three settle,
@@ -96,14 +91,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const accessToken = keycloak.token;
           const [profileResult, identityResult, setupResult] = await Promise.allSettled([
             keycloak.loadUserProfile(),
-            accessToken ? loadIdentity(accessToken) : Promise.reject(new Error('O Keycloak não devolveu um access token.')),
-            accessToken ? apiFetch<SetupStatus>('/api/v1/setup/status') : Promise.reject(new Error('O Keycloak não devolveu um access token.')),
+            accessToken ? loadIdentity() : Promise.reject(new Error('O Keycloak não devolveu um access token.')),
+            accessToken ? apiFetch<SetupStatus>('/api/v1/setup/status', { redirectOnUnauthorized: false }) : Promise.reject(new Error('O Keycloak não devolveu um access token.')),
           ]);
           if (!active) return;
           // The API identity is authoritative for application access. A profile endpoint
           // failure must not turn a valid Keycloak session into a login loop.
           setProfile(profileResult.status === 'fulfilled' ? profileResult.value : null);
-          if (identityResult.status === 'rejected') {
+          // A 401 on either call means the API does not accept this session: show the sign-in screen
+          // instead of restarting the Keycloak login, which would bounce a valid Keycloak session.
+          if (identityResult.status === 'rejected' || (setupResult.status === 'rejected' && isUnauthorized(setupResult.reason))) {
             setAuthenticated(false);
             setUser(null);
           } else if (setupResult.status === 'fulfilled') {
@@ -139,6 +136,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const retry = useCallback(() => window.location.reload(), []);
   const hasRole = useCallback((role: string) => user?.roles.includes(role) ?? false, [user]);
 
-  const value = useMemo(() => ({ keycloak: keycloakRef.current, user, profile, token, loading, authError, authenticated, setupStatus, setupStatusError, login, logout, retry, hasRole }), [user, profile, token, loading, authError, authenticated, setupStatus, setupStatusError, login, logout, retry, hasRole]);
+  const value = useMemo<AuthContextValue>(() => ({ user, profile, loading, authError, authenticated, setupStatus, setupStatusError, login, logout, retry, hasRole }), [user, profile, loading, authError, authenticated, setupStatus, setupStatusError, login, logout, retry, hasRole]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
