@@ -58,7 +58,7 @@ import { TagEditor, TagManager, useTagFilterLabel } from '@/features/tags/tag-co
 import { canManageTagCatalog } from '@/features/tags/types';
 import { DiscoveryPromotionSnmpOffer, promotionDeviceForm, readDiscoveryPromotion, withoutDiscoveryPromotion, type DiscoveryPromotionRequest } from './discovery-promotion';
 import { InfrastructureWorkspaceProvider, type InfrastructureWorkspaceContextValue } from './workspace-context';
-import { InfrastructureTabNavigation } from './tabs/tab-navigation';
+import { useInfrastructureTabNavigation } from './tabs/tab-navigation';
 import { LocationControls } from './tabs/location-controls';
 import { SitesTab } from './tabs/sites-tab';
 import { RacksTab } from './tabs/racks-tab';
@@ -554,7 +554,7 @@ export function InfrastructureWorkspace() {
   const showServerHosts = tab === 'devices' && deviceFilters.type === 'SERVER' && canReadHosts;
   const helpTopic = infrastructureHelpTopic(tab === 'devices' && deviceFilters.type === 'SERVER' ? 'hosts' : tab);
   const serverHosts = showServerHosts ? <LinuxHosts embedded sites={sites} canManage={hasRole('ADMIN')} canAudit={hasRole('ADMIN') || hasRole('AUDITOR')} /> : null;
-  const tabNavigation = <InfrastructureTabNavigation tab={tab} tabs={effective?.tabs} onSelect={(key) => navigation.selectTab(key, reset)} />;
+  const tabNavigation = useInfrastructureTabNavigation({ tab, tabs: effective?.tabs, onSelect: (key) => navigation.selectTab(key, reset) });
   // Memoized so the tabs re-render only when something they read changes (declared before the early returns).
   const workspace = useMemo<InfrastructureWorkspaceContextValue>(() => ({
     siteId, navigation, devices, device, snmpHealth, racks,

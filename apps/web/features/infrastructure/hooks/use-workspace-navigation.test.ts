@@ -72,6 +72,24 @@ describe('useWorkspaceNavigation', () => {
     expect(query().get('tab')).toBeNull();
   });
 
+  it('follows Back and Forward to the tab kept in ?tab=', () => {
+    openAt('?siteId=site-1&tab=interfaces');
+    const { result } = renderHook(() => useWorkspaceNavigation(SITE));
+    expect(result.current.tab).toBe('interfaces');
+
+    act(() => {
+      window.history.pushState(null, '', '/infraestrutura?siteId=site-1&tab=models');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    expect(result.current.tab).toBe('models');
+
+    act(() => {
+      window.history.replaceState(null, '', '/infraestrutura?siteId=site-1&tab=interfaces');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    expect(result.current.tab).toBe('interfaces');
+  });
+
   it('returns the same object between renders when nothing changed', () => {
     openAt('?siteId=site-1');
     const { result, rerender } = renderHook(() => useWorkspaceNavigation(SITE));
