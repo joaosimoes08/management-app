@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppHeader } from '@/components/layout/app-header';
 import { useInfrastructureTabNavigation } from './tab-navigation';
@@ -26,7 +27,13 @@ describe('useInfrastructureTabNavigation', () => {
   it('gives the shell a plain <nav>, so the header keeps its responsive overflow menu for the tabs', () => {
     mocks.apiFetch.mockReturnValue(new Promise(() => {}));
     const onSelect = vi.fn();
-    const { container } = render(<Header onSelect={onSelect} />);
+    // AppHeader loads the top-bar state with React Query, so it needs a client like every real page has.
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { container } = render(
+      <QueryClientProvider client={queryClient}>
+        <Header onSelect={onSelect} />
+      </QueryClientProvider>,
+    );
     // AppHeader only wraps `moduleTabs` in ResponsiveTabNavigation when it is a <nav> element.
     expect(container.querySelector('.module-tabs-slot .responsive-tab-navigation')).not.toBeNull();
     const nav = screen.getAllByRole('navigation', { name: 'Infraestrutura' })[0];
