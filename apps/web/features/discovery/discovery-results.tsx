@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { Check, X } from 'lucide-react';
 import { DiscoveryResultsCsvButton, useDiscoveryResultsTools } from './discovery-results-tools';
 import { DataTable, sortByColumns, useTableUrlState, type DataTableColumn, type TableStateConfig } from '@/components/data-table';
-import { BULK_REVIEW_MAX, BulkReviewDialog, type BulkReviewResponse } from '@/components/ui/bulk-review-dialog';
+import { BULK_REVIEW_MAX, BulkReviewDialog, type BulkReviewResponse } from '@/features/discovery/bulk-review-dialog';
 import { FilterChipBar, FilterChips } from '@/components/ui/filter-chips';
 import { applyChipFilters, chipOptions, CHIP_NONE, facetCounts, type ChipAccessors } from '@/lib/filter-chips';
 import { formatDateTime } from '@/lib/format/date';

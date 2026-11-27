@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/api/client';
-import { entityHref } from '@/components/data-table/entity-link';
+import { entityHref } from '@/lib/routes';
 import { clearAssetBlobCache } from '../components/asset-image';
 import { Device360Page, driftCounts, snmpDriftStatusLabel, snmpStateLabel } from './device-360-page';
 

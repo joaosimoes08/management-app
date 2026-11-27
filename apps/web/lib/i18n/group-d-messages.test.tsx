@@ -43,7 +43,7 @@ describe('i18n group D (shell-wide, app, lib)', () => {
   });
 
   it('renders the bulk review dialog in English', async () => {
-    const { BulkReviewDialog } = await import('@/components/ui/bulk-review-dialog');
+    const { BulkReviewDialog } = await import('@/features/discovery/bulk-review-dialog');
     const run = vi.fn().mockResolvedValue({ total: 2, succeeded: 1, items: [{ id: 'a', ok: true, status: 'APPROVED' }, { id: 'b', ok: false }] });
     render(<BulkReviewDialog title="Approve" actionLabel="Approve" noun="results" items={[{ id: 'a', label: '10.0.0.1' }, { id: 'b', label: '10.0.0.2' }]} run={run} close={vi.fn()} />);
     expect(screen.getByText(/2 items selected\. Each item is checked separately/)).toBeInTheDocument();

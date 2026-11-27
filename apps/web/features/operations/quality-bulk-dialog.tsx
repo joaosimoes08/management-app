@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { CheckCircle2, X } from 'lucide-react';
-import { IpamModal } from '@/features/ipam/components/ipam-modal';
+import { CompactModal } from '@/components/ui/compact-modal';
 import { DataTable } from '@/components/data-table/data-table';
 import { formatDateTime } from '@/lib/format/date';
 import type { BulkFindingAction, FindingPerson } from './api';
@@ -39,7 +39,7 @@ export function QualityBulkDialog({ action, count, finding, assignees, running, 
     ? '1 finding selecionado.'
     : `${count} findings selecionados. Cada finding é verificado à parte; uma falha não impede os restantes.`;
 
-  return <IpamModal title={finding ? singleTitles[action] : titles[action]} close={running ? () => undefined : close}><form className="modal-form" onSubmit={(event) => { event.preventDefault(); run(action === 'ASSIGN' ? { userId: userId || null } : action === 'SNOOZE' ? { durationHours: hours } : {}); }}>
+  return <CompactModal title={finding ? singleTitles[action] : titles[action]} close={running ? () => undefined : close}><form className="modal-form" onSubmit={(event) => { event.preventDefault(); run(action === 'ASSIGN' ? { userId: userId || null } : action === 'SNOOZE' ? { durationHours: hours } : {}); }}>
     {!outcome && <>
       <p className="panel-description">{finding ? `Finding: ${finding}` : selectionDescription}</p>
       {action === 'ASSIGN' && <label>Responsável<select value={userId} onChange={(event) => setUserId(event.target.value)}><option value="">Sem responsável</option>{assignees.map((person) => <option key={person.id} value={person.id}>{personName(person)}</option>)}</select></label>}
@@ -53,5 +53,5 @@ export function QualityBulkDialog({ action, count, finding, assignees, running, 
     <div className="modal-actions">{outcome
       ? <button type="button" className="primary-button" disabled={running} onClick={close}>Fechar</button>
       : <><button type="button" className="secondary-button" disabled={running} onClick={close}>Cancelar</button><button type="submit" className="primary-button" disabled={running || !count}>{running ? 'A aplicar…' : finding ? (action === 'ASSIGN' ? 'Atribuir' : action === 'SNOOZE' ? 'Adiar' : 'Reconhecer') : action === 'ASSIGN' ? `Atribuir ${count}` : action === 'SNOOZE' ? `Adiar ${count}` : `Reconhecer ${count}`}</button></>}</div>
-  </form></IpamModal>;
+  </form></CompactModal>;
 }

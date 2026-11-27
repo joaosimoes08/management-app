@@ -4,7 +4,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { X } from 'lucide-react';
 import { HistoryBlock, type HistoryEvent } from '@/components/data-table/history-block';
-import { IpamModal } from '@/features/ipam/components/ipam-modal';
+import { CompactModal } from '@/components/ui/compact-modal';
 import { formatDateTime } from '@/lib/format/date';
 import { getOperationalAlert, type AlertDetail, type AlertHistoryEntry, type AlertPerson, type BulkAlertAction } from './api';
 import { alertKindLabel, alertNextStep, alertStatusLabels, alertTargetHref, deviceHref, severityMeanings } from './alert-meta';
@@ -39,7 +39,7 @@ export function AlertDetailDialog({ alertId, title, close, run, running }: { ale
   const query = useQuery({ queryKey: ['operations', 'alert-detail', alertId], queryFn: () => getOperationalAlert(alertId), retry: false });
   const detail = query.data;
   const href = detail ? alertTargetHref(detail) : null;
-  return <IpamModal title={title} close={close}>
+  return <CompactModal title={title} close={close}>
     <div className="modal-form alert-detail">
       {query.isLoading && <p className="no-data" role="status">A carregar o alerta…</p>}
       {query.error && <div className="ipam-alert error" role="alert"><X size={15} />{query.error instanceof Error ? query.error.message : 'Não foi possível carregar o alerta.'}</div>}
@@ -62,5 +62,5 @@ export function AlertDetailDialog({ alertId, title, close, run, running }: { ale
         {detail.status !== 'RESOLVED' && (detail.canAct ? <AlertRowActions alert={detail} disabled={running} run={run} /> : <ReadOnlyAlertNote />)}
       </>}
     </div>
-  </IpamModal>;
+  </CompactModal>;
 }

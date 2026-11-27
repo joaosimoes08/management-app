@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { IpamModal } from './ipam-modal';
+import { CompactModal } from '@/components/ui/compact-modal';
 import { DataTable } from '@/components/data-table/data-table';
 import { getNextFreeIps, reserveNextIps } from '../api';
 import type { NextFreeIpsQuery, ReserveNextIpsResult, Subnet } from '../types';
@@ -92,7 +92,7 @@ export function NextFreeIpModal({ subnet, canReserve, close, reserved }: Props) 
     }
   };
 
-  return <IpamModal title={ui('ipam.nextFree.title', undefined, { cidr: subnet.cidr })} close={pending ? () => undefined : close}>
+  return <CompactModal title={ui('ipam.nextFree.title', undefined, { cidr: subnet.cidr })} close={pending ? () => undefined : close}>
     <form className="modal-form" onSubmit={search} aria-label="Procurar IPs livres">
       <p className="panel-description">Procura os próximos endereços livres da subnet. Indica um intervalo para limitar a pesquisa.</p>
       <label>Quantidade<input type="number" min="1" max={NEXT_FREE_MAX_COUNT} step="1" required value={count} onChange={(event) => setCount(event.target.value)} /></label>
@@ -122,5 +122,5 @@ export function NextFreeIpModal({ subnet, canReserve, close, reserved }: Props) 
       <div className="modal-actions"><button type="button" className="secondary-button" onClick={close} disabled={pending}>Cancelar</button><button type="submit" className="primary-button" disabled={pending || !reason.trim()}>{pending ? 'A reservar…' : ui('ipam.nextFree.reserveCount', undefined, { ips: query.count ?? 1 })}</button></div>
     </form>}
     {canReserve && unsupported && <p className="ipam-alert warning" role="note">A reserva automática só está disponível para subnets IPv4.</p>}
-  </IpamModal>;
+  </CompactModal>;
 }

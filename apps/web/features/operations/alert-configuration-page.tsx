@@ -7,7 +7,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppShell } from '@/components/layout/app-shell';
 import { useTableUrlState } from '@/components/data-table';
 import { useConfirm } from '@/components/ui/confirm-dialog';
-import { IpamModal } from '@/features/ipam/components/ipam-modal';
+import { CompactModal } from '@/components/ui/compact-modal';
 import { alertListHref } from '@/features/dashboard/drill-through';
 import { listSites } from '@/features/infrastructure/api';
 import { useAuth } from '@/lib/auth';
@@ -110,7 +110,7 @@ function RuleDialog({ rule, sites, close, save }: { rule: Rule; sites: Site[]; c
     setSaving(false);
     if (failure) setError(failure);
   };
-  return <IpamModal title={tx('groupB.alerts.editRule', undefined, { rule: rule.name })} close={close}><form className="modal-form" onSubmit={(event) => void onSubmit(event)}>
+  return <CompactModal title={tx('groupB.alerts.editRule', undefined, { rule: rule.name })} close={close}><form className="modal-form" onSubmit={(event) => void onSubmit(event)}>
     {error && <div className="ipam-alert error" role="alert"><X size={15} />{error}</div>}
     <label>Nome<input required autoFocus maxLength={120} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
     <SourceSelect value={form.source} onChange={(source) => setForm({ ...form, source })} />
@@ -118,7 +118,7 @@ function RuleDialog({ rule, sites, close, save }: { rule: Rule; sites: Site[]; c
     <SeveritySelect value={form.minSeverity} onChange={(minSeverity) => setForm({ ...form, minSeverity })} />
     <label className="checkbox-label"><input type="checkbox" checked={form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} /> Regra ativa</label>
     <div className="modal-actions"><button type="button" className="secondary-button" onClick={close}>Cancelar</button><button className="primary-button" disabled={saving}>{saving ? 'A guardar…' : 'Guardar regra'}</button></div>
-  </form></IpamModal>;
+  </form></CompactModal>;
 }
 
 function WindowDialog({ item, sites, close, save }: { item: Window; sites: Site[]; close: () => void; save: (patch: MaintenanceWindowPatch) => Promise<string> }) {
@@ -139,7 +139,7 @@ function WindowDialog({ item, sites, close, save }: { item: Window; sites: Site[
     setSaving(false);
     if (failure) setError(failure);
   };
-  return <IpamModal title={`Editar janela ${item.name}`} close={close}><form className="modal-form" onSubmit={(event) => void onSubmit(event)}>
+  return <CompactModal title={`Editar janela ${item.name}`} close={close}><form className="modal-form" onSubmit={(event) => void onSubmit(event)}>
     {error && <div className="ipam-alert error" role="alert"><X size={15} />{error}</div>}
     <label>Nome<input required autoFocus maxLength={120} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
     <label>Site<select value={form.siteId} onChange={(e) => setForm({ ...form, siteId: e.target.value })}><option value="">Todos os Sites</option>{sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</select></label>
@@ -147,5 +147,5 @@ function WindowDialog({ item, sites, close, save }: { item: Window; sites: Site[
     <DateTimeInput label="Fim" required value={form.endsAt} onChange={(value) => setForm({ ...form, endsAt: value })} />
     <label>Motivo<textarea maxLength={500} value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} /></label>
     <div className="modal-actions"><button type="button" className="secondary-button" onClick={close}>Cancelar</button><button className="primary-button" disabled={saving}>{saving ? 'A guardar…' : 'Guardar janela'}</button></div>
-  </form></IpamModal>;
+  </form></CompactModal>;
 }

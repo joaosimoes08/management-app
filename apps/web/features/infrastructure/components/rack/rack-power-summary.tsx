@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { SlidersHorizontal } from 'lucide-react';
-import { IpamModal } from '@/features/ipam/components/ipam-modal';
+import { CompactModal } from '@/components/ui/compact-modal';
 import { formatNumber } from '@/lib/format/date';
 import { getRackPowerSummary, type RackPowerSummary, type RackPowerThresholds } from '../../api';
 import { formatWatts, powerLevelFromApi, type PowerLevel } from '../../power';
@@ -180,7 +180,7 @@ export function RackPowerThresholdsModal({ rackId, value, onSaved, close }: Rack
       setSaving(false);
     }
   };
-  return <IpamModal title="Limiares de energia" close={close}>
+  return <CompactModal title="Limiares de energia" close={close}>
     <form className="modal-form" onSubmit={submit}>
       {error && <div className="ipam-alert error" role="alert">{error}</div>}
       <label>Aviso (% do orçamento ou das tomadas)<input type="number" min={MIN_PERCENT} max={MAX_PERCENT} required value={warning} onChange={(event) => setWarning(event.target.value)} /></label>
@@ -191,5 +191,5 @@ export function RackPowerThresholdsModal({ rackId, value, onSaved, close }: Rack
         <button type="submit" className="primary-button" disabled={saving}>{saving ? 'A guardar…' : 'Guardar'}</button>
       </div>
     </form>
-  </IpamModal>;
+  </CompactModal>;
 }

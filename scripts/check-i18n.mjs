@@ -35,6 +35,7 @@ const operationalFiles = [
   'apps/web/features/change-plans/workspace.ts',
   'apps/web/components/data-table/data-table.tsx',
   'apps/web/components/data-table/entity-link.tsx',
+  'apps/web/lib/routes.ts',
   'apps/web/components/data-table/history-block.tsx',
   'apps/web/components/data-table/csv.ts',
   'apps/web/components/data-table/table-state.ts',
@@ -56,7 +57,7 @@ const operationalFiles = [
   'apps/web/features/ipam/utilization.ts',
   'apps/web/features/topology/filters.ts',
   'apps/web/features/topology/topology-filters-menu.tsx',
-  'apps/web/components/ui/bulk-review-dialog.tsx',
+  'apps/web/features/discovery/bulk-review-dialog.tsx',
   'apps/web/features/discovery/discovery-results.tsx',
   'apps/web/features/discovery/discovery-missing.tsx',
   // Discovery P0 quick fixes

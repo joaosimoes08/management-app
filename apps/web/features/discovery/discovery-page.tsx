@@ -26,7 +26,7 @@ import { DiscoveryComparisonApprove } from './discovery-results-tools';
 import { DiscoveryScanEstimate, useDiscoveryScanCheck } from './discovery-scan-estimate';
 import { DiscoveryFailureReason, DiscoveryFlowHeader, DiscoveryRunProgress, DiscoveryRunRow } from './discovery-run-parts';
 import { discoveryStatusLabels, isActiveDiscoveryJob } from './discovery-status';
-import type { BulkReviewResponse } from '@/components/ui/bulk-review-dialog';
+import type { BulkReviewResponse } from '@/features/discovery/bulk-review-dialog';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { formatDateTime } from '@/lib/format/date';
 import { getSnmpReceiverSettings, snmpReceiverKey } from '@/features/snmp/api';

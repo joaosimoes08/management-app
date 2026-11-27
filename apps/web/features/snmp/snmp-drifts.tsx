@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { DataTable, sortByColumns, useTableUrlState, type DataTableColumn, type TableStateConfig } from '@/components/data-table';
-import { BULK_REVIEW_MAX, BulkReviewDialog } from '@/components/ui/bulk-review-dialog';
+import { BULK_REVIEW_MAX, BulkReviewDialog } from '@/features/discovery/bulk-review-dialog';
 import { formatDateTime } from '@/lib/format/date';
 import { bulkReviewSnmpDrifts, listSnmpDrifts, reviewSnmpDrift, type SnmpFleetDrift } from './api';
 import { useUiText } from '@/components/ui/use-ui-text';

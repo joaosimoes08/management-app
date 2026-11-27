@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { CheckCircle2, X } from 'lucide-react';
-import { IpamModal } from '@/features/ipam/components/ipam-modal';
+import { CompactModal } from '@/components/ui/compact-modal';
 import { useUiText } from '@/components/ui/use-ui-text';
 
 /** Most ids the bulk-review endpoints accept per request (Descoberta and SNMP). */
@@ -71,7 +71,7 @@ export function BulkReviewDialog({ title, actionLabel, noun, items, run, onDone,
     }
   };
 
-  return <IpamModal title={title} close={running ? () => undefined : close}><div className="modal-form">
+  return <CompactModal title={title} close={running ? () => undefined : close}><div className="modal-form">
     {!done && <p className="panel-description">{ui('ui.bulk.selected', undefined, { count: items.length, noun })}</p>}
     {tooMany && <div className="ipam-alert warning" role="note">{ui('ui.bulk.tooMany', undefined, { max: BULK_REVIEW_MAX })}</div>}
     {error && <div className="ipam-alert error" role="alert"><X size={15} />{error}</div>}
@@ -93,5 +93,5 @@ export function BulkReviewDialog({ title, actionLabel, noun, items, run, onDone,
     <div className="modal-actions">{done
       ? <button type="button" className="primary-button" onClick={close}>{ui('ui.close')}</button>
       : <><button type="button" className="secondary-button" disabled={running} onClick={close}>{ui('ui.bulk.cancel')}</button><button type="button" className="primary-button" disabled={running || !items.length || tooMany} onClick={() => void submit()}>{running ? ui('ui.bulk.applying') : <>{actionLabel} {items.length}</>}</button></>}</div>
-  </div></IpamModal>;
+  </div></CompactModal>;
 }

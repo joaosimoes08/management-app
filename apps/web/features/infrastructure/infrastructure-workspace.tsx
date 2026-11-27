@@ -13,7 +13,7 @@ import { useI18n } from '@/lib/i18n';
 import { useUiText } from '@/components/ui/use-ui-text';
 import { useSiteContext } from '@/lib/site-context';
 import { rememberRecentItem } from '@/lib/recent-items';
-import { entityHref } from '@/components/data-table/entity-link';
+import { entityHref } from '@/lib/routes';
 import { apiFetch } from '@/lib/api/client';
 import { ApiRequestError } from '@/lib/api/errors';
 import type { Device, DeviceInterface, DeviceModel, IpAddress, Rack, RackFace, RackPlacementPlan, RoomWithBuilding } from './types';

@@ -6,7 +6,8 @@ import { ChevronRight, Edit3, Network, Plus, Trash2, X } from 'lucide-react';
 import { PageToolbarPortal } from '@/components/layout/app-shell';
 import { createVrf, deleteVrf, getVrf, listVrfs, updateVrf } from '../api';
 import type { Vrf, VrfInput } from '../types';
-import { Empty, IpamModal } from './ipam-modal';
+import { Empty } from './ipam-modal';
+import { CompactModal } from '@/components/ui/compact-modal';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { DataTable, type DataTableColumn } from '@/components/data-table/data-table';
 import { useUiText } from '@/components/ui/use-ui-text';
@@ -125,13 +126,13 @@ export function VrfsView({ siteId, siteName, search, canCreate, canUpdate, canDe
       </>}
     </aside>}
 
-    {form && <IpamModal title={form.id ? 'Editar VRF' : 'Criar VRF'} close={() => setForm(null)}><form className="modal-form" onSubmit={(event) => void submit(event)}>
+    {form && <CompactModal title={form.id ? 'Editar VRF' : 'Criar VRF'} close={() => setForm(null)}><form className="modal-form" onSubmit={(event) => void submit(event)}>
       {formError && <div className="ipam-alert error" role="alert"><X size={15} />{formError}</div>}
       <label>Nome<input required maxLength={100} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
       <label>Route distinguisher<input maxLength={80} placeholder="65000:100" aria-describedby="vrf-rd-help" value={form.routeDistinguisher} onChange={(event) => setForm({ ...form, routeDistinguisher: event.target.value })} /><small id="vrf-rd-help">Formato ASN:número ou IP:número, por exemplo 65000:100.</small></label>
       <label>Descrição<input maxLength={240} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
       <label>Estado<select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}><option value="ACTIVE">Ativo</option><option value="INACTIVE">Inativo</option></select></label>
       <button className="primary-button" disabled={saving}>{saving ? 'A guardar…' : form.id ? 'Guardar alterações' : 'Criar VRF'}</button>
-    </form></IpamModal>}
+    </form></CompactModal>}
   </section></>;
 }
