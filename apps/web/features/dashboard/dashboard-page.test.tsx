@@ -36,7 +36,7 @@ vi.mock('@tanstack/react-query', () => ({
   }),
 }));
 vi.mock('@/components/layout/app-shell', () => ({
-  AppShell: ({ children, actions, toolbar }: { children: React.ReactNode; actions: React.ReactNode; toolbar: React.ReactNode }) => <div><div aria-label="Controlos do dashboard">{toolbar}</div><div aria-label="Ações do dashboard">{actions}</div>{children}</div>,
+  PageShell: ({ children, actions, toolbar }: { children: React.ReactNode; actions: React.ReactNode; toolbar: React.ReactNode }) => <div><div aria-label="Controlos do dashboard">{toolbar}</div><div aria-label="Ações do dashboard">{actions}</div>{children}</div>,
   ToolbarMore: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 vi.mock('@/features/operations/operations-panel', () => ({ OperationsPanel: (props: { siteId?: string; showAlerts?: boolean; showQuality?: boolean }) => { mocks.operationsPanelProps.push(props); return <div />; } }));

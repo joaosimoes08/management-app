@@ -6,7 +6,7 @@ import type { AuditPageEvent } from './api';
 
 vi.mock('@/components/layout/app-shell', async (importOriginal) => ({
   ...await importOriginal<typeof import('@/components/layout/app-shell')>(),
-  AppShell: ({ children, actions, search }: { children: React.ReactNode; actions?: React.ReactNode; search?: { value: string; onChange: (value: string) => void; placeholder: string } }) => <>
+  PageShell: ({ children, actions, search }: { children: React.ReactNode; actions?: React.ReactNode; search?: { value: string; onChange: (value: string) => void; placeholder: string } }) => <>
     <div data-testid="toolbar-actions">{actions}</div>
     {search && <input aria-label="Pesquisa da página" placeholder={search.placeholder} value={search.value} onChange={(event) => search.onChange(event.target.value)} />}
     {children}

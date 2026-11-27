@@ -5,7 +5,7 @@ import NetAppPage from './netapp-page';
 import { configureNetAppIntegration, getNetAppIntegration, getNetAppTrend, listNetAppTrendObjects, refreshNetAppSnapshot, type NetAppTrend } from './api';
 import { ApiRequestError } from '@/lib/api/errors';
 
-vi.mock('@/components/layout/app-shell', () => ({ AppShell: ({ children, actions }: { children: React.ReactNode; actions?: React.ReactNode }) => <div>{actions}{children}</div> }));
+vi.mock('@/components/layout/app-shell', () => ({ PageShell: ({ children, actions }: { children: React.ReactNode; actions?: React.ReactNode }) => <div>{actions}{children}</div> }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: (role: string) => role === 'ADMIN' }) }));
 vi.mock('@/lib/site-context', () => ({ useSiteContext: () => ({ siteId: 'site-a', activeSite: { id: 'site-a', name: 'Lisboa', code: 'LIS' }, loading: false }) }));
 vi.mock('./api', () => ({ getNetAppIntegration: vi.fn(), configureNetAppIntegration: vi.fn(), refreshNetAppSnapshot: vi.fn(), getNetAppTrend: vi.fn(), listNetAppTrendObjects: vi.fn() }));

@@ -9,7 +9,7 @@ vi.mock('@/lib/api/client', () => ({ apiFetch: vi.fn() }));
 const roles = { current: ['ADMIN'] as string[] };
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: (role: string) => roles.current.includes(role) }) }));
 vi.mock('@/lib/site-context', () => ({ useSiteContext: () => ({ siteId: 'site-1', activeSite: { id: 'site-1', name: 'Lisboa' }, loading: false }) }));
-vi.mock('@/components/layout/app-shell', () => ({ AppShell: ({ children, moduleTabs, actions }: { children: ReactNode; moduleTabs?: ReactNode; actions?: ReactNode }) => <>{moduleTabs}{actions}{children}</> }));
+vi.mock('@/components/layout/app-shell', () => ({ PageShell: ({ children, moduleTabs, actions }: { children: ReactNode; moduleTabs?: ReactNode; actions?: ReactNode }) => <>{moduleTabs}{actions}{children}</> }));
 const mockedFetch = vi.mocked(apiFetch);
 const wrap = (node: ReactNode) => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{node}</QueryClientProvider>);
 

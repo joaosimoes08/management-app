@@ -8,7 +8,7 @@ import DiscoveryPage, { EnrollmentModal } from './discovery-page';
 vi.mock('@/lib/api/client', () => ({ apiFetch: vi.fn() }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: (role: string) => role === 'ADMIN' }) }));
 vi.mock('@/lib/site-context', () => ({ useSiteContext: () => ({ siteId: 'site-1', activeSite: { id: 'site-1', name: 'Lisboa' }, loading: false }) }));
-vi.mock('@/components/layout/app-shell', () => ({ AppShell: ({ children }: { children: ReactNode }) => <>{children}</> }));
+vi.mock('@/components/layout/app-shell', () => ({ PageShell: ({ children }: { children: ReactNode }) => <>{children}</> }));
 const mockedFetch = vi.mocked(apiFetch);
 const wrap = (node: ReactNode) => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{node}</QueryClientProvider>);
 const receiver = (v2cAllowed: boolean) => ({ listenAll: true, selectedInterfaceIds: [], interfaces: [{ id: 'eth0', instanceId: 'h', name: 'eth0', address: '10.0.0.5', internal: false, lastSeenAt: '2026-11-23T10:00:00.000Z' }], engineId: null, engineIdSource: null, trapPort: 162, v2cAllowed, refreshSeconds: 30 });

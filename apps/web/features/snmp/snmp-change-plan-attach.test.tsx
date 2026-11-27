@@ -9,7 +9,7 @@ import SnmpPage from './snmp-page';
 vi.mock('@/lib/api/client', () => ({ apiFetch: vi.fn() }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: (role: string) => role === 'ADMIN' }) }));
 vi.mock('@/lib/site-context', () => ({ useSiteContext: () => ({ siteId: 'site-1', activeSite: { id: 'site-1', name: 'Lisboa' }, loading: false }) }));
-vi.mock('@/components/layout/app-shell', () => ({ AppShell: ({ children }: { children: ReactNode }) => <>{children}</> }));
+vi.mock('@/components/layout/app-shell', () => ({ PageShell: ({ children }: { children: ReactNode }) => <>{children}</> }));
 const mockedFetch = vi.mocked(apiFetch);
 const wrap = (node: ReactNode) => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{node}</QueryClientProvider>);
 

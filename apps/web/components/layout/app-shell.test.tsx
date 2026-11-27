@@ -1,6 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AppShell, PageToolbarPortal } from './app-shell';
+import { AppShellFrame, PageShell, PageToolbarPortal, type AppShellProps } from './app-shell';
+
+// The (authenticated) layout renders the frame once; each page hands its settings over through <PageShell>.
+function AppShell(props: AppShellProps) { return <AppShellFrame><PageShell {...props} /></AppShellFrame>; }
 
 vi.mock('next/navigation', () => ({ usePathname: () => '/infraestrutura' }));
 const linkClicks = vi.hoisted(() => [] as string[]);
@@ -187,5 +190,30 @@ describe('AppShell one-line utility bar', () => {
     expect(block).toMatch(/\.app-shell \.context-toolbar\[role="region"\] \{[^}]*flex-direction:row;[^}]*flex-wrap:nowrap/);
     expect(block).toMatch(/\[data-compact\] \.context-toolbar-controls \{[^}]*position:absolute/);
     expect(css.lastIndexOf('/* One-line utility bar')).toBeGreaterThan(css.lastIndexOf('flex-direction:column; flex-wrap:nowrap; align-items:stretch'));
+  });
+});
+
+describe('AppShellFrame with PageShell (route-group layout)', () => {
+  it('keeps one frame mounted while pages change, and shows the current page settings', async () => {
+    localStorage.setItem('civernode.sidebar.collapsed', 'true');
+    const { container, rerender } = render(<AppShellFrame><PageShell key="a" section="Auditoria" actions={<button>Exportar</button>}><p>Audit body</p></PageShell></AppShellFrame>);
+    await waitFor(() => expect(container.querySelector('.app-shell')).toHaveClass('sidebar-collapsed'));
+    const frame = container.querySelector('.app-shell');
+    expect(screen.getByText('Auditoria')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Exportar' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Expandir' }));
+    rerender(<AppShellFrame><PageShell key="b" section="Alertas"><p>Alerts body</p></PageShell></AppShellFrame>);
+    expect(container.querySelector('.app-shell')).toBe(frame);
+    expect(container.querySelector('.app-shell')).not.toHaveClass('sidebar-collapsed');
+    expect(screen.getByText('Alertas')).toBeInTheDocument();
+    expect(screen.queryByText('Auditoria')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Exportar' })).toBeNull();
+    expect(screen.getByRole('main')).toHaveTextContent('Alerts body');
+  });
+
+  it('puts the page content directly inside the single <main>', () => {
+    render(<AppShellFrame><PageShell section="Topologia"><div className="topology-page">map</div></PageShell></AppShellFrame>);
+    expect(screen.getAllByRole('main')).toHaveLength(1);
+    expect(screen.getByRole('main').firstElementChild).toHaveClass('topology-page');
   });
 });

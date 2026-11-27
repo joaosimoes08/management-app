@@ -24,7 +24,7 @@ vi.mock('@/lib/auth', () => ({ useAuth: () => ({ user: { id: 'user-1' }, hasRole
 vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }));
 vi.mock('@/lib/site-context', () => ({ useSiteContext: () => ({ siteId: 'site-1' }) }));
 vi.mock('@/components/layout/app-shell', () => ({
-  AppShell: ({ children, moduleTabs, helpTopic }: { children: React.ReactNode; moduleTabs?: React.ReactNode; helpTopic?: string }) => <div data-testid="shell" data-help-topic={helpTopic}>{moduleTabs}{children}</div>,
+  PageShell: ({ children, moduleTabs, helpTopic }: { children: React.ReactNode; moduleTabs?: React.ReactNode; helpTopic?: string }) => <div data-testid="shell" data-help-topic={helpTopic}>{moduleTabs}{children}</div>,
 }));
 vi.mock('./components/rack/rack-workspace', () => ({ RackWorkspace: () => <div /> }));
 vi.mock('./components/devices/deep-link-device-loader', () => ({ DeepLinkDeviceLoader: ({ deviceId }: { deviceId: string | null }) => (deviceId ? <span data-testid="deep-link">{deviceId}</span> : null) }));

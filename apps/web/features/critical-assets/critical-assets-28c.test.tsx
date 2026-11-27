@@ -7,7 +7,7 @@ import { buildRows, complianceCells } from './workbench';
 
 vi.mock('@/components/layout/app-shell', async (importOriginal) => ({
   ...await importOriginal<typeof import('@/components/layout/app-shell')>(),
-  AppShell: ({ children, actions }: { children: React.ReactNode; actions?: React.ReactNode }) => <>
+  PageShell: ({ children, actions }: { children: React.ReactNode; actions?: React.ReactNode }) => <>
     <div data-testid="toolbar-actions">{actions}</div>
     {children}
   </>,

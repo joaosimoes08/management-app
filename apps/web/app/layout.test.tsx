@@ -8,7 +8,6 @@ function wrap(name: string) {
 vi.mock('next/headers', () => ({ headers: async () => new Headers({ 'x-nonce': 'test-nonce' }) }));
 vi.mock('./globals.css', () => ({}));
 vi.mock('@/lib/auth', () => ({ AuthProvider: wrap('auth') }));
-vi.mock('@/components/layout/auth-gate', () => ({ AuthGate: wrap('gate') }));
 vi.mock('@/components/layout/locale-document-title', () => ({ LocaleDocumentTitle: () => null }));
 vi.mock('@/components/ui/toast', () => ({ ToastProvider: wrap('toast') }));
 vi.mock('@/lib/i18n', () => ({ I18nProvider: wrap('i18n') }));
@@ -17,12 +16,13 @@ vi.mock('@/lib/site-context', () => ({ SiteProvider: wrap('site') }));
 vi.mock('@/components/theme/appearance-sync', () => ({ AppearanceSync: () => null }));
 
 describe('RootLayout provider order', () => {
-  it('starts the site list and keeps the query cache above the auth gate', async () => {
+  it('starts the site list and keeps the query cache above the route-group auth gates', async () => {
     const { default: RootLayout } = await import('./layout');
     const html = renderToStaticMarkup(await RootLayout({ children: <p>page</p> }));
     const order = [...html.matchAll(/data-provider="([a-z0-9]+)"/g)].map((match) => match[1]);
-    expect(order).toEqual(['auth', 'i18n', 'toast', 'query', 'site', 'gate']);
-    expect(html).toContain('<div data-provider="gate"><p>page</p></div>');
+    expect(order).toEqual(['auth', 'i18n', 'toast', 'query', 'site']);
+    // No AuthGate here: app/(authenticated)/layout.tsx and app/(public)/setup/layout.tsx render it.
+    expect(html).toContain('<div data-provider="site"><p>page</p></div>');
   });
 
   it('applies the saved theme before first paint', async () => {

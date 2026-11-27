@@ -2,7 +2,6 @@ import type { Metadata } from 'next';
 import { headers } from 'next/headers';
 import './globals.css';
 import { AuthProvider } from '@/lib/auth';
-import { AuthGate } from '@/components/layout/auth-gate';
 import { LocaleDocumentTitle } from '@/components/layout/locale-document-title';
 import { ToastProvider } from '@/components/ui/toast';
 import { I18nProvider } from '@/lib/i18n';
@@ -17,9 +16,10 @@ export const metadata: Metadata = {
   description: 'Centro de operações para infraestrutura e ciberdefesa.',
 };
 
-// QueryProvider and SiteProvider sit above AuthGate: the accessible-site list starts loading as soon
-// as Keycloak reports a session (in parallel with the identity check), and the query cache survives
-// gate state changes. SiteProvider only fetches when authenticated; AuthGate still decides what renders.
+// QueryProvider and SiteProvider sit above AuthGate, which the route groups render: (authenticated)/layout.tsx
+// for app pages and (public)/setup/layout.tsx for setup; the (public) unsubscribe page has none. The site list
+// starts loading as soon as Keycloak reports a session (in parallel with the identity check), and the query cache
+// survives gate state changes. SiteProvider only fetches when authenticated; AuthGate still decides what renders.
 // The per-request CSP nonce (proxy.ts) goes on the inline theme boot script; reading it renders
 // pages per request, which is what lets Next.js put the same nonce on its own inline scripts.
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
@@ -37,7 +37,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         {/* eslint-disable-next-line @next/next/no-sync-scripts */}
         <script src="/runtime-config.js" />
       </head>
-      <body><AuthProvider><AppearanceSync /><I18nProvider><LocaleDocumentTitle /><ToastProvider><QueryProvider><SiteProvider><AuthGate>{children}</AuthGate></SiteProvider></QueryProvider></ToastProvider></I18nProvider></AuthProvider></body>
+      <body><AuthProvider><AppearanceSync /><I18nProvider><LocaleDocumentTitle /><ToastProvider><QueryProvider><SiteProvider>{children}</SiteProvider></QueryProvider></ToastProvider></I18nProvider></AuthProvider></body>
     </html>
   );
 }

@@ -6,7 +6,7 @@ import { entityHref } from '@/lib/routes';
 import { clearAssetBlobCache } from '../components/asset-image';
 import { Device360Page, driftCounts, snmpDriftStatusLabel, snmpStateLabel } from './device-360-page';
 
-vi.mock('@/components/layout/app-shell', () => ({ AppShell: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
+vi.mock('@/components/layout/app-shell', () => ({ PageShell: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 const roles = vi.hoisted(() => ({ current: ['ADMIN'] as string[] }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: (role: string) => roles.current.includes(role), user: { id: 'u1' }, token: 'test-token' }) }));
 vi.mock('@/lib/api/client', () => ({ apiFetch: vi.fn() }));

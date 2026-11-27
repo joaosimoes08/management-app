@@ -6,7 +6,7 @@ import { useEscapeClose } from '@/components/ui/use-escape-close';
 import { useDialogFocusRef } from '@/components/ui/use-dialog-focus';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, List, X, RefreshCw } from 'lucide-react';
-import { AppShell, PageToolbarPortal } from '@/components/layout/app-shell';
+import { PageShell, PageToolbarPortal } from '@/components/layout/app-shell';
 import { CsvExportButton, DataTable, EntityLink, HistoryBlock, SavedViews, sortByColumns, useTableUrlState, type CsvColumn, type DataTableColumn } from '@/components/data-table';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useAuth } from '@/lib/auth';
@@ -356,7 +356,7 @@ export function ChangePlansPage() {
   const timeline = activity?.key === activityKey ? buildTimeline(activity.entries) : [];
   const listing = !selected && !editorOpen;
 
-  return <AppShell section="Alterações" search={{ value: search, onChange: setSearch, placeholder: 'Pesquisar título, motivo, operação ou alvo…', ariaLabel: 'Pesquisar alterações' }}><div className="module-page change-plans-page aligned-workspace">{confirmDialog}<PageToolbarPortal><div className="change-page-actions">
+  return <PageShell section="Alterações" search={{ value: search, onChange: setSearch, placeholder: 'Pesquisar título, motivo, operação ou alvo…', ariaLabel: 'Pesquisar alterações' }}><div className="module-page change-plans-page aligned-workspace">{confirmDialog}<PageToolbarPortal><div className="change-page-actions">
       {siteId && listing && <div className="interface-toolbar-controls">
         <label><span className="toolbar-filter-label">Tipo de alvo</span><select aria-label="Filtrar por tipo de alvo" title="Filtrar por tipo de alvo" value={filters.type} onChange={(event) => setFilter('type', event.target.value)}><option value="">Tipo de alvo</option>{changeTypes.map((type) => <option key={type} value={type}>{typeText(t, type)}</option>)}</select></label>
         {view === 'list' && <><label>De<input type="date" aria-label="Janela a partir de" value={filters.from} max={filters.to || undefined} onChange={(event) => setFilter('from', event.target.value)} /></label><label>Até<input type="date" aria-label="Janela até" value={filters.to} min={filters.from || undefined} onChange={(event) => setFilter('to', event.target.value)} /></label></>}
@@ -418,5 +418,5 @@ export function ChangePlansPage() {
         {activity?.key === activityKey && activity.failed && <p className="panel-description">Não foi possível carregar a atividade desta alteração.</p>}
       </section>}
       </div></div>}
-    </div></AppShell>;
+    </div></PageShell>;
 }

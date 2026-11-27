@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { Download, Eye, RefreshCw, X } from 'lucide-react';
-import { AppShell, PageToolbarPortal, ToolbarMore } from '@/components/layout/app-shell';
+import { PageShell, PageToolbarPortal, ToolbarMore } from '@/components/layout/app-shell';
 import { DataTable, EntityLink, SavedViews, csvFileName, useTableUrlState, type DataTableColumn } from '@/components/data-table';
 import { formatDateTime } from '@/lib/format/date';
 import { exportAuditCsv, facetWindowDays, getAuditFacets, getAuditPage, type AuditPageEvent } from './api';
@@ -87,7 +87,7 @@ export default function AuditPage() {
   const facetDays = !filters.from && !filters.to ? facetWindowDays(facets.data) : null;
   const countLabel = pages.hasNextPage ? `${count} eventos carregados` : `${count} eventos`;
 
-  return <AppShell section="Auditoria" search={{ value: search, onChange: setSearch, placeholder: 'Pesquisar ação, registo, IP ou utilizador…', ariaLabel: 'Pesquisar eventos de auditoria', scopeLabel: 'Auditoria' }} actions={<><ToolbarMore label="Filtros"><div className="audit-filters">
+  return <PageShell section="Auditoria" search={{ value: search, onChange: setSearch, placeholder: 'Pesquisar ação, registo, IP ou utilizador…', ariaLabel: 'Pesquisar eventos de auditoria', scopeLabel: 'Auditoria' }} actions={<><ToolbarMore label="Filtros"><div className="audit-filters">
     <label>Utilizador<select aria-label="Filtrar por utilizador" value={filters.actor} onChange={(event) => setFilter('actor', event.target.value)}><option value="">Todos</option>{(facets.data?.actors ?? []).map((actor) => <option key={actor.id} value={actor.id}>{`${actor.displayName || actor.username} (${actor.count})`}</option>)}</select></label>
     <label>Tipo de registo<select aria-label="Filtrar por tipo de registo" value={filters.entityType} onChange={(event) => setFilter('entityType', event.target.value)}><option value="">Todos</option>{(facets.data?.entityTypes ?? []).map((item) => <option key={item.value} value={item.value}>{`${item.value} (${item.count})`}</option>)}</select></label>
     <label>Ação<select aria-label="Filtrar por ação" value={filters.action} onChange={(event) => setFilter('action', event.target.value)}><option value="">Todas</option>{(facets.data?.actions ?? []).map((item) => <option key={item.value} value={item.value}>{`${item.value} (${item.count})`}</option>)}</select></label>
@@ -143,5 +143,5 @@ export default function AuditPage() {
           : <p className="panel-description">Sem dados adicionais.</p>; })()}
       </section>
     </aside>}
-  </AppShell>;
+  </PageShell>;
 }
