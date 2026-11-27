@@ -7,7 +7,7 @@ import { setDeviceTags } from '@/features/tags/api';
 import { TagChips, TagEditor } from '@/features/tags/tag-components';
 import { canManageTagCatalog } from '@/features/tags/types';
 import { AppShell } from '@/components/layout/app-shell';
-import { deviceEditHref, entityHref } from '@/components/data-table/entity-link';
+import { deviceEditHref, entityHref } from '@/lib/routes';
 import { rememberRecentItem } from '@/lib/recent-items';
 import { apiFetch } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth';

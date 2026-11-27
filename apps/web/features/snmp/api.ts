@@ -1,6 +1,6 @@
 import { apiFetch } from '@/lib/api/client';
 import type { PaginatedResponse } from '@/lib/api/types';
-import type { BulkReviewResponse } from '@/components/ui/bulk-review-dialog';
+import type { BulkReviewResponse } from '@/features/discovery/bulk-review-dialog';
 import type { SnmpJobView, SnmpReceiverSettings } from './snmp-setup';
 
 export type SnmpCredentialPurpose = 'READ' | 'WRITE' | 'TRAP';

@@ -3,7 +3,7 @@
  * the /alertas list and the rule form. Codes stay as secondary text so operators can still
  * match them with rules and logs.
  */
-import { entityHref } from '@/components/data-table/entity-link';
+import { entityHref } from '@/lib/routes';
 
 export const SEVERITY_ORDER = ['CRITICAL', 'HIGH', 'WARNING', 'INFO'] as const;
 

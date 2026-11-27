@@ -1,5 +1,5 @@
 import { apiFetch } from '@/lib/api/client';
-import type { BulkReviewResponse } from '@/components/ui/bulk-review-dialog';
+import type { BulkReviewResponse } from '@/features/discovery/bulk-review-dialog';
 import { translateMessage } from '@/lib/i18n/i18n';
 type Translate = (key: string, fallback?: string, params?: Record<string, string | number>) => string;
 const portuguese: Translate = (key, fallback, params) => translateMessage('pt-PT', key, fallback, params);

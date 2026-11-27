@@ -2,7 +2,8 @@
  * Pure helpers for the Auditoria workspace: URL filters → API query, links to
  * the changed record and readable before/after values. No React here.
  */
-import type { EntityRef, TableStateConfig } from '@/components/data-table';
+import type { TableStateConfig } from '@/components/data-table';
+import type { EntityRef } from '@/lib/routes';
 import type { AuditPageEvent, AuditQuery } from './api';
 
 /**

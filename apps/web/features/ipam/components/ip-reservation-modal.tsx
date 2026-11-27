@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { IpamModal } from './ipam-modal';
+import { CompactModal } from '@/components/ui/compact-modal';
 import type { IpAddressRow } from '../types';
 import { useUiText } from '@/components/ui/use-ui-text';
 
@@ -37,7 +37,7 @@ export function IpReservationModal({ ip, close, submit }: Props) {
     finally { setPending(false); }
   };
 
-  return <IpamModal title={ui('ipam.reservation.title', undefined, { address: ip.address })} close={() => { if (!pending) close(); }}>
+  return <CompactModal title={ui('ipam.reservation.title', undefined, { address: ip.address })} close={() => { if (!pending) close(); }}>
     <form className="modal-form" onSubmit={save}>
       <p className="reservation-hint">{ui('ipam.reservation.hint')}</p>
       <label>Duração<select ref={durationRef} value={duration} onChange={(event) => setDuration(event.target.value)}>
@@ -48,5 +48,5 @@ export function IpReservationModal({ ip, close, submit }: Props) {
       {error && <p className="ipam-alert error" role="alert">{error}</p>}
       <div className="modal-actions"><button type="button" className="secondary-button" onClick={close} disabled={pending}>Cancelar</button><button className="primary-button" disabled={pending || !reason.trim()}>{pending ? 'A reservar…' : ui('ipam.reservation.submit')}</button></div>
     </form>
-  </IpamModal>;
+  </CompactModal>;
 }

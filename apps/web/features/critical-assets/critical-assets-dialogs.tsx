@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from 'react';
 import { CheckCircle2, X } from 'lucide-react';
-import { IpamModal } from '@/features/ipam/components/ipam-modal';
+import { CompactModal } from '@/components/ui/compact-modal';
 import { DataTable } from '@/components/data-table/data-table';
 import { assetTypes, type AssetRow, type Attestation, type Group, type Mapping } from './workbench';
 import { useUiText } from '@/components/ui/use-ui-text';
@@ -28,12 +28,12 @@ export function ReviewDialog({ asset, attestation, formatDate, close, submit }: 
     setSaving(false);
     if (failure) setError(failure);
   };
-  return <IpamModal title={`Confirmar revisão de ${asset.name}`} close={close}><form className="modal-form" onSubmit={(event) => void onSubmit(event)}>
+  return <CompactModal title={`Confirmar revisão de ${asset.name}`} close={close}><form className="modal-form" onSubmit={(event) => void onSubmit(event)}>
     <p className="panel-description">{`Semana de ${formatDate(attestation.weekStart)}. Confirma nome, tipo, hostname, IP de gestão, número de série, etiqueta e estado. Nada é alterado automaticamente no inventário.`}</p>
     {error && <div className="ipam-alert error" role="alert"><X size={15} />{error}</div>}
     <label>Notas (opcional)<textarea autoFocus rows={4} maxLength={1000} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
     <div className="modal-actions"><button type="button" className="secondary-button" onClick={close}>Cancelar</button><button className="primary-button" disabled={saving}>{saving ? 'A guardar…' : 'Registar confirmação'}</button></div>
-  </form></IpamModal>;
+  </form></CompactModal>;
 }
 
 /** Request a correction for one pending cycle: the description of what to fix is required. */
@@ -57,12 +57,12 @@ export function CorrectionRequestDialog({ asset, attestation, formatDate, close,
     setSaving(false);
     if (failure) setError(failure);
   };
-  return <IpamModal title={`Pedir correção de ${asset.name}`} close={close}><form className="modal-form" onSubmit={(event) => void onSubmit(event)}>
+  return <CompactModal title={`Pedir correção de ${asset.name}`} close={close}><form className="modal-form" onSubmit={(event) => void onSubmit(event)}>
     <p className="panel-description">{tx('groupB.assets.requestCorrectionWeek', undefined, { date: formatDate(attestation.weekStart) })}</p>
     {error && <div className="ipam-alert error" role="alert"><X size={15} />{error}</div>}
     <label>Dados a corrigir (obrigatório)<textarea autoFocus rows={4} maxLength={1000} required value={description} onChange={(event) => setDescription(event.target.value)} /></label>
     <div className="modal-actions"><button type="button" className="secondary-button" onClick={close}>Cancelar</button><button className="primary-button" disabled={saving}>{saving ? 'A guardar…' : 'Registar pedido de correção'}</button></div>
-  </form></IpamModal>;
+  </form></CompactModal>;
 }
 
 export type BulkItem = { key: string; attestationId: string; assetName: string; weekStart: string };
@@ -85,7 +85,7 @@ export function BulkConfirmDialog({ selectedCount, olderCount, items, results, r
   const tx = useUiText();
   const done = results !== null && !running;
   const recorded = Object.values(results ?? {}).filter((result) => result.state === 'recorded').length;
-  return <IpamModal title="Confirmar selecionados" close={running ? () => undefined : close}><div className="modal-form">
+  return <CompactModal title="Confirmar selecionados" close={running ? () => undefined : close}><div className="modal-form">
     <p className="panel-description">{tx('groupB.assets.bulkDescription', undefined, { selected: selectedCount, reviews: items.length })}</p>
     {olderCount > 0 && <div className="ipam-alert warning" role="note">{tx('groupB.assets.olderWeeks', undefined, { count: olderCount })}</div>}
     {done && <div className={`ipam-alert ${recorded === items.length ? 'success' : 'error'}`} role="status">{recorded === items.length ? <CheckCircle2 size={15} /> : <X size={15} />}{tx('groupB.assets.recorded', undefined, { recorded, total: items.length })}</div>}
@@ -95,7 +95,7 @@ export function BulkConfirmDialog({ selectedCount, olderCount, items, results, r
       { id: 'state', header: 'Estado', cell: (item) => { const result = results?.[item.key]; return result ? <span className={`state-badge ${bulkResultTone[result.state]}`}><i />{bulkResultLabel[result.state]}</span> : <span className="muted-cell">{running ? 'A registar…' : 'Por registar'}</span>; } },
     ]} />
     <div className="modal-actions">{done ? <button type="button" className="primary-button" onClick={close}>Fechar</button> : <><button type="button" className="secondary-button" disabled={running} onClick={close}>Cancelar</button><button type="button" className="primary-button" disabled={running || !items.length} onClick={run}>{running ? 'A registar…' : `Confirmar ${items.length} revisões`}</button></>}</div>
-  </div></IpamModal>;
+  </div></CompactModal>;
 }
 
 /** Owner assignment: maps an asset type to the group that reviews it (existing mapping API). */
@@ -121,7 +121,7 @@ export function OwnerDialog({ initialType, mappings, groups, timezone, close, sa
     setSaving(false);
     if (failure) setError(failure);
   };
-  return <IpamModal title="Atribuir responsável" close={close}><form className="modal-form" onSubmit={(event) => void onSubmit(event)}>
+  return <CompactModal title="Atribuir responsável" close={close}><form className="modal-form" onSubmit={(event) => void onSubmit(event)}>
     <p className="panel-description">O grupo fica responsável pela revisão semanal de todos os ativos críticos deste tipo no Site.</p>
     {error && <div className="ipam-alert error" role="alert"><X size={15} />{error}</div>}
     <label>Tipo de ativo<select value={assetType} onChange={(event) => { setAssetType(event.target.value); setGroupId(currentGroup(event.target.value)); }}>{assetTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
@@ -129,7 +129,7 @@ export function OwnerDialog({ initialType, mappings, groups, timezone, close, sa
     <label>Fuso horário do Site<input required value={zone} onChange={(event) => setZone(event.target.value)} placeholder="Europe/Lisbon" /></label>
     <div className="host-detail-grid">{assetTypes.map((type) => <div key={type}><span>{type}</span><strong>{mappings.find((mapping) => mapping.assetType === type)?.group.name ?? 'Sem responsável'}</strong></div>)}</div>
     <div className="modal-actions"><button type="button" className="secondary-button" onClick={close}>Cancelar</button><button className="primary-button" disabled={!groupId || saving}>{saving ? 'A guardar…' : 'Guardar responsável'}</button></div>
-  </form></IpamModal>;
+  </form></CompactModal>;
 }
 
 /** Closes an open correction: resolved needs the change made, rejected needs the reason. Replaces free-text notes for these outcomes. */
@@ -154,10 +154,10 @@ export function CorrectionCloseDialog({ assetName, description, outcome, close, 
     setSaving(false);
     if (failure) setError(failure);
   };
-  return <IpamModal title={tx(resolved ? 'groupB.assets.resolveCorrection' : 'groupB.assets.rejectCorrection', undefined, { name: assetName })} close={close}><form className="modal-form" onSubmit={(event) => void onSubmit(event)}>
+  return <CompactModal title={tx(resolved ? 'groupB.assets.resolveCorrection' : 'groupB.assets.rejectCorrection', undefined, { name: assetName })} close={close}><form className="modal-form" onSubmit={(event) => void onSubmit(event)}>
     <p className="panel-description">{`Pedido: ${description}`}</p>
     {error && <div className="ipam-alert error" role="alert"><X size={15} />{error}</div>}
     <label>{resolved ? 'Alteração feita (ligação ou referência, obrigatório)' : 'Motivo da rejeição (obrigatório)'}<textarea autoFocus rows={3} maxLength={1000} required value={value} onChange={(event) => setValue(event.target.value)} /></label>
     <div className="modal-actions"><button type="button" className="secondary-button" onClick={close}>Cancelar</button><button className="primary-button" disabled={saving}>{saving ? 'A guardar…' : resolved ? 'Marcar como resolvida' : 'Rejeitar correção'}</button></div>
-  </form></IpamModal>;
+  </form></CompactModal>;
 }

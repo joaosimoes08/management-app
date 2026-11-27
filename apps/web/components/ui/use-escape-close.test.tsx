@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { IpamModal } from '@/features/ipam/components/ipam-modal';
+import { CompactModal } from '@/components/ui/compact-modal';
 import { useConfirm } from './confirm-dialog';
 import { Modal } from './modal';
 
@@ -10,7 +10,7 @@ afterEach(cleanup);
 describe('Escape in dialogs', () => {
   it('closes NAT even when focus is outside the dialog', () => {
     const close = vi.fn();
-    render(<IpamModal title="Editar regra NAT" close={close}>NAT</IpamModal>);
+    render(<CompactModal title="Editar regra NAT" close={close}>NAT</CompactModal>);
     fireEvent.keyDown(document.body, { key: 'Escape' });
     expect(close).toHaveBeenCalledOnce();
   });

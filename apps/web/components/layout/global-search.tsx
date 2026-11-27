@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ChevronRight, ClipboardCheck, GitPullRequestArrow, History, Loader2, Search, Wrench } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { apiFetch } from '@/lib/api/client';
-import { entityHref } from '@/components/data-table/entity-link';
+import { entityHref } from '@/lib/routes';
 import { useUiText } from '@/components/ui/use-ui-text';
 
 type SearchResult = { id: string; type: string; title: string; detail: string; href: string; actionHref?: string };

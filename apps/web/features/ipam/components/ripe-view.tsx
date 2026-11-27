@@ -6,7 +6,8 @@ import { ClipboardList, Eye, Upload, X } from 'lucide-react';
 import { ApiRequestError } from '@/lib/api/errors';
 import { getRipeImport, importRipe, listRipeImports, listVrfs, previewRipe } from '../api';
 import type { NetworkMapVlan, RipeDiffItem, RipeOverlap, RipeDiffReason, RipeDiffStatus, RipeImportRecord, RipeImportResult, RipePreview, RipePreviewInput, RipeQueryType, RipeSubnetRef, Vrf } from '../types';
-import { Empty, IpamModal } from './ipam-modal';
+import { Empty } from './ipam-modal';
+import { CompactModal } from '@/components/ui/compact-modal';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { formatDateTime } from '@/lib/format/date';
 import { useUiText } from '@/components/ui/use-ui-text';
@@ -228,13 +229,13 @@ export function RipeView({ siteId, search, vlans, canPreview, canImport, success
       <DataTable rows={visibleHistory} columns={historyColumns} rowKey={(item) => item.id} label="Histórico de importações RIPE" loading={loadingHistory} skeletonRows={3} empty={!historyError && <Empty title={term ? 'Sem importações correspondentes' : 'Ainda não existem importações RIPE'} text={term ? ui('ipam.subnets.tryAnotherSearch') : 'As pré-visualizações e importações aparecem aqui.'} />} />
     </section>
 
-    {pasteOpen && <IpamModal title="Colar ou carregar prefixos" close={() => setPasteOpen(false)}><form className="modal-form" onSubmit={(event) => void runPreview(event, 'paste')}>
+    {pasteOpen && <CompactModal title="Colar ou carregar prefixos" close={() => setPasteOpen(false)}><form className="modal-form" onSubmit={(event) => void runPreview(event, 'paste')}>
       {previewError && <div className="ipam-alert error" role="alert"><X size={15} />{previewError}</div>}
       <label>Prefixos<textarea required rows={8} maxLength={20000} placeholder={'193.0.0.0/21\n2001:db8::/32'} aria-describedby="ripe-paste-help" value={pasted} onChange={(event) => { setPasted(event.target.value); setFileName(''); }} /><small id="ripe-paste-help">Um ou mais prefixos CIDR separados por linhas, espaços, vírgulas ou ponto e vírgula. Máximo 500.</small></label>
       <label>Ficheiro .txt ou .csv<input type="file" accept=".txt,.csv,text/plain,text/csv" onChange={(event) => void readFile(event)} />{fileName && <small>{ui('ipam.ripe.loaded', undefined, { file: fileName })}</small>}</label>
       {vrfSelect}
       <button className="primary-button" disabled={previewing || !pasted.trim()}><Eye size={14} /> {previewing ? 'A pré-visualizar…' : 'Pré-visualizar'}</button>
-    </form></IpamModal>}
+    </form></CompactModal>}
 
     {detailId && <RipeImportPanel item={detail ?? null} vrfs={vrfs ?? []} close={() => setDetailId('')} />}
   </></>;

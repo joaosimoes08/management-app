@@ -6,7 +6,8 @@ import { Edit3, Plus, Trash2, X } from 'lucide-react';
 import { PageToolbarPortal } from '@/components/layout/app-shell';
 import { createNatRule, deleteNatRule, listNatRules, listVrfs, updateNatRule } from '../api';
 import type { NatRule, NatRuleInput, NatRuleType, Subnet } from '../types';
-import { Empty, IpamModal } from './ipam-modal';
+import { Empty } from './ipam-modal';
+import { CompactModal } from '@/components/ui/compact-modal';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { DataTable, type DataTableColumn } from '@/components/data-table/data-table';
 import { useUiText } from '@/components/ui/use-ui-text';
@@ -137,7 +138,7 @@ export function NatView({ siteId, siteName, search, subnets, canCreate, canUpdat
     {error && <div className="ipam-alert error"><X size={15} />{message(error)}</div>}
     <DataTable rows={items} columns={columns} rowKey={(rule) => rule.id} label="Regras NAT do Site" loading={isLoading} skeletonRows={3} empty={!error && <Empty title={filtered ? 'Sem regras NAT correspondentes' : 'Este Site ainda não tem regras NAT'} text={filtered ? 'Experimenta outra pesquisa ou limpa os filtros.' : canCreate ? 'Cria a primeira regra NAT deste Site.' : 'Ainda não foram configuradas regras NAT neste Site.'} />} />
 
-    {form && <IpamModal title={form.id ? 'Editar regra NAT' : 'Criar regra NAT'} close={() => setForm(null)}><form className="modal-form" onSubmit={(event) => void submit(event)}>
+    {form && <CompactModal title={form.id ? 'Editar regra NAT' : 'Criar regra NAT'} close={() => setForm(null)}><form className="modal-form" onSubmit={(event) => void submit(event)}>
       {formError && <div className="ipam-alert error" role="alert"><X size={15} />{formError}</div>}
       <label>Nome<input required maxLength={120} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
       <label>Tipo<select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value as NatRuleType })}>{natTypes.map((value) => <option key={value} value={value}>{natTypeLabels[value]}</option>)}</select></label>
@@ -152,6 +153,6 @@ export function NatView({ siteId, siteName, search, subnets, canCreate, canUpdat
       <label>Descrição<textarea maxLength={500} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
       <label className="settings-check"><input type="checkbox" checked={form.enabled} onChange={(event) => setForm({ ...form, enabled: event.target.checked })} /> Regra ativa</label>
       <button className="primary-button" disabled={saving}>{saving ? 'A guardar…' : form.id ? 'Guardar alterações' : 'Criar regra NAT'}</button>
-    </form></IpamModal>}
+    </form></CompactModal>}
   </section></>;
 }
