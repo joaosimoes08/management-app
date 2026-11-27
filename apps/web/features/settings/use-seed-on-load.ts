@@ -21,6 +21,10 @@ export function useSeedOnLoad<T>(query: UseQueryResult<T>, key: string, seed: (d
     // Stay armed while the mount fetch that follows a cached copy is still running.
     current = { ...current, at: query.dataUpdatedAt, armed: query.isFetching };
   }
+  // A cached copy was seeded and the fetch on mount then failed: the form now belongs to the person, so a later
+  // background refetch must not overwrite it. (A failed reload is handled by reload() itself; a first load that
+  // failed before anything was seeded stays armed so the form is filled once data arrives.)
+  if (current.armed && current.since === 0 && current.at !== 0 && !query.isFetching && query.isError) current = { ...current, armed: false };
   if (current !== state) setState(current);
   const reload = () => {
     setState((previous) => ({ ...previous, key, since: Date.now(), armed: true }));

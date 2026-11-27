@@ -38,6 +38,24 @@ describe('CriticalCadenceSettings', () => {
     expect(t1().value).toBe('6');
   });
 
+  it('keeps an edit made after the fetch on mount failed, when a later refetch succeeds', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    // A copy from an earlier visit is in the cache; the fetch on mount fails.
+    client.setQueryData(['settings', 'critical-cadence', 's-1'], { T1: 4, T2: 12, T3: 26 } satisfies Cadence);
+    mocks.getCriticalCadence.mockRejectedValueOnce(new Error('offline'));
+    render(<CriticalCadenceSettings sites={sites} />, { wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
+    await waitFor(() => expect(t1().value).toBe('4'));
+    await waitFor(() => expect(client.getQueryState(['settings', 'critical-cadence', 's-1'])?.status).toBe('error'));
+    await flushQueryNotifications();
+    fireEvent.change(t1(), { target: { value: '6' } });
+
+    mocks.getCriticalCadence.mockResolvedValue({ T1: 8, T2: 12, T3: 26 } satisfies Cadence);
+    await act(() => client.refetchQueries({ queryKey: ['settings', 'critical-cadence', 's-1'] }));
+    await flushQueryNotifications();
+    expect(client.getQueryData(['settings', 'critical-cadence', 's-1'])).toEqual({ T1: 8, T2: 12, T3: 26 });
+    expect(t1().value).toBe('6');
+  });
+
   it('fills the form for each Site chosen and from the saved answer', async () => {
     mocks.getCriticalCadence.mockImplementation(async (siteId: string) => (siteId === 's-1' ? { T1: 4, T2: 12, T3: 26 } : { T1: 2, T2: 8, T3: 20 }));
     setup();
