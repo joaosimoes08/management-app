@@ -1,4 +1,5 @@
 import { cleanup, render, screen } from '@testing-library/react';
+import { renderToString } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ReportUnsubscribeScreen } from './report-unsubscribe-screen';
 import ReportUnsubscribeRoute from '@/app/(public)/relatorios/cancelar-subscricao/page';
@@ -17,6 +18,12 @@ describe('public unsubscribe page', () => {
     expect(screen.getByText('ORG')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Keycloak/ })).toBeNull();
     expect(auth.useAuth).not.toHaveBeenCalled();
+  });
+
+  it('shows the connecting spinner before hydration instead of an empty page', () => {
+    const html = renderToString(<ReportUnsubscribeScreen token="tok123" />);
+    expect(html).toContain('auth-spinner');
+    expect(html).not.toContain('unsubscribe:tok123');
   });
 
   it('passes the token from the link to the screen, and nothing for a missing or repeated token', async () => {

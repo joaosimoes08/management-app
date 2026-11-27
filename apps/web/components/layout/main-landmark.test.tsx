@@ -38,12 +38,12 @@ describe('one <main> landmark per page', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('loading and error boundaries inside the shell add no <main> of their own', () => {
+  it('error boundaries and layouts inside the shell add no <main> of their own', () => {
     const root = path.resolve(import.meta.dirname, '../..');
     const files = [path.join(root, 'components', 'layout', 'route-status.tsx')];
     const walk = (dir: string) => { for (const name of readdirSync(dir)) { const full = path.join(dir, name); if (statSync(full).isDirectory()) walk(full); else if (/^(loading|error|layout)\.tsx$/.test(name)) files.push(full); } };
     walk(path.join(root, 'app', '(authenticated)'));
-    expect(files.length).toBeGreaterThan(4);
+    expect(files.length).toBeGreaterThan(2);
     expect(files.filter((file) => /<main[\s>]|role=["']main["']/.test(readFileSync(file, 'utf8'))).map((file) => path.relative(root, file))).toEqual([]);
   });
 });

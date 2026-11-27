@@ -3903,5 +3903,4 @@ small.alert-next-step::before { content:'→ '; }
 @media (max-width:480px) { .discovery-identity { max-width:none; } }
 
 /* Route loading/error boundaries render inside the shell <main>, not as full-screen pages. */
-.route-loading .auth-loading { min-height:40vh; background:transparent; }
 .route-error .auth-card { margin:40px auto; }

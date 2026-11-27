@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -80,8 +80,9 @@ describe('app routes', () => {
     expect(readFileSync(path.join(appDir, '..', 'features', 'reports', 'report-unsubscribe-screen.tsx'), 'utf8')).not.toContain('<AuthGate');
   });
 
-  it('has loading states for the heavy pages and an error boundary for the signed-in group', () => {
-    for (const route of ['infraestrutura', 'ipam', 'topology']) expect(statSync(path.join(appDir, '(authenticated)', route, 'loading.tsx')).isFile()).toBe(true);
+  it('keeps the outgoing page during navigation (no loading.tsx) and has an error boundary for the signed-in group', () => {
+    // A route-level loading.tsx would unmount the old page's PageShell and blank the header and toolbar until the new page publishes.
+    for (const route of ['infraestrutura', 'ipam', 'topology']) expect(existsSync(path.join(appDir, '(authenticated)', route, 'loading.tsx'))).toBe(false);
     expect(statSync(path.join(appDir, '(authenticated)', 'error.tsx')).isFile()).toBe(true);
   });
 });
