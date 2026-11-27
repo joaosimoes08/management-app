@@ -1,4 +1,4 @@
-import type { KeycloakInstance, KeycloakProfile, KeycloakTokenParsed } from 'keycloak-js';
+import type { KeycloakProfile, KeycloakTokenParsed } from 'keycloak-js';
 
 export type ApiUser = {
   id: string;
@@ -14,11 +14,13 @@ export type SetupStatus = {
   locale?: string | null;
 };
 
+/**
+ * What the app reads about the session. Deliberately has no access token and no Keycloak
+ * adapter: HTTP calls get their token through the API client (setApiTokenProvider).
+ */
 export type AuthContextValue = {
-  keycloak: KeycloakInstance | null;
   user: ApiUser | null;
   profile: KeycloakProfile | null;
-  token: string | undefined;
   loading: boolean;
   authError: string | null;
   authenticated: boolean;

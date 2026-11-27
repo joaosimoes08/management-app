@@ -8,7 +8,7 @@ import { REQUIRED_CONFIGS_QUERY_KEY, type MappedFieldError, type RequiredConfigR
 import { DeviceEditor } from './device-editor';
 import { snmpReceiverKey } from '@/features/snmp/api';
 
-vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: () => true, token: '' }) }));
+vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: () => true }) }));
 vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string, fallback?: string) => fallback ?? key }) }));
 vi.mock('../../use-power-defaults', () => ({ usePowerDefaults: () => ({ minPowerPlugCount: 0, maxPowerPlugCount: 8, maxWatts: 20000, pduOutletCount: 24, pduBudgetWatts: 3680, powerPlugCount: 2, wattsByDeviceType: { SWITCH: 60 } }) }));
 vi.mock('../asset-image', () => ({ AssetImage: () => null }));
