@@ -17,5 +17,16 @@ export function parseJson(raw: string | null | undefined): unknown {
 export const isString = (value: unknown): value is string => typeof value === 'string';
 export const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 
-/** An in-app path such as `/ipam?siteId=…`: never another origin (`//host`) or a `javascript:` URL. */
-export const isAppPath = (value: unknown): value is string => isString(value) && value.startsWith('/') && !value.startsWith('//') && !value.startsWith('/\\');
+// ASCII control characters (C0 and DEL). URL parsing strips tab and newline, so `/\t/host` would become `//host`.
+const ASCII_CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
+
+/**
+ * An in-app path such as `/ipam?siteId=…`: never another origin (`//host`, `/\host`), a `javascript:` URL,
+ * or a path with control characters that the URL parser strips into one of those.
+ */
+export const isAppPath = (value: unknown): value is string =>
+  isString(value) &&
+  value.startsWith('/') &&
+  value[1] !== '/' &&
+  value[1] !== '\\' &&
+  !ASCII_CONTROL_CHARACTER.test(value);
