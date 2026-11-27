@@ -13,7 +13,7 @@ import { useUiText } from '@/components/ui/use-ui-text';
 import { GlobalSearchPalette, type LocalSearchContext, type RackSearchContext } from './global-search';
 import { UserMenu } from './user-menu';
 import { ResponsiveToolbarActions } from './responsive-overflow';
-import { contextToolbarHasControls, contextToolbarOverflows } from './context-toolbar-fit';
+import { useToolbarFit } from './use-toolbar-fit';
 import { helpArticle, helpArticleForPath } from '@/features/help/articles';
 import { useI18n } from '@/lib/i18n';
 import { STORAGE_KEYS, getLocalItem } from '@/lib/storage-keys';
@@ -66,54 +66,10 @@ export function AppShellFrame({ children }: { children: ReactNode }) {
   const [toolbarActionsElement, setToolbarActionsElement] = useState<HTMLDivElement | null>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const controlsId = useId();
-  const [toolbarCompact, setToolbarCompact] = useState(false);
-  const [controlsOpen, setControlsOpen] = useState(false);
-
-  // One-line utility bar: when the page's controls do not fit beside the title (they would wrap or spill),
-  // they move into the "Controlos" panel. The check runs before paint and again on resize or content change.
-  useLayoutEffect(() => {
-    const toolbar = toolbarRef.current;
-    if (!toolbar) return;
-    let frame = 0;
-    // Width at which the one-line layout last failed for real, so a passing trial cannot flip it back and forth.
-    let failedAt = -1;
-    const fit = () => {
-      frame = 0;
-      const width = toolbar.clientWidth;
-      if (!contextToolbarHasControls(toolbar)) {
-        if (toolbar.hasAttribute('data-compact')) { toolbar.removeAttribute('data-compact'); setToolbarCompact(false); }
-        return;
-      }
-      if (!toolbar.hasAttribute('data-compact')) {
-        if (contextToolbarOverflows(toolbar)) { failedAt = width; toolbar.setAttribute('data-compact', ''); setToolbarCompact(true); }
-        return;
-      }
-      if (width <= failedAt) return;
-      // Trial: lay the bar out on one line with the page actions folded to their minimum, measure, and keep compact if it still spills.
-      toolbar.removeAttribute('data-compact');
-      toolbar.setAttribute('data-measuring', '');
-      const overflows = contextToolbarOverflows(toolbar);
-      toolbar.removeAttribute('data-measuring');
-      if (overflows) toolbar.setAttribute('data-compact', '');
-      else { setToolbarCompact(false); setControlsOpen(false); }
-    };
-    const schedule = () => { if (!frame) frame = window.requestAnimationFrame(fit); };
-    fit();
-    const resize = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(schedule);
-    resize?.observe(toolbar);
-    const content = typeof MutationObserver === 'undefined' ? undefined : new MutationObserver((records) => {
-      const inside = (selector: string) => records.every((record) => (record.target instanceof Element ? record.target : record.target.parentElement)?.closest(selector));
-      if (inside('.responsive-overflow-measure, .responsive-overflow-popover')) return;
-      // "Mais ações" re-folding itself is a consequence of our own layout change, not new content: keep the failure memory.
-      if (!inside('.responsive-toolbar-actions')) failedAt = -1;
-      schedule();
-    });
-    content?.observe(toolbar, { childList: true, subtree: true, characterData: true });
-    return () => { resize?.disconnect(); content?.disconnect(); if (frame) window.cancelAnimationFrame(frame); };
-  }, []);
+  const { compact: toolbarCompact, controlsOpen, setControlsOpen } = useToolbarFit(toolbarRef);
 
   // The frame persists across pages, so per-page UI state is reset on navigation (it used to remount with each page).
-  useEffect(() => { setControlsOpen(false); setSidebarOpen(false); setGlobalSearchOpen(false); }, [pathname]);
+  useEffect(() => { setControlsOpen(false); setSidebarOpen(false); setGlobalSearchOpen(false); }, [pathname, setControlsOpen]);
 
   useEffect(() => {
     if (!controlsOpen) return;
@@ -127,7 +83,7 @@ export function AppShellFrame({ children }: { children: ReactNode }) {
     document.addEventListener('pointerdown', outside);
     document.addEventListener('keydown', escape);
     return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); };
-  }, [controlsOpen]);
+  }, [controlsOpen, setControlsOpen]);
 
   useEffect(() => {
     setCollapsed(getLocalItem(STORAGE_KEYS.sidebarCollapsed) === 'true');
