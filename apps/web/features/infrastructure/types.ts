@@ -1,11 +1,20 @@
-export type CriticalityTier = 'T1' | 'T2' | 'T3';
 import type { PaginatedResponse } from '@/lib/api/types';
 import type { TagSummary } from '@/features/tags/types';
+import type { IpAddress, Vlan } from '@/features/ipam/types';
+
+// IPAM owns the VLAN and IP address models; re-exported so infrastructure imports keep working.
+export type { IpAddress, Vlan };
+
+export type CriticalityTier = 'T1' | 'T2' | 'T3';
 
 // ── Shared enumerations (mirror Prisma enums / API DTOs) ──────────────────
 
+/** Device.type / DeviceModel.type: a String column, but every write is checked against this list (infrastructure/dto.ts). */
 export type EquipmentType = 'SWITCH' | 'ROUTER' | 'FIREWALL' | 'SERVER' | 'STORAGE' | 'OTHER';
+/** Prisma enum AssetStatus. */
 export type AssetStatus = 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE' | 'RETIRED' | 'UNKNOWN';
+/** Prisma enum SourceType: who created or last owns a record. */
+export type SourceType = 'MANUAL' | 'SNMP' | 'AGENT' | 'ICMP' | 'TCP' | 'DNS' | 'DHCP' | 'IMPORT';
 export type DeviceInterfaceType =
   | 'FAST_ETHERNET'
   | 'ETHERNET'
@@ -18,6 +27,8 @@ export type DeviceInterfaceType =
   | 'FIBRE_CHANNEL'
   | 'OTHER';
 export type DeviceInterfaceMode = 'ACCESS' | 'TRUNK' | 'ROUTED';
+// DeviceInterfaceType and DeviceInterfaceMode stay open (`| string`) where used: the API stores
+// interfaceType/mode as free strings (@IsString, String? column) and SNMP may write other values.
 export type InfrastructureAction = 'READ' | 'CREATE' | 'UPDATE' | 'DELETE';
 
 // ── Physical hierarchy ─────────────────────────────────────────────────────
@@ -87,7 +98,7 @@ export interface PduConnection {
   deviceName: string;
   /** Outlets this device uses on this PDU. Older payloads may send bare outlet numbers. */
   outlets: (PduOutlet | number)[];
-  deviceType?: string;
+  deviceType?: EquipmentType;
   /** The device's estimated load carried by this PDU in normal operation. */
   estimatedWattsShare?: number | null;
   /** The device's whole estimated load (all plugs): what this PDU carries if the other feed fails. */
@@ -197,7 +208,7 @@ export interface DeviceModel {
   portCount?: number | null;
   supportsNetworkPorts?: boolean;
   networkPortCount?: number | null;
-  type?: EquipmentType | string;
+  type?: EquipmentType | null;
   frontAssetId?: string | null;
   frontAsset?: AssetFile | null;
   backAssetId?: string | null;
@@ -216,7 +227,7 @@ export interface DeviceModel {
 export interface Device {
   id: string;
   name: string;
-  type: EquipmentType | string;
+  type: EquipmentType;
   serialNumber?: string | null;
   assetTag?: string | null;
   hostname?: string | null;
@@ -225,8 +236,8 @@ export interface Device {
   isCritical?: boolean;
   /** Criticality tier (T1 vital, T2 important, T3 standard); null when the device is not critical. */
   criticalityTier?: CriticalityTier | null;
-  source?: string;
-  status: AssetStatus | string;
+  source?: SourceType;
+  status: AssetStatus;
   modelId?: string | null;
   rackId?: string | null;
   rackUnitStart?: number | null;
@@ -253,16 +264,6 @@ export interface Device {
   ipAddresses?: IpAddress[];
 }
 
-export interface Vlan {
-  id: string;
-  vlanId: number;
-  name: string;
-  description?: string | null;
-  siteId?: string | null;
-  site?: Site | null;
-  subnets?: { id: string; cidr: string; siteId?: string | null }[];
-}
-
 export interface InterfaceAllowedVlan {
   vlanId: string;
   tagged?: boolean;
@@ -287,17 +288,6 @@ export interface DeviceInterface {
   accessVlan?: Vlan | null;
   allowedVlans?: InterfaceAllowedVlan[];
   ipAddresses?: IpAddress[];
-}
-
-export interface IpAddress {
-  id: string;
-  address: string;
-  hostname?: string | null;
-  state?: string;
-  version?: number;
-  subnetId: string;
-  deviceId?: string | null;
-  interfaceId?: string | null;
 }
 
 // ── Placement planning (POST /devices/:id/placement/preview) ───────────────

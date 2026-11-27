@@ -1,4 +1,5 @@
 import { apiFetch } from '@/lib/api/client';
+import type { PaginatedResponse } from '@/lib/api/types';
 import { deviceFilterQuery, type DeviceUrlFilters } from './device-filters';
 import type {
   ApiLoadLevel,
@@ -266,7 +267,8 @@ export interface MissingConfigDevice {
   /** Device deep link: its Site plus the editor on the missing tab. */
   href: string;
 }
-export interface MissingConfigDeviceList { items: MissingConfigDevice[]; total: number; totalPages: number; page?: number; pageSize?: number; siteCount?: number }
+/** GET /devices/missing-config. The API does not send `siteCount` today; the list falls back to counting the sites on the page. */
+export type MissingConfigDeviceList = PaginatedResponse<MissingConfigDevice> & { config?: string; tab?: string; siteCount?: number };
 
 /** Cross-site list behind a bell alert (no siteId): `total` is the bell's count. */
 export function listMissingConfigDevices(config: string, page = 1, pageSize = 50): Promise<MissingConfigDeviceList> {

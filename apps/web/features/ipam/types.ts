@@ -1,7 +1,16 @@
 import type { TagSummary } from '@/features/tags/types';
-import type { Device, Site } from '@/features/infrastructure/types';
+import type { AssetStatus, Device, EquipmentType, Site, SourceType } from '@/features/infrastructure/types';
 
-// ── VLANs ──────────────────────────────────────────────────────────────────
+// ── Enumerations (mirror Prisma enums / API DTO validation) ────────────────
+
+/** Prisma enum IpState. */
+export type IpState = 'FREE' | 'OCCUPIED' | 'RESERVED' | 'EXCLUDED' | 'UNKNOWN';
+/** Service.status: the only values Create/UpdateServiceDto accept. */
+export type ServiceStatus = 'UNKNOWN' | 'OPEN' | 'CLOSED' | 'DEGRADED' | 'DISABLED';
+/** IpReservation.status (a VarChar on the API, written only with these values). */
+export type IpReservationStatus = 'ACTIVE' | 'RELEASED' | 'EXPIRED';
+
+// ── VLANs (IPAM owns this model; infrastructure re-exports it) ──────────────
 
 export interface Vlan {
   id: string;
@@ -9,6 +18,9 @@ export interface Vlan {
   name: string;
   description?: string | null;
   siteId?: string | null;
+  /** Included by the site-scoped VLAN list and interface includes. */
+  site?: Site | null;
+  subnets?: { id: string; cidr: string; siteId?: string | null }[];
 }
 
 export interface VlanInput {
@@ -51,6 +63,7 @@ export interface SubnetUtilization {
   reserved?: number;
   free?: number | null;
   utilizationPercent: number | null;
+  /** Open on purpose: the UI renders an unknown band generically (covered by next-free-ip-modal.test). */
   band: SubnetUtilizationBand | (string & {});
 }
 
@@ -72,7 +85,7 @@ export interface ReserveNextIpsResult {
   subnetId: string;
   count: number;
   expiresAt: string;
-  reservations: Array<{ id: string; status: string; expiresAt: string; reason: string; ipAddress: { id: string; address: string }; createdIpAddress?: boolean }>;
+  reservations: Array<{ id: string; status: IpReservationStatus; expiresAt: string; reason: string; ipAddress: { id: string; address: string }; createdIpAddress?: boolean }>;
 }
 
 export interface SubnetInput {
@@ -94,7 +107,7 @@ export interface SubnetUsage {
   reserved: number;
   excluded: number;
   free: number | null;
-  byState: Record<string, number>;
+  byState: Partial<Record<IpState, number>>;
   utilizationPercent: number | null;
 }
 
@@ -116,24 +129,41 @@ export interface SubnetCapacityHistory {
   forecast: { status: 'AVAILABLE' | 'AT_CAPACITY' | 'INSUFFICIENT_HISTORY' | 'NO_GROWTH' | 'LOW_CONFIDENCE' | 'BEYOND_FORECAST_WINDOW' | 'TRACKING_ONLY'; daysUntilFull: number | null; projectedFullAt: string | null; dailyGrowth: number | null };
 }
 
-// ── IP addresses ───────────────────────────────────────────────────────────
+// ── IP addresses (IPAM owns this model; infrastructure re-exports it) ───────
 
-export interface IpAddressRow {
+/** IpAddress scalars as the device/interface includes return them. */
+export interface IpAddress {
   id: string;
   address: string;
-  state: string;
+  hostname?: string | null;
+  state?: IpState;
+  version?: number;
+  subnetId: string;
+  deviceId?: string | null;
+  interfaceId?: string | null;
+}
+
+/** A row of GET /ip-addresses (and the subnet IP list). */
+export interface IpAddressRow extends Omit<IpAddress, 'state'> {
+  state: IpState;
+  source?: SourceType;
+  /** Last probe result; a free string on the API (not the IpState enum). */
   observedState?: string | null;
   lastCheckAt?: string | null;
   lastCheckMethod?: string | null;
   responseMs?: number | null;
-  hostname?: string | null;
   macAddress?: string | null;
   notes?: string | null;
-  subnetId: string;
   subnet?: { cidr: string } | null;
   host?: { id: string; name: string; _count?: { services?: number } } | null;
   interface?: { id: string; name: string; device?: { name: string } | null } | null;
+  /**
+   * CLIENT-SIDE ONLY: never sent by the API. Optimistic override written into the
+   * React Query cache by `applyIpReservationOverride` after a reserve/release, so the
+   * row updates before the refetch. Readers fall back to `reservations[]` (status ACTIVE).
+   */
   reservation?: IpReservation | null;
+  /** From the API: the address's reservations; the active one has status ACTIVE. */
   reservations?: IpReservation[];
 }
 
@@ -146,7 +176,7 @@ export interface IpReservation {
   releasedAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
-  status?: 'ACTIVE' | 'RELEASED' | 'EXPIRED';
+  status?: IpReservationStatus;
   ipAddress?: Pick<IpAddressRow, 'id' | 'address'>;
 }
 
@@ -168,7 +198,7 @@ export interface ServiceInput {
   name: string;
   protocol?: string;
   port?: number;
-  status?: string;
+  status?: ServiceStatus;
   version?: string;
   notes?: string;
   hostId: string;
@@ -180,7 +210,7 @@ export interface HostInput {
   operatingSystem?: string;
   macAddress?: string;
   notes?: string;
-  status?: string;
+  status?: AssetStatus;
   ipAddressId?: string;
 }
 
@@ -189,11 +219,11 @@ export interface Service {
   name: string;
   protocol?: string | null;
   port?: number | null;
-  status?: string | null;
+  status?: ServiceStatus | null;
   observedStatus?: string | null;
   version?: string | null;
   notes?: string | null;
-  source?: string;
+  source?: SourceType;
 }
 
 export interface HostRelationIpAddress {
@@ -211,9 +241,9 @@ export interface HostDetail {
   operatingSystem?: string | null;
   macAddress?: string | null;
   notes?: string | null;
-  status: string;
+  status: AssetStatus;
   observedStatus?: string | null;
-  source?: string;
+  source?: SourceType;
   lastSeenAt?: string | null;
   device?: (Pick<Device, 'id' | 'name'> & {
     model?: { manufacturer: string; model: string } | null;
@@ -239,8 +269,8 @@ export interface NetworkMapInterface {
 export interface NetworkMapDevice {
   id: string;
   name: string;
-  type: string;
-  status?: string;
+  type: EquipmentType;
+  status?: AssetStatus;
   hostname?: string | null;
   model?: { manufacturer: string; model: string } | null;
   interfaces: NetworkMapInterface[];
@@ -429,10 +459,10 @@ export interface RipeDiffSummary { total: number; new: number; changed: number; 
 export interface RipePreview {
   id: string;
   query: string;
-  queryType: RipeQueryType | 'paste' | string;
-  source?: 'PASTE' | 'RIPESTAT' | string;
+  queryType: RipeQueryType | 'paste';
+  source?: RipeImportSource;
   prefixes: string[];
-  status: string;
+  status: RipeImportStatus;
   target?: RipeDiffTarget;
   summary?: RipeDiffSummary;
   diff?: RipeDiffItem[];
@@ -441,15 +471,18 @@ export interface RipePreview {
   normalized?: Array<{ input: string; prefix: string }>;
 }
 
+export type RipeImportSource = 'PASTE' | 'RIPESTAT';
+export type RipeImportStatus = 'PREVIEW' | 'IMPORTED' | 'PARTIAL' | 'FAILED';
+
 export interface RipeSkippedPrefix { cidr: string; reason: string }
 
 export interface RipeImportRecord {
   id: string;
   query: string;
-  queryType: RipeQueryType | string;
-  source: string;
-  status: 'PREVIEW' | 'IMPORTED' | 'PARTIAL' | 'FAILED' | string;
-  result: { prefixes?: string[]; source?: string; selected?: string[]; created?: string[]; skipped?: RipeSkippedPrefix[]; target?: RipeDiffTarget; diff?: RipeDiffItem[]; summary?: RipeDiffSummary; invalid?: RipeInvalidPrefix[]; duplicates?: string[] } | null;
+  queryType: RipeQueryType | 'paste';
+  source: RipeImportSource;
+  status: RipeImportStatus;
+  result: { prefixes?: string[]; source?: RipeImportSource; selected?: string[]; created?: string[]; skipped?: RipeSkippedPrefix[]; target?: RipeDiffTarget; diff?: RipeDiffItem[]; summary?: RipeDiffSummary; invalid?: RipeInvalidPrefix[]; duplicates?: string[] } | null;
   createdBy?: string | null;
   createdAt: string;
   updatedAt?: string;
@@ -466,7 +499,7 @@ export interface RipeImportInput {
 }
 
 export interface RipeImportResult {
-  status: 'IMPORTED' | 'PARTIAL' | 'FAILED';
+  status: Exclude<RipeImportStatus, 'PREVIEW'>;
   created: Subnet[];
   skipped: RipeSkippedPrefix[];
 }

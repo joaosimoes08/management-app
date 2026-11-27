@@ -1,4 +1,5 @@
 import { apiFetch } from '@/lib/api/client';
+import type { PaginatedResponse } from '@/lib/api/types';
 import type { BulkReviewResponse } from '@/components/ui/bulk-review-dialog';
 import type { SnmpJobView, SnmpReceiverSettings } from './snmp-setup';
 
@@ -66,7 +67,7 @@ export interface SnmpFleetDrift {
   device?: { id: string; name: string; type?: string; siteId?: string | null } | null;
   interface?: { id: string; name: string } | null;
 }
-export interface SnmpDriftPage { items: SnmpFleetDrift[]; page: number; pageSize: number; total: number; totalPages: number }
+export type SnmpDriftPage = PaginatedResponse<SnmpFleetDrift>;
 export type SnmpDriftQuery = { status?: string; siteId?: string; deviceId?: string; page?: number; pageSize?: number };
 
 const query = (values: Record<string, string | number | undefined>) => {
