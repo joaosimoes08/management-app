@@ -35,9 +35,18 @@ const apiFetch = vi.fn((path: string) => new Promise((resolve) => {
 }));
 vi.mock('@/lib/api/client', () => ({ apiFetch: (path: string) => apiFetch(path) }));
 
+/**
+ * Answers every held request until the page stops asking. React Query hands results to components on a
+ * setTimeout(0) tick, so each round yields a macrotask (not just a microtask): otherwise a request that is only
+ * issued once an earlier answer lands (the model catalogue waits for the access answer) can appear after the last
+ * round, stay unanswered, and leave the page waiting for good. Stops after three quiet rounds in a row.
+ */
 async function releaseAll() {
-  for (let round = 0; round < 8; round += 1) {
-    await act(async () => { pending.splice(0).forEach((answer) => answer()); await Promise.resolve(); });
+  let quietRounds = 0;
+  for (let round = 0; round < 50 && quietRounds < 3; round += 1) {
+    const answers = pending.splice(0);
+    quietRounds = answers.length ? 0 : quietRounds + 1;
+    await act(async () => { answers.forEach((answer) => answer()); await new Promise((resolve) => setTimeout(resolve, 0)); });
   }
 }
 function mount() {
