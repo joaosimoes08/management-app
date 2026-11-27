@@ -33,4 +33,15 @@ describe('data guards', () => {
     expect(isAppPath('https://evil.example')).toBe(false);
     expect(isAppPath(undefined)).toBe(false);
   });
+
+  it('isAppPath rejects control characters that URL parsing strips into a protocol-relative URL', () => {
+    expect(isAppPath('/\t/x')).toBe(false);
+    expect(isAppPath('/\n/x')).toBe(false);
+    expect(isAppPath('/\r/x')).toBe(false);
+    expect(isAppPath('/\t\\x')).toBe(false);
+    expect(isAppPath('/ipam\u0000')).toBe(false);
+    expect(isAppPath('/ipam\u007f')).toBe(false);
+    expect(isAppPath('/\\x')).toBe(false);
+    expect(isAppPath('/ipam/x y')).toBe(true);
+  });
 });
