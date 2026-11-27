@@ -155,6 +155,36 @@ describe('OperationsPanel scope changes and failures', () => {
 });
 
 describe('OperationsPanel request sharing', () => {
+  it('replaces a refresh in flight with a fresh request on an operational event, so the older answer never shows', async () => {
+    const staleRefresh = deferred<ReturnType<typeof page>>();
+    mocks.listOperationalAlerts.mockResolvedValueOnce(page([alert('a1', 'First load alert')]))
+      .mockReturnValueOnce(staleRefresh.promise)
+      .mockResolvedValueOnce(page([alert('a3', 'Fresh after event')]));
+    render(<OperationsPanel showQuality={false} siteId="site-a" />);
+    expect(await screen.findByText('First load alert')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Atualizar alertas' }));
+    await waitFor(() => expect(mocks.listOperationalAlerts).toHaveBeenCalledTimes(2));
+    act(() => { events.options.onEvent?.({ event: 'alert.updated', data: {} }); });
+    expect(await screen.findByText('Fresh after event')).toBeInTheDocument();
+    expect(mocks.listOperationalAlerts).toHaveBeenCalledTimes(3);
+    await act(async () => { staleRefresh.resolve(page([alert('a2', 'Stale refresh alert')])); await staleRefresh.promise; });
+    expect(screen.queryByText('Stale refresh alert')).not.toBeInTheDocument();
+    expect(screen.getByText('Fresh after event')).toBeInTheDocument();
+  });
+
+  it('asks only for the current Site after a scope switch', async () => {
+    const view = render(<OperationsPanel siteId="site-1" />);
+    await waitFor(() => expect(mocks.getInventoryQuality).toHaveBeenCalledWith('site-1'));
+    view.rerender(<OperationsPanel siteId="site-2" />);
+    await waitFor(() => expect(mocks.getInventoryQuality).toHaveBeenCalledWith('site-2'));
+    await waitFor(() => expect(screen.queryByText('A carregar…')).not.toBeInTheDocument());
+    mocks.getInventoryQuality.mockClear(); mocks.listOperationalAlerts.mockClear();
+    act(() => { events.options.onEvent?.({ event: 'alert.updated', data: {} }); });
+    await waitFor(() => expect(mocks.getInventoryQuality).toHaveBeenCalledTimes(1));
+    expect(mocks.getInventoryQuality).toHaveBeenCalledWith('site-2');
+    expect(mocks.listOperationalAlerts.mock.calls.map(([site]) => site)).toEqual(['site-2']);
+  });
+
   it('shares one set of requests when the events fallback poll starts together with the first load', async () => {
     let release!: (value: unknown) => void;
     mocks.getInventoryQuality.mockReturnValue(new Promise((resolve) => { release = resolve; }));
