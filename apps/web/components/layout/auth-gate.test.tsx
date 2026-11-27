@@ -16,10 +16,6 @@ vi.mock('@/lib/i18n/i18n', async (importOriginal) => {
 });
 vi.mock('@/lib/api/client', () => ({ apiFetch: mocks.apiFetch }));
 vi.mock('@/lib/runtime-config', () => ({ getPublicOrganizationName: () => 'Org', getPublicRuntimeConfig: () => ({ apiUrl: '', keycloakRealm: 'r' }) }));
-vi.mock('@/features/reports/report-unsubscribe', () => ({
-  PUBLIC_UNSUBSCRIBE_PATH: '/relatorios/cancelar-subscricao',
-  ReportUnsubscribe: ({ token }: { token: string | null }) => <p>unsubscribe:{token}</p>,
-}));
 
 afterEach(() => { cleanup(); window.history.replaceState(null, '', '/'); mocks.apiFetch.mockReset(); mocks.uiLocale = null; vi.restoreAllMocks(); });
 beforeEach(() => { mocks.auth = { ...signedOut }; });
@@ -62,13 +58,34 @@ describe('AuthGate', () => {
     expect(source).toContain("ui('authGate.tagline')");
   });
 
-  it('shows the email unsubscribe page without a session and without the app', () => {
+  it('no longer decides anything from the URL: public pages live outside every AuthGate', () => {
     window.history.replaceState(null, '', '/relatorios/cancelar-subscricao?token=tok123');
     render(<AuthGate><p>app</p></AuthGate>);
-    expect(screen.getByText('unsubscribe:tok123')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Continuar com Keycloak/ })).toBeInTheDocument();
     expect(screen.queryByText('app')).toBeNull();
-    expect(screen.queryByRole('button', { name: /Keycloak/ })).toBeNull();
-    expect(mocks.apiFetch).not.toHaveBeenCalled();
+    const source = readFileSync(path.join(import.meta.dirname, 'auth-gate.tsx'), 'utf8');
+    expect(source).not.toContain('window.location.pathname');
+  });
+
+  it('lets /setup render while setup is incomplete, and does not redirect it to itself', () => {
+    const replace = vi.fn();
+    vi.spyOn(window, 'location', 'get').mockReturnValue({ ...window.location, pathname: '/setup', replace } as Location);
+    mocks.auth = { ...signedOut, authenticated: true, setupStatus: { setupCompleted: false } };
+    render(<AuthGate requireCompletedSetup={false}><p>setup wizard</p></AuthGate>);
+    expect(screen.getByText('setup wizard')).toBeInTheDocument();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it('still asks for sign-in on /setup', () => {
+    render(<AuthGate requireCompletedSetup={false}><p>setup wizard</p></AuthGate>);
+    expect(screen.getByRole('button', { name: /Continuar com Keycloak/ })).toBeInTheDocument();
+    expect(screen.queryByText('setup wizard')).toBeNull();
+  });
+
+  it('shows /setup instead of the setup-status error screen', () => {
+    mocks.auth = { ...signedOut, authenticated: true, setupStatusError: 'setup down' };
+    render(<AuthGate requireCompletedSetup={false}><p>setup wizard</p></AuthGate>);
+    expect(screen.getByText('setup wizard')).toBeInTheDocument();
   });
 
   it('mounts the app once when the shared setup status says setup is complete, without its own request', () => {

@@ -6,7 +6,7 @@ import { InventoryQualityPage } from './inventory-quality-page';
 
 vi.mock('@/components/layout/app-shell', async (importOriginal) => ({
   ...await importOriginal<typeof import('@/components/layout/app-shell')>(),
-  AppShell: ({ children, actions }: { children: React.ReactNode; actions?: React.ReactNode }) => <><div data-testid="toolbar-actions">{actions}</div>{children}</>,
+  PageShell: ({ children, actions }: { children: React.ReactNode; actions?: React.ReactNode }) => <><div data-testid="toolbar-actions">{actions}</div>{children}</>,
 }));
 vi.mock('@/lib/site-context', () => ({ useSiteContext: () => ({ siteId: 'site-1' }) }));
 const roles = vi.hoisted(() => ({ current: ['ADMIN'] as string[] }));

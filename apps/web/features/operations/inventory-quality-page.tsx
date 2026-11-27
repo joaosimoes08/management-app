@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Clock3, ExternalLink, RefreshCw, Server, UserPlus, X } from 'lucide-react';
-import { AppShell, PageToolbarPortal } from '@/components/layout/app-shell';
+import { PageShell, PageToolbarPortal } from '@/components/layout/app-shell';
 import { DataTable, SavedViews, sortByColumns, useTableUrlState, type DataTableColumn } from '@/components/data-table';
 import { entityHref } from '@/lib/routes';
 import { useConfirm } from '@/components/ui/confirm-dialog';
@@ -161,7 +161,7 @@ export function InventoryQualityPage() {
   const empty = loadError ? null : <div className="no-data">{filtering ? 'Sem findings correspondentes.' : filters.status === 'OPEN' ? 'Sem findings abertos neste Site.' : 'Sem findings neste estado.'}</div>;
   const tableProps = { columns, rowKey: (row: InventoryFinding) => row.id, sort: table.sort, onSortChange: table.setSort, defaultSort: table.defaultSort, selection };
 
-  return <>{confirmDialog}<AppShell section="Qualidade do inventário" search={{ value: search, onChange: setSearch, placeholder: 'Pesquisar título, detalhe ou correção…', ariaLabel: 'Pesquisar findings', scopeLabel: 'Qualidade do inventário' }} actions={actions}>
+  return <>{confirmDialog}<PageShell section="Qualidade do inventário" search={{ value: search, onChange: setSearch, placeholder: 'Pesquisar título, detalhe ou correção…', ariaLabel: 'Pesquisar findings', scopeLabel: 'Qualidade do inventário' }} actions={actions}>
     <PageToolbarPortal><div className="interface-toolbar-controls">
       <label><span className="toolbar-filter-label">Severidade</span><select aria-label="Filtrar por severidade" title="Filtrar por severidade" value={filters.severity} onChange={(event) => setFilter('severity', event.target.value)}><option value="">Severidade</option>{findingSeverities.map((severity) => <option key={severity} value={severity}>{withCount(severityText(severity), facetData?.bySeverity[severity] ?? (facetData ? 0 : undefined))}</option>)}</select></label>
       <label><span className="toolbar-filter-label">Regra</span><select aria-label="Filtrar por regra" title="Filtrar por regra" value={filters.rule} onChange={(event) => setFilter('rule', event.target.value)}><option value="">Regra</option>{(facetData?.byRule ?? []).map((item) => <option key={item.rule} value={item.rule}>{withCount(ruleText(item.rule), item.total)}</option>)}{filters.rule && !facetData?.byRule.some((item) => item.rule === filters.rule) && <option value={filters.rule}>{ruleLabel(filters.rule)}</option>}</select></label>
@@ -197,5 +197,5 @@ export function InventoryQualityPage() {
     </section></div>
 
     {dialog && <QualityBulkDialog action={dialog} count={dialogIds.length} finding={rowTarget?.title} assignees={assignees.data ?? []} running={running} outcome={outcome} close={closeDialog} run={(params) => void run(dialog, params, dialogIds)} />}
-  </AppShell></>;
+  </PageShell></>;
 }

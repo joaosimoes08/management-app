@@ -19,7 +19,7 @@ import {
   CalendarClock,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
-import { AppShell, ToolbarMore } from '@/components/layout/app-shell';
+import { PageShell, ToolbarMore } from '@/components/layout/app-shell';
 import { getDashboardSummary } from './api';
 import { getDashboardEnvironment, getDashboardLayout, getDashboardWorkspaces, getOperationalSummary, saveDashboardLayout, saveDashboardPreference, type DashboardLayout, type DashboardWorkspace } from './api';
 import { OperationsPanel } from '@/features/operations/operations-panel';
@@ -158,7 +158,7 @@ export default function DashboardPage() {
   const dashboardActions = <>{canEditLayout && <button className="secondary-button" onClick={toggleLayoutEditing}>{editingLayout ? t('dashboard.finishEditing') : t('dashboard.editLayout')}</button>}<button className="secondary-button" onClick={refreshDashboard}><RefreshCw size={15} /> {t('common.refresh')}</button><button className="secondary-button" onClick={() => { window.location.href = '/definicoes'; }}><SlidersHorizontal size={15} /> {t('dashboard.settings')}</button>{canNetworkChange && <button className="primary-button" onClick={() => { window.location.href = '/descoberta?action=new'; }}><Radar size={15} /> {t('dashboard.newDiscovery')}</button>}{canNetworkChange && <ToolbarMore><Link className="secondary-button" href="/infraestrutura?action=new"><Server size={16} /> {t('dashboard.addDevice')}</Link></ToolbarMore>}</>;
 
   return (
-    <AppShell section="Dashboard" globalSearch toolbar={dashboardToolbar} actions={dashboardActions}>
+    <PageShell section="Dashboard" globalSearch toolbar={dashboardToolbar} actions={dashboardActions}>
           <div className={`dashboard-content dashboard-fit${fitOverflow || editingLayout ? ' dashboard-fit--scroll' : ''}`}>
             {editingLayout && canEditLayout && layout && <section className="ipam-card dashboard-layout-editor"><div className="panel-heading"><div><h2>{t('dashboard.layout.title')}</h2><p className="panel-description">{t('dashboard.layout.description')}</p></div></div>{fitOverflow && <p className="dashboard-fit-warning" role="status"><AlertTriangle size={15} aria-hidden="true" /> {t('dashboard.fitOverflowWarning')}</p>}<div className="dashboard-layout-options">{layout.widgets.map((widget) => <div className="dashboard-layout-option" key={widget.id}><label><input type="checkbox" checked={widget.visible} onChange={(event) => setLayout((current) => current ? ({ ...current, widgets: current.widgets.map((item) => item.id === widget.id ? { ...item, visible: event.target.checked } : item) }) : current)} /> <strong>{widgetLabel(widget.id)}</strong></label>{kpiWidgetIds.has(widget.id) ? <span className="dashboard-layout-kpi-note">{t('dashboard.kpiWidget')}</span> : <label>{t('dashboard.layout.width')}<select value={widget.w >= 9 ? '12' : '6'} onChange={(event) => { const width = Number(event.target.value); updateWidget(widget.id, 'w', width); updateWidget(widget.id, 'x', 0); }}><option value="6">{t('dashboard.layout.half')}</option><option value="12">{t('dashboard.layout.full')}</option></select></label>}</div>)}</div><div className="dashboard-layout-actions"><button type="button" className="primary-button" onClick={() => void saveDashboardLayout(layout).then((saved) => { setLayout(saved); setLayoutBeforeEdit(null); setEditingLayout(false); })}>{t('dashboard.layout.save')}</button><button type="button" className="secondary-button" onClick={cancelLayoutEditing}>{t('common.cancel')}</button></div></section>}
             {workspacesStatus === 'error' && <p className="dashboard-fit-warning dashboard-load-error" role="alert"><AlertTriangle size={15} aria-hidden="true" /> {t('dashboard.workspacesError')} <button className="text-button" onClick={refreshDashboard}>{t('dashboard.retry')}</button></p>}
@@ -193,6 +193,6 @@ export default function DashboardPage() {
             </section>
 
           </div>
-    </AppShell>
+    </PageShell>
   );
 }

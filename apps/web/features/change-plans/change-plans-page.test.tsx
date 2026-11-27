@@ -32,7 +32,7 @@ vi.mock('./api', () => ({
   tickChecklistItem: mocks.tickChecklistItem, addChecklistItems: mocks.addChecklistItems, removeChecklistItem: mocks.removeChecklistItem, getPostChangeCheck: mocks.getPostChangeCheck,
 }));
 vi.mock('@/features/topology/impact-api', async (importOriginal) => ({ ...await importOriginal<typeof import('@/features/topology/impact-api')>(), getTopologyImpact: mocks.getTopologyImpact }));
-vi.mock('@/components/layout/app-shell', async (importOriginal) => ({ ...await importOriginal<typeof import('@/components/layout/app-shell')>(), AppShell: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
+vi.mock('@/components/layout/app-shell', async (importOriginal) => ({ ...await importOriginal<typeof import('@/components/layout/app-shell')>(), PageShell: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 const auth = vi.hoisted(() => ({ roles: null as string[] | null }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: (role: string) => auth.roles === null || auth.roles.includes(role) }) }));
 vi.mock('@/lib/site-context', () => ({ useSiteContext: () => ({ siteId: 'site-1', activeSite: { id: 'site-1', name: 'Site One' } }) }));

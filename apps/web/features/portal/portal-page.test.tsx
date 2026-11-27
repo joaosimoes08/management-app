@@ -15,7 +15,7 @@ vi.mock('./api', async (importOriginal) => ({
   listFavoriteApplicationLinks: mocks.listFavoriteApplicationLinks, addFavoriteApplicationLink: mocks.addFavoriteApplicationLink, removeFavoriteApplicationLink: mocks.removeFavoriteApplicationLink,
   checkAllApplicationLinks: mocks.checkAllApplicationLinks,
 }));
-vi.mock('@/components/layout/app-shell', () => ({ AppShell: ({ children, actions }: { children: React.ReactNode; actions?: React.ReactNode }) => <>{actions}{children}</> }));
+vi.mock('@/components/layout/app-shell', () => ({ PageShell: ({ children, actions }: { children: React.ReactNode; actions?: React.ReactNode }) => <>{actions}{children}</> }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: () => true }) }));
 
 const link: ApplicationLink = { id: 'link-1', name: 'Zabbix', url: 'https://zabbix.interno', icon: 'Activity', description: 'Monitorização', category: 'Operações', sortOrder: 0, isActive: true, checkAvailability: false, roles: [{ role: 'AUDITOR' }] };

@@ -14,7 +14,7 @@ vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: (role: string) => mock
 vi.mock('@/lib/site-context', () => ({ useSiteContext: () => ({ siteId: 'site-1' }) }));
 vi.mock('./use-operational-events', () => ({ useOperationalEvents: () => ({ data: undefined, connected: false, error: null }) }));
 vi.mock('@/components/layout/app-shell', () => ({
-  AppShell: ({ children, actions }: { children: ReactNode; actions?: ReactNode }) => <div><div>{actions}</div>{children}</div>,
+  PageShell: ({ children, actions }: { children: ReactNode; actions?: ReactNode }) => <div><div>{actions}</div>{children}</div>,
   PageToolbarPortal: ({ children }: { children: ReactNode }) => <div aria-label="Filtros">{children}</div>,
 }));
 

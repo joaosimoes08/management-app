@@ -1,6 +1,6 @@
 /**
  * The utility bar (.context-toolbar) stays on one line. When the page's controls do not fit beside the
- * title, AppShell switches the bar to compact mode and moves them into the "Controlos" panel.
+ * title, AppShellFrame switches the bar to compact mode and moves them into the "Controlos" panel.
  * These helpers decide whether the current one-line layout fits.
  */
 

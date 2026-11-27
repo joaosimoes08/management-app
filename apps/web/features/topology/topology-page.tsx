@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Background, BaseEdge, EdgeLabelRenderer, Handle, MiniMap, Position, ReactFlow, applyNodeChanges, getBezierPath, type Connection, type Edge, type EdgeProps, type Node, type NodeChange, type NodeProps, type ReactFlowInstance, useEdgesState, useNodesState } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { Activity, Map as MapIcon } from 'lucide-react';
-import { AppShell, ToolbarMore } from '@/components/layout/app-shell';
+import { PageShell, ToolbarMore } from '@/components/layout/app-shell';
 import { listAllDevices, listInterfaces } from '@/features/infrastructure/api';
 import { listVlans } from '@/features/ipam/api';
 import { listOperationalAlerts } from '@/features/operations/api';
@@ -343,7 +343,7 @@ export function TopologyPage() {
   const toolbarSummary = topologyToolbarSummary({ mapName: current?.name, nodeCount: current?.nodes.length ?? 0, visibleCount, filtering, connectionCount: current?.connections.length ?? 0, alertsUnavailable: operationalAlerts.isError, problemCount: mapProblemCount }, tx);
   const mapViewActions = <><span className="topology-toolbar-summary" title={toolbarSummary}>{toolbarSummary}</span><ToolbarMore label="Controlos do mapa"><button type="button" disabled={!searchMatch} onClick={() => searchMatch && focusNode(searchMatch.id)}>Encontrar equipamento</button><button type="button" aria-pressed={labelsVisible} onClick={() => setLabelsVisible((value) => !value)}>{labelsVisible ? 'Ocultar etiquetas' : 'Mostrar etiquetas'}</button><button type="button" aria-pressed={showGrid} onClick={() => setShowGrid((value) => !value)}>{showGrid ? 'Ocultar grelha' : 'Mostrar grelha'}</button><button type="button" onClick={() => void flow?.zoomIn({ duration: 180 })}>Ampliar</button><button type="button" onClick={() => void flow?.zoomOut({ duration: 180 })}>Reduzir</button><button type="button" onClick={() => void flow?.fitView({ duration: 300, padding: 0.2 })}>Ajustar mapa</button><button type="button" aria-pressed={interactive} onClick={() => setInteractive((value) => !value)}>{interactive ? 'Bloquear mapa' : 'Desbloquear mapa'}</button><button type="button" onClick={toggleFullscreen}>Alternar ecrã inteiro</button></ToolbarMore></>;
 
-  return <AppShell section="Topologia" toolbarKey={workspace} context={['Infraestrutura']} search={workspace === 'manual' ? { value: search, onChange: setSearch, placeholder: 'Procurar equipamento no mapa', ariaLabel: 'Procurar equipamento no mapa', scopeLabel: 'Mapas manuais' } : undefined} moduleTabs={<nav className="infra-menu" aria-label="Visualização de topologia"><button className={workspace === 'manual' ? 'active' : ''} aria-pressed={workspace === 'manual'} onClick={() => setWorkspace('manual')}><MapIcon size={15}/><span>Mapas manuais</span></button><button className={workspace === 'observed' ? 'active' : ''} aria-pressed={workspace === 'observed'} onClick={() => setWorkspace('observed')}><Activity size={15}/><span>Observada e reconciliação</span></button></nav>} toolbar={<div className="topology-toolbar-stack">{workspace === 'manual' ? <div className="topology-toolbar-row">{topbarActions}{mapViewActions}</div> : <div className="topology-toolbar-row">{observedToolbar}</div>}</div>}>
+  return <PageShell section="Topologia" toolbarKey={workspace} context={['Infraestrutura']} search={workspace === 'manual' ? { value: search, onChange: setSearch, placeholder: 'Procurar equipamento no mapa', ariaLabel: 'Procurar equipamento no mapa', scopeLabel: 'Mapas manuais' } : undefined} moduleTabs={<nav className="infra-menu" aria-label="Visualização de topologia"><button className={workspace === 'manual' ? 'active' : ''} aria-pressed={workspace === 'manual'} onClick={() => setWorkspace('manual')}><MapIcon size={15}/><span>Mapas manuais</span></button><button className={workspace === 'observed' ? 'active' : ''} aria-pressed={workspace === 'observed'} onClick={() => setWorkspace('observed')}><Activity size={15}/><span>Observada e reconciliação</span></button></nav>} toolbar={<div className="topology-toolbar-stack">{workspace === 'manual' ? <div className="topology-toolbar-row">{topbarActions}{mapViewActions}</div> : <div className="topology-toolbar-row">{observedToolbar}</div>}</div>}>
     <div className="topology-page">
       {workspace === 'observed' ? <ObservedTopology onToolbarChange={setObservedToolbar} /> : <>
         <section className={`topology-canvas panel${fullscreen ? ' topology-canvas--fullscreen' : ''}${labelsVisible ? '' : ' topology-canvas--auto-labels'}`} aria-label="Área do mapa de topologia">
@@ -365,7 +365,7 @@ export function TopologyPage() {
         </section>
       </>}
     </div>
-  </AppShell>;
+  </PageShell>;
 }
 
 function connectionDisplay(connection: TopologyConnection, map: TopologyMap, interfaces: Record<string, DeviceInterface[]>) {

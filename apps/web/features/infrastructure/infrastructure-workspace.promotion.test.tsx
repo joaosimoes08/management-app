@@ -13,7 +13,7 @@ vi.mock('@/lib/site-context', () => ({
 const roles = vi.hoisted(() => ({ current: ['NETWORK_OPERATOR'] as string[] }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ user: { id: 'user-1' }, hasRole: (role: string) => roles.current.includes(role) }) }));
 vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }));
-vi.mock('@/components/layout/app-shell', () => ({ AppShell: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
+vi.mock('@/components/layout/app-shell', () => ({ PageShell: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
 vi.mock('./components/rack/rack-workspace', () => ({ RackWorkspace: () => null }));
 vi.mock('./components/devices/device-list', () => ({ DeviceList: () => <div data-testid="device-list" /> }));
 vi.mock('./components/editors/entity-editor', () => ({

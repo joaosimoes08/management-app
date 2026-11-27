@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Check, HardDrive, RefreshCw, Save, X } from 'lucide-react';
-import { AppShell } from '@/components/layout/app-shell';
+import { PageShell } from '@/components/layout/app-shell';
 import { useAuth } from '@/lib/auth';
 import { useSiteContext } from '@/lib/site-context';
 import { configureNetAppIntegration, getNetAppIntegration, refreshNetAppSnapshot, type NetAppIntegrationInput, type NetAppSnapshot } from './api';
@@ -48,7 +48,7 @@ export default function NetAppPage() {
     saveMutation.mutate(form);
   };
 
-  return <AppShell section="NetApp" actions={<><button className="topbar-action secondary-button" disabled={!siteId || siteLoading || integrationQuery.isFetching} onClick={() => void integrationQuery.refetch()}><RefreshCw size={14} className={integrationQuery.isFetching ? 'spin' : ''} /> Atualizar</button>{integration && canRefresh && <button className="primary-button" disabled={refreshMutation.isPending} onClick={() => { setActionError(''); setNotice(''); refreshMutation.mutate(); }}><RefreshCw size={14} className={refreshMutation.isPending ? 'spin' : ''} />{refreshMutation.isPending ? 'A consultar…' : 'Atualizar snapshot'}</button>}</>}>
+  return <PageShell section="NetApp" actions={<><button className="topbar-action secondary-button" disabled={!siteId || siteLoading || integrationQuery.isFetching} onClick={() => void integrationQuery.refetch()}><RefreshCw size={14} className={integrationQuery.isFetching ? 'spin' : ''} /> Atualizar</button>{integration && canRefresh && <button className="primary-button" disabled={refreshMutation.isPending} onClick={() => { setActionError(''); setNotice(''); refreshMutation.mutate(); }}><RefreshCw size={14} className={refreshMutation.isPending ? 'spin' : ''} />{refreshMutation.isPending ? 'A consultar…' : 'Atualizar snapshot'}</button>}</>}>
     <div className="module-page snmp-workspace aligned-workspace">
       <section className="ipam-card page-primary-card"><div className="panel-heading"><div><h1>NetApp ONTAP</h1><p className="panel-description">Inventário de storage, capacidade e saúde, isolado ao Site selecionado.</p></div></div><div className="page-primary-content">
       {actionError && <div role="alert" className="ipam-alert error"><X size={15} />{actionError}</div>}
@@ -75,7 +75,7 @@ export default function NetAppPage() {
         </>}
       </>}
     </div></section></div>
-  </AppShell>;
+  </PageShell>;
 }
 
 function SnapshotTables({ siteId, snapshot }: { siteId: string; snapshot: NetAppSnapshot }) {

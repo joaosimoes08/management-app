@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, Server, ShieldCheck, Users, X } from 'lucide-react';
-import { AppShell, PageToolbarPortal } from '@/components/layout/app-shell';
+import { PageShell, PageToolbarPortal } from '@/components/layout/app-shell';
 import { CsvExportButton, DataTable, EntityLink, HistoryBlock, csvColumnsOf, sortByColumns, useTableUrlState, type DataTableColumn, type TableStateConfig } from '@/components/data-table';
 import { ApiRequestError } from '@/lib/api/errors';
 import { useAuth } from '@/lib/auth';
@@ -367,7 +367,7 @@ export function CriticalAssetsPage() {
     {canReview && <button className="primary-button" disabled={!selectedRows.length} onClick={() => { remember(); setBulkResults(null); setBulkPlan({ selectedCount: selectedRows.length, olderCount: bulkOlder, items: bulkItems }); }}><ShieldCheck size={14} /> {`Confirmar selecionados (${selectedRows.length})`}</button>}
   </>;
 
-  return <AppShell section="Ativos críticos" search={{ value: search, onChange: changeSearch, placeholder: 'Pesquisar nome, hostname, IP, série ou etiqueta…', ariaLabel: 'Pesquisar ativos críticos' }} actions={actions}>
+  return <PageShell section="Ativos críticos" search={{ value: search, onChange: changeSearch, placeholder: 'Pesquisar nome, hostname, IP, série ou etiqueta…', ariaLabel: 'Pesquisar ativos críticos' }} actions={actions}>
     <PageToolbarPortal><div className="interface-toolbar-controls critical-assets-filters">
       <label><span className="toolbar-filter-label">Tipo</span><select aria-label="Filtrar por tipo" title="Filtrar por tipo" value={filters.type} onChange={(event) => changeFilter('type', event.target.value)}><option value="">Tipo</option>{assetTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
       <label><span className="toolbar-filter-label">Responsável</span><select aria-label="Filtrar por grupo responsável" title="Filtrar por grupo responsável" value={filters.owner} onChange={(event) => changeFilter('owner', event.target.value)}><option value="">Responsável</option><option value={NO_OWNER}>Sem responsável</option>{owners.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
@@ -474,5 +474,5 @@ export function CriticalAssetsPage() {
     {correctionDialog && <CorrectionCloseDialog assetName={correctionDialog.correction.device?.name ?? 'ativo'} description={correctionDialog.correction.description} outcome={correctionDialog.outcome} close={() => setCorrectionDialog(null)} submit={(value) => closeCorrection(correctionDialog.correction, correctionDialog.outcome, value)} />}
     {ownerType !== null && <OwnerDialog initialType={ownerType} mappings={data?.mappings ?? []} groups={groups} timezone={data?.timezone ?? 'Europe/Lisbon'} close={closeOwner} save={saveOwner} />}
     {bulkPlan && <BulkConfirmDialog selectedCount={bulkPlan.selectedCount} olderCount={bulkPlan.olderCount} items={bulkPlan.items} results={bulkResults} running={bulkRunning} formatDate={formatDate} close={closeBulk} run={() => void runBulk()} />}
-  </AppShell>;
+  </PageShell>;
 }
