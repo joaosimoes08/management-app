@@ -1,6 +1,7 @@
 import type { AssetFile, Device, DeviceInterface, DeviceModel, PortLayout, PortLayoutFace, PortLayoutPort, PortLayoutV2, RackFace, RackView, Vlan } from './types';
 import { getPublicRuntimeConfig } from '@/lib/runtime-config';
 import { STORAGE_KEYS, getLocalItem, getSessionItem } from '@/lib/storage-keys';
+import { isRecord, isString, parseJson } from '@/lib/data-guards';
 
 export const FIXED_RACK_IMAGE = '/assets/rack-empty-42u.png?v=2';
 export const RACK_UNITS = 42;
@@ -59,10 +60,17 @@ export interface InfrastructureContext {
 
 const INFRASTRUCTURE_CONTEXT_KEY = STORAGE_KEYS.infrastructureContext;
 
+/** A stored context with all three ids; anything else (old format, corrupt text) reads as none. */
+export function parseInfrastructureContext(raw: string | null): InfrastructureContext | null {
+  const value = parseJson(raw);
+  return isRecord(value) && isString(value.siteId) && isString(value.buildingId) && isString(value.roomId)
+    ? { siteId: value.siteId, buildingId: value.buildingId, roomId: value.roomId }
+    : null;
+}
+
 export function readInfrastructureContext(): InfrastructureContext | null {
   try {
-    const value = getLocalItem(INFRASTRUCTURE_CONTEXT_KEY);
-    return value ? (JSON.parse(value) as InfrastructureContext) : null;
+    return parseInfrastructureContext(getLocalItem(INFRASTRUCTURE_CONTEXT_KEY));
   } catch {
     return null;
   }
