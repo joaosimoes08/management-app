@@ -58,22 +58,22 @@ export function useWorkspaceNavigation(siteId: string) {
     window.addEventListener('popstate', restoreTab);
     return () => window.removeEventListener('popstate', restoreTab);
   }, []);
-  const clearDeviceFilters = () => {
+  const clearDeviceFilters = useCallback(() => {
     setDeviceFilters(emptyDeviceUrlFilters);
     history.replaceState(history.state, '', `${location.pathname}${clearDeviceUrlFilters(location.search)}${location.hash}`);
-  };
+  }, []);
   /** Tier and tag filters (Step 36) stay in the URL so links and saved views reproduce the list. */
   const applyDeviceFilters = useCallback((next: DeviceUrlFilters) => {
     setDeviceFilters(next);
     history.replaceState(history.state, '', `${location.pathname}${serializeTableState(location.search, { search: '', filters: next, sort: null }, deviceUrlConfig)}${location.hash}`);
   }, []);
   /** Tipo filter: leaving Servidores also drops the Linux hosts panel's own URL filters. */
-  const chooseDeviceType = (type: string) => {
+  const chooseDeviceType = useCallback((type: string) => {
     applyDeviceFilters({ ...deviceFilters, type });
     if (type === 'SERVER') return;
     const url = dropHostParams();
     history.replaceState(history.state, '', `${url.pathname}${url.search}${url.hash}`);
-  };
+  }, [applyDeviceFilters, deviceFilters]);
   const deviceSavedViewsTable = useMemo<TableState<DeviceUrlFilters> & { applyState: (state: TableState<DeviceUrlFilters>) => void }>(() => ({ search: '', filters: deviceFilters, sort: null, applyState: (state) => applyDeviceFilters(state.filters) }), [applyDeviceFilters, deviceFilters]);
 
   /** ?missingConfig=rearImage|power (bell alert link): the device list shows only devices missing that config. */
@@ -90,7 +90,7 @@ export function useWorkspaceNavigation(siteId: string) {
     setMissingConfigAllSites(missingConfigAllSitesFromSearch(window.location.search));
     setTab('devices');
   }, []);
-  const clearMissingConfig = () => {
+  const clearMissingConfig = useCallback(() => {
     setMissingConfig('');
     setMissingConfigAllSites(false);
     const query = new URLSearchParams(window.location.search);
@@ -98,7 +98,7 @@ export function useWorkspaceNavigation(siteId: string) {
     query.delete('allSites');
     if (!query.get('siteId') && siteId) query.set('siteId', siteId);
     history.replaceState({}, '', `/infraestrutura?${query.toString()}`);
-  };
+  }, [siteId]);
 
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -110,7 +110,7 @@ export function useWorkspaceNavigation(siteId: string) {
 
   const clickRef = useRef({ key: '', at: 0 });
   /** Opens a tab and keeps it in `?tab=`; a double click on the open tab calls `reset` (back to the Site root). */
-  const selectTab = (key: string, reset: () => void) => {
+  const selectTab = useCallback((key: string, reset: () => void) => {
     if (tab === 'devices' && key !== 'devices') window.history.replaceState(history.state, '', dropHostParams());
     const now = Date.now();
     const double = tab === key && clickRef.current.key === key && now - clickRef.current.at < 500;
@@ -126,12 +126,13 @@ export function useWorkspaceNavigation(siteId: string) {
     if (key === 'racks') url.searchParams.delete('tab');
     else url.searchParams.set('tab', key);
     history.replaceState(history.state, '', `${url.pathname}${url.search}`);
-  };
+  }, [tab]);
 
-  return {
+  // One stable object per state change, so the workspace context value can be memoized on it.
+  return useMemo(() => ({
     tab, setTab, selectTab,
     search, setSearch, debouncedSearch,
     deviceFilters, applyDeviceFilters, clearDeviceFilters, chooseDeviceType, deviceSavedViewsTable,
     missingConfig, missingConfigAllSites, clearMissingConfig,
-  };
+  }), [tab, selectTab, search, debouncedSearch, deviceFilters, applyDeviceFilters, clearDeviceFilters, chooseDeviceType, deviceSavedViewsTable, missingConfig, missingConfigAllSites, clearMissingConfig]);
 }

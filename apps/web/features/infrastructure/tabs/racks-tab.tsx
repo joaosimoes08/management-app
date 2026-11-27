@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { filterRackSearchItems } from '@/components/layout/global-search';
 import { useAuth } from '@/lib/auth';
@@ -19,14 +18,16 @@ type RacksTabProps = {
   setRackId: (id: string) => void;
   /** Opens the rack form (new rack when the draft has no id). */
   onEditRack: (rack: RackEditDraft) => void;
+  /** Rack being deleted. Kept by the workspace so a tab switch mid-request does not re-enable Delete. */
+  deletingRackId: string;
+  setDeletingRackId: (id: string) => void;
 };
 
 /** Bastidores: the racks of the selected Room, with placement, reordering, rack deletion and PDU disconnects. */
-export function RacksTab({ rooms, buildingId, roomId, rackId, setRoomId, setRackId, onEditRack }: RacksTabProps) {
+export function RacksTab({ rooms, buildingId, roomId, rackId, setRoomId, setRackId, onEditRack, deletingRackId, setDeletingRackId }: RacksTabProps) {
   const queryClient = useQueryClient();
   const { hasRole } = useAuth();
   const { siteId, racks, navigation, access, snmpHealth, openDevice, editDevice, setError, invalidateInfrastructure, askConfirm, offerPowerStep } = useInfrastructureWorkspace();
-  const [deletingRackId, setDeletingRackId] = useState('');
 
   const selectedRack = racks.find((item) => item.id === rackId);
   const allRoomRacks = racks.filter((item) => (item.room?.id ?? item.roomId) === roomId);

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { getRack, setDevicePower } from '../api';
 import { devicePlugCount } from '../power';
@@ -28,7 +28,7 @@ export function usePowerStep({ canEditPower, powerDefaults, onError, onSaved }: 
    * API removed its old outlets). Skipped for devices with 0 plugs and for users who cannot change power. `force` opens it
    * for a device already in its rack ("Ligações elétricas").
    */
-  const offerPowerStep = async (saved: Pick<Device, 'id' | 'name' | 'rackId'> & Partial<Device>, previousRackId: string, force = false) => {
+  const offerPowerStep = useCallback(async (saved: Pick<Device, 'id' | 'name' | 'rackId'> & Partial<Device>, previousRackId: string, force = false) => {
     if (!canEditPower || !saved.rackId) return;
     const moved = Boolean(previousRackId) && previousRackId !== saved.rackId;
     if (!force && previousRackId === saved.rackId) return;
@@ -43,7 +43,7 @@ export function usePowerStep({ canEditPower, powerDefaults, onError, onSaved }: 
     } catch (cause) {
       onError(cause instanceof Error ? cause.message : t('power.error.open'));
     }
-  };
+  }, [canEditPower, powerDefaults, onError, t]);
 
   const savePowerStep = async (input: DevicePowerInput) => {
     if (!powerStep) return;

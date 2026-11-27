@@ -70,6 +70,7 @@ import { InterfacesTab } from './tabs/interfaces-tab';
 import { PermissionsTab } from './tabs/permissions-tab';
 
 const EMPTY_IPS: IpAddress[] = [];
+const NO_ACTIONS: string[] = [];
 
 const emptyDeviceForm: DeviceForm = { name: '', type: 'SWITCH', hostname: '', managementIp: '', managementIpAddressId: '', rackId: '', rackUnitStart: '', rackUnitSize: '1', modelId: '', status: 'UNKNOWN', isCritical: false, criticalityTier: '', frontAssetId: '', backAssetId: '', snmpEnabled: false, snmpVersion: 'V3', snmpReadUsername: '', snmpReadCommunity: '', snmpReadAuthKey: '', snmpReadPrivKey: '', snmpTrapEnabled: false, snmpTrapUsername: '', snmpTrapCommunity: '', snmpTrapAuthKey: '', snmpTrapPrivKey: '', snmpAuthProtocol: 'SHA256', snmpPrivProtocol: 'AES128', snmpCompatibilitySha1: false, snmpPort: '161', snmpIntervalMinutes: '15', snmpTimeoutMs: '5000', snmpRetries: '2' };
 const emptyModelForm: ModelForm = { manufacturer: '', model: '', type: 'SWITCH', supportsNetworkPorts: true, networkPortCount: '', frontAssetId: '', backAssetId: '' };
@@ -107,6 +108,8 @@ export function InfrastructureWorkspace() {
   const [editingId, setEditingId] = useState('');
   const [animateDeviceEdit, setAnimateDeviceEdit] = useState(false);
   const [error, setError] = useState('');
+  /** Rack whose delete request is running. Lives here, not in the Bastidores tab, so switching tabs mid-request keeps Delete disabled. */
+  const [deletingRackId, setDeletingRackId] = useState('');
   const [formError, setFormError] = useState('');
   const [deviceFieldErrors, setDeviceFieldErrors] = useState<MappedFieldError[]>([]);
   const [deviceEditorTab, setDeviceEditorTab] = useState<DeviceEditorTab | undefined>(undefined);
@@ -224,7 +227,7 @@ export function InfrastructureWorkspace() {
     }
   }, [siteId, locationsData, racksData, devicesData, canUseInterfaces, setTab]);
 
-  const invalidateInfrastructure = () => queryClient.invalidateQueries({ queryKey: ['infrastructure'] });
+  const invalidateInfrastructure = useCallback(() => queryClient.invalidateQueries({ queryKey: ['infrastructure'] }), [queryClient]);
   const assetUpload = useAssetUpload({ openModal: setModal, onUploaded: invalidateInfrastructure, onError: setError });
   const portLayout = usePortLayoutEditor({ openModal: setModal, onSaved: invalidateInfrastructure });
   const { openUpload } = assetUpload;
@@ -246,10 +249,10 @@ export function InfrastructureWorkspace() {
 
   const effective = accessData;
   const scopeActions = roomId
-    ? effective?.infrastructure?.rooms?.find((item) => item.id === roomId)?.actions ?? []
+    ? effective?.infrastructure?.rooms?.find((item) => item.id === roomId)?.actions ?? NO_ACTIONS
     : buildingId
-      ? effective?.infrastructure?.buildings?.find((item) => item.id === buildingId)?.actions ?? []
-      : effective?.infrastructure?.site ?? [];
+      ? effective?.infrastructure?.buildings?.find((item) => item.id === buildingId)?.actions ?? NO_ACTIONS
+      : effective?.infrastructure?.site ?? NO_ACTIONS;
   const canEdit = (roomId ? roleCanEdit : hasRole('ADMIN') || hasRole('SYSTEMS_OPERATOR')) && scopeActions.some((action) => action !== 'READ');
   const canUpdateDevice = roleCanEdit && scopeActions.includes('UPDATE');
   /** Step 36: NETWORK_OPERATOR alone edits tags of network equipment only (the API enforces the same rule). */
@@ -552,20 +555,21 @@ export function InfrastructureWorkspace() {
   const helpTopic = infrastructureHelpTopic(tab === 'devices' && deviceFilters.type === 'SERVER' ? 'hosts' : tab);
   const serverHosts = showServerHosts ? <LinuxHosts embedded sites={sites} canManage={hasRole('ADMIN')} canAudit={hasRole('ADMIN') || hasRole('AUDITOR')} /> : null;
   const tabNavigation = <InfrastructureTabNavigation tab={tab} tabs={effective?.tabs} onSelect={(key) => navigation.selectTab(key, reset)} />;
+  // Memoized so the tabs re-render only when something they read changes (declared before the early returns).
+  const workspace = useMemo<InfrastructureWorkspaceContextValue>(() => ({
+    siteId, navigation, devices, device, snmpHealth, racks,
+    access: { roleCanEdit, canEdit, canUpdateDevice, canEditPower, scopeActions },
+    openDevice, editDevice, setError, invalidateInfrastructure, askConfirm, offerPowerStep,
+  }), [siteId, navigation, devices, device, snmpHealth, racks, roleCanEdit, canEdit, canUpdateDevice, canEditPower, scopeActions, openDevice, editDevice, invalidateInfrastructure, askConfirm, offerPowerStep]);
+
   if (!siteId) return <AppShell section="Infraestrutura" helpTopic={helpTopic} moduleTabs={canReadHosts ? tabNavigation : undefined}><div className="module-page infrastructure-workspace"><header className="workspace-head"><div><h1>Infraestrutura</h1><p>Seleciona um Site no seletor superior para começar.</p></div></header>{deepLinkedDeviceId ? <><DeepLinkDeviceLoader deviceId={deepLinkedDeviceId} loadDevice={getDevice} onOpen={openDeepLinkedDevice} onError={reportDeepLinkError} /><section className="ipam-card empty-context"><MapPinned size={28} /><strong>{device ? `${device.name} · ${device.type}` : error || 'A carregar equipamento…'}</strong><p>O equipamento está sem Site. Seleciona um Site no seletor superior para associá-lo e guardar alterações.</p></section><EntityEditor modal={modal} close={() => setModal('')} editingId={editingId} animateDeviceEntry={animateDeviceEdit} form={{ rack: rackForm, device: deviceForm, model: modelForm }} setForm={{ rack: setRackForm, device: setDeviceForm, model: setModelForm }} rooms={[]} racks={[]} models={[]} assets={[]} ips={EMPTY_IPS} save={save} formError={formError} deviceFieldErrors={deviceFieldErrors} deviceTab={deviceEditorTab} /></> : <section className="ipam-card empty-context"><MapPinned size={28} /><strong>Seleciona um Site no seletor superior</strong></section>}{serverHosts}</div></AppShell>;
   const locationControls = <LocationControls buildings={buildings} rooms={rooms} buildingId={buildingId} roomId={roomId} chooseBuilding={chooseBuilding} chooseRoom={chooseRoom} canCreateBuilding={canCreateBuilding} canCreateRoom={canCreateRoom} canUpdateBuilding={canUpdateBuilding} canUpdateRoom={canUpdateRoom} onEditBuilding={(building) => { setEditingLocationId(building.id); setBuildingForm({ name: building.name, description: building.description ?? '' }); setModal('building-edit'); }} onEditRoom={(room) => { setEditingLocationId(room.id); setRoomForm({ name: room.name, buildingId: room.buildingId }); setModal('room-edit'); }} busy={busy} />;
 
   if (tab === 'permissions' && effective?.tabs?.permissions) return <AppShell section="Mapa físico" toolbarKey={tab} helpTopic={helpTopic} moduleTabs={tabNavigation}><PermissionsTab siteId={siteId} buildings={buildings} /></AppShell>;
 
-  const workspace: InfrastructureWorkspaceContextValue = {
-    siteId, navigation, devices, device, snmpHealth, racks,
-    access: { roleCanEdit, canEdit, canUpdateDevice, canEditPower, scopeActions },
-    openDevice, editDevice, setError, invalidateInfrastructure, askConfirm, offerPowerStep,
-  };
-
   return <InfrastructureWorkspaceProvider value={workspace}>{confirmDialog}<AppShell section="Mapa físico" toolbarKey={tab} helpTopic={helpTopic} moduleTabs={tabNavigation} search={tab === 'racks' || tab === 'sites' ? undefined : { value: search, onChange: setSearch, placeholder: ui('infra.searchIn', undefined, { tab: tabName.toLocaleLowerCase() }), scopeLabel: tabName }} rackSearch={rackSearchContext} toolbar={tab === 'sites' ? undefined : locationControls}><DeepLinkDeviceLoader deviceId={deepLinkedDeviceId} loadDevice={getDevice} onOpen={openDeepLinkedDevice} onError={reportDeepLinkError} /><div className="module-page infrastructure-workspace"><h1 className="topology-sr-only">Mapa físico</h1>{(error || errorMessage) && <div className="ipam-alert error"><X size={15} />{error || errorMessage}</div>}
     {tab === 'sites' && <SitesTab siteId={siteId} siteName={activeSite?.name ?? 'Site'} />}
-    {tab === 'racks' && <RacksTab rooms={rooms} buildingId={buildingId} roomId={roomId} rackId={rackId} setRoomId={setRoomId} setRackId={setRackId} onEditRack={editRack} />}
+    {tab === 'racks' && <RacksTab rooms={rooms} buildingId={buildingId} roomId={roomId} rackId={rackId} setRoomId={setRoomId} setRackId={setRackId} onEditRack={editRack} deletingRackId={deletingRackId} setDeletingRackId={setDeletingRackId} />}
     {tab === 'devices' && <DevicesTab activeDeviceFilters={activeDeviceFilters} missingConfigLabel={missingConfigLabel} deviceTagFilterName={deviceTagFilterName} tierCounts={devicesData?.tierCounts} canManageTags={canManageTags} canTagDevice={canTagDevice} onManageTags={() => setManagingDeviceTags(true)} onEditTags={setTagEditorDevice} onNew={newDevice} onRetire={(item) => setRetirementDeviceId(item.id)} serverHosts={serverHosts} />}
     {tab === 'lifecycle' && <LifecycleTab />}
     {tab === 'models' && effective?.tabs?.models && <ModelsTab models={models} onEdit={(model) => { setEditingId(model.id); setModelForm(modelFormFrom(model)); setModal('model'); }} onLayout={openLayout} />}
