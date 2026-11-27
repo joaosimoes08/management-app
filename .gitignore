@@ -17,6 +17,14 @@ packages/database/generated/
 .env.*
 !.env.example
 !.env*.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+.npmrc
+.netrc
+.pgpass
 deploy/*.generated.json
 AGENTS.md
 
