@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ReportUnsubscribe } from './report-unsubscribe';
+import { ReportUnsubscribe, parseUnsubscribeLookup } from './report-unsubscribe';
 
 vi.mock('@/lib/runtime-config', () => ({ getPublicRuntimeConfig: () => ({ apiUrl: 'http://api.test' }) }));
 vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ t: (key: string, _fallback?: string, params?: Record<string, string>) => params?.name ? `${key}:${params.name}` : key }) }));
@@ -51,5 +51,31 @@ describe('ReportUnsubscribe', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'reports.unsubscribe.confirm' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('reports.unsubscribe.error');
     await waitFor(() => expect(screen.getByRole('button', { name: 'reports.unsubscribe.confirm' })).toBeEnabled());
+  });
+
+  it('treats a lookup response with the wrong shape as an invalid link instead of showing a blank report', async () => {
+    for (const body of [{}, { reportName: 'X' }, { reportName: 7, subscribed: true }, { reportName: 'X', subscribed: 'yes' }, null, ['X', true]]) {
+      fetchMock.mockResolvedValueOnce(json(200, body));
+      render(<ReportUnsubscribe token={token} />);
+      expect(await screen.findByRole('alert')).toHaveTextContent('reports.unsubscribe.invalid');
+      expect(screen.queryByRole('button', { name: 'reports.unsubscribe.confirm' })).not.toBeInTheDocument();
+      cleanup();
+    }
+  });
+
+  it('treats a lookup response that is not JSON as an invalid link', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('<html>proxy error</html>', { status: 200 }));
+    render(<ReportUnsubscribe token={token} />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('reports.unsubscribe.invalid');
+  });
+});
+
+describe('parseUnsubscribeLookup', () => {
+  it('keeps a valid lookup and rejects the wrong shape or a missing key', () => {
+    expect(parseUnsubscribeLookup({ reportName: 'Mensal', subscribed: false })).toEqual({ reportName: 'Mensal', subscribed: false });
+    expect(parseUnsubscribeLookup({ reportName: 'Mensal' })).toBeNull();
+    expect(parseUnsubscribeLookup({ subscribed: true })).toBeNull();
+    expect(parseUnsubscribeLookup('Mensal')).toBeNull();
+    expect(parseUnsubscribeLookup(undefined)).toBeNull();
   });
 });

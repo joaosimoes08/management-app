@@ -5,10 +5,18 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { getPublicRuntimeConfig } from '@/lib/runtime-config';
+import { isRecord, isString } from '@/lib/data-guards';
 
 export const PUBLIC_UNSUBSCRIBE_PATH = '/relatorios/cancelar-subscricao';
 
 type State = { kind: 'loading' } | { kind: 'invalid' } | { kind: 'ready'; name: string; subscribed: boolean } | { kind: 'working'; name: string } | { kind: 'done'; name: string } | { kind: 'error'; name: string };
+
+type UnsubscribeLookup = { reportName: string; subscribed: boolean };
+
+/** The public token lookup; any other shape is treated like an invalid link. */
+export function parseUnsubscribeLookup(value: unknown): UnsubscribeLookup | null {
+  return isRecord(value) && isString(value.reportName) && typeof value.subscribed === 'boolean' ? { reportName: value.reportName, subscribed: value.subscribed } : null;
+}
 
 const endpoint = () => `${getPublicRuntimeConfig().apiUrl}/api/v1/reports/unsubscribe`;
 
@@ -26,7 +34,8 @@ export function ReportUnsubscribe({ token }: { token: string | null }) {
     fetch(`${endpoint()}?token=${encodeURIComponent(token)}`)
       .then(async (response) => {
         if (!response.ok) throw new Error(String(response.status));
-        const data = await response.json() as { reportName: string; subscribed: boolean };
+        const data = parseUnsubscribeLookup(await response.json() as unknown);
+        if (!data) throw new Error('Unexpected response');
         if (active) setState(data.subscribed ? { kind: 'ready', name: data.reportName, subscribed: true } : { kind: 'done', name: data.reportName });
       })
       .catch(() => { if (active) setState({ kind: 'invalid' }); });

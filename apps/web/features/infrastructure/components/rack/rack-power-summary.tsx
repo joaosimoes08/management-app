@@ -8,17 +8,24 @@ import { getRackPowerSummary, type RackPowerSummary, type RackPowerThresholds } 
 import { formatWatts, powerLevelFromApi, type PowerLevel } from '../../power';
 import type { PowerFeedSource, Rack } from '../../types';
 import { useUiText } from '@/components/ui/use-ui-text';
+import { isFiniteNumber, isRecord, parseJson } from '@/lib/data-guards';
 
 const THRESHOLDS_KEY = 'mgmt.rack-power-thresholds';
 const MIN_PERCENT = 1;
 const MAX_PERCENT = 200;
 
+const isPercent = (value: unknown): value is number => isFiniteNumber(value) && value >= MIN_PERCENT && value <= MAX_PERCENT;
+
+/** Stored thresholds when both are percentages the form accepts (1–200); anything else means the API defaults. */
+export function parsePowerThresholds(raw: string | null): RackPowerThresholds {
+  const value = parseJson(raw);
+  return isRecord(value) && isPercent(value.warningPercent) && isPercent(value.criticalPercent) ? { warningPercent: value.warningPercent, criticalPercent: value.criticalPercent } : {};
+}
+
 /** Thresholds chosen in the browser; empty means the API defaults (80 / 90). */
 export function readPowerThresholds(): RackPowerThresholds {
   try {
-    const parsed = JSON.parse(localStorage.getItem(THRESHOLDS_KEY) ?? '{}') as RackPowerThresholds;
-    const valid = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
-    return valid(parsed.warningPercent) && valid(parsed.criticalPercent) ? { warningPercent: parsed.warningPercent, criticalPercent: parsed.criticalPercent } : {};
+    return parsePowerThresholds(localStorage.getItem(THRESHOLDS_KEY));
   } catch {
     return {};
   }
