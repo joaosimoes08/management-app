@@ -9,7 +9,6 @@ import { canManageTagCatalog } from '@/features/tags/types';
 import { AppShell } from '@/components/layout/app-shell';
 import { deviceEditHref, entityHref } from '@/lib/routes';
 import { rememberRecentItem } from '@/lib/recent-items';
-import { apiFetch } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth';
 import { ImpactPanel } from '@/features/topology/impact-panel';
 import { useUiText } from '@/components/ui/use-ui-text';
@@ -20,6 +19,7 @@ import { DeviceHealthThresholdsPanel } from '@/features/snmp/health/health-limit
 import { getDevice, listDeviceIpAddresses, listInterfaces } from '../api';
 import type { Device } from '../types';
 import { AssetImage } from '../components/asset-image';
+import { device360Keys, getDeviceAttestation, getDeviceSnmpOverview, listDevice360Connections, listDeviceAuditEvents, listDeviceHosts, listDeviceLifecycleDates, listDeviceOpenChanges, q } from './api';
 
 /**
  * Step 29 — read-first Device 360 page.
@@ -44,9 +44,6 @@ const ROLES = {
   edit: ['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR', 'STORAGE_OPERATOR'],
 } as const;
 
-const CLOSED_CHANGE = new Set(['COMPLETED', 'CANCELLED', 'REJECTED', 'CLOSED', 'IMPLEMENTED']);
-
-type Connection = { id: string; type?: string; label?: string | null; sourceDeviceId: string; targetDeviceId: string; sourceDevice?: { id: string; name: string } | null; targetDevice?: { id: string; name: string } | null; sourceInterface?: { name: string } | null; targetInterface?: { name: string } | null };
 /** SNMP Phase 1 step 5.4: drift statuses as the API stores them (PENDING / ACCEPTED / IGNORED), in Portuguese. */
 const driftStatusLabels: Record<string, string> = { PENDING: 'Pendente', ACCEPTED: 'Aceite', IGNORED: 'Ignorada' };
 export const snmpDriftStatusLabel = (status?: string | null) => (status ? driftStatusLabels[status] ?? status : driftStatusLabels.PENDING);
@@ -57,12 +54,6 @@ export function driftCounts(drifts?: Array<{ status?: string }>): { pending: num
   const pending = counts.get('PENDING') ?? 0; counts.delete('PENDING');
   return { pending, other: [...counts.entries()] };
 }
-type SnmpOverview = { config?: { enabled?: boolean } | null; latestSnapshot?: { observedAt?: string; collectedAt?: string; createdAt?: string; status?: string } | null; drifts?: Array<{ id: string; status?: string }>; traps?: Array<{ id: string }> };
-type LifecycleDate = { id: string; deviceId: string; kind: string; dueDate: string };
-type ChangeItem = { entityType: string; entityId: string };
-type ChangePlan = { id: string; title: string; status: string; plannedStartAt: string; items?: ChangeItem[] };
-type CriticalAsset = { id: string; latestOutcome?: string | null; latestConfirmedAt?: string | null; dueState?: string; dueDate?: string | null };
-type AuditEvent = { id: string; action: string; createdAt: string; user?: { username: string; displayName?: string | null } | null; actor?: { username: string; displayName?: string | null } | null };
 /** Step 28b adds this to the device payload (#97); read defensively until then. */
 type FutureDeviceFields = { criticalityTier?: 'T1' | 'T2' | 'T3' | null };
 /** Same labels as the cadence settings (Step 28b). */
@@ -74,14 +65,8 @@ export function snmpStateLabel(enabled?: boolean | null): string {
 }
 
 const TIER_LABELS: Record<string, string> = { T1: 'T1 · Vital', T2: 'T2 · Importante', T3: 'T3 · Padrão' };
-/** Linux host inventory (Step 26): `GET /api/v1/linux-agents/hosts` and `/hosts/:id/services`. */
-type LinuxHost = { id: string; name: string; hostname?: string | null; operatingSystem?: string | null; device?: { id: string } | null; agent?: { state?: string; lastHeartbeatAt?: string | null } | null };
-type HostService = { id: string; name: string; protocol?: string | null; port?: number | null; version?: string | null; observedStatus?: string | null };
-type HostWithServices = LinuxHost & { services: HostService[] };
 
 const fmt = (value?: string | null) => (value ? new Date(value).toLocaleString('pt-PT', { dateStyle: 'short', timeStyle: 'short' }) : '—');
-const q = (values: Record<string, string | null | undefined>) => { const p = new URLSearchParams(); for (const [k, v] of Object.entries(values)) if (v) p.set(k, v); const s = p.toString(); return s ? `?${s}` : ''; };
-const itemsOf = <T,>(value: unknown): T[] => (Array.isArray(value) ? value as T[] : Array.isArray((value as { items?: unknown })?.items) ? (value as { items: T[] }).items : []);
 
 function Section({ id, title, fullHref, fullLabel, children }: { id: string; title: string; fullHref?: string; fullLabel?: string; children: ReactNode }) {
   return <section className="ipam-card device-360-section" aria-labelledby={`d360-${id}`} data-section={id}>
@@ -111,7 +96,7 @@ export function Device360Page({ deviceId }: { deviceId: string }) {
   const [impactOpen, setImpactOpen] = useState(false);
   const [editingTags, setEditingTags] = useState(false);
   const queryClient = useQueryClient();
-  const deviceQuery = useQuery({ queryKey: ['device-360', deviceId], queryFn: () => getDevice(deviceId), enabled: Boolean(deviceId) });
+  const deviceQuery = useQuery({ queryKey: device360Keys.device(deviceId), queryFn: () => getDevice(deviceId), enabled: Boolean(deviceId) });
   const device = deviceQuery.data as (Device & FutureDeviceFields) | undefined;
   // SNMP Phase 2 step 10: health badge and panel for network equipment, same roles as the SNMP section.
   const showHealth = Boolean(device) && can('snmp') && isSnmpNetworkDevice(device?.type);
@@ -124,18 +109,15 @@ export function Device360Page({ deviceId }: { deviceId: string }) {
     if (deviceName) rememberRecentItem(user?.id, { id: `device:${deviceId}`, kind: 'Equipamento', label: deviceName, href: entityHref({ kind: 'device', id: deviceId, siteId }) });
   }, [user?.id, deviceId, deviceName, siteId]);
 
-  const interfaces = useQuery({ queryKey: ['device-360', deviceId, 'interfaces'], queryFn: () => listInterfaces(deviceId), enabled: ready && can('interfaces') });
-  const ips = useQuery({ queryKey: ['device-360', deviceId, 'ips', siteId], queryFn: () => listDeviceIpAddresses(siteId, deviceId), enabled: ready && Boolean(siteId) });
-  const connections = useQuery({ queryKey: ['device-360', deviceId, 'connections'], queryFn: async () => itemsOf<Connection>(await apiFetch(`/api/v1/topology/connections${q({ siteId, search: device?.name, pageSize: '200' })}`)).filter((c) => c.sourceDeviceId === deviceId || c.targetDeviceId === deviceId), enabled: ready });
-  const snmp = useQuery({ queryKey: ['device-360', deviceId, 'snmp'], queryFn: () => apiFetch<SnmpOverview>(`/api/v1/snmp/devices/${encodeURIComponent(deviceId)}`), enabled: ready && can('snmp') });
-  const lifecycle = useQuery({ queryKey: ['device-360', deviceId, 'lifecycle', siteId], queryFn: async () => itemsOf<LifecycleDate>(await apiFetch(`/api/v1/lifecycle-dates${q({ siteId, deviceId })}`)).filter((d) => d.deviceId === deviceId), enabled: ready && Boolean(siteId) });
-  const attestation = useQuery({ queryKey: ['device-360', deviceId, 'attestation', siteId], queryFn: async () => { const r = await apiFetch<{ assets?: CriticalAsset[]; unassigned?: CriticalAsset[] }>(`/api/v1/critical-assets${q({ siteId })}`); return [...(r.assets ?? []), ...(r.unassigned ?? [])].find((a) => a.id === deviceId) ?? null; }, enabled: ready && Boolean(siteId) && Boolean(device?.isCritical) && can('attestation') });
-  const changes = useQuery({ queryKey: ['device-360', deviceId, 'changes', siteId], queryFn: async () => itemsOf<ChangePlan>(await apiFetch(`/api/v1/change-plans${q({ siteId })}`)).filter((p) => !CLOSED_CHANGE.has(p.status) && (p.items ?? []).some((i) => i.entityType === 'DEVICE' && i.entityId === deviceId)), enabled: ready && Boolean(siteId) && can('changes') });
-  const hosts = useQuery({ queryKey: ['device-360', deviceId, 'hosts', siteId], enabled: ready && Boolean(siteId) && can('hosts'), queryFn: async (): Promise<HostWithServices[]> => {
-    const linked = itemsOf<LinuxHost>(await apiFetch(`/api/v1/linux-agents/hosts${q({ siteId })}`)).filter((h) => h.device?.id === deviceId);
-    return Promise.all(linked.map(async (h) => ({ ...h, services: itemsOf<HostService>(await apiFetch(`/api/v1/linux-agents/hosts/${encodeURIComponent(h.id)}/services`)) })));
-  } });
-  const audit = useQuery({ queryKey: ['device-360', deviceId, 'audit'], queryFn: async () => itemsOf<AuditEvent>(await apiFetch(`/api/v1/audit/events/page${q({ entityType: 'Device', entityId: deviceId, limit: '10' })}`)), enabled: ready && can('audit') });
+  const interfaces = useQuery({ queryKey: device360Keys.interfaces(deviceId), queryFn: () => listInterfaces(deviceId), enabled: ready && can('interfaces') });
+  const ips = useQuery({ queryKey: device360Keys.ips(deviceId, siteId), queryFn: () => listDeviceIpAddresses(siteId, deviceId), enabled: ready && Boolean(siteId) });
+  const connections = useQuery({ queryKey: device360Keys.connections(deviceId), queryFn: () => listDevice360Connections(siteId, deviceId, device?.name), enabled: ready });
+  const snmp = useQuery({ queryKey: device360Keys.snmp(deviceId), queryFn: () => getDeviceSnmpOverview(deviceId), enabled: ready && can('snmp') });
+  const lifecycle = useQuery({ queryKey: device360Keys.lifecycle(deviceId, siteId), queryFn: () => listDeviceLifecycleDates(siteId, deviceId), enabled: ready && Boolean(siteId) });
+  const attestation = useQuery({ queryKey: device360Keys.attestation(deviceId, siteId), queryFn: () => getDeviceAttestation(siteId, deviceId), enabled: ready && Boolean(siteId) && Boolean(device?.isCritical) && can('attestation') });
+  const changes = useQuery({ queryKey: device360Keys.changes(deviceId, siteId), queryFn: () => listDeviceOpenChanges(siteId, deviceId), enabled: ready && Boolean(siteId) && can('changes') });
+  const hosts = useQuery({ queryKey: device360Keys.hosts(deviceId, siteId), queryFn: () => listDeviceHosts(siteId, deviceId), enabled: ready && Boolean(siteId) && can('hosts') });
+  const audit = useQuery({ queryKey: device360Keys.audit(deviceId), queryFn: () => listDeviceAuditEvents(deviceId), enabled: ready && can('audit') });
 
   if (!deviceId || deviceQuery.error) return <AppShell section="Mapa físico"><div className="module-page device-360"><section className="ipam-card empty-context" role="alert"><Server size={28} /><strong>Equipamento não encontrado</strong><span>Não foi possível abrir este equipamento ou não tens acesso a ele.</span><a className="secondary-button" href="/infraestrutura?tab=devices">Voltar à lista de equipamentos</a></section></div></AppShell>;
   if (!device) return <AppShell section="Mapa físico"><div className="module-page device-360"><EmptyLine>A carregar equipamento…</EmptyLine></div></AppShell>;
@@ -170,7 +152,7 @@ export function Device360Page({ deviceId }: { deviceId: string }) {
         {can('changeCreate') && <a className="secondary-button" href={`/alteracoes${q({ siteId, new: '1', deviceId: device.id })}`}><Plus size={14} aria-hidden="true" /> Criar alteração</a>}
       </div>
     </header>
-    {editingTags && device && siteId && <TagEditor siteId={siteId} canCreate={canManageTagCatalog(hasRole)} itemLabel={device.name} selected={device.tags ?? []} save={async (tagIds) => { await setDeviceTags(device.id, tagIds); await queryClient.invalidateQueries({ queryKey: ['device-360', deviceId] }); void queryClient.invalidateQueries({ queryKey: ['tags', siteId] }); void queryClient.invalidateQueries({ queryKey: ['infrastructure', 'devices', siteId] }); }} close={() => setEditingTags(false)} />}
+    {editingTags && device && siteId && <TagEditor siteId={siteId} canCreate={canManageTagCatalog(hasRole)} itemLabel={device.name} selected={device.tags ?? []} save={async (tagIds) => { await setDeviceTags(device.id, tagIds); await queryClient.invalidateQueries({ queryKey: device360Keys.device(deviceId) }); void queryClient.invalidateQueries({ queryKey: ['tags', siteId] }); void queryClient.invalidateQueries({ queryKey: ['infrastructure', 'devices', siteId] }); }} close={() => setEditingTags(false)} />}
 
     {impactOpen && <section id="d360-impacto-section" className="ipam-card device-360-section device-360-impact" aria-labelledby="d360-impacto" data-section="impacto">
       <header className="device-360-section-head"><h2 id="d360-impacto">Impacto se este equipamento for abaixo</h2><button type="button" className="text-button" onClick={() => setImpactOpen(false)}>Fechar</button></header>
