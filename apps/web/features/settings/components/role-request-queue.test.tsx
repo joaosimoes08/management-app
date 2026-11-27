@@ -48,6 +48,17 @@ describe('RoleRequestQueue', () => {
     expect(mocks.success).toHaveBeenCalledWith('Pedidos de roles', 'Pedido de Ana Silva aprovado.');
   });
 
+  it('loads again whenever the user list does, and only then', async () => {
+    mocks.listRoleRequests.mockResolvedValue(page([request()]));
+    const view = render(<RoleRequestQueue onDecided={vi.fn()} reloadToken={100} />);
+    await screen.findByText('Ana Silva');
+    expect(mocks.listRoleRequests).toHaveBeenCalledTimes(1);
+    view.rerender(<RoleRequestQueue onDecided={vi.fn()} reloadToken={100} />);
+    view.rerender(<RoleRequestQueue onDecided={vi.fn()} reloadToken={200} />);
+    await waitFor(() => expect(mocks.listRoleRequests).toHaveBeenCalledTimes(2));
+    expect(screen.getByText('Ana Silva')).toBeInTheDocument();
+  });
+
   it('asks for confirmation before rejecting and shows the API message on conflict', async () => {
     mocks.listRoleRequests.mockResolvedValue(page([request()]));
     mocks.decideRoleRequest.mockRejectedValue(new ApiRequestError('O pedido já foi processado.', 409, { code: 'ROLE_REQUEST_NOT_PENDING', message: 'O pedido já foi processado.' }));

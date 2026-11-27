@@ -68,6 +68,8 @@ export function ScheduledReportsSettings() {
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
+    // The form only shows while editing; without a target there is nothing to save, and never a POST.
+    if (!editing) return;
     if (!draft.sections.length) { setFeedback(ui('settings.reports.needSection')); return; }
     if (!draft.sendEmail && !draft.sendTeams) { setFeedback(ui('settings.reports.needChannel')); return; }
     setBusy('save'); setFeedback('');
@@ -78,7 +80,7 @@ export function ScheduledReportsSettings() {
     };
     try {
       const target = editing;
-      await request.mutateAsync(() => (target === 'new' || !target ? createScheduledReport(body) : updateScheduledReport(target, body)));
+      await request.mutateAsync(() => (target === 'new' ? createScheduledReport(body) : updateScheduledReport(target, body)));
       success(ui('settings.reports.toast'), editing === 'new' ? ui('settings.reports.created') : ui('settings.reports.saved'));
       setEditing(null);
       await load();

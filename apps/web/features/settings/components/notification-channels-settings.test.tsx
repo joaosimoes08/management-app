@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render as rtlRender, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render as rtlRender, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactElement, ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -13,7 +13,7 @@ vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ locale: 'pt-PT', t: (key: strin
 /** Each render gets its own query cache, without retries, as in the app's tests elsewhere. */
 const render = (ui: ReactElement) => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-  return rtlRender(ui, { wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
+  return { client, ...rtlRender(ui, { wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> }) };
 };
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
@@ -61,6 +61,26 @@ describe('NotificationChannelsSettings', () => {
     await waitFor(() => expect(mocks.success).toHaveBeenCalledWith('Notificações', 'Canais de notificação guardados'));
     const puts = mocks.apiFetch.mock.calls.filter(([, options]) => options?.method === 'PUT');
     expect(puts).toEqual([['/api/v1/settings/notification-channels/TEAMS/GROUP_ALERTS', { method: 'PUT', body: JSON.stringify({ enabled: true, webhookUrl: 'https://contoso.webhook.office.com/webhookb2/x', minSeverity: 'CRITICAL' }) }]]);
+  });
+
+  it('keeps unsaved edits when the channels are refetched in the background', async () => {
+    api([channel('USER_NOTIFICATIONS'), channel('GROUP_ALERTS')]);
+    const { client } = render(<NotificationChannelsSettings />);
+    const group = await screen.findByRole('group', { name: 'Alertas operacionais' });
+    await waitFor(() => expect(within(group).getByRole('combobox', { name: 'Severidade mínima' })).toHaveValue('HIGH'));
+    fireEvent.change(within(group).getByRole('combobox', { name: 'Severidade mínima' }), { target: { value: 'CRITICAL' } });
+    fireEvent.click(within(group).getByRole('checkbox', { name: 'Ativar este canal' }));
+
+    // The server answers something else and the query refetches without anyone asking.
+    api([channel('USER_NOTIFICATIONS'), channel('GROUP_ALERTS', { enabled: false, minSeverity: 'HIGH', updatedAt: '2026-11-27T10:00:00.000Z' })]);
+    const loads = () => mocks.apiFetch.mock.calls.filter(([path]) => path === '/api/v1/settings/notification-channels').length;
+    const before = loads();
+    await act(() => client.refetchQueries({ queryKey: ['settings', 'notification-channels'] }));
+    // React Query tells components about new data on a timer; let that run so the form would show a reseed.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    expect(loads()).toBe(before + 1);
+    expect(within(group).getByRole('combobox', { name: 'Severidade mínima' })).toHaveValue('CRITICAL');
+    expect(within(group).getByRole('checkbox', { name: 'Ativar este canal' })).toBeChecked();
   });
 
   it('sends a test message, reports the failure reason and retries failed deliveries from the log', async () => {

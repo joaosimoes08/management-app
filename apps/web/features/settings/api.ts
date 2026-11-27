@@ -16,7 +16,8 @@ export const settingsKeys = {
   core: (admin: boolean, auditor: boolean) => ['settings', 'core', { admin, auditor }] as const,
   managedUsers: (page: number, search: string) => ['settings', 'users', { page, search }] as const,
   roleRequestsAll: ['settings', 'role-requests'] as const,
-  roleRequests: (status: string, page: number) => ['settings', 'role-requests', { status, page }] as const,
+  /** `reload` is the Users list's load time: the queue loads again whenever that list does. */
+  roleRequests: (status: string, page: number, reload = 0) => ['settings', 'role-requests', { status, page, reload }] as const,
   backups: ['settings', 'backups'] as const,
   cadence: (siteId: string) => ['settings', 'critical-cadence', siteId] as const,
   notificationChannels: ['settings', 'notification-channels'] as const,
@@ -24,8 +25,8 @@ export const settingsKeys = {
   scheduledReports: ['settings', 'scheduled-reports'] as const,
 };
 
-/** Settings panels reload every time they open, as they did before React Query. */
-export const settingsQueryOptions = { staleTime: 0 } as const;
+/** Settings panels reload every time they open, as they did before React Query. A reconnect does not refetch them (window focus is already off app-wide): forms copy this data, see use-seed-on-load. */
+export const settingsQueryOptions = { staleTime: 0, refetchOnReconnect: false } as const;
 
 export const listAccessGroups = (siteId?: string) => apiFetch<AccessGroup[]>(`/api/v1/settings/access-groups${siteId ? `?siteId=${encodeURIComponent(siteId)}` : ''}`);
 export const listAccessGroupUsers = () => apiFetch<AccessGroupUser[]>('/api/v1/settings/access-group-users');

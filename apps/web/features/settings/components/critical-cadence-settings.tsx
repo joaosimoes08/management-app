@@ -7,6 +7,7 @@ import { useToast } from '@/components/ui/toast';
 import { useUiText } from '@/components/ui/use-ui-text';
 import { settingsText } from '../i18n';
 import { getCriticalCadence, settingsKeys, settingsQueryOptions, updateCriticalCadence } from '../api';
+import { useSeedOnLoad } from '../use-seed-on-load';
 import type { Cadence, CadenceTier as Tier } from '../types';
 
 type SiteRef = { id: string; name: string };
@@ -25,9 +26,8 @@ export function CriticalCadenceSettings({ sites }: { sites: SiteRef[] }) {
   useEffect(() => { if (!siteId && sites[0]) setSiteId(sites[0].id); }, [sites, siteId]);
   const cadenceQuery = useQuery({ queryKey: settingsKeys.cadence(siteId), queryFn: () => getCriticalCadence(siteId), enabled: Boolean(siteId), ...settingsQueryOptions });
   const saveMutation = useMutation({ mutationFn: (cadence: Cadence) => updateCriticalCadence(siteId, cadence), onSuccess: (saved) => queryClient.setQueryData(settingsKeys.cadence(siteId), saved) });
-  // The form edits a copy; every load of the Site's cadence replaces it.
-  const [loadedAt, setLoadedAt] = useState(0);
-  if (cadenceQuery.data && cadenceQuery.dataUpdatedAt !== loadedAt) { setLoadedAt(cadenceQuery.dataUpdatedAt); setDraft(toDraft(cadenceQuery.data)); }
+  // The form edits a copy: the Site's first load fills it and a save replaces it; a background refetch never does.
+  useSeedOnLoad(cadenceQuery, siteId, (cadence) => setDraft(toDraft(cadence)));
   const loadError = cadenceQuery.error ? (cadenceQuery.error instanceof Error ? cadenceQuery.error.message : settingsText('settings.cadence.loadError')) : '';
   const error = actionError || loadError;
   const saving = saveMutation.isPending;

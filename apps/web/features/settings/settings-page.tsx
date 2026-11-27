@@ -21,6 +21,7 @@ import { useToast } from '@/components/ui/toast';
 import { useAuth } from '@/lib/auth';
 import { AppLocale, useI18n } from '@/lib/i18n';
 import { LAZY_LOCALES, LOCALE_NATIVE_NAMES } from '@/lib/i18n/locales/catalog';
+import { useSeedOnLoad } from './use-seed-on-load';
 import { createSite, decideRoleRequest, deleteSite as removeSite, getSettingsCore, listManagedUsers, settingsKeys, settingsQueryOptions, updateAuditPolicy, updateDiscoveryDefaults, updateOrganization, updateSite, updateSnmpListeners, updateUserRoles } from './api';
 import { applicationRoles, type ApplicationRole, type AuditPolicy, type DiscoveryDefaults, type ManagedUser, type SettingsSite as Site, type SnmpListenerSettings } from './types';
 import type { PaginatedResponse } from '@/lib/api/types';
@@ -70,12 +71,12 @@ export default function SettingsPage() {
   // Organization, discovery, audit and SNMP listeners load together, as before: one loading state, one error.
   const coreQuery = useQuery({ queryKey: settingsKeys.core(admin, auditor), queryFn: () => getSettingsCore(admin, auditor), ...settingsQueryOptions });
   const org = coreQuery.data?.organization ?? null; const loading = coreQuery.isFetching;
-  const loadCore = () => coreQuery.refetch();
-  const [coreSeen, setCoreSeen] = useState({ fetching: false, data: 0, error: 0 });
-  if (coreQuery.isFetching !== coreSeen.fetching || coreQuery.dataUpdatedAt !== coreSeen.data || coreQuery.errorUpdatedAt !== coreSeen.error) {
-    setCoreSeen({ fetching: coreQuery.isFetching, data: coreQuery.dataUpdatedAt, error: coreQuery.errorUpdatedAt });
+  // The forms are filled on the first load, on Refresh and after a save; never by a background refetch.
+  const loadCore = useSeedOnLoad(coreQuery, `${admin}:${auditor}`, ({ organization, discovery: defaults, audit: auditResult, snmpListeners: snmpResult }) => { setOrgForm({ name: organization.settings.organizationName ?? '', code: organization.settings.organizationCode ?? '', timezone: organization.settings.timezone, locale: organization.settings.locale ?? 'pt-PT' }); setDiscovery(defaults); setPorts(defaults.tcpPorts.join(', ')); setAllowedCidrs(defaults.allowedCidrs.join('\n')); if (auditResult) setAudit(auditResult); if (snmpResult) setSnmpListeners(snmpResult); });
+  const [coreSeen, setCoreSeen] = useState({ fetching: false, error: 0 });
+  if (coreQuery.isFetching !== coreSeen.fetching || coreQuery.errorUpdatedAt !== coreSeen.error) {
+    setCoreSeen({ fetching: coreQuery.isFetching, error: coreQuery.errorUpdatedAt });
     if (coreQuery.isFetching && !coreSeen.fetching) setError('');
-    if (coreQuery.data && coreQuery.dataUpdatedAt !== coreSeen.data) { const { organization, discovery: defaults, audit: auditResult, snmpListeners: snmpResult } = coreQuery.data; setOrgForm({ name: organization.settings.organizationName ?? '', code: organization.settings.organizationCode ?? '', timezone: organization.settings.timezone, locale: organization.settings.locale ?? 'pt-PT' }); setDiscovery(defaults); setPorts(defaults.tcpPorts.join(', ')); setAllowedCidrs(defaults.allowedCidrs.join('\n')); if (auditResult) setAudit(auditResult); if (snmpResult) setSnmpListeners(snmpResult); }
     if (coreQuery.error && coreQuery.errorUpdatedAt !== coreSeen.error) setError(coreQuery.error instanceof Error ? coreQuery.error.message : settingsText('settings.page.loadError'));
   }
   // The user list: each page/search is its own query; asking again for the same one reloads it.

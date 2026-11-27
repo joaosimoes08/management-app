@@ -11,6 +11,7 @@ import { formatDateTime, getFormatLocale } from '@/lib/format/date';
 import { useUiText } from '@/components/ui/use-ui-text';
 import { settingsText } from '../i18n';
 import { clearNotificationChannel, getNotificationChannels, listNotificationDeliveries, retryNotificationDelivery, settingsKeys, settingsQueryOptions, testNotificationChannel, updateNotificationChannel } from '../api';
+import { useSeedOnLoad } from '../use-seed-on-load';
 import type { ChannelKind, ChannelsResponse, ChannelStatus, DeliveryItem, DeliveryPage, DeliveryStatus, DeliveryTarget, GroupDeliveryMissing, SmtpSecurity, SmtpView } from '../types';
 
 export type { ChannelKind, ChannelStatus, DeliveryItem, DeliveryTarget, GroupDeliveryMissing, SmtpSecurity, SmtpView } from '../types';
@@ -96,21 +97,19 @@ export function NotificationChannelsSettings() {
   const channelsQuery = useQuery({ queryKey: settingsKeys.notificationChannels, queryFn: getNotificationChannels, ...settingsQueryOptions });
   const state: ChannelsResponse | null = channelsQuery.data ?? null;
   const loading = channelsQuery.isFetching;
-  // Every load replaces the drafts with what is saved; a failed load reports in the feedback line.
-  const [seen, setSeen] = useState({ data: 0, error: 0 });
-  if (channelsQuery.data && channelsQuery.dataUpdatedAt !== seen.data) {
-    const next = channelsQuery.data;
+  // The first load, Refresh and every save replace the drafts with what is saved; a background refetch never does.
+  const load = useSeedOnLoad(channelsQuery, 'channels', (next) => {
     const find = (kind: ChannelKind, target: DeliveryTarget) => next.channels.find((item) => (item.kind ?? 'TEAMS') === kind && item.target === target);
-    setSeen((current) => ({ ...current, data: channelsQuery.dataUpdatedAt }));
     setDrafts({ USER_NOTIFICATIONS: draftOf(find('TEAMS', 'USER_NOTIFICATIONS')), GROUP_ALERTS: draftOf(find('TEAMS', 'GROUP_ALERTS')) });
     setSmtpDraft(smtpDraftOf(find('EMAIL', 'USER_NOTIFICATIONS')));
     setGroupEmail(groupEmailDraftOf(find('EMAIL', 'GROUP_ALERTS')));
-  }
-  if (channelsQuery.error && channelsQuery.errorUpdatedAt !== seen.error) {
-    setSeen((current) => ({ ...current, error: channelsQuery.errorUpdatedAt }));
+  });
+  // A failed load reports in the feedback line.
+  const [seenError, setSeenError] = useState(0);
+  if (channelsQuery.error && channelsQuery.errorUpdatedAt !== seenError) {
+    setSeenError(channelsQuery.errorUpdatedAt);
     setFeedback(messageOf(channelsQuery.error, settingsText('settings.notifications.loadError')));
   }
-  const load = () => channelsQuery.refetch();
 
   // Delivery log: "Load more" appends the next cursor page; filters start again from the first page.
   const logKey = settingsKeys.notificationDeliveries(statusFilter, channelFilter);

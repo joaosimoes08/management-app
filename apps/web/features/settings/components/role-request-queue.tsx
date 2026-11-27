@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronLeft, ChevronRight, RefreshCw, X } from 'lucide-react';
 import { DataTable, sortByColumns, type DataTableColumn, type SortState } from '@/components/data-table';
@@ -35,8 +35,8 @@ const personName = (person?: RoleRequestItem['user']) => person?.displayName?.tr
 export interface RoleRequestQueueProps {
   /** Called after a decision so the user list (roles, pending badge) reloads. */
   onDecided: () => void;
-  /** Any change (e.g. the user list object) reloads the queue, so decisions taken in the user list show up here. */
-  reloadToken?: unknown;
+  /** Any change (the user list's load time) reloads the queue, so decisions taken in the user list show up here. */
+  reloadToken?: number;
 }
 
 /** Definições → Utilizadores: queue of role requests, pending first, with approve / reject. */
@@ -54,8 +54,8 @@ export function RoleRequestQueue({ onDecided, reloadToken }: RoleRequestQueuePro
   const defaultSort: SortState = { column: 'createdAt', direction: status === ROLE_REQUEST_FILTERS[0].value ? 'asc' : 'desc' };
   const [sort, setSort] = useState<SortState>(defaultSort);
 
-  // The previous page stays on screen while the next one loads, as before.
-  const query = useQuery({ queryKey: settingsKeys.roleRequests(status, page), queryFn: () => listRoleRequests({ status, page, pageSize: PAGE_SIZE }), placeholderData: keepPreviousData, ...settingsQueryOptions });
+  // The previous page stays on screen while the next one loads, as before. reloadToken is part of the key, so a new token loads the queue again.
+  const query = useQuery({ queryKey: settingsKeys.roleRequests(status, page, reloadToken ?? 0), queryFn: () => listRoleRequests({ status, page, pageSize: PAGE_SIZE }), placeholderData: keepPreviousData, ...settingsQueryOptions });
   const decisionMutation = useMutation({ mutationFn: ({ id, decision: value }: { id: string; decision: 'APPROVE' | 'REJECT' }) => decideRoleRequest(id, value) });
   const reload = () => queryClient.invalidateQueries({ queryKey: settingsKeys.roleRequestsAll });
   const fetched = query.data && !query.isPlaceholderData ? query.data : undefined;
@@ -63,9 +63,6 @@ export function RoleRequestQueue({ onDecided, reloadToken }: RoleRequestQueuePro
   // The last item of the last page was decided: step back instead of showing an empty page.
   const stepBack = Boolean(fetched && !fetchedItems.length && page > 1);
   if (stepBack) setPage(page - 1);
-  // Any change of reloadToken (the user list) reloads the queue; the first value is the initial load.
-  const firstToken = useRef(true);
-  useEffect(() => { if (firstToken.current) { firstToken.current = false; return; } void reload(); }, [reloadToken]); // eslint-disable-line react-hooks/exhaustive-deps
   const loading = query.isFetching || stepBack;
   const error = query.isError ? messageOf(query.error, 'Não foi possível carregar os pedidos de roles.') : '';
   const data: RoleRequestPage = query.isError || !query.data || stepBack ? emptyPage : { ...emptyPage, ...query.data, items: Array.isArray(query.data.items) ? query.data.items : [] };
