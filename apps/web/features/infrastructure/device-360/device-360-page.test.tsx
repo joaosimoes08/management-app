@@ -1,15 +1,16 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { apiFetch } from '@/lib/api/client';
+import { apiFetch, setApiTokenProvider } from '@/lib/api/client';
 import { entityHref } from '@/lib/routes';
 import { clearAssetBlobCache } from '../components/asset-image';
 import { Device360Page, driftCounts, snmpDriftStatusLabel, snmpStateLabel } from './device-360-page';
 
 vi.mock('@/components/layout/app-shell', () => ({ AppShell: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 const roles = vi.hoisted(() => ({ current: ['ADMIN'] as string[] }));
-vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: (role: string) => roles.current.includes(role), user: { id: 'u1' }, token: 'test-token' }) }));
-vi.mock('@/lib/api/client', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: (role: string) => roles.current.includes(role), user: { id: 'u1' }, authenticated: true }) }));
+// Only apiFetch is replaced: asset images go through the real apiBlob, with the token from the registered provider.
+vi.mock('@/lib/api/client', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/api/client')>()), apiFetch: vi.fn() }));
 vi.mock('@/lib/runtime-config', () => ({ getPublicRuntimeConfig: () => ({ apiUrl: '' }) }));
 
 const device = { id: 'd1', name: 'core-sw-01', type: 'SWITCH', status: 'ACTIVE', siteId: 's1', isCritical: false, rack: null, model: null };
@@ -39,6 +40,7 @@ afterEach(cleanup);
 describe('Device360Page', () => {
   it('loads the device photo with the Bearer token and shows it from a blob URL, never the API URL directly', async () => {
     clearAssetBlobCache();
+    setApiTokenProvider(async () => 'test-token');
     const fetchMock = vi.fn(async () => new Response(new Blob(['png'], { type: 'image/png' })));
     vi.stubGlobal('fetch', fetchMock);
     const createObjectURL = vi.fn(() => 'blob:http://localhost:3000/photo-1');
@@ -50,17 +52,19 @@ describe('Device360Page', () => {
       const image = await screen.findByRole('img', { name: 'Frente de core-sw-01' });
       expect(image).toHaveAttribute('src', 'blob:http://localhost:3000/photo-1');
       expect(image).toHaveClass('device-360-image');
-      expect(fetchMock).toHaveBeenCalledWith('/api/v1/assets/asset-1/file', { headers: { Authorization: 'Bearer test-token' } });
+      expect(fetchMock).toHaveBeenCalledWith('/api/v1/assets/asset-1/file', expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer test-token' }) }));
       // A plain <img src> to the API cannot send the token and is blocked by the API's Cross-Origin-Resource-Policy.
       expect(document.querySelector('img[src*="/api/v1/assets/"]')).toBeNull();
     } finally {
       vi.unstubAllGlobals();
+      setApiTokenProvider(null);
       clearAssetBlobCache();
     }
   });
 
   it('shows no device photo and requests none when neither the device nor its model has one', async () => {
     clearAssetBlobCache();
+    setApiTokenProvider(async () => 'test-token');
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
     try {

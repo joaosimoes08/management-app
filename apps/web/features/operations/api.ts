@@ -1,4 +1,4 @@
-import { apiFetch } from '@/lib/api/client';
+import { apiEventStream, apiFetch } from '@/lib/api/client';
 import { listSiteOptions, type SiteOption } from '@/lib/api/sites';
 
 /**
@@ -151,8 +151,8 @@ export const createMaintenanceWindow = (body: MaintenanceWindowInput) => apiFetc
 export const deleteMaintenanceWindow = (id: string) => apiFetch<unknown>(`/api/v1/operations/configuration/maintenance-windows/${id}`, { method: 'DELETE' });
 
 /**
- * Opens the operational event stream (Server-Sent Events). `url` is absolute (runtime API URL + path).
- * A plain fetch, not apiFetch: the body is read as a stream and a 401 must not sign the person out.
+ * Opens the operational event stream (Server-Sent Events) for an API path. Goes through apiEventStream, not
+ * apiFetch: the body is read as a stream and a 401 must not sign the person out. The API client asks for a
+ * fresh token on every call, so a reconnect never reuses the token the stream was first opened with.
  */
-export const openOperationalEventStream = (url: string, token: string, signal: AbortSignal) =>
-  fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' }, cache: 'no-store', signal });
+export const openOperationalEventStream = (path: string, signal: AbortSignal) => apiEventStream(path, { signal });

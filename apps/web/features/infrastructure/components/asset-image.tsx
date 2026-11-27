@@ -1,8 +1,8 @@
 'use client';
 
+import { apiBlob } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth';
 import { useEffect, useState, type ImgHTMLAttributes, type ReactNode } from 'react';
-import { assetFileUrl } from '../utils';
 import type { AssetFile } from '../types';
 
 type AssetImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> & {
@@ -20,11 +20,11 @@ type AssetImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> & {
 const MAX_CACHED_ASSETS = 300;
 const assetBlobs = new Map<string, Promise<Blob>>();
 
-export function loadAssetBlob(asset: Pick<AssetFile, 'id'>, token: string): Promise<Blob> {
+export function loadAssetBlob(asset: Pick<AssetFile, 'id'>): Promise<Blob> {
   const cached = assetBlobs.get(asset.id);
   if (cached) return cached;
-  const request = fetch(assetFileUrl(asset), { headers: { Authorization: `Bearer ${token}` } })
-    .then((response) => (response.ok ? response.blob() : Promise.reject(new Error('Asset indisponível'))));
+  // The API client adds the bearer token itself, so this component never handles a token.
+  const request = apiBlob(`/api/v1/assets/${encodeURIComponent(asset.id)}/file`);
   request.catch(() => { if (assetBlobs.get(asset.id) === request) assetBlobs.delete(asset.id); });
   assetBlobs.set(asset.id, request);
   if (assetBlobs.size > MAX_CACHED_ASSETS) assetBlobs.delete(assetBlobs.keys().next().value as string);
@@ -36,17 +36,17 @@ export function clearAssetBlobCache() { assetBlobs.clear(); }
 
 /** Renders an authenticated asset image as an object URL (assets require a Bearer token). */
 export function AssetImage({ asset, alt, className, loading = 'lazy', fallback, ...props }: AssetImageProps) {
-  const { token } = useAuth();
+  const { authenticated } = useAuth();
   const [src, setSrc] = useState('');
 
   useEffect(() => {
     let active = true;
     let objectUrl = '';
-    if (!asset?.id || !token) {
+    if (!asset?.id || !authenticated) {
       setSrc('');
       return () => undefined;
     }
-    loadAssetBlob(asset, token)
+    loadAssetBlob(asset)
       .then((blob) => {
         if (active) {
           objectUrl = URL.createObjectURL(blob);
@@ -60,7 +60,7 @@ export function AssetImage({ asset, alt, className, loading = 'lazy', fallback, 
       active = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [asset?.id, token]);
+  }, [asset?.id, authenticated]);
 
   return src
     ? <img src={src} alt={alt} className={className} loading={loading} {...props} />
