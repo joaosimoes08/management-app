@@ -7,6 +7,8 @@ import { fetchCurrentUser } from './api';
 import { getKeycloakInstance, initializeKeycloak } from './keycloak';
 import type { ApiUser, AuthContextValue, SetupStatus } from './types';
 
+const isUnauthorized = (error: unknown) => typeof error === 'object' && error !== null && (error as { status?: unknown }).status === 401;
+
 export const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -90,13 +92,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const [profileResult, identityResult, setupResult] = await Promise.allSettled([
             keycloak.loadUserProfile(),
             accessToken ? loadIdentity() : Promise.reject(new Error('O Keycloak não devolveu um access token.')),
-            accessToken ? apiFetch<SetupStatus>('/api/v1/setup/status') : Promise.reject(new Error('O Keycloak não devolveu um access token.')),
+            accessToken ? apiFetch<SetupStatus>('/api/v1/setup/status', { redirectOnUnauthorized: false }) : Promise.reject(new Error('O Keycloak não devolveu um access token.')),
           ]);
           if (!active) return;
           // The API identity is authoritative for application access. A profile endpoint
           // failure must not turn a valid Keycloak session into a login loop.
           setProfile(profileResult.status === 'fulfilled' ? profileResult.value : null);
-          if (identityResult.status === 'rejected') {
+          // A 401 on either call means the API does not accept this session: show the sign-in screen
+          // instead of restarting the Keycloak login, which would bounce a valid Keycloak session.
+          if (identityResult.status === 'rejected' || (setupResult.status === 'rejected' && isUnauthorized(setupResult.reason))) {
             setAuthenticated(false);
             setUser(null);
           } else if (setupResult.status === 'fulfilled') {

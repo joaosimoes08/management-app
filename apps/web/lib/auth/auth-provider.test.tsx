@@ -56,7 +56,7 @@ describe('AuthProvider sign-in', () => {
     await waitFor(() => {
       expect(mocks.instance.loadUserProfile).toHaveBeenCalledTimes(1);
       expect(mocks.apiFetch).toHaveBeenCalledWith('/api/v1/auth/me', expect.objectContaining({ cache: 'no-store', redirectOnUnauthorized: false }));
-      expect(mocks.apiFetch).toHaveBeenCalledWith('/api/v1/setup/status');
+      expect(mocks.apiFetch).toHaveBeenCalledWith('/api/v1/setup/status', { redirectOnUnauthorized: false });
     });
     // The identity goes through the API client (which adds the token): no raw fetch from the provider.
     expect(fetchMock).not.toHaveBeenCalled();
@@ -80,6 +80,15 @@ describe('AuthProvider sign-in', () => {
     identity.mockRejectedValue(Object.assign(new Error('Session expired'), { status: 401 }));
     render(<AuthProvider><Probe /></AuthProvider>);
     await waitFor(() => expect(state()).toMatchObject({ loading: false, authenticated: false, user: null, setupStatus: null }));
+  });
+
+  it('shows the sign-in screen without a Keycloak login when only the setup status answers 401', async () => {
+    setup.mockRejectedValue(Object.assign(new Error('Session expired'), { status: 401 }));
+    render(<AuthProvider><Probe /></AuthProvider>);
+    await waitFor(() => expect(state()).toMatchObject({ loading: false, authenticated: false, user: null, setupStatus: null }));
+    // The setup call must not use the client's default 401 redirect, and the provider must not log in itself.
+    expect(mocks.apiFetch).toHaveBeenCalledWith('/api/v1/setup/status', { redirectOnUnauthorized: false });
+    expect(mocks.instance.login).not.toHaveBeenCalled();
   });
 
   it('signs out of the app when /auth/me answers a body that is not an ApiUser', async () => {
