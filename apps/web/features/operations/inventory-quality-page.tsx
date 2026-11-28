@@ -15,7 +15,7 @@ import { QualityBulkDialog, type BulkParams } from './quality-bulk-dialog';
 import { useUiText } from '@/components/ui/use-ui-text';
 import {
   ALL, BULK_LIMIT, bulkOutcome, findingDeviceId, findingQueryFrom, findingSeverities, findingStatuses, groupByRule, hasQualityFilters, isActionable,
-  personName, qualityTableConfig, ruleLabel, ruleLabels, severityLabels, severityRank, statusCount, statusLabels, statusTabLabels, visibleSelection, type BulkOutcome,
+  isKnownRule, personName, qualityTableConfig, ruleLabel, severityLabel, severityRank, statusCount, statusLabel, statusTabLabel, visibleSelection, type BulkOutcome,
 } from './quality-workspace';
 
 const shortDateTime = (value: string) => formatDateTime(value, { dateStyle: 'short', timeStyle: 'short' });
@@ -65,20 +65,20 @@ export function InventoryQualityPage() {
   const loadError = pages.error instanceof Error ? pages.error.message : '';
 
   const columns: DataTableColumn<InventoryFinding>[] = [
-    { id: 'severity', header: 'Severidade', sortValue: (row) => severityRank[row.severity], cell: (row) => <span className={`status-pill ${row.severity === 'CRITICAL' || row.severity === 'HIGH' ? 'orange' : 'blue'}`}>{severityLabels[row.severity]}</span> },
-    { id: 'title', header: 'Finding', sortValue: (row) => row.title, cell: (row) => <span><strong>{row.title}</strong><small>{row.detail}</small>{row.suggestedCorrection && <small>{`Correção sugerida: ${row.suggestedCorrection}`}</small>}</span> },
-    { id: 'rule', header: 'Regra', sortValue: (row) => ruleLabel(row.rule), cell: (row) => ruleLabel(row.rule) },
-    { id: 'status', header: 'Estado', sortValue: (row) => findingStatuses.indexOf(row.status), cell: (row) => <span>{statusLabels[row.status]}{row.status === 'SNOOZED' && row.snoozedUntil && <small>{`até ${shortDateTime(row.snoozedUntil)}`}</small>}</span> },
-    { id: 'assignee', header: 'Responsável', sortValue: (row) => personName(row.assignedTo) || null, cell: (row) => (row.assignedTo ? personName(row.assignedTo) : <span className="muted-cell">Sem responsável</span>) },
-    { id: 'detected', header: 'Última deteção', sortValue: (row) => row.lastDetectedAt, cell: (row) => <time dateTime={row.lastDetectedAt}>{shortDateTime(row.lastDetectedAt)}</time> },
-    { id: 'actions', header: <span className="topology-sr-only">Ações</span>, cell: (row) => <span className="table-actions">
+    { id: 'severity', header: tx('operations.alerts.field.severity'), sortValue: (row) => severityRank[row.severity], cell: (row) => <span className={`status-pill ${row.severity === 'CRITICAL' || row.severity === 'HIGH' ? 'orange' : 'blue'}`}>{severityLabel(row.severity, tx)}</span> },
+    { id: 'title', header: tx('operations.quality.finding'), sortValue: (row) => row.title, cell: (row) => <span><strong>{row.title}</strong><small>{row.detail}</small>{row.suggestedCorrection && <small>{tx('operations.quality.suggestedCorrection', undefined, { correction: row.suggestedCorrection })}</small>}</span> },
+    { id: 'rule', header: tx('operations.quality.rule'), sortValue: (row) => ruleLabel(row.rule, tx), cell: (row) => ruleLabel(row.rule, tx) },
+    { id: 'status', header: tx('operations.alerts.field.status'), sortValue: (row) => findingStatuses.indexOf(row.status), cell: (row) => <span>{statusLabel(row.status, tx)}{row.status === 'SNOOZED' && row.snoozedUntil && <small>{tx('operations.alerts.until', undefined, { date: shortDateTime(row.snoozedUntil) })}</small>}</span> },
+    { id: 'assignee', header: tx('operations.quality.assignee'), sortValue: (row) => personName(row.assignedTo) || null, cell: (row) => (row.assignedTo ? personName(row.assignedTo) : <span className="muted-cell">{tx('operations.quality.unassigned')}</span>) },
+    { id: 'detected', header: tx('operations.quality.lastDetected'), sortValue: (row) => row.lastDetectedAt, cell: (row) => <time dateTime={row.lastDetectedAt}>{shortDateTime(row.lastDetectedAt)}</time> },
+    { id: 'actions', header: <span className="topology-sr-only">{tx('operations.alerts.field.actions')}</span>, cell: (row) => <span className="table-actions">
       {canAct && isActionable(row) && <>
-        <button type="button" className="icon-button subtle" disabled={running || row.status === 'ACKNOWLEDGED'} onClick={() => void acknowledgeOne(row)} aria-label={`Reconhecer ${row.title}`} title="Reconhecer"><Check size={14} /></button>
-        <button type="button" className="icon-button subtle" disabled={running} onClick={() => openDialog('ASSIGN', row)} aria-label={`Atribuir ${row.title}`} title="Atribuir…"><UserPlus size={14} /></button>
-        <button type="button" className="icon-button subtle" disabled={running} onClick={() => openDialog('SNOOZE', row)} aria-label={`Adiar ${row.title}`} title="Adiar…"><Clock3 size={14} /></button>
+        <button type="button" className="icon-button subtle" disabled={running || row.status === 'ACKNOWLEDGED'} onClick={() => void acknowledgeOne(row)} aria-label={tx('operations.alerts.acknowledgeNamed', undefined, { title: row.title })} title={tx('operations.alerts.acknowledge')}><Check size={14} /></button>
+        <button type="button" className="icon-button subtle" disabled={running} onClick={() => openDialog('ASSIGN', row)} aria-label={tx('operations.quality.assignNamed', undefined, { title: row.title })} title={tx('operations.quality.assignEllipsis')}><UserPlus size={14} /></button>
+        <button type="button" className="icon-button subtle" disabled={running} onClick={() => openDialog('SNOOZE', row)} aria-label={tx('operations.alerts.snoozeNamed', undefined, { title: row.title })} title={tx('operations.quality.snoozeEllipsis')}><Clock3 size={14} /></button>
       </>}
-      {findingDeviceId(row) && <a className="icon-button subtle" href={entityHref({ kind: 'device', id: findingDeviceId(row)!, siteId: row.siteId })} aria-label={`Abrir equipamento de ${row.title}`} title="Abrir equipamento"><Server size={14} /></a>}
-      {row.actionHref && <a className="icon-button subtle" href={row.actionHref} aria-label={`Abrir registo de ${row.title}`} title="Abrir registo"><ExternalLink size={14} /></a>}
+      {findingDeviceId(row) && <a className="icon-button subtle" href={entityHref({ kind: 'device', id: findingDeviceId(row)!, siteId: row.siteId })} aria-label={tx('operations.quality.openDeviceNamed', undefined, { title: row.title })} title={tx('operations.quality.openDevice')}><Server size={14} /></a>}
+      {row.actionHref && <a className="icon-button subtle" href={row.actionHref} aria-label={tx('operations.quality.openRecordNamed', undefined, { title: row.title })} title={tx('operations.quality.openRecord')}><ExternalLink size={14} /></a>}
     </span> },
   ];
   const sorted = sortByColumns(rows, columns, table.sort);
@@ -99,22 +99,19 @@ export function InventoryQualityPage() {
     setRunning(true); setError('');
     try {
       const response = await bulkInventoryFindings({ action, ids, ...params });
-      const result = bulkOutcome(response, titles);
+      const result = bulkOutcome(response, titles, tx);
       setOutcome(result);
       const succeeded = new Set(result.items.filter((item) => item.ok).map((item) => item.id));
       setSelected((current) => new Set([...current].filter((id) => !succeeded.has(id))));
       await queryClient.invalidateQueries({ queryKey: inventoryQualityKeys.all });
     } catch (cause) {
       setDialog(null); setOutcome(null);
-      setError(cause instanceof Error ? cause.message : 'A operação em massa falhou.');
+      setError(cause instanceof Error ? cause.message : tx('operations.quality.bulkFailed'));
     } finally { setRunning(false); }
   };
   const acknowledge = async () => {
-    const single = actionable.length === 1;
-    const message = single
-      ? 'Reconhecer 1 finding selecionado? Continua na fila até deixar de ser detetado.'
-      : `Reconhecer ${actionable.length} findings selecionados? Continuam na fila até deixarem de ser detetados.`;
-    const ok = await confirm({ title: single ? 'Reconhecer finding' : 'Reconhecer findings', message, confirmLabel: `Reconhecer ${actionable.length}` });
+    const message = tx('operations.quality.acknowledgeConfirm', undefined, { count: actionable.length });
+    const ok = await confirm({ title: tx('operations.quality.acknowledgeTitle', undefined, { count: actionable.length }), message, confirmLabel: tx('operations.quality.bulk.runCount.ACKNOWLEDGE', undefined, { count: actionable.length }) });
     if (!ok) return;
     setOutcome(null); setDialog('ACKNOWLEDGE');
     await run('ACKNOWLEDGE');
@@ -123,12 +120,12 @@ export function InventoryQualityPage() {
   const acknowledgeOne = async (row: InventoryFinding) => {
     setRunning(true); setError(''); setOutcome(null);
     try {
-      const result = bulkOutcome(await bulkInventoryFindings({ action: 'ACKNOWLEDGE', ids: [row.id] }), titles);
+      const result = bulkOutcome(await bulkInventoryFindings({ action: 'ACKNOWLEDGE', ids: [row.id] }), titles, tx);
       const failed = result.items.find((item) => !item.ok);
       if (failed) setError(`${row.title}: ${failed.message}`);
       await queryClient.invalidateQueries({ queryKey: inventoryQualityKeys.all });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Não foi possível reconhecer o finding.');
+      setError(cause instanceof Error ? cause.message : tx('operations.quality.acknowledgeError'));
     } finally { setRunning(false); }
   };
   const openDialog = (action: BulkFindingAction, row: InventoryFinding | null = null) => { setOutcome(null); setRowTarget(row); setDialog(action); };
@@ -140,60 +137,60 @@ export function InventoryQualityPage() {
   const unassignedCount = facetData?.byAssignee.find((item) => item.userId === null)?.total;
   const withCount = (label: string, count?: number) => (count === undefined ? label : `${label} (${count})`);
   // "Label (count)" options are one text each, so their labels are translated by key, not by the page-wide pass.
-  const severityText = (severity: (typeof findingSeverities)[number]) => tx(`quality.severity.${severity}`, severityLabels[severity]);
-  const ruleText = (rule: string) => (rule in ruleLabels ? tx(`quality.rule.${rule}`, ruleLabel(rule)) : rule);
+  const severityText = (severity: (typeof findingSeverities)[number]) => tx(`quality.severity.${severity}`, severityLabel(severity, tx));
+  const ruleText = (rule: string) => (isKnownRule(rule) ? tx(`quality.rule.${rule}`, ruleLabel(rule, tx)) : rule);
   const statusTabs: Array<{ value: string; label: string; count: number }> = [
-    ...findingStatuses.map((status) => ({ value: status, label: statusTabLabels[status], count: statusCount(facetData, status) })),
-    { value: ALL, label: 'Todos', count: statusCount(facetData, ALL) },
+    ...findingStatuses.map((status) => ({ value: status, label: statusTabLabel(status, tx), count: statusCount(facetData, status) })),
+    { value: ALL, label: tx('operations.quality.all'), count: statusCount(facetData, ALL) },
   ];
 
   const disabled = running || !actionable.length || overLimit;
   const actions = <>
     {canAct && <>
-      <button className="topbar-action secondary-button" disabled={disabled} aria-label={`Reconhecer (${actionable.length})`} title={`Reconhecer (${actionable.length})`} onClick={() => void acknowledge()}><Check size={14} /> <span className="toolbar-action-label">Reconhecer</span> <span className="toolbar-action-count">{`(${actionable.length})`}</span></button>
-      <button className="topbar-action secondary-button" disabled={disabled} aria-label={`Atribuir… (${actionable.length})`} title={`Atribuir… (${actionable.length})`} onClick={() => openDialog('ASSIGN')}><UserPlus size={14} /> <span className="toolbar-action-label">Atribuir…</span> <span className="toolbar-action-count">{`(${actionable.length})`}</span></button>
-      <button className="topbar-action secondary-button" disabled={disabled} aria-label={`Adiar… (${actionable.length})`} title={`Adiar… (${actionable.length})`} onClick={() => openDialog('SNOOZE')}><Clock3 size={14} /> <span className="toolbar-action-label">Adiar…</span> <span className="toolbar-action-count">{`(${actionable.length})`}</span></button>
+      <button className="topbar-action secondary-button" disabled={disabled} aria-label={tx('operations.quality.acknowledgeCount', undefined, { count: actionable.length })} title={tx('operations.quality.acknowledgeCount', undefined, { count: actionable.length })} onClick={() => void acknowledge()}><Check size={14} /> <span className="toolbar-action-label">{tx('operations.alerts.acknowledge')}</span> <span className="toolbar-action-count">{`(${actionable.length})`}</span></button>
+      <button className="topbar-action secondary-button" disabled={disabled} aria-label={tx('operations.quality.assignCount', undefined, { count: actionable.length })} title={tx('operations.quality.assignCount', undefined, { count: actionable.length })} onClick={() => openDialog('ASSIGN')}><UserPlus size={14} /> <span className="toolbar-action-label">{tx('operations.quality.assignEllipsis')}</span> <span className="toolbar-action-count">{`(${actionable.length})`}</span></button>
+      <button className="topbar-action secondary-button" disabled={disabled} aria-label={tx('operations.quality.snoozeCount', undefined, { count: actionable.length })} title={tx('operations.quality.snoozeCount', undefined, { count: actionable.length })} onClick={() => openDialog('SNOOZE')}><Clock3 size={14} /> <span className="toolbar-action-label">{tx('operations.quality.snoozeEllipsis')}</span> <span className="toolbar-action-count">{`(${actionable.length})`}</span></button>
     </>}
-    <button className="topbar-action secondary-button" onClick={() => void queryClient.invalidateQueries({ queryKey: inventoryQualityKeys.all })} disabled={pages.isFetching} aria-label="Atualizar" title="Atualizar"><RefreshCw size={14} /> <span className="toolbar-action-label">Atualizar</span></button>
+    <button className="topbar-action secondary-button" onClick={() => void queryClient.invalidateQueries({ queryKey: inventoryQualityKeys.all })} disabled={pages.isFetching} aria-label={tx('operations.config.refresh')} title={tx('operations.config.refresh')}><RefreshCw size={14} /> <span className="toolbar-action-label">{tx('operations.config.refresh')}</span></button>
   </>;
 
-  const selection = canAct ? { selected, onChange: setSelected, isSelectable: isActionable, rowLabel: (row: InventoryFinding, selectable: boolean) => (selectable ? `Selecionar ${row.title}` : `${row.title} resolvido`), allLabel: 'Selecionar todos os findings visíveis' } : undefined;
-  const empty = loadError ? null : <div className="no-data">{filtering ? 'Sem findings correspondentes.' : filters.status === 'OPEN' ? 'Sem findings abertos neste Site.' : 'Sem findings neste estado.'}</div>;
+  const selection = canAct ? { selected, onChange: setSelected, isSelectable: isActionable, rowLabel: (row: InventoryFinding, selectable: boolean) => (selectable ? tx('operations.alerts.selectNamed', undefined, { title: row.title }) : tx('operations.quality.resolvedNamed', undefined, { title: row.title })), allLabel: tx('operations.quality.selectAll') } : undefined;
+  const empty = loadError ? null : <div className="no-data">{filtering ? tx('operations.quality.noMatch') : filters.status === 'OPEN' ? tx('operations.quality.noOpen') : tx('operations.quality.noneInStatus')}</div>;
   const tableProps = { columns, rowKey: (row: InventoryFinding) => row.id, sort: table.sort, onSortChange: table.setSort, defaultSort: table.defaultSort, selection };
 
-  return <>{confirmDialog}<PageShell section="Qualidade do inventário" search={{ value: search, onChange: setSearch, placeholder: 'Pesquisar título, detalhe ou correção…', ariaLabel: 'Pesquisar findings', scopeLabel: 'Qualidade do inventário' }} actions={actions}>
+  return <>{confirmDialog}<PageShell section={tx('operations.quality.section')} search={{ value: search, onChange: setSearch, placeholder: tx('operations.quality.searchPlaceholder'), ariaLabel: tx('operations.quality.searchAria'), scopeLabel: tx('operations.quality.section') }} actions={actions}>
     <PageToolbarPortal><div className="interface-toolbar-controls">
-      <label><span className="toolbar-filter-label">Severidade</span><select aria-label="Filtrar por severidade" title="Filtrar por severidade" value={filters.severity} onChange={(event) => setFilter('severity', event.target.value)}><option value="">Severidade</option>{findingSeverities.map((severity) => <option key={severity} value={severity}>{withCount(severityText(severity), facetData?.bySeverity[severity] ?? (facetData ? 0 : undefined))}</option>)}</select></label>
-      <label><span className="toolbar-filter-label">Regra</span><select aria-label="Filtrar por regra" title="Filtrar por regra" value={filters.rule} onChange={(event) => setFilter('rule', event.target.value)}><option value="">Regra</option>{(facetData?.byRule ?? []).map((item) => <option key={item.rule} value={item.rule}>{withCount(ruleText(item.rule), item.total)}</option>)}{filters.rule && !facetData?.byRule.some((item) => item.rule === filters.rule) && <option value={filters.rule}>{ruleLabel(filters.rule)}</option>}</select></label>
-      <label><span className="toolbar-filter-label">Responsável</span><select aria-label="Filtrar por responsável" title="Filtrar por responsável" value={filters.assignee} onChange={(event) => setFilter('assignee', event.target.value)}>
-        <option value="">Responsável</option>
+      <label><span className="toolbar-filter-label">{tx('operations.alerts.field.severity')}</span><select aria-label={tx('operations.quality.filterSeverity')} title={tx('operations.quality.filterSeverity')} value={filters.severity} onChange={(event) => setFilter('severity', event.target.value)}><option value="">{tx('operations.alerts.field.severity')}</option>{findingSeverities.map((severity) => <option key={severity} value={severity}>{withCount(severityText(severity), facetData?.bySeverity[severity] ?? (facetData ? 0 : undefined))}</option>)}</select></label>
+      <label><span className="toolbar-filter-label">{tx('operations.quality.rule')}</span><select aria-label={tx('operations.quality.filterRule')} title={tx('operations.quality.filterRule')} value={filters.rule} onChange={(event) => setFilter('rule', event.target.value)}><option value="">{tx('operations.quality.rule')}</option>{(facetData?.byRule ?? []).map((item) => <option key={item.rule} value={item.rule}>{withCount(ruleText(item.rule), item.total)}</option>)}{filters.rule && !facetData?.byRule.some((item) => item.rule === filters.rule) && <option value={filters.rule}>{ruleLabel(filters.rule, tx)}</option>}</select></label>
+      <label><span className="toolbar-filter-label">{tx('operations.quality.assignee')}</span><select aria-label={tx('operations.quality.filterAssignee')} title={tx('operations.quality.filterAssignee')} value={filters.assignee} onChange={(event) => setFilter('assignee', event.target.value)}>
+        <option value="">{tx('operations.quality.assignee')}</option>
         <option value="me">{withCount(tx('quality.assignee.me'), facetData ? myCount ?? 0 : undefined)}</option>
         <option value="unassigned">{withCount(tx('quality.assignee.none'), unassignedCount ?? (facetData ? 0 : undefined))}</option>
         {(facetData?.byAssignee ?? []).filter((item) => item.userId && item.userId !== user?.id).map((item) => <option key={item.userId} value={item.userId ?? ''}>{withCount(personName(item), item.total)}</option>)}
       </select></label>
-      <label><span className="toolbar-filter-label">Agrupar</span><select aria-label="Agrupar findings" title="Agrupar findings" value={filters.group} onChange={(event) => setFilter('group', event.target.value)}><option value="">Sem agrupamento</option><option value="rule">Por regra</option></select></label>
-      {filtering && <button className="secondary-button" aria-label="Limpar filtros" title="Limpar filtros" onClick={clearFilters}><X size={14} /> <span className="toolbar-action-label">Limpar filtros</span></button>}
+      <label><span className="toolbar-filter-label">{tx('operations.quality.group')}</span><select aria-label={tx('operations.quality.groupAria')} title={tx('operations.quality.groupAria')} value={filters.group} onChange={(event) => setFilter('group', event.target.value)}><option value="">{tx('operations.quality.noGrouping')}</option><option value="rule">{tx('operations.quality.byRule')}</option></select></label>
+      {filtering && <button className="secondary-button" aria-label={tx('operations.alerts.filter.clear')} title={tx('operations.alerts.filter.clear')} onClick={clearFilters}><X size={14} /> <span className="toolbar-action-label">{tx('operations.alerts.filter.clear')}</span></button>}
       <SavedViews pageId="quality" config={qualityTableConfig} table={table} />
     </div></PageToolbarPortal>
     <div className="module-page aligned-workspace"><section className="ipam-card page-primary-card">
-      <div className="panel-heading"><div><h1>Fila do inventário</h1><p className="panel-description">Problemas detetados automaticamente. Age em cada finding na sua linha, ou seleciona findings visíveis para os reconhecer, atribuir ou adiar em conjunto.</p></div></div>
-      {!siteId && <div className="no-data">Escolhe um Site para ver a fila.</div>}
+      <div className="panel-heading"><div><h1>{tx('operations.quality.title')}</h1><p className="panel-description">{tx('operations.quality.description')}</p></div></div>
+      {!siteId && <div className="no-data">{tx('operations.quality.chooseSite')}</div>}
       {loadError && <div className="ipam-alert error" role="alert"><X size={15} />{loadError}</div>}
       {error && <div className="ipam-alert error" role="alert"><X size={15} />{error}</div>}
-      {overLimit && <div className="ipam-alert warning" role="note">{`Seleciona no máximo ${BULK_LIMIT} findings de cada vez.`}</div>}
+      {overLimit && <div className="ipam-alert warning" role="note">{tx('operations.quality.overLimit', undefined, { count: BULK_LIMIT })}</div>}
 
-      <div className="summary-stats settings-audit-stats critical-assets-counts" role="group" aria-label="Findings por estado">
+      <div className="summary-stats settings-audit-stats critical-assets-counts" role="group" aria-label={tx('operations.quality.byStatus')}>
         {statusTabs.map((tab) => <button key={tab.value} type="button" aria-pressed={filters.status === tab.value} className={filters.status === tab.value ? 'active' : ''} onClick={() => setFilter('status', tab.value)}><strong>{tab.count}</strong><span>{tab.label}</span></button>)}
       </div>
 
-      <h2 className="critical-assets-count" aria-live="polite">{rows.length < total ? `${rows.length} de ${total} findings carregados` : total === 1 ? '1 finding' : `${total} findings`}{canAct && actionable.length ? ` · ${actionable.length} selecionados` : ''}</h2>
+      <h2 className="critical-assets-count" aria-live="polite">{rows.length < total ? tx('operations.quality.loadedOf', undefined, { loaded: rows.length, total }) : tx('operations.quality.count', undefined, { count: total })}{canAct && actionable.length ? ` · ${tx('operations.quality.selectedCount', undefined, { count: actionable.length })}` : ''}</h2>
       {grouped && sorted.length
         ? groups.map((group) => <section key={group.rule} className="host-section">
           <h3>{`${ruleText(group.rule)} (${group.rows.length})`}</h3>
-          <DataTable {...tableProps} rows={group.rows} label={tx('groupB.quality.ruleFindings', undefined, { rule: ruleLabel(group.rule) })} selection={selection ? { ...selection, allLabel: tx('groupB.quality.selectRuleFindings', undefined, { rule: ruleLabel(group.rule) }) } : undefined} />
+          <DataTable {...tableProps} rows={group.rows} label={tx('groupB.quality.ruleFindings', undefined, { rule: ruleLabel(group.rule, tx) })} selection={selection ? { ...selection, allLabel: tx('groupB.quality.selectRuleFindings', undefined, { rule: ruleLabel(group.rule, tx) }) } : undefined} />
         </section>)
-        : <DataTable {...tableProps} rows={sorted} label="Findings de qualidade do inventário" loading={pages.isLoading} empty={siteId ? empty : null} />}
-      {pages.hasNextPage && <div className="form-actions"><button type="button" className="secondary-button" disabled={pages.isFetchingNextPage} onClick={() => void pages.fetchNextPage()}>{pages.isFetchingNextPage ? 'A carregar…' : 'Carregar mais findings'}</button></div>}
+        : <DataTable {...tableProps} rows={sorted} label={tx('operations.quality.tableLabel')} loading={pages.isLoading} empty={siteId ? empty : null} />}
+      {pages.hasNextPage && <div className="form-actions"><button type="button" className="secondary-button" disabled={pages.isFetchingNextPage} onClick={() => void pages.fetchNextPage()}>{pages.isFetchingNextPage ? tx('operations.quality.loading') : tx('operations.quality.loadMore')}</button></div>}
     </section></div>
 
     {dialog && <QualityBulkDialog action={dialog} count={dialogIds.length} finding={rowTarget?.title} assignees={assignees.data ?? []} running={running} outcome={outcome} close={closeDialog} run={(params) => void run(dialog, params, dialogIds)} />}

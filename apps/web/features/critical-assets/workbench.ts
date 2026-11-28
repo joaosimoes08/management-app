@@ -56,10 +56,13 @@ export const NO_OWNER = '__none__';
 export const NO_OUTCOME = '__none__';
 export const assetTypes = ['SWITCH', 'ROUTER', 'FIREWALL', 'SERVER', 'STORAGE', 'OTHER'];
 
-export const dueLabels: Record<DueState, string> = { overdue: 'Em atraso', due_this_week: 'Para esta semana', up_to_date: 'Em dia', unscheduled: 'Sem agendamento' };
+/** Due states in filter order; each label is the `criticalAssets.dueState.<state>` message. */
+export const dueStates: DueState[] = ['overdue', 'due_this_week', 'up_to_date', 'unscheduled'];
+export const dueLabelKey = (state: DueState) => `criticalAssets.dueState.${state}` as const;
 /** Existing state-badge tones: red, amber, green, neutral. */
 export const dueTone: Record<DueState, string> = { overdue: 'excluded', due_this_week: 'reserved', up_to_date: 'occupied', unscheduled: '' };
-export const outcomeLabel = (outcome?: string | null) => (outcome === 'CONFIRMED' ? 'Confirmado' : outcome === 'NEEDS_CORRECTION' ? 'Correção pedida' : outcome === 'NOT_FOUND' ? 'Não encontrado' : 'Pendente');
+/** Message key of an outcome's label. The keys sort in the same order as the Portuguese labels did. */
+export const outcomeLabelKey = (outcome?: string | null) => (outcome === 'CONFIRMED' ? 'criticalAssets.outcome.confirmed' : outcome === 'NEEDS_CORRECTION' ? 'criticalAssets.outcome.needsCorrection' : outcome === 'NOT_FOUND' ? 'criticalAssets.outcome.notFound' : 'criticalAssets.outcome.pending');
 export const outcomeTone = (outcome?: string | null) => (outcome === 'CONFIRMED' ? 'occupied' : outcome === 'NEEDS_CORRECTION' || outcome === 'NOT_FOUND' ? 'excluded' : 'pending');
 export const dueOrder: Record<DueState, number> = { overdue: 0, due_this_week: 1, unscheduled: 2, up_to_date: 3 };
 

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { BulkFindingResponse, FindingFacets, InventoryFinding } from './api';
 import { ALL, bulkOutcome, findingDeviceId, emptyQualityFilters, findingQueryFrom, groupByRule, hasQualityFilters, snoozeOptions, statusCount, visibleSelection } from './quality-workspace';
+import { translateMessage } from '@/lib/i18n/i18n';
+
+const pt = (key: string, fallback?: string, params?: Record<string, string | number>) => translateMessage('pt-PT', key, fallback, params);
 
 const finding = (id: string, rule: string, status: InventoryFinding['status'] = 'OPEN') => ({ id, rule, status, title: `T ${id}` }) as InventoryFinding;
 
@@ -38,7 +41,7 @@ describe('quality workspace helpers', () => {
 
   it('labels per-item bulk results with titles and readable failures', () => {
     const response: BulkFindingResponse = { action: 'SNOOZE', succeeded: 1, failed: 2, snoozedUntil: '2026-11-22T10:00:00.000Z', results: [{ id: 'a', ok: true }, { id: 'b', ok: false, code: 'FORBIDDEN', message: 'nope' }, { id: 'zz', ok: false, code: 'NOT_FOUND' }] };
-    const outcome = bulkOutcome(response, new Map([['a', 'Alpha'], ['b', 'Beta']]));
+    const outcome = bulkOutcome(response, new Map([['a', 'Alpha'], ['b', 'Beta']]), pt);
     expect(outcome.items).toEqual([
       { id: 'a', title: 'Alpha', ok: true, message: 'Aplicado' },
       { id: 'b', title: 'Beta', ok: false, message: 'Sem permissão neste Site' },

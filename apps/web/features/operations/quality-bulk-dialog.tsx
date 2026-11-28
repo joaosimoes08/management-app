@@ -6,11 +6,9 @@ import { CompactModal } from '@/components/ui/compact-modal';
 import { DataTable } from '@/components/data-table/data-table';
 import { formatDateTime } from '@/lib/format/date';
 import type { BulkFindingAction, FindingPerson } from './api';
-import { DEFAULT_SNOOZE_HOURS, personName, snoozeOptions, type BulkOutcome } from './quality-workspace';
+import { DEFAULT_SNOOZE_HOURS, personName, snoozeOptionLabel, snoozeOptions, type BulkOutcome } from './quality-workspace';
 import { useUiText } from '@/components/ui/use-ui-text';
 
-const titles: Record<BulkFindingAction, string> = { ACKNOWLEDGE: 'Reconhecer selecionados', ASSIGN: 'Atribuir selecionados', SNOOZE: 'Adiar selecionados' };
-const singleTitles: Record<BulkFindingAction, string> = { ACKNOWLEDGE: 'Reconhecer finding', ASSIGN: 'Atribuir finding', SNOOZE: 'Adiar finding' };
 
 export type BulkParams = { userId?: string | null; durationHours?: number };
 
@@ -35,23 +33,21 @@ export function QualityBulkDialog({ action, count, finding, assignees, running, 
   const [hours, setHours] = useState(DEFAULT_SNOOZE_HOURS);
   const done = outcome !== null && !running;
   const allOk = outcome !== null && outcome.failed === 0;
-  const selectionDescription = count === 1
-    ? '1 finding selecionado.'
-    : `${count} findings selecionados. Cada finding é verificado à parte; uma falha não impede os restantes.`;
+  const selectionDescription = tx('operations.quality.bulk.selection', undefined, { count });
 
-  return <CompactModal title={finding ? singleTitles[action] : titles[action]} close={running ? () => undefined : close}><form className="modal-form" onSubmit={(event) => { event.preventDefault(); run(action === 'ASSIGN' ? { userId: userId || null } : action === 'SNOOZE' ? { durationHours: hours } : {}); }}>
+  return <CompactModal title={finding ? tx(`operations.quality.bulk.singleTitle.${action}`) : tx(`operations.quality.bulk.title.${action}`)} close={running ? () => undefined : close}><form className="modal-form" onSubmit={(event) => { event.preventDefault(); run(action === 'ASSIGN' ? { userId: userId || null } : action === 'SNOOZE' ? { durationHours: hours } : {}); }}>
     {!outcome && <>
-      <p className="panel-description">{finding ? `Finding: ${finding}` : selectionDescription}</p>
-      {action === 'ASSIGN' && <label>Responsável<select value={userId} onChange={(event) => setUserId(event.target.value)}><option value="">Sem responsável</option>{assignees.map((person) => <option key={person.id} value={person.id}>{personName(person)}</option>)}</select></label>}
-      {action === 'SNOOZE' && <label>Adiar durante<select value={hours} onChange={(event) => setHours(Number(event.target.value))}>{snoozeOptions.map((option) => <option key={option.hours} value={option.hours}>{option.label}</option>)}</select></label>}
+      <p className="panel-description">{finding ? tx('operations.quality.bulk.findingNamed', undefined, { title: finding }) : selectionDescription}</p>
+      {action === 'ASSIGN' && <label>{tx('operations.quality.assignee')}<select value={userId} onChange={(event) => setUserId(event.target.value)}><option value="">{tx('operations.quality.unassigned')}</option>{assignees.map((person) => <option key={person.id} value={person.id}>{personName(person)}</option>)}</select></label>}
+      {action === 'SNOOZE' && <label>{tx('operations.quality.bulk.snoozeFor')}<select value={hours} onChange={(event) => setHours(Number(event.target.value))}>{snoozeOptions.map((option) => <option key={option.hours} value={option.hours}>{snoozeOptionLabel(option, tx)}</option>)}</select></label>}
     </>}
     {done && <div className={`ipam-alert ${allOk ? 'success' : 'error'}`} role="status">{allOk ? <CheckCircle2 size={15} /> : <X size={15} />}{tx('groupB.quality.applied', undefined, { succeeded: outcome.succeeded, total: outcome.items.length })}{outcome.snoozedUntil ? ` ${tx('groupB.quality.snoozedUntil', undefined, { date: formatDateTime(outcome.snoozedUntil, { dateStyle: 'short', timeStyle: 'short' }) })}` : ''}</div>}
-    {outcome && <div className="quality-bulk-results"><DataTable rows={outcome.items} rowKey={(item) => item.id} label="Resultado por finding" columns={[
-      { id: 'finding', header: 'Finding', cell: (item) => item.title },
-      { id: 'result', header: 'Resultado', cell: (item) => <span className={`state-badge ${item.ok ? 'occupied' : 'excluded'}`}><i />{item.message}</span> },
+    {outcome && <div className="quality-bulk-results"><DataTable rows={outcome.items} rowKey={(item) => item.id} label={tx('operations.quality.bulk.results')} columns={[
+      { id: 'finding', header: tx('operations.quality.finding'), cell: (item) => item.title },
+      { id: 'result', header: tx('operations.quality.bulk.result'), cell: (item) => <span className={`state-badge ${item.ok ? 'occupied' : 'excluded'}`}><i />{item.message}</span> },
     ]} /></div>}
     <div className="modal-actions">{outcome
-      ? <button type="button" className="primary-button" disabled={running} onClick={close}>Fechar</button>
-      : <><button type="button" className="secondary-button" disabled={running} onClick={close}>Cancelar</button><button type="submit" className="primary-button" disabled={running || !count}>{running ? 'A aplicar…' : finding ? (action === 'ASSIGN' ? 'Atribuir' : action === 'SNOOZE' ? 'Adiar' : 'Reconhecer') : action === 'ASSIGN' ? `Atribuir ${count}` : action === 'SNOOZE' ? `Adiar ${count}` : `Reconhecer ${count}`}</button></>}</div>
+      ? <button type="button" className="primary-button" disabled={running} onClick={close}>{tx('operations.quality.bulk.close')}</button>
+      : <><button type="button" className="secondary-button" disabled={running} onClick={close}>{tx('operations.config.cancel')}</button><button type="submit" className="primary-button" disabled={running || !count}>{running ? tx('operations.quality.bulk.applying') : finding ? tx(`operations.quality.bulk.run.${action}`) : tx(`operations.quality.bulk.runCount.${action}`, undefined, { count })}</button></>}</div>
   </form></CompactModal>;
 }

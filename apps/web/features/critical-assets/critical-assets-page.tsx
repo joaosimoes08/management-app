@@ -9,11 +9,10 @@ import { ApiRequestError } from '@/lib/api/errors';
 import { useAuth } from '@/lib/auth';
 import { useSiteContext } from '@/lib/site-context';
 import { Empty } from '@/features/ipam/components/ipam-modal';
-import { translateSourceText } from '@/lib/i18n/source-text-messages';
 import { closeCorrection as postCloseCorrection, confirmAttestation, confirmAttestations, criticalAssetsKeys, getCriticalAssets, listAssetConnections, listCorrections, listCriticalAssetsPage, listOwnerGroups, saveOwnerMapping } from './api';
 import { BulkConfirmDialog, CorrectionCloseDialog, CorrectionRequestDialog, OwnerDialog, ReviewDialog, type BulkItem, type BulkResult } from './critical-assets-dialogs';
 import {
-  assetTypes, buildRows, countRows, dueLabels, dueOrder, dueTone, emptyFilters, filterRows, hasActiveFilters, MAX_SERVER_PAGE, NO_OUTCOME, NO_OWNER, outcomeLabel, outcomeTone, PAGE_SIZE, toRow, withRecordedAttestation, currentCycle, hasOlderPending,
+  assetTypes, buildRows, countRows, dueLabelKey, dueOrder, dueStates, dueTone, emptyFilters, filterRows, hasActiveFilters, MAX_SERVER_PAGE, NO_OUTCOME, NO_OWNER, outcomeLabelKey, outcomeTone, PAGE_SIZE, toRow, withRecordedAttestation, currentCycle, hasOlderPending,
   type AssetRow, type Attestation, type ComplianceCell, type CriticalAssetsResult, type Correction, type Filters, type Group, type Outcome, complianceCells,
 } from './workbench';
 import { useUiText } from '@/components/ui/use-ui-text';
@@ -115,7 +114,7 @@ export function CriticalAssetsPage() {
   const detail = rows.find((row) => row.id === detailId) ?? null;
   // Dependencies: topology connections that name this device at either end (search matches the device name, so filter by id).
   const { data: connectionData } = useQuery({ queryKey: criticalAssetsKeys.connections(siteId, detail?.id), queryFn: () => listAssetConnections(siteId, detail?.name ?? ''), enabled: Boolean(detail && siteId && hydrated) });
-  const dependencies = detail ? (connectionData?.items ?? []).filter((item) => item.sourceDevice.id === detail.id || item.targetDevice.id === detail.id).map((item) => (item.sourceDevice.id === detail.id ? { item, other: item.targetDevice, direction: 'Liga a' } : { item, other: item.sourceDevice, direction: 'Liga de' })) : [];
+  const dependencies = detail ? (connectionData?.items ?? []).filter((item) => item.sourceDevice.id === detail.id || item.targetDevice.id === detail.id).map((item) => (item.sourceDevice.id === detail.id ? { item, other: item.targetDevice, direction: ui('criticalAssets.detail.linksTo') } : { item, other: item.sourceDevice, direction: ui('criticalAssets.detail.linksFrom') })) : [];
   // The compliance view and CSV export use the full asset list, not the current page: acceptable at current site sizes; move to a server aggregate if a site outgrows it.
   const compliance = useMemo(() => complianceCells(rows), [rows]);
   const correctionRows = (correctionData?.items ?? []).filter((item) => (correctionTab === 'open' ? item.status === 'OPEN' : item.status !== 'OPEN'));
@@ -181,11 +180,11 @@ export function CriticalAssetsPage() {
     try {
       const saved = await confirmAttestation(attestation.id, outcome, notes);
       applySaved({ ...saved, id: attestation.id });
-      setNotice({ tone: 'success', text: outcome === 'CONFIRMED' ? `${asset.name}: confirmação registada.` : `${asset.name}: pedido de correção registado.` });
+      setNotice({ tone: 'success', text: outcome === 'CONFIRMED' ? ui('criticalAssets.notice.confirmed', undefined, { name: asset.name }) : ui('criticalAssets.notice.correctionRequested', undefined, { name: asset.name }) });
       void refresh();
       return null;
     } catch (cause) {
-      const text = errorText(cause, 'Não foi possível registar a revisão.');
+      const text = errorText(cause, ui('criticalAssets.error.record'));
       if (isAlreadyRecorded(cause)) { setNotice({ tone: 'error', text }); void refresh(); return null; }
       setNotice({ tone: 'error', text });
       return text;
@@ -222,7 +221,7 @@ export function CriticalAssetsPage() {
         return next;
       });
     } catch (cause) {
-      setNotice({ tone: 'error', text: errorText(cause, 'Não foi possível selecionar os ativos correspondentes.') });
+      setNotice({ tone: 'error', text: errorText(cause, ui('criticalAssets.error.selectAll')) });
     }
     setSelectingAll(false);
   };
@@ -240,12 +239,12 @@ export function CriticalAssetsPage() {
         const byId = new Map(response.results.map((result) => [result.id, result]));
         for (const item of chunk) {
           const result = byId.get(item.attestationId);
-          if (!result) results[item.key] = { key: item.key, state: 'failed', message: 'Sem resposta para esta revisão.' };
+          if (!result) results[item.key] = { key: item.key, state: 'failed', message: ui('criticalAssets.bulk.noResponse') };
           else if (result.ok) results[item.key] = { key: item.key, state: 'recorded' };
           else results[item.key] = result.code === 'ALREADY_RECORDED' ? { key: item.key, state: 'already', message: result.message } : { key: item.key, state: 'failed', message: result.message };
         }
       } catch (cause) {
-        const message = errorText(cause, 'Não foi possível registar as revisões.');
+        const message = errorText(cause, ui('criticalAssets.error.bulk'));
         for (const item of chunk) results[item.key] = { key: item.key, state: 'failed', message };
       }
       setBulkResults({ ...results });
@@ -263,94 +262,93 @@ export function CriticalAssetsPage() {
       await queryClient.invalidateQueries({ queryKey: criticalAssetsKeys.correctionsAll });
       return null;
     } catch (cause) {
-      return errorText(cause, 'Não foi possível fechar a correção.');
+      return errorText(cause, ui('criticalAssets.error.closeCorrection'));
     }
   };
 
   const saveOwner = async (input: { assetType: string; groupId: string; timezone: string }) => {
     try {
       await saveOwnerMapping(siteId, input);
-      setNotice({ tone: 'success', text: `Responsável por ${input.assetType} guardado.` });
+      setNotice({ tone: 'success', text: ui('criticalAssets.notice.ownerSaved', undefined, { type: input.assetType }) });
       setOwnerType(null);
       if (!detailId) restoreFocus();
       await refresh();
       return null;
     } catch (cause) {
-      return errorText(cause, 'Não foi possível guardar.');
+      return errorText(cause, ui('criticalAssets.error.save'));
     }
   };
 
   const toggleCountFilter = (key: keyof Filters, value: string) => changeFilter(key, filters[key] === value ? '' : value);
 
-  const tr = (text: string) => translateSourceText(locale, text);
   const columns: DataTableColumn<AssetRow>[] = [
     {
-      id: 'name', header: 'Equipamento', sortValue: (row) => row.name,
-      cell: (row) => <><button className="link-button" aria-label={`Abrir histórico de ${row.name}`} onClick={() => openDetail(row)}>{row.name}</button>{row.criticalityTier && <span className="state-badge" title="Criticidade"><i />{row.criticalityTier}</span>}<small className="mono">{[row.hostname, row.managementIp].filter(Boolean).join(' · ') || '—'}</small></>,
-      csv: [{ header: 'Equipamento', value: (row) => row.name }, { header: 'Hostname', value: (row) => row.hostname }, { header: 'IP de gestão', value: (row) => row.managementIp }, { header: 'Número de série', value: (row) => row.serialNumber }, { header: 'Etiqueta', value: (row) => row.assetTag }],
+      id: 'name', header: ui('criticalAssets.column.asset'), sortValue: (row) => row.name,
+      cell: (row) => <><button className="link-button" aria-label={ui('criticalAssets.row.openHistory', undefined, { name: row.name })} onClick={() => openDetail(row)}>{row.name}</button>{row.criticalityTier && <span className="state-badge" title={ui('criticalAssets.column.tier')}><i />{row.criticalityTier}</span>}<small className="mono">{[row.hostname, row.managementIp].filter(Boolean).join(' · ') || '—'}</small></>,
+      csv: [{ header: ui('criticalAssets.column.asset'), value: (row) => row.name }, { header: 'Hostname', value: (row) => row.hostname }, { header: ui('criticalAssets.column.managementIp'), value: (row) => row.managementIp }, { header: ui('criticalAssets.column.serialNumber'), value: (row) => row.serialNumber }, { header: ui('criticalAssets.column.assetTag'), value: (row) => row.assetTag }],
     },
-    { id: 'type', header: 'Tipo', sortValue: (row) => row.type, cell: (row) => row.type, csv: [{ header: 'Tipo', value: (row) => row.type }] },
+    { id: 'type', header: ui('criticalAssets.column.type'), sortValue: (row) => row.type, cell: (row) => row.type, csv: [{ header: ui('criticalAssets.column.type'), value: (row) => row.type }] },
     {
-      id: 'owner', header: 'Grupo responsável', sortValue: (row) => row.owner?.name,
-      cell: (row) => (row.owner ? row.owner.name : <span className="state-badge excluded"><i />Sem responsável</span>),
-      csv: [{ header: 'Grupo responsável', value: (row) => row.owner?.name ?? tr('Sem responsável') }],
+      id: 'owner', header: ui('criticalAssets.column.owner'), sortValue: (row) => row.owner?.name,
+      cell: (row) => (row.owner ? row.owner.name : <span className="state-badge excluded"><i />{ui('criticalAssets.noOwner')}</span>),
+      csv: [{ header: ui('criticalAssets.column.owner'), value: (row) => row.owner?.name ?? ui('criticalAssets.noOwner') }],
     },
     {
       // Groups by result, then by review date; assets never reviewed go last.
-      id: 'outcome', header: 'Último resultado', sortValue: (row) => (row.latestOutcome ? `${outcomeLabel(row.latestOutcome)}|${row.latestConfirmedAt ?? ''}` : null),
-      cell: (row) => (row.latestOutcome ? <><span className={`state-badge ${outcomeTone(row.latestOutcome)}`}><i />{outcomeLabel(row.latestOutcome)}</span><small>{formatDate(row.latestConfirmedAt, true)}{row.latestReviewer ? ` · ${row.latestReviewer}` : ''}</small></> : <span className="muted-cell">Sem revisão</span>),
-      csv: [{ header: 'Último resultado', value: (row) => tr(row.latestOutcome ? outcomeLabel(row.latestOutcome) : 'Sem revisão') }, { header: 'Data do último resultado', value: (row) => row.latestConfirmedAt }, { header: 'Revisor', value: (row) => row.latestReviewer }],
+      id: 'outcome', header: ui('criticalAssets.column.outcome'), sortValue: (row) => (row.latestOutcome ? `${outcomeLabelKey(row.latestOutcome)}|${row.latestConfirmedAt ?? ''}` : null),
+      cell: (row) => (row.latestOutcome ? <><span className={`state-badge ${outcomeTone(row.latestOutcome)}`}><i />{ui(outcomeLabelKey(row.latestOutcome))}</span><small>{formatDate(row.latestConfirmedAt, true)}{row.latestReviewer ? ` · ${row.latestReviewer}` : ''}</small></> : <span className="muted-cell">{ui('criticalAssets.noReview')}</span>),
+      csv: [{ header: ui('criticalAssets.column.outcome'), value: (row) => ui(row.latestOutcome ? outcomeLabelKey(row.latestOutcome) : 'criticalAssets.noReview') }, { header: ui('criticalAssets.csv.outcomeDate'), value: (row) => row.latestConfirmedAt }, { header: ui('criticalAssets.csv.reviewer'), value: (row) => row.latestReviewer }],
     },
     {
       // Same order as the default view (overdue first), then by due date.
-      id: 'due', header: 'Prazo', sortValue: (row) => `${dueOrder[row.dueState]}|${row.dueDate ?? ''}`,
-      cell: (row) => <><span className={`state-badge ${dueTone[row.dueState]}`}><i />{dueLabels[row.dueState]}</span>{row.dueDate && row.dueState !== 'unscheduled' && <small>{row.dueState === 'up_to_date' ? 'Próximo prazo' : 'Prazo'}: {formatDate(row.dueDate, true)}</small>}{!row.owner && row.pendingCount > 0 ? <small>{`${row.pendingCount} pendentes, sem responsável`}</small> : row.pendingCount > 1 && <small>{`${row.pendingCount} semanas pendentes`}</small>}</>,
-      csv: [{ header: 'Prazo', value: (row) => tr(dueLabels[row.dueState]) }, { header: 'Data do prazo', value: (row) => row.dueDate }, { header: 'Revisões pendentes', value: (row) => row.pendingCount }],
+      id: 'due', header: ui('criticalAssets.column.due'), sortValue: (row) => `${dueOrder[row.dueState]}|${row.dueDate ?? ''}`,
+      cell: (row) => <><span className={`state-badge ${dueTone[row.dueState]}`}><i />{ui(dueLabelKey(row.dueState))}</span>{row.dueDate && row.dueState !== 'unscheduled' && <small>{row.dueState === 'up_to_date' ? ui('criticalAssets.due.next') : ui('criticalAssets.column.due')}: {formatDate(row.dueDate, true)}</small>}{!row.owner && row.pendingCount > 0 ? <small>{ui('criticalAssets.due.pendingNoOwner', undefined, { count: row.pendingCount })}</small> : row.pendingCount > 1 && <small>{ui('criticalAssets.due.pendingWeeks', undefined, { count: row.pendingCount })}</small>}</>,
+      csv: [{ header: ui('criticalAssets.column.due'), value: (row) => ui(dueLabelKey(row.dueState)) }, { header: ui('criticalAssets.csv.dueDate'), value: (row) => row.dueDate }, { header: ui('criticalAssets.csv.pendingReviews'), value: (row) => row.pendingCount }],
     },
     {
-      id: 'actions', header: 'Ações', className: 'table-actions',
+      id: 'actions', header: ui('criticalAssets.column.actions'), className: 'table-actions',
       cell: (row) => <>
-        {eligible(row) && <><button className="secondary-button" aria-label={`Confirmar revisão de ${row.name}`} onClick={() => quickConfirm(row)}>Confirmar</button><button className="secondary-button" aria-label={`Pedir correção de ${row.name}`} onClick={() => openRequest(row, row.pending[0])}>Pedir correção</button></>}
-        {isAdmin && !row.owner && <button className="secondary-button" aria-label={`Atribuir responsável a ${row.name}`} onClick={() => openOwner(row.type)}>Atribuir responsável</button>}
+        {eligible(row) && <><button className="secondary-button" aria-label={ui('criticalAssets.review.title', undefined, { name: row.name })} onClick={() => quickConfirm(row)}>{ui('criticalAssets.row.confirm')}</button><button className="secondary-button" aria-label={ui('criticalAssets.request.title', undefined, { name: row.name })} onClick={() => openRequest(row, row.pending[0])}>{ui('criticalAssets.row.requestCorrection')}</button></>}
+        {isAdmin && !row.owner && <button className="secondary-button" aria-label={ui('criticalAssets.row.assignOwnerTo', undefined, { name: row.name })} onClick={() => openOwner(row.type)}>{ui('criticalAssets.owner.assign')}</button>}
       </>,
     },
   ];
   // The table shows one server page, sorted within that page; the CSV export covers every matching row of the full list.
   const sorted = sortByColumns(pageRows, columns, table.sort);
   const exported = sortByColumns(filterRows(rows, search, filters), columns, table.sort);
-  // The page's text translator never sees the CSV file: headers and status labels are translated here.
-  const csvColumns = csvColumnsOf(columns).map((column) => ({ ...column, header: tr(column.header) }));
+  // The page's text translator never sees the CSV file: headers and status labels come from the messages above.
+  const csvColumns = csvColumnsOf(columns);
 
   const countButtons: Array<{ label: string; value: number; key: keyof Filters; filter: string }> = [
-    { label: 'Em atraso', value: counts.overdue, key: 'due', filter: 'overdue' },
-    { label: 'Para esta semana', value: counts.dueThisWeek, key: 'due', filter: 'due_this_week' },
-    { label: 'Correção pedida', value: counts.needsCorrection, key: 'outcome', filter: 'NEEDS_CORRECTION' },
-    { label: 'Sem responsável', value: counts.noOwner, key: 'owner', filter: NO_OWNER },
-    { label: 'Tier 1 · Vital', value: rows.filter((row) => row.criticalityTier === 'T1').length, key: 'tier', filter: 'T1' },
-    { label: 'Tier 2 · Importante', value: rows.filter((row) => row.criticalityTier === 'T2').length, key: 'tier', filter: 'T2' },
-    { label: 'Tier 3 · Padrão', value: rows.filter((row) => row.criticalityTier === 'T3').length, key: 'tier', filter: 'T3' },
+    { label: ui('criticalAssets.dueState.overdue'), value: counts.overdue, key: 'due', filter: 'overdue' },
+    { label: ui('criticalAssets.dueState.due_this_week'), value: counts.dueThisWeek, key: 'due', filter: 'due_this_week' },
+    { label: ui('criticalAssets.outcome.needsCorrection'), value: counts.needsCorrection, key: 'outcome', filter: 'NEEDS_CORRECTION' },
+    { label: ui('criticalAssets.noOwner'), value: counts.noOwner, key: 'owner', filter: NO_OWNER },
+    { label: ui('criticalAssets.tier.count.T1'), value: rows.filter((row) => row.criticalityTier === 'T1').length, key: 'tier', filter: 'T1' },
+    { label: ui('criticalAssets.tier.count.T2'), value: rows.filter((row) => row.criticalityTier === 'T2').length, key: 'tier', filter: 'T2' },
+    { label: ui('criticalAssets.tier.count.T3'), value: rows.filter((row) => row.criticalityTier === 'T3').length, key: 'tier', filter: 'T3' },
   ];
 
   const correctionColumns: DataTableColumn<Correction>[] = [
-    { id: 'asset', header: 'Equipamento', sortValue: (item) => item.device?.name ?? '', cell: (item) => <EntityLink kind="device" id={item.device?.id ?? ''} label={item.device?.name ?? '—'} siteId={siteId}>{item.device?.name ?? '—'}</EntityLink>, csv: [{ header: 'Equipamento', value: (item) => item.device?.name }] },
-    { id: 'request', header: 'Pedido de correção', cell: (item) => <>{item.description}<small>{formatDate(item.requestedAt, true)}</small></>, csv: [{ header: 'Pedido de correção', value: (item) => item.description }, { header: 'Pedido em', value: (item) => item.requestedAt }] },
-    { id: 'group', header: 'Grupo responsável', cell: (item) => item.groupName ?? '—', csv: [{ header: 'Grupo responsável', value: (item) => item.groupName }] },
+    { id: 'asset', header: ui('criticalAssets.column.asset'), sortValue: (item) => item.device?.name ?? '', cell: (item) => <EntityLink kind="device" id={item.device?.id ?? ''} label={item.device?.name ?? '—'} siteId={siteId}>{item.device?.name ?? '—'}</EntityLink>, csv: [{ header: ui('criticalAssets.column.asset'), value: (item) => item.device?.name }] },
+    { id: 'request', header: ui('criticalAssets.corrections.request'), cell: (item) => <>{item.description}<small>{formatDate(item.requestedAt, true)}</small></>, csv: [{ header: ui('criticalAssets.corrections.request'), value: (item) => item.description }, { header: ui('criticalAssets.csv.requestedAt'), value: (item) => item.requestedAt }] },
+    { id: 'group', header: ui('criticalAssets.column.owner'), cell: (item) => item.groupName ?? '—', csv: [{ header: ui('criticalAssets.column.owner'), value: (item) => item.groupName }] },
     {
-      id: 'status', header: 'Estado', cell: (item) => <>
-        <span className={`state-badge ${item.status === 'OPEN' ? 'reserved' : item.status === 'RESOLVED' ? 'occupied' : 'excluded'}`}><i />{item.status === 'OPEN' ? 'Aberta' : item.status === 'RESOLVED' ? 'Resolvida' : 'Rejeitada'}</span>
+      id: 'status', header: ui('criticalAssets.column.status'), cell: (item) => <>
+        <span className={`state-badge ${item.status === 'OPEN' ? 'reserved' : item.status === 'RESOLVED' ? 'occupied' : 'excluded'}`}><i />{ui(`criticalAssets.corrections.status.${item.status}`)}</span>
         {item.status !== 'OPEN' && <small>{[formatDate(item.closedAt, true), item.changeReference || item.closeNote].filter(Boolean).join(' · ')}</small>}
       </>,
-      csv: [{ header: 'Estado', value: (item) => item.status }, { header: 'Fechada em', value: (item) => item.closedAt }, { header: 'Referência ou nota', value: (item) => item.changeReference || item.closeNote }],
+      csv: [{ header: ui('criticalAssets.column.status'), value: (item) => item.status }, { header: ui('criticalAssets.csv.closedAt'), value: (item) => item.closedAt }, { header: ui('criticalAssets.csv.reference'), value: (item) => item.changeReference || item.closeNote }],
     },
     {
-      id: 'actions', header: 'Ações', className: 'table-actions', cell: (item) => item.status === 'OPEN' && canReview ? <>
-        <button className="secondary-button" aria-label={ui('groupB.assets.resolveCorrection', undefined, { name: item.device?.name ?? ui('groupB.assets.asset') })} onClick={() => setCorrectionDialog({ correction: item, outcome: 'RESOLVED' })}>Resolver</button>
-        <button className="secondary-button" aria-label={ui('groupB.assets.rejectCorrection', undefined, { name: item.device?.name ?? ui('groupB.assets.asset') })} onClick={() => setCorrectionDialog({ correction: item, outcome: 'REJECTED' })}>Rejeitar</button>
+      id: 'actions', header: ui('criticalAssets.column.actions'), className: 'table-actions', cell: (item) => item.status === 'OPEN' && canReview ? <>
+        <button className="secondary-button" aria-label={ui('groupB.assets.resolveCorrection', undefined, { name: item.device?.name ?? ui('groupB.assets.asset') })} onClick={() => setCorrectionDialog({ correction: item, outcome: 'RESOLVED' })}>{ui('criticalAssets.corrections.resolve')}</button>
+        <button className="secondary-button" aria-label={ui('groupB.assets.rejectCorrection', undefined, { name: item.device?.name ?? ui('groupB.assets.asset') })} onClick={() => setCorrectionDialog({ correction: item, outcome: 'REJECTED' })}>{ui('criticalAssets.corrections.reject')}</button>
       </> : null,
     },
   ];
   const complianceColumns: DataTableColumn<string>[] = [
-    { id: 'group', header: 'Grupo responsável', cell: (group) => group, csv: [{ header: 'Grupo responsável', value: (group) => group }] },
+    { id: 'group', header: ui('criticalAssets.column.owner'), cell: (group) => group, csv: [{ header: ui('criticalAssets.column.owner'), value: (group) => group }] },
     ...compliance.weeks.map((week): DataTableColumn<string> => ({
       id: `week-${week}`, header: ui('groupB.assets.weekOf', undefined, { date: formatDate(week) }),
       cell: (group) => { const cell = compliance.cells.find((item) => item.group === group && item.weekStart === week); return cell && cell.expected ? <>{`${cell.percent}%`}<small>{ui('groupB.assets.onTime', undefined, { onTime: cell.onTime, expected: cell.expected })}</small></> : <span className="muted-cell">—</span>; },
@@ -358,112 +356,112 @@ export function CriticalAssetsPage() {
     })),
   ];
   const complianceCsvColumns: Array<{ header: string; value: (cell: ComplianceCell) => string | number | null | undefined }> = [
-    { header: 'Grupo responsável', value: (cell) => cell.group }, { header: 'Semana', value: (cell) => cell.weekStart }, { header: 'Revisões', value: (cell) => cell.expected }, { header: 'Revistas a tempo', value: (cell) => cell.onTime }, { header: 'Percentagem', value: (cell) => cell.percent ?? '' },
+    { header: ui('criticalAssets.column.owner'), value: (cell) => cell.group }, { header: ui('criticalAssets.column.week'), value: (cell) => cell.weekStart }, { header: ui('criticalAssets.csv.reviews'), value: (cell) => cell.expected }, { header: ui('criticalAssets.csv.onTime'), value: (cell) => cell.onTime }, { header: ui('criticalAssets.csv.percent'), value: (cell) => cell.percent ?? '' },
   ];
 
   const actions = <>
     <CsvExportButton rows={exported} columns={csvColumns} fileName="ativos-criticos" />
-    {isAdmin && <button className="secondary-button" aria-label="Responsáveis" title="Responsáveis" onClick={() => openOwner(assetTypes[0])}><Users size={14} /> <span className="toolbar-action-label">Responsáveis</span></button>}
-    {canReview && <button className="primary-button" disabled={!selectedRows.length} onClick={() => { remember(); setBulkResults(null); setBulkPlan({ selectedCount: selectedRows.length, olderCount: bulkOlder, items: bulkItems }); }}><ShieldCheck size={14} /> {`Confirmar selecionados (${selectedRows.length})`}</button>}
+    {isAdmin && <button className="secondary-button" aria-label={ui('criticalAssets.toolbar.owners')} title={ui('criticalAssets.toolbar.owners')} onClick={() => openOwner(assetTypes[0])}><Users size={14} /> <span className="toolbar-action-label">{ui('criticalAssets.toolbar.owners')}</span></button>}
+    {canReview && <button className="primary-button" disabled={!selectedRows.length} onClick={() => { remember(); setBulkResults(null); setBulkPlan({ selectedCount: selectedRows.length, olderCount: bulkOlder, items: bulkItems }); }}><ShieldCheck size={14} /> {ui('criticalAssets.toolbar.confirmSelected', undefined, { count: selectedRows.length })}</button>}
   </>;
 
-  return <PageShell section="Ativos críticos" search={{ value: search, onChange: changeSearch, placeholder: 'Pesquisar nome, hostname, IP, série ou etiqueta…', ariaLabel: 'Pesquisar ativos críticos' }} actions={actions}>
+  return <PageShell section={ui('criticalAssets.page.title')} search={{ value: search, onChange: changeSearch, placeholder: ui('criticalAssets.page.searchPlaceholder'), ariaLabel: ui('criticalAssets.page.searchLabel') }} actions={actions}>
     <PageToolbarPortal><div className="interface-toolbar-controls critical-assets-filters">
-      <label><span className="toolbar-filter-label">Tipo</span><select aria-label="Filtrar por tipo" title="Filtrar por tipo" value={filters.type} onChange={(event) => changeFilter('type', event.target.value)}><option value="">Tipo</option>{assetTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
-      <label><span className="toolbar-filter-label">Responsável</span><select aria-label="Filtrar por grupo responsável" title="Filtrar por grupo responsável" value={filters.owner} onChange={(event) => changeFilter('owner', event.target.value)}><option value="">Responsável</option><option value={NO_OWNER}>Sem responsável</option>{owners.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
-      <label><span className="toolbar-filter-label">Último resultado</span><select aria-label="Filtrar por último resultado" title="Filtrar por último resultado" value={filters.outcome} onChange={(event) => changeFilter('outcome', event.target.value)}><option value="">Último resultado</option><option value="CONFIRMED">Confirmado</option><option value="NEEDS_CORRECTION">Correção pedida</option><option value={NO_OUTCOME}>Sem revisão</option></select></label>
-      <label><span className="toolbar-filter-label">Prazo</span><select aria-label="Filtrar por prazo" title="Filtrar por prazo" value={filters.due} onChange={(event) => changeFilter('due', event.target.value)}><option value="">Prazo</option>{(Object.keys(dueLabels) as Array<keyof typeof dueLabels>).map((state) => <option key={state} value={state}>{dueLabels[state]}</option>)}</select></label>
-      <label><span className="toolbar-filter-label">Criticidade</span><select aria-label="Filtrar por criticidade" title="Filtrar por criticidade" value={filters.tier} onChange={(event) => changeFilter('tier', event.target.value)}><option value="">Criticidade</option><option value="T1">T1 · Vital</option><option value="T2">T2 · Importante</option><option value="T3">T3 · Padrão</option></select></label>
-      {filtering && <button className="secondary-button" onClick={clearFilters}><X size={14} /> Limpar filtros</button>}
+      <label><span className="toolbar-filter-label">{ui('criticalAssets.column.type')}</span><select aria-label={ui('criticalAssets.filter.type')} title={ui('criticalAssets.filter.type')} value={filters.type} onChange={(event) => changeFilter('type', event.target.value)}><option value="">{ui('criticalAssets.column.type')}</option>{assetTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
+      <label><span className="toolbar-filter-label">{ui('criticalAssets.filter.ownerLabel')}</span><select aria-label={ui('criticalAssets.filter.owner')} title={ui('criticalAssets.filter.owner')} value={filters.owner} onChange={(event) => changeFilter('owner', event.target.value)}><option value="">{ui('criticalAssets.filter.ownerLabel')}</option><option value={NO_OWNER}>{ui('criticalAssets.noOwner')}</option>{owners.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
+      <label><span className="toolbar-filter-label">{ui('criticalAssets.column.outcome')}</span><select aria-label={ui('criticalAssets.filter.outcome')} title={ui('criticalAssets.filter.outcome')} value={filters.outcome} onChange={(event) => changeFilter('outcome', event.target.value)}><option value="">{ui('criticalAssets.column.outcome')}</option><option value="CONFIRMED">{ui('criticalAssets.outcome.confirmed')}</option><option value="NEEDS_CORRECTION">{ui('criticalAssets.outcome.needsCorrection')}</option><option value={NO_OUTCOME}>{ui('criticalAssets.noReview')}</option></select></label>
+      <label><span className="toolbar-filter-label">{ui('criticalAssets.column.due')}</span><select aria-label={ui('criticalAssets.filter.due')} title={ui('criticalAssets.filter.due')} value={filters.due} onChange={(event) => changeFilter('due', event.target.value)}><option value="">{ui('criticalAssets.column.due')}</option>{dueStates.map((state) => <option key={state} value={state}>{ui(dueLabelKey(state))}</option>)}</select></label>
+      <label><span className="toolbar-filter-label">{ui('criticalAssets.column.tier')}</span><select aria-label={ui('criticalAssets.filter.tier')} title={ui('criticalAssets.filter.tier')} value={filters.tier} onChange={(event) => changeFilter('tier', event.target.value)}><option value="">{ui('criticalAssets.column.tier')}</option><option value="T1">{ui('criticalAssets.tier.option.T1')}</option><option value="T2">{ui('criticalAssets.tier.option.T2')}</option><option value="T3">{ui('criticalAssets.tier.option.T3')}</option></select></label>
+      {filtering && <button className="secondary-button" onClick={clearFilters}><X size={14} /> {ui('criticalAssets.filter.clear')}</button>}
     </div></PageToolbarPortal>
     <div className="module-page aligned-workspace"><section className="ipam-card page-primary-card critical-assets-card">
-      <div className="panel-heading"><div><h1>Ativos críticos</h1><p className="panel-description">Revisão semanal dos dados de inventário dos ativos críticos do Site.</p></div></div>
-      {error && <div className="ipam-alert error" role="alert"><X size={15} />Não foi possível carregar os ativos críticos.</div>}
+      <div className="panel-heading"><div><h1>{ui('criticalAssets.page.title')}</h1><p className="panel-description">{ui('criticalAssets.page.description')}</p></div></div>
+      {error && <div className="ipam-alert error" role="alert"><X size={15} />{ui('criticalAssets.page.loadError')}</div>}
       {notice && <div className={`ipam-alert ${notice.tone}`} role={notice.tone === 'error' ? 'alert' : 'status'}>{notice.tone === 'success' ? <CheckCircle2 size={15} /> : <X size={15} />}{notice.text}</div>}
 
-      <div className="critical-assets-views" role="group" aria-label="Vista">
-        <button type="button" aria-pressed={view === 'assets'} className={view === 'assets' ? 'active' : ''} onClick={() => setView('assets')}>Ativos</button>
-        <button type="button" aria-pressed={view === 'corrections'} className={view === 'corrections' ? 'active' : ''} onClick={() => setView('corrections')}>Correções ({openCorrectionCount})</button>
-        <button type="button" aria-pressed={view === 'compliance'} className={view === 'compliance' ? 'active' : ''} onClick={() => setView('compliance')}>Conformidade</button>
+      <div className="critical-assets-views" role="group" aria-label={ui('criticalAssets.views.label')}>
+        <button type="button" aria-pressed={view === 'assets'} className={view === 'assets' ? 'active' : ''} onClick={() => setView('assets')}>{ui('criticalAssets.views.assets')}</button>
+        <button type="button" aria-pressed={view === 'corrections'} className={view === 'corrections' ? 'active' : ''} onClick={() => setView('corrections')}>{ui('criticalAssets.views.corrections', undefined, { count: openCorrectionCount })}</button>
+        <button type="button" aria-pressed={view === 'compliance'} className={view === 'compliance' ? 'active' : ''} onClick={() => setView('compliance')}>{ui('criticalAssets.views.compliance')}</button>
       </div>
       {view === 'assets' && <>
-      <div className="summary-stats settings-audit-stats critical-assets-counts" role="group" aria-label="Resumo e filtros rápidos">
+      <div className="summary-stats settings-audit-stats critical-assets-counts" role="group" aria-label={ui('criticalAssets.counts.label')}>
         {countButtons.map((item) => <button key={item.label} type="button" aria-pressed={filters[item.key] === item.filter} className={filters[item.key] === item.filter ? 'active' : ''} onClick={() => toggleCountFilter(item.key, item.filter)}><strong>{item.value}</strong><span>{item.label}</span></button>)}
       </div>
 
-      <h2 className="critical-assets-count" aria-live="polite">{filtering ? `${total} de ${rows.length} ativos` : `${rows.length} ativos críticos`}</h2>
-      {canReview && total > pageRows.length && <div className="table-actions"><button className="secondary-button" disabled={selectingAll} onClick={() => void selectAllMatching()}>{selectingAll ? 'A selecionar…' : ui('groupB.assets.selectAllMatching', undefined, { count: total })}</button></div>}
+      <h2 className="critical-assets-count" aria-live="polite">{filtering ? ui('criticalAssets.counts.filtered', undefined, { shown: total, total: rows.length }) : ui('criticalAssets.counts.all', undefined, { count: rows.length })}</h2>
+      {canReview && total > pageRows.length && <div className="table-actions"><button className="secondary-button" disabled={selectingAll} onClick={() => void selectAllMatching()}>{selectingAll ? ui('criticalAssets.selectingAll') : ui('groupB.assets.selectAllMatching', undefined, { count: total })}</button></div>}
       <DataTable
         rows={sorted}
         columns={columns}
         rowKey={(row) => row.id}
-        label="Ativos críticos"
+        label={ui('criticalAssets.page.title')}
         className="critical-assets-table"
         sort={table.sort}
         onSortChange={table.setSort}
         defaultSort={table.defaultSort}
         loading={loading}
-        selection={canReview ? { selected: selectedIds, onChange: setRowsSelected, isSelectable: eligible, rowLabel: (row, selectable) => (selectable ? `Selecionar ativo ${row.name}` : `${row.name} sem revisão pendente`), allLabel: 'Selecionar todos os ativos com revisão pendente' } : undefined}
-        empty={error ? null : <Empty title={filtering ? 'Sem ativos correspondentes' : 'Ainda não existem ativos críticos'} text={filtering ? 'Muda a pesquisa ou limpa os filtros.' : 'Marca equipamentos como críticos no inventário para os rever aqui.'} />}
+        selection={canReview ? { selected: selectedIds, onChange: setRowsSelected, isSelectable: eligible, rowLabel: (row, selectable) => (selectable ? ui('criticalAssets.row.select', undefined, { name: row.name }) : ui('criticalAssets.row.notSelectable', undefined, { name: row.name })), allLabel: ui('criticalAssets.row.selectAll') } : undefined}
+        empty={error ? null : <Empty title={filtering ? ui('criticalAssets.empty.filteredTitle') : ui('criticalAssets.empty.title')} text={filtering ? ui('criticalAssets.empty.filteredText') : ui('criticalAssets.empty.text')} />}
       />
-      {total > PAGE_SIZE && <nav className="table-actions" aria-label="Paginação de ativos">
+      {total > PAGE_SIZE && <nav className="table-actions" aria-label={ui('criticalAssets.pagination.label')}>
         <button className="secondary-button" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>{ui('common.previous')}</button>
         <span>{ui('ui.pageOf', undefined, { page, total: pageCount })}</span>
         <button className="secondary-button" disabled={page >= pageCount} onClick={() => setPage((current) => Math.min(pageCount, current + 1))}>{ui('common.next')}</button>
       </nav>}
       </>}
       {view === 'corrections' && <>
-        <div className="critical-assets-views" role="group" aria-label="Estado das correções">
-          <button type="button" aria-pressed={correctionTab === 'open'} className={correctionTab === 'open' ? 'active' : ''} onClick={() => setCorrectionTab('open')}>Abertas</button>
-          <button type="button" aria-pressed={correctionTab === 'closed'} className={correctionTab === 'closed' ? 'active' : ''} onClick={() => setCorrectionTab('closed')}>Fechadas</button>
+        <div className="critical-assets-views" role="group" aria-label={ui('criticalAssets.corrections.tabsLabel')}>
+          <button type="button" aria-pressed={correctionTab === 'open'} className={correctionTab === 'open' ? 'active' : ''} onClick={() => setCorrectionTab('open')}>{ui('criticalAssets.corrections.open')}</button>
+          <button type="button" aria-pressed={correctionTab === 'closed'} className={correctionTab === 'closed' ? 'active' : ''} onClick={() => setCorrectionTab('closed')}>{ui('criticalAssets.corrections.closed')}</button>
         </div>
-        {correctionsError && <div className="ipam-alert error" role="alert"><X size={15} />Não foi possível carregar as correções.</div>}
-        <DataTable rows={correctionRows} columns={correctionColumns} rowKey={(item) => item.id} label="Correções" className="critical-assets-table" loading={correctionsLoading} empty={<Empty title={correctionTab === 'open' ? 'Sem correções abertas' : 'Sem correções fechadas'} text="As correções pedidas nas revisões aparecem aqui." />} />
+        {correctionsError && <div className="ipam-alert error" role="alert"><X size={15} />{ui('criticalAssets.corrections.loadError')}</div>}
+        <DataTable rows={correctionRows} columns={correctionColumns} rowKey={(item) => item.id} label={ui('criticalAssets.corrections.label')} className="critical-assets-table" loading={correctionsLoading} empty={<Empty title={correctionTab === 'open' ? ui('criticalAssets.corrections.emptyOpen') : ui('criticalAssets.corrections.emptyClosed')} text={ui('criticalAssets.corrections.emptyText')} />} />
       </>}
       {view === 'compliance' && <>
         <p className="panel-description">{ui('groupB.assets.complianceDescription', undefined, { count: compliance.weeks.length })}</p>
         <div className="table-actions"><CsvExportButton rows={compliance.cells} columns={complianceCsvColumns} fileName="conformidade-ativos-criticos" /></div>
-        <DataTable rows={compliance.groups} columns={complianceColumns} rowKey={(group) => group} label="Conformidade" className="critical-assets-table" empty={<Empty title="Sem revisões para medir" text="A conformidade aparece quando existirem revisões semanais." />} />
+        <DataTable rows={compliance.groups} columns={complianceColumns} rowKey={(group) => group} label={ui('criticalAssets.views.compliance')} className="critical-assets-table" empty={<Empty title={ui('criticalAssets.compliance.emptyTitle')} text={ui('criticalAssets.compliance.emptyText')} />} />
       </>}
     </section></div>
 
-    {detail && <aside className="host-panel critical-assets-panel" aria-label={`Histórico de ${detail.name}`}>
-      <div className="host-panel-head"><div><h2>{detail.name}</h2><span>{detail.type} · {detail.owner?.name ?? 'Sem responsável'}</span></div><button ref={panelClose} className="icon-button" onClick={closeDetail} aria-label="Fechar"><X size={18} /></button></div>
+    {detail && <aside className="host-panel critical-assets-panel" aria-label={ui('criticalAssets.detail.historyOf', undefined, { name: detail.name })}>
+      <div className="host-panel-head"><div><h2>{detail.name}</h2><span>{detail.type} · {detail.owner?.name ?? ui('criticalAssets.noOwner')}</span></div><button ref={panelClose} className="icon-button" onClick={closeDetail} aria-label={ui('criticalAssets.close')}><X size={18} /></button></div>
       <div className="host-status-line">
-        <span>Prazo: <strong>{dueLabels[detail.dueState]}</strong></span>
-        <span>Último resultado: <strong>{detail.latestOutcome ? outcomeLabel(detail.latestOutcome) : 'Sem revisão'}</strong></span>
-        <span>Pendentes: <strong>{detail.pendingCount}</strong></span>
+        <span>{ui('criticalAssets.detail.due')} <strong>{ui(dueLabelKey(detail.dueState))}</strong></span>
+        <span>{ui('criticalAssets.detail.outcome')} <strong>{ui(detail.latestOutcome ? outcomeLabelKey(detail.latestOutcome) : 'criticalAssets.noReview')}</strong></span>
+        <span>{ui('criticalAssets.detail.pending')} <strong>{detail.pendingCount}</strong></span>
       </div>
       <div className="host-detail-grid">
         <div><span>Hostname</span><strong>{detail.hostname || '—'}</strong></div>
-        <div><span>IP de gestão</span><strong className="mono">{detail.managementIp || '—'}</strong></div>
-        <div><span>Número de série</span><strong>{detail.serialNumber || '—'}</strong></div>
-        <div><span>Etiqueta</span><strong>{detail.assetTag || '—'}</strong></div>
-        <div><span>Estado</span><strong>{detail.status}</strong></div>
-        <div><span>Grupo responsável</span><strong>{detail.owner?.name ?? 'Sem responsável'}</strong></div>
+        <div><span>{ui('criticalAssets.column.managementIp')}</span><strong className="mono">{detail.managementIp || '—'}</strong></div>
+        <div><span>{ui('criticalAssets.column.serialNumber')}</span><strong>{detail.serialNumber || '—'}</strong></div>
+        <div><span>{ui('criticalAssets.column.assetTag')}</span><strong>{detail.assetTag || '—'}</strong></div>
+        <div><span>{ui('criticalAssets.column.status')}</span><strong>{detail.status}</strong></div>
+        <div><span>{ui('criticalAssets.column.owner')}</span><strong>{detail.owner?.name ?? ui('criticalAssets.noOwner')}</strong></div>
       </div>
       <div className="form-actions">
-        <EntityLink kind="device" id={detail.id} label={detail.name} siteId={siteId} className="secondary-button"><Server size={14} /> Abrir equipamento</EntityLink>
-        {isAdmin && <button className="secondary-button" onClick={() => openOwner(detail.type)}><Users size={14} /> {detail.owner ? 'Alterar responsável' : 'Atribuir responsável'}</button>}
+        <EntityLink kind="device" id={detail.id} label={detail.name} siteId={siteId} className="secondary-button"><Server size={14} /> {ui('criticalAssets.detail.openDevice')}</EntityLink>
+        {isAdmin && <button className="secondary-button" onClick={() => openOwner(detail.type)}><Users size={14} /> {detail.owner ? ui('criticalAssets.detail.changeOwner') : ui('criticalAssets.owner.assign')}</button>}
       </div>
-      <section className="critical-assets-dependencies" aria-label="Dependências">
+      <section className="critical-assets-dependencies" aria-label={ui('criticalAssets.detail.dependencies')}>
         <h3>{ui('groupB.assets.dependencies', undefined, { count: dependencies.length })}</h3>
-        {dependencies.length ? <ul>{dependencies.map(({ item, other, direction }) => <li key={item.id}><span>{direction}</span> <EntityLink kind="device" id={other.id} label={other.name} siteId={siteId}>{other.name}</EntityLink>{item.label && <small>{item.label}</small>}</li>)}</ul> : <p className="panel-description">Sem ligações registadas para este equipamento.</p>}
+        {dependencies.length ? <ul>{dependencies.map(({ item, other, direction }) => <li key={item.id}><span>{direction}</span> <EntityLink kind="device" id={other.id} label={other.name} siteId={siteId}>{other.name}</EntityLink>{item.label && <small>{item.label}</small>}</li>)}</ul> : <p className="panel-description">{ui('criticalAssets.detail.noDependencies')}</p>}
       </section>
       <HistoryBlock
-        heading={`Histórico de revisões (${detail.attestations.length})`}
+        heading={ui('criticalAssets.detail.reviewHistory', undefined, { count: detail.attestations.length })}
         formatDate={(value) => formatDate(value, true)}
-        empty="Ainda não existem revisões para este ativo."
+        empty={ui('criticalAssets.detail.noReviews')}
         events={detail.attestations.map((attestation) => ({
           id: attestation.id,
-          title: <>{ui('groupB.assets.weekOf', undefined, { date: formatDate(attestation.weekStart) })}{attestation.weekStart.slice(0, 10) === linkedWeek && <> · {translateSourceText(locale, 'Revisão ligada à notificação')}</>}</>,
-          status: <span className={`state-badge ${outcomeTone(attestation.outcome)}`}><i />{outcomeLabel(attestation.outcome)}</span>,
+          title: <>{ui('groupB.assets.weekOf', undefined, { date: formatDate(attestation.weekStart) })}{attestation.weekStart.slice(0, 10) === linkedWeek && <> · {ui('criticalAssets.detail.linkedReview')}</>}</>,
+          status: <span className={`state-badge ${outcomeTone(attestation.outcome)}`}><i />{ui(outcomeLabelKey(attestation.outcome))}</span>,
           at: attestation.outcome ? attestation.confirmedAt : null,
-          actor: attestation.outcome ? attestation.confirmedByName ?? 'Revisor desconhecido' : null,
+          actor: attestation.outcome ? attestation.confirmedByName ?? ui('criticalAssets.detail.unknownReviewer') : null,
           note: attestation.notes,
           actions: !attestation.outcome && canReview ? <div className="table-actions">
-            <button className="secondary-button" onClick={() => openReview(detail, attestation)}>Confirmar</button>
-            <button className="secondary-button" onClick={() => openRequest(detail, attestation)}>Pedir correção</button>
+            <button className="secondary-button" onClick={() => openReview(detail, attestation)}>{ui('criticalAssets.row.confirm')}</button>
+            <button className="secondary-button" onClick={() => openRequest(detail, attestation)}>{ui('criticalAssets.row.requestCorrection')}</button>
           </div> : null,
         }))}
       />
@@ -471,7 +469,7 @@ export function CriticalAssetsPage() {
 
     {review && <ReviewDialog key={review.attestation.id} asset={review.asset} attestation={review.attestation} formatDate={formatDate} close={closeReview} submit={submitReview} />}
     {request && <CorrectionRequestDialog key={`request-${request.attestation.id}`} asset={request.asset} attestation={request.attestation} formatDate={formatDate} close={closeRequest} submit={submitRequest} />}
-    {correctionDialog && <CorrectionCloseDialog assetName={correctionDialog.correction.device?.name ?? 'ativo'} description={correctionDialog.correction.description} outcome={correctionDialog.outcome} close={() => setCorrectionDialog(null)} submit={(value) => closeCorrection(correctionDialog.correction, correctionDialog.outcome, value)} />}
+    {correctionDialog && <CorrectionCloseDialog assetName={correctionDialog.correction.device?.name ?? ui('groupB.assets.asset')} description={correctionDialog.correction.description} outcome={correctionDialog.outcome} close={() => setCorrectionDialog(null)} submit={(value) => closeCorrection(correctionDialog.correction, correctionDialog.outcome, value)} />}
     {ownerType !== null && <OwnerDialog initialType={ownerType} mappings={data?.mappings ?? []} groups={groups} timezone={data?.timezone ?? 'Europe/Lisbon'} close={closeOwner} save={saveOwner} />}
     {bulkPlan && <BulkConfirmDialog selectedCount={bulkPlan.selectedCount} olderCount={bulkPlan.olderCount} items={bulkPlan.items} results={bulkResults} running={bulkRunning} formatDate={formatDate} close={closeBulk} run={() => void runBulk()} />}
   </PageShell>;

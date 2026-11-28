@@ -17,6 +17,7 @@ export function ReviewDialog({ asset, attestation, formatDate, close, submit }: 
   close: () => void;
   submit: (notes: string) => Promise<string | null>;
 }) {
+  const tx = useUiText();
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -28,11 +29,11 @@ export function ReviewDialog({ asset, attestation, formatDate, close, submit }: 
     setSaving(false);
     if (failure) setError(failure);
   };
-  return <CompactModal title={`Confirmar revisão de ${asset.name}`} close={close}><form className="modal-form" onSubmit={(event) => void onSubmit(event)}>
-    <p className="panel-description">{`Semana de ${formatDate(attestation.weekStart)}. Confirma nome, tipo, hostname, IP de gestão, número de série, etiqueta e estado. Nada é alterado automaticamente no inventário.`}</p>
+  return <CompactModal title={tx('criticalAssets.review.title', undefined, { name: asset.name })} close={close}><form className="modal-form" onSubmit={(event) => void onSubmit(event)}>
+    <p className="panel-description">{tx('criticalAssets.review.description', undefined, { date: formatDate(attestation.weekStart) })}</p>
     {error && <div className="ipam-alert error" role="alert"><X size={15} />{error}</div>}
-    <label>Notas (opcional)<textarea autoFocus rows={4} maxLength={1000} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
-    <div className="modal-actions"><button type="button" className="secondary-button" onClick={close}>Cancelar</button><button className="primary-button" disabled={saving}>{saving ? 'A guardar…' : 'Registar confirmação'}</button></div>
+    <label>{tx('criticalAssets.review.notes')}<textarea autoFocus rows={4} maxLength={1000} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
+    <div className="modal-actions"><button type="button" className="secondary-button" onClick={close}>{tx('criticalAssets.cancel')}</button><button className="primary-button" disabled={saving}>{saving ? tx('criticalAssets.saving') : tx('criticalAssets.review.submit')}</button></div>
   </form></CompactModal>;
 }
 
@@ -50,24 +51,23 @@ export function CorrectionRequestDialog({ asset, attestation, formatDate, close,
   const [saving, setSaving] = useState(false);
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!description.trim()) { setError('Indica os dados a corrigir.'); return; }
+    if (!description.trim()) { setError(tx('criticalAssets.request.required')); return; }
     setSaving(true);
     setError('');
     const failure = await submit(description.trim());
     setSaving(false);
     if (failure) setError(failure);
   };
-  return <CompactModal title={`Pedir correção de ${asset.name}`} close={close}><form className="modal-form" onSubmit={(event) => void onSubmit(event)}>
+  return <CompactModal title={tx('criticalAssets.request.title', undefined, { name: asset.name })} close={close}><form className="modal-form" onSubmit={(event) => void onSubmit(event)}>
     <p className="panel-description">{tx('groupB.assets.requestCorrectionWeek', undefined, { date: formatDate(attestation.weekStart) })}</p>
     {error && <div className="ipam-alert error" role="alert"><X size={15} />{error}</div>}
-    <label>Dados a corrigir (obrigatório)<textarea autoFocus rows={4} maxLength={1000} required value={description} onChange={(event) => setDescription(event.target.value)} /></label>
-    <div className="modal-actions"><button type="button" className="secondary-button" onClick={close}>Cancelar</button><button className="primary-button" disabled={saving}>{saving ? 'A guardar…' : 'Registar pedido de correção'}</button></div>
+    <label>{tx('criticalAssets.request.label')}<textarea autoFocus rows={4} maxLength={1000} required value={description} onChange={(event) => setDescription(event.target.value)} /></label>
+    <div className="modal-actions"><button type="button" className="secondary-button" onClick={close}>{tx('criticalAssets.cancel')}</button><button className="primary-button" disabled={saving}>{saving ? tx('criticalAssets.saving') : tx('criticalAssets.request.submit')}</button></div>
   </form></CompactModal>;
 }
 
 export type BulkItem = { key: string; attestationId: string; assetName: string; weekStart: string };
 export type BulkResult = { key: string; state: 'recorded' | 'already' | 'failed'; message?: string };
-const bulkResultLabel: Record<BulkResult['state'], string> = { recorded: 'Registado', already: 'Já registado', failed: 'Falha ao registar' };
 const bulkResultTone: Record<BulkResult['state'], string> = { recorded: 'occupied', already: 'reserved', failed: 'excluded' };
 
 /** Bulk confirm: shows the counts, asks first, then reports one line per review. */
@@ -85,16 +85,16 @@ export function BulkConfirmDialog({ selectedCount, olderCount, items, results, r
   const tx = useUiText();
   const done = results !== null && !running;
   const recorded = Object.values(results ?? {}).filter((result) => result.state === 'recorded').length;
-  return <CompactModal title="Confirmar selecionados" close={running ? () => undefined : close}><div className="modal-form">
+  return <CompactModal title={tx('criticalAssets.bulk.title')} close={running ? () => undefined : close}><div className="modal-form">
     <p className="panel-description">{tx('groupB.assets.bulkDescription', undefined, { selected: selectedCount, reviews: items.length })}</p>
     {olderCount > 0 && <div className="ipam-alert warning" role="note">{tx('groupB.assets.olderWeeks', undefined, { count: olderCount })}</div>}
     {done && <div className={`ipam-alert ${recorded === items.length ? 'success' : 'error'}`} role="status">{recorded === items.length ? <CheckCircle2 size={15} /> : <X size={15} />}{tx('groupB.assets.recorded', undefined, { recorded, total: items.length })}</div>}
-    <DataTable rows={items} rowKey={(item) => item.key} label="Revisões a confirmar" className="critical-assets-bulk-table" columns={[
-      { id: 'asset', header: 'Equipamento', cell: (item) => { const result = results?.[item.key]; return <><strong>{item.assetName}</strong>{result?.message && <small>{result.message}</small>}</>; } },
-      { id: 'week', header: 'Semana', cell: (item) => formatDate(item.weekStart) },
-      { id: 'state', header: 'Estado', cell: (item) => { const result = results?.[item.key]; return result ? <span className={`state-badge ${bulkResultTone[result.state]}`}><i />{bulkResultLabel[result.state]}</span> : <span className="muted-cell">{running ? 'A registar…' : 'Por registar'}</span>; } },
+    <DataTable rows={items} rowKey={(item) => item.key} label={tx('criticalAssets.bulk.tableLabel')} className="critical-assets-bulk-table" columns={[
+      { id: 'asset', header: tx('criticalAssets.column.asset'), cell: (item) => { const result = results?.[item.key]; return <><strong>{item.assetName}</strong>{result?.message && <small>{result.message}</small>}</>; } },
+      { id: 'week', header: tx('criticalAssets.column.week'), cell: (item) => formatDate(item.weekStart) },
+      { id: 'state', header: tx('criticalAssets.column.status'), cell: (item) => { const result = results?.[item.key]; return result ? <span className={`state-badge ${bulkResultTone[result.state]}`}><i />{tx(`criticalAssets.bulk.state.${result.state}`)}</span> : <span className="muted-cell">{running ? tx('criticalAssets.bulk.running') : tx('criticalAssets.bulk.pending')}</span>; } },
     ]} />
-    <div className="modal-actions">{done ? <button type="button" className="primary-button" onClick={close}>Fechar</button> : <><button type="button" className="secondary-button" disabled={running} onClick={close}>Cancelar</button><button type="button" className="primary-button" disabled={running || !items.length} onClick={run}>{running ? 'A registar…' : `Confirmar ${items.length} revisões`}</button></>}</div>
+    <div className="modal-actions">{done ? <button type="button" className="primary-button" onClick={close}>{tx('criticalAssets.close')}</button> : <><button type="button" className="secondary-button" disabled={running} onClick={close}>{tx('criticalAssets.cancel')}</button><button type="button" className="primary-button" disabled={running || !items.length} onClick={run}>{running ? tx('criticalAssets.bulk.running') : tx('criticalAssets.bulk.confirm', undefined, { count: items.length })}</button></>}</div>
   </div></CompactModal>;
 }
 
@@ -107,6 +107,7 @@ export function OwnerDialog({ initialType, mappings, groups, timezone, close, sa
   close: () => void;
   save: (input: { assetType: string; groupId: string; timezone: string }) => Promise<string | null>;
 }) {
+  const tx = useUiText();
   const [assetType, setAssetType] = useState(initialType);
   const currentGroup = (type: string) => mappings.find((mapping) => mapping.assetType === type)?.group.id ?? '';
   const [groupId, setGroupId] = useState(currentGroup(initialType));
@@ -121,14 +122,14 @@ export function OwnerDialog({ initialType, mappings, groups, timezone, close, sa
     setSaving(false);
     if (failure) setError(failure);
   };
-  return <CompactModal title="Atribuir responsável" close={close}><form className="modal-form" onSubmit={(event) => void onSubmit(event)}>
-    <p className="panel-description">O grupo fica responsável pela revisão semanal de todos os ativos críticos deste tipo no Site.</p>
+  return <CompactModal title={tx('criticalAssets.owner.assign')} close={close}><form className="modal-form" onSubmit={(event) => void onSubmit(event)}>
+    <p className="panel-description">{tx('criticalAssets.owner.description')}</p>
     {error && <div className="ipam-alert error" role="alert"><X size={15} />{error}</div>}
-    <label>Tipo de ativo<select value={assetType} onChange={(event) => { setAssetType(event.target.value); setGroupId(currentGroup(event.target.value)); }}>{assetTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
-    <label>Grupo responsável<select required autoFocus value={groupId} onChange={(event) => setGroupId(event.target.value)}><option value="">Seleciona um grupo</option>{groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
-    <label>Fuso horário do Site<input required value={zone} onChange={(event) => setZone(event.target.value)} placeholder="Europe/Lisbon" /></label>
-    <div className="host-detail-grid">{assetTypes.map((type) => <div key={type}><span>{type}</span><strong>{mappings.find((mapping) => mapping.assetType === type)?.group.name ?? 'Sem responsável'}</strong></div>)}</div>
-    <div className="modal-actions"><button type="button" className="secondary-button" onClick={close}>Cancelar</button><button className="primary-button" disabled={!groupId || saving}>{saving ? 'A guardar…' : 'Guardar responsável'}</button></div>
+    <label>{tx('criticalAssets.owner.assetType')}<select value={assetType} onChange={(event) => { setAssetType(event.target.value); setGroupId(currentGroup(event.target.value)); }}>{assetTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
+    <label>{tx('criticalAssets.column.owner')}<select required autoFocus value={groupId} onChange={(event) => setGroupId(event.target.value)}><option value="">{tx('criticalAssets.owner.selectGroup')}</option>{groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
+    <label>{tx('criticalAssets.owner.timezone')}<input required value={zone} onChange={(event) => setZone(event.target.value)} placeholder="Europe/Lisbon" /></label>
+    <div className="host-detail-grid">{assetTypes.map((type) => <div key={type}><span>{type}</span><strong>{mappings.find((mapping) => mapping.assetType === type)?.group.name ?? tx('criticalAssets.noOwner')}</strong></div>)}</div>
+    <div className="modal-actions"><button type="button" className="secondary-button" onClick={close}>{tx('criticalAssets.cancel')}</button><button className="primary-button" disabled={!groupId || saving}>{saving ? tx('criticalAssets.saving') : tx('criticalAssets.owner.save')}</button></div>
   </form></CompactModal>;
 }
 
@@ -147,7 +148,7 @@ export function CorrectionCloseDialog({ assetName, description, outcome, close, 
   const resolved = outcome === 'RESOLVED';
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!value.trim()) { setError(resolved ? 'Indica a alteração feita (ligação ou referência).' : 'Indica o motivo da rejeição.'); return; }
+    if (!value.trim()) { setError(resolved ? tx('criticalAssets.closeCorrection.changeRequired') : tx('criticalAssets.closeCorrection.reasonRequired')); return; }
     setSaving(true);
     setError('');
     const failure = await submit(value.trim());
@@ -155,9 +156,9 @@ export function CorrectionCloseDialog({ assetName, description, outcome, close, 
     if (failure) setError(failure);
   };
   return <CompactModal title={tx(resolved ? 'groupB.assets.resolveCorrection' : 'groupB.assets.rejectCorrection', undefined, { name: assetName })} close={close}><form className="modal-form" onSubmit={(event) => void onSubmit(event)}>
-    <p className="panel-description">{`Pedido: ${description}`}</p>
+    <p className="panel-description">{tx('criticalAssets.closeCorrection.request', undefined, { description })}</p>
     {error && <div className="ipam-alert error" role="alert"><X size={15} />{error}</div>}
-    <label>{resolved ? 'Alteração feita (ligação ou referência, obrigatório)' : 'Motivo da rejeição (obrigatório)'}<textarea autoFocus rows={3} maxLength={1000} required value={value} onChange={(event) => setValue(event.target.value)} /></label>
-    <div className="modal-actions"><button type="button" className="secondary-button" onClick={close}>Cancelar</button><button className="primary-button" disabled={saving}>{saving ? 'A guardar…' : resolved ? 'Marcar como resolvida' : 'Rejeitar correção'}</button></div>
+    <label>{resolved ? tx('criticalAssets.closeCorrection.changeLabel') : tx('criticalAssets.closeCorrection.reasonLabel')}<textarea autoFocus rows={3} maxLength={1000} required value={value} onChange={(event) => setValue(event.target.value)} /></label>
+    <div className="modal-actions"><button type="button" className="secondary-button" onClick={close}>{tx('criticalAssets.cancel')}</button><button className="primary-button" disabled={saving}>{saving ? tx('criticalAssets.saving') : resolved ? tx('criticalAssets.closeCorrection.resolve') : tx('criticalAssets.closeCorrection.reject')}</button></div>
   </form></CompactModal>;
 }

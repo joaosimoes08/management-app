@@ -3,8 +3,15 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TableUrlState } from '@/components/data-table';
 import { AlertList, type AlertListUrlFilters } from './alerts-overview';
-import { alertKindLabel, alertNextStep, alertSourceLabel, alertTargetHref, DEFAULT_NEXT_STEP } from './alert-meta';
+import { alertKindLabel as kindLabel, alertNextStep as nextStep, alertSourceLabel as sourceLabel, alertTargetHref, defaultNextStep } from './alert-meta';
+import { translateMessage } from '@/lib/i18n/i18n';
 import { alertOutcome, isAlertActionable, outcomeText } from './alert-actions';
+
+const pt = (key: string, fallback?: string, params?: Record<string, string | number>) => translateMessage('pt-PT', key, fallback, params);
+const alertSourceLabel = (source: string) => sourceLabel(source, pt);
+const alertNextStep = (alert: Parameters<typeof nextStep>[0]) => nextStep(alert, pt);
+const alertKindLabel = (alert: Parameters<typeof kindLabel>[0]) => kindLabel(alert, pt);
+const DEFAULT_NEXT_STEP = defaultNextStep(pt);
 
 const mocks = vi.hoisted(() => ({
   roles: ['NETWORK_OPERATOR'] as string[],
@@ -84,8 +91,8 @@ describe('alert meta', () => {
   });
 
   it('reports partial bulk failures with the alert titles', () => {
-    const outcome = alertOutcome({ action: 'RESOLVE', succeeded: 1, failed: 1, results: [{ id: 'a1', ok: true }, { id: 'a2', ok: false, code: 'FORBIDDEN' }] } as never, new Map([['a1', 'A'], ['a2', 'B']]));
-    expect(outcomeText(outcome)).toBe('1 alerta resolvido. 1 falhou: B (Sem permissão para alterar este alerta.)');
+    const outcome = alertOutcome({ action: 'RESOLVE', succeeded: 1, failed: 1, results: [{ id: 'a1', ok: true }, { id: 'a2', ok: false, code: 'FORBIDDEN' }] } as never, new Map([['a1', 'A'], ['a2', 'B']]), pt);
+    expect(outcomeText(outcome, pt)).toBe('1 alerta resolvido. 1 falhou: B (Sem permissão para alterar este alerta.)');
   });
 });
 
