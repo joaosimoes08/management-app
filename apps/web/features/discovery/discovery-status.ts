@@ -1,4 +1,5 @@
 import type { useUiText } from '@/components/ui/use-ui-text';
+import { translateMessage } from '@/lib/i18n/i18n';
 import type { DiscoveryJob } from './api';
 
 type Translate = ReturnType<typeof useUiText>;
@@ -73,4 +74,13 @@ export function discoveryProgressPercent(job: Pick<DiscoveryJob, 'totalCount' | 
 
 export function isActiveDiscoveryJob(job: Pick<DiscoveryJob, 'status'>): boolean {
   return job.status === 'RUNNING' || job.status === 'PENDING';
+}
+
+/**
+ * A run's name as shown. The new-run form fills in discovery.page.manualDiscovery in the user's language, so runs
+ * saved from the Portuguese form are called "Discovery manual"; that default shows in the active language, as it did
+ * before (the old page rewriter translated it). Any other name is the user's own text and stays as typed.
+ */
+export function discoveryJobName(t: Translate, name: string): string {
+  return name === translateMessage('pt-PT', 'discovery.page.manualDiscovery') ? t('discovery.page.manualDiscovery') : name;
 }
