@@ -110,7 +110,7 @@ const mainWholeTexts: Array<[api: string, shown: Record<Exclude<AppLocale, 'pt-P
 describe('API texts main translated as whole texts', () => {
   it.each(mainWholeTexts)('shows %s as main did in every locale', async (api, shown) => {
     expect(localizeServerText(pt, api)).toBe(api);
-    for (const [locale, text] of Object.entries(shown) as Array<[AppLocale, string]>) {
+    for (const [locale, text] of Object.entries(shown) as Array<[Exclude<AppLocale, 'pt-PT'>, string]>) {
       if (locale !== 'en-US') await loadLocaleBundle(locale);
       expect(localizeServerText(tFor(locale), api), locale).toBe(text);
     }
