@@ -1,7 +1,11 @@
 /**
  * SNMP Phase 1 steps 3 and 4.2: pure helpers behind the switch-side setup panel and the inline credential test.
  * Nothing here holds or prints a secret: the Cisco lines use placeholders for every key and community.
+ * Words shown to people are message keys (messages/snmp); the helpers that build text take the page's t().
  */
+import type { useUiText } from '@/components/ui/use-ui-text';
+
+type Translate = ReturnType<typeof useUiText>;
 
 export type SnmpReceiverSettings = {
   listenAll: boolean;
@@ -29,8 +33,8 @@ export type ContainerReceiverView =
   | { state: 'address'; address: string; port: number; display: string; source: string | null }
   | { state: 'missing'; reason: 'REQUIRED' | 'INVALID'; port: number; message: string };
 
-export const CONTAINER_RECEIVER_REQUIRED = 'Sem endereço do recetor: o servidor não tem SNMP_TRAP_PUBLIC_ADDRESS definido. Define SNMP_TRAP_PUBLIC_ADDRESS no servidor com o IP ou o nome DNS para onde os switches enviam as traps e reinicia a app.';
-export const CONTAINER_RECEIVER_INVALID = 'O valor de SNMP_TRAP_PUBLIC_ADDRESS no servidor não é um IP nem um nome DNS válido. Corrige SNMP_TRAP_PUBLIC_ADDRESS no servidor e reinicia a app.';
+export const CONTAINER_RECEIVER_REQUIRED = 'snmp.setup.receiverRequired';
+export const CONTAINER_RECEIVER_INVALID = 'snmp.setup.receiverInvalid';
 
 /**
  * Container-only receiver (no host agent): the address switches send to comes from the deployment, not from interfaces.
@@ -88,7 +92,7 @@ const TRAP_CLASSES = [
 ];
 
 /** Copy-ready Cisco IOS-XE lines for SNMPv3 authPriv polling and traps to this app, then v2c unless SNMP_ALLOW_V2C=false. */
-export function iosXeSetupLines(input: IosXeSetupInput): { v3: string; informs: string | null; v2c: string | null } {
+export function iosXeSetupLines(t: Translate, input: IosXeSetupInput): { v3: string; informs: string | null; v2c: string | null } {
   const receiver = input.receiver || RECEIVER_PLACEHOLDER;
   const port = input.port ?? 162;
   const user = input.username?.trim() || 'mgmt-app';
@@ -102,7 +106,7 @@ export function iosXeSetupLines(input: IosXeSetupInput): { v3: string; informs: 
     'snmp-server group MGMT-APP v3 priv read MGMT-APP-VIEW access MGMT-APP-SNMP',
     `snmp-server user ${user} MGMT-APP v3 auth ${auth} <AUTH-KEY> priv ${priv} <PRIV-KEY> access MGMT-APP-SNMP`,
     'snmp-server ifindex persist',
-    '! trap-source: a interface cujo IP é o IP de gestão deste equipamento na app',
+    t('snmp.setup.cliTrapSourceComment'),
     'snmp-server trap-source <INTERFACE-DE-GESTAO>',
     ...TRAP_CLASSES,
     `snmp-server host ${receiver} version 3 priv ${user}${portSuffix}`,
@@ -113,11 +117,11 @@ export function iosXeSetupLines(input: IosXeSetupInput): { v3: string; informs: 
     `snmp-server host ${receiver} informs version 3 priv ${user}${portSuffix}`,
   ].join('\n') : null;
   const v2c = input.v2cAllowed ? [
-    '! SNMPv2c: a community segue em texto simples. Use apenas em redes de gestão isoladas.',
+    t('snmp.setup.cliV2cComment'),
     'ip access-list standard MGMT-APP-SNMP-V2C',
     ` permit host ${receiver}`,
     'snmp-server community <COMMUNITY> RO MGMT-APP-SNMP-V2C',
-    '! trap-source: a interface cujo IP é o IP de gestão deste equipamento na app',
+    t('snmp.setup.cliTrapSourceComment'),
     'snmp-server trap-source <INTERFACE-DE-GESTAO>',
     ...TRAP_CLASSES,
     `snmp-server host ${receiver} version 2c <COMMUNITY>${portSuffix}`,
@@ -150,23 +154,23 @@ function elapsed(job: SnmpJobView): number | null {
 }
 
 /** What the inline credential test shows for a CREDENTIAL_TEST job: running, OK, timeout, auth failure or other error. */
-export function describeCredentialTest(job: SnmpJobView, format: (ms: number) => string = (ms) => `${ms} ms`, now = Date.now()): CredentialTestView {
+export function describeCredentialTest(t: Translate, job: SnmpJobView, format: (ms: number) => string = (ms) => `${ms} ms`, now = Date.now()): CredentialTestView {
   if (job.status === 'PENDING' || job.status === 'RUNNING') {
     // P0-3 follow-up: the API closes a test past its deadline; this stops "A testar…" even if that never happens.
-    if (now - Date.parse(job.createdAt) <= CREDENTIAL_TEST_UI_LIMIT_MS) return { state: 'running', label: 'A testar…' };
-    return { state: 'timeout', label: 'Sem resposta (timeout)', detail: 'O teste não terminou. Tenta de novo; se voltar a acontecer, confirma que o serviço SNMP está a correr.' };
+    if (now - Date.parse(job.createdAt) <= CREDENTIAL_TEST_UI_LIMIT_MS) return { state: 'running', label: t('snmp.setup.test.running') };
+    return { state: 'timeout', label: t('snmp.setup.test.timeout'), detail: t('snmp.setup.test.unfinished') };
   }
   const ms = elapsed(job);
   const time = ms === null ? '' : format(ms);
   if (job.status === 'COMPLETED') {
     const sysName = resultField<string>(job.result, 'sysName');
-    return { state: 'ok', label: 'OK', detail: [time, sysName ? `sysName ${sysName}` : 'sysName não devolvido'].filter(Boolean).join(' · ') };
+    return { state: 'ok', label: 'OK', detail: [time, sysName ? `sysName ${sysName}` : t('snmp.setup.test.noSysName')].filter(Boolean).join(' · ') };
   }
   const code = job.errorCode ?? '';
-  if (code === 'SNMP_WORKER_UNAVAILABLE') return { state: 'timeout', label: 'Sem resposta (timeout)', detail: [time, 'O serviço SNMP não processou o pedido a tempo. Confirma que o serviço SNMP está a correr e tenta de novo.'].filter(Boolean).join(' · ') };
-  if (timeoutCodes.has(code)) return { state: 'timeout', label: 'Sem resposta (timeout)', detail: [time, 'Confirma o IP de gestão, a ACL e a porta UDP 161.'].filter(Boolean).join(' · ') };
-  if (authCodes.has(code)) return { state: 'auth', label: 'Falha de autenticação', detail: [time, 'O utilizador, as chaves ou os protocolos não coincidem com o switch.'].filter(Boolean).join(' · ') };
-  return { state: 'failed', label: 'Falhou', detail: [time, code || job.status].filter(Boolean).join(' · ') };
+  if (code === 'SNMP_WORKER_UNAVAILABLE') return { state: 'timeout', label: t('snmp.setup.test.timeout'), detail: [time, t('snmp.setup.test.workerUnavailable')].filter(Boolean).join(' · ') };
+  if (timeoutCodes.has(code)) return { state: 'timeout', label: t('snmp.setup.test.timeout'), detail: [time, t('snmp.setup.test.checkReachability')].filter(Boolean).join(' · ') };
+  if (authCodes.has(code)) return { state: 'auth', label: t('snmp.setup.test.authFailed'), detail: [time, t('snmp.setup.test.authMismatch')].filter(Boolean).join(' · ') };
+  return { state: 'failed', label: t('snmp.setup.test.failed'), detail: [time, code || job.status].filter(Boolean).join(' · ') };
 }
 
 /** The job a click started (by id), else the newest job of that type. */
@@ -177,10 +181,10 @@ export function latestJob(jobs: SnmpJobView[] | undefined, type: string, id?: st
 }
 
 /** The stored outcome of the last test or poll with this credential, in words; never a generic "success". */
-export function lastTestLabel(status?: string | null): string {
-  if (status === 'COMPLETED') return 'último teste: OK';
-  if (status === 'FAILED') return 'último teste: falhou';
-  if (status === 'PENDING' || status === 'RUNNING') return 'teste em curso';
-  if (status === 'BLOCKED') return 'último teste: bloqueado';
-  return 'ainda não testada';
+export function lastTestLabel(t: Translate, status?: string | null): string {
+  if (status === 'COMPLETED') return t('snmp.setup.lastTest.ok');
+  if (status === 'FAILED') return t('snmp.setup.lastTest.failed');
+  if (status === 'PENDING' || status === 'RUNNING') return t('snmp.setup.lastTest.running');
+  if (status === 'BLOCKED') return t('snmp.setup.lastTest.blocked');
+  return t('snmp.setup.lastTest.never');
 }

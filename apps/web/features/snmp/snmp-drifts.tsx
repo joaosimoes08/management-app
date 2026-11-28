@@ -21,10 +21,10 @@ const driftTableConfig: TableStateConfig<{ status: string }> = {
 };
 
 export const driftStatusOptions: Array<[string, string]> = [
-  ['PENDING', 'Pendentes'],
-  ['ACCEPTED', 'Aceites'],
-  ['IGNORED', 'Ignoradas'],
-  ['ALL', 'Todas'],
+  ['PENDING', 'snmp.drifts.filter.pending'],
+  ['ACCEPTED', 'snmp.drifts.filter.accepted'],
+  ['IGNORED', 'snmp.drifts.filter.ignored'],
+  ['ALL', 'snmp.drifts.filter.all'],
 ];
 const statusParam = (value: string) => value === 'ALL' ? 'PENDING,ACCEPTED,IGNORED' : value || 'PENDING';
 const statusTone: Record<string, string> = { PENDING: 'pending', ACCEPTED: 'approved', IGNORED: 'rejected' };
@@ -68,34 +68,34 @@ export function SnmpDriftsView({ siteId, canReview, openDevice }: Props) {
     const review = async (id: string, next: ReviewStatus) => {
       setError('');
       try { await reviewSnmpDrift(id, next); await queryClient.invalidateQueries({ queryKey: ['snmp'] }); }
-      catch (cause) { setError(cause instanceof Error && cause.message ? cause.message : 'Não foi possível rever a divergência.'); }
+      catch (cause) { setError(cause instanceof Error && cause.message ? cause.message : ui('snmp.drifts.couldNotReviewTheDrift')); }
     };
     return [
-      { id: 'device', header: 'Equipamento', sortValue: (drift) => drift.device?.name ?? null, cell: (drift) => <>{drift.device ? <button type="button" className="link-button" onClick={() => openDevice(drift.device!.id)}><strong>{drift.device.name}</strong></button> : <span className="muted-cell">—</span>}{drift.interface ? <small>{`Interface ${drift.interface.name}`}</small> : null}</> },
-      { id: 'field', header: 'Campo', sortValue: (drift) => drift.field, cell: (drift) => <span className="mono">{drift.field}</span> },
-      { id: 'values', header: 'Documentado → Observado', cell: (drift) => <>{`${formatDriftValue(drift.documentedValue)} → ${formatDriftValue(drift.observedValue)}`}</> },
-      { id: 'status', header: 'Estado', sortValue: (drift) => drift.status, cell: (drift) => <><span className={`state-badge ${statusTone[drift.status] ?? ''}`.trim()}><i />{drift.status}</span>{drift.reviewedAt ? <small>{`Revista em ${formatDateTime(drift.reviewedAt)}`}</small> : null}</> },
-      { id: 'createdAt', header: 'Detetada', sortValue: (drift) => drift.createdAt, cell: (drift) => formatDateTime(drift.createdAt) },
-      ...(canReview ? [{ id: 'actions', header: 'Ações', className: 'table-actions', cell: (drift: SnmpFleetDrift) => drift.status === 'PENDING' ? <><button type="button" className="secondary-button" aria-label={`Aceitar ${drift.field} de ${drift.device?.name ?? drift.id}`} onClick={() => void review(drift.id, 'ACCEPTED')}><Check size={13} /> Aceitar</button><button type="button" className="danger-button" aria-label={`Ignorar ${drift.field} de ${drift.device?.name ?? drift.id}`} onClick={() => void review(drift.id, 'IGNORED')}><X size={13} /> Ignorar</button></> : null }] : []),
+      { id: 'device', header: ui('snmp.drifts.equipment'), sortValue: (drift) => drift.device?.name ?? null, cell: (drift) => <>{drift.device ? <button type="button" className="link-button" onClick={() => openDevice(drift.device!.id)}><strong>{drift.device.name}</strong></button> : <span className="muted-cell">—</span>}{drift.interface ? <small>{`Interface ${drift.interface.name}`}</small> : null}</> },
+      { id: 'field', header: ui('snmp.drifts.field'), sortValue: (drift) => drift.field, cell: (drift) => <span className="mono">{drift.field}</span> },
+      { id: 'values', header: ui('snmp.drifts.documentedObserved'), cell: (drift) => <>{`${formatDriftValue(drift.documentedValue)} → ${formatDriftValue(drift.observedValue)}`}</> },
+      { id: 'status', header: ui('snmp.drifts.status'), sortValue: (drift) => drift.status, cell: (drift) => <><span className={`state-badge ${statusTone[drift.status] ?? ''}`.trim()}><i />{drift.status}</span>{drift.reviewedAt ? <small>{ui('snmp.drifts.reviewedAt', undefined, { time: formatDateTime(drift.reviewedAt) })}</small> : null}</> },
+      { id: 'createdAt', header: ui('snmp.drifts.detected'), sortValue: (drift) => drift.createdAt, cell: (drift) => formatDateTime(drift.createdAt) },
+      ...(canReview ? [{ id: 'actions', header: ui('snmp.drifts.actions'), className: 'table-actions', cell: (drift: SnmpFleetDrift) => drift.status === 'PENDING' ? <><button type="button" className="secondary-button" aria-label={ui('snmp.drifts.acceptNamed', undefined, { field: drift.field, device: drift.device?.name ?? drift.id })} onClick={() => void review(drift.id, 'ACCEPTED')}><Check size={13} /> {ui('snmp.drifts.accept')}</button><button type="button" className="danger-button" aria-label={ui('snmp.drifts.ignoreNamed', undefined, { field: drift.field, device: drift.device?.name ?? drift.id })} onClick={() => void review(drift.id, 'IGNORED')}><X size={13} /> {ui('snmp.drifts.ignore')}</button></> : null }] : []),
     ];
-  }, [canReview, openDevice, queryClient]);
+  }, [canReview, openDevice, queryClient, ui]);
   const rows = useMemo(() => sortByColumns(items, columns, table.sort), [columns, items, table.sort]);
   const totalPages = Math.max(1, data?.totalPages ?? 1);
 
   return <section className="ipam-card">
-    <div className="panel-heading"><div><h2>Divergências SNMP</h2><p className="panel-description">Diferenças entre o inventário documentado e o que o polling observou, em todos os equipamentos do Site.</p></div>
-      <label className="interface-toolbar-controls">Estado<select aria-label="Filtrar divergências por estado" value={status} onChange={(event) => { setSelected(new Set()); table.setFilter('status', event.target.value); }}>{driftStatusOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div>
-    {loadError && <div className="ipam-alert error" role="alert"><X size={15} />{loadError instanceof Error && loadError.message ? loadError.message : 'Não foi possível carregar as divergências.'}</div>}
+    <div className="panel-heading"><div><h2>{ui('snmp.drifts.snmpDrifts')}</h2><p className="panel-description">{ui('snmp.drifts.differencesBetweenTheDocumentedInventory')}</p></div>
+      <label className="interface-toolbar-controls">{ui('snmp.drifts.status')}<select aria-label={ui('snmp.drifts.filterDriftsByStatus')} value={status} onChange={(event) => { setSelected(new Set()); table.setFilter('status', event.target.value); }}>{driftStatusOptions.map(([value, label]) => <option key={value} value={value}>{ui(label)}</option>)}</select></label></div>
+    {loadError && <div className="ipam-alert error" role="alert"><X size={15} />{loadError instanceof Error && loadError.message ? loadError.message : ui('snmp.drifts.couldNotLoadTheDrifts')}</div>}
     {error && <div className="ipam-alert error" role="alert"><X size={15} />{error}</div>}
-    {canReview && <div className="table-actions" role="toolbar" aria-label="Revisão em massa">
-      <span className="muted-cell">{selectedIds.length ? ui('groupB.drifts.selected', undefined, { count: selectedIds.length }) : 'Seleciona divergências pendentes para rever em massa.'}</span>
-      <button type="button" className="secondary-button" disabled={!selectedIds.length || tooMany} onClick={() => setBulk({ status: 'ACCEPTED', ids: selectedIds })}><Check size={13} /> Aceitar selecionadas</button>
-      <button type="button" className="danger-button" disabled={!selectedIds.length || tooMany} onClick={() => setBulk({ status: 'IGNORED', ids: selectedIds })}><X size={13} /> Ignorar selecionadas</button>
+    {canReview && <div className="table-actions" role="toolbar" aria-label={ui('snmp.drifts.bulkReview')}>
+      <span className="muted-cell">{selectedIds.length ? ui('groupB.drifts.selected', undefined, { count: selectedIds.length }) : ui('snmp.drifts.selectPendingDriftsToReview')}</span>
+      <button type="button" className="secondary-button" disabled={!selectedIds.length || tooMany} onClick={() => setBulk({ status: 'ACCEPTED', ids: selectedIds })}><Check size={13} /> {ui('snmp.drifts.acceptSelected')}</button>
+      <button type="button" className="danger-button" disabled={!selectedIds.length || tooMany} onClick={() => setBulk({ status: 'IGNORED', ids: selectedIds })}><X size={13} /> {ui('snmp.drifts.ignoreSelected')}</button>
     </div>}
     {tooMany && <div className="ipam-alert warning" role="note">{ui('groupB.drifts.bulkMax', undefined, { count: BULK_REVIEW_MAX })}</div>}
-    <DataTable rows={rows} columns={columns} rowKey={(drift) => drift.id} label="Divergências SNMP" sort={table.sort} onSortChange={table.setSort} defaultSort={table.defaultSort} loading={isLoading}
-      selection={canReview ? { selected: new Set(selectedIds), onChange: setSelected, isSelectable: (drift) => drift.status === 'PENDING', rowLabel: (drift, selectable) => ui(selectable ? 'groupB.drifts.selectRow' : 'groupB.drifts.rowReviewed', undefined, { field: drift.field, device: drift.device?.name ?? drift.id }), allLabel: 'Selecionar todas as divergências pendentes' } : undefined}
-      empty={<div className="no-data">Sem divergências para este filtro.</div>} />
+    <DataTable rows={rows} columns={columns} rowKey={(drift) => drift.id} label={ui('snmp.drifts.snmpDrifts')} sort={table.sort} onSortChange={table.setSort} defaultSort={table.defaultSort} loading={isLoading}
+      selection={canReview ? { selected: new Set(selectedIds), onChange: setSelected, isSelectable: (drift) => drift.status === 'PENDING', rowLabel: (drift, selectable) => ui(selectable ? 'groupB.drifts.selectRow' : 'groupB.drifts.rowReviewed', undefined, { field: drift.field, device: drift.device?.name ?? drift.id }), allLabel: ui('snmp.drifts.selectAllPendingDrifts') } : undefined}
+      empty={<div className="no-data">{ui('snmp.drifts.noDriftsForThisFilter')}</div>} />
     {data && (data.totalPages > 1 || page > 1) && <div className="group-member-pagination">
       <button type="button" aria-label={ui('ui.previousPage')} disabled={page <= 1} onClick={() => setPage(page - 1)}><ChevronLeft size={15} /></button>
       <span>{ui('groupB.drifts.pageSummary', undefined, { page, pages: totalPages, count: data.total })}</span>

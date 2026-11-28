@@ -3,6 +3,7 @@
 import { useEffect, useId, useState } from 'react';
 import { ShieldCheck, TriangleAlert } from 'lucide-react';
 import { snmpCredentialBounds } from './snmp-bounds';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 /**
  * SNMP plan step 1.3 (rev. 4): v2c is accepted alongside v3 unless an admin sets SNMP_ALLOW_V2C=false. Every SNMP
@@ -10,11 +11,12 @@ import { snmpCredentialBounds } from './snmp-bounds';
  */
 export type SnmpVersionChoice = 'V3' | 'V2C';
 
-export const V2C_TRADEOFF = 'SNMPv2c envia a community em texto simples e não cifra os dados. Use apenas em redes de gestão isoladas; prefira SNMPv3 (authPriv).';
-export const V2C_DISABLED = 'O SNMPv2c foi desativado por um administrador (SNMP_ALLOW_V2C=false). Só o SNMPv3 (authPriv) está disponível.';
-export const COMMUNITY_TOO_SHORT = `A community deve ter pelo menos ${snmpCredentialBounds.secret.min} caracteres.`;
+/** Message keys (texts in messages/snmp). COMMUNITY_TOO_SHORT takes `{ min: snmpCredentialBounds.secret.min }`. */
+export const V2C_TRADEOFF = 'snmp.version.v2cTradeoff';
+export const V2C_DISABLED = 'snmp.version.v2cDisabled';
+export const COMMUNITY_TOO_SHORT = 'snmp.version.communityTooShort';
 
-export const V2C_PENDING = 'A verificar se o SNMPv2c está disponível…';
+export const V2C_PENDING = 'snmp.version.v2cPending';
 
 /**
  * v2c is on unless the receiver settings say it was switched off; the API refuses it anyway when it is off.
@@ -27,11 +29,13 @@ export function isV2cAllowed(receiver?: { v2cAllowed?: boolean } | null, loading
 
 /** Warning-styled trade-off note (dark amber on light amber, above 4.5:1), announced as a note. */
 export function SnmpV2cNote({ id }: { id?: string }) {
-  return <p id={id} className="snmp-v2c-note" role="note"><TriangleAlert size={14} aria-hidden="true" /><span>{V2C_TRADEOFF}</span></p>;
+  const t = useUiText();
+  return <p id={id} className="snmp-v2c-note" role="note"><TriangleAlert size={14} aria-hidden="true" /><span>{t(V2C_TRADEOFF)}</span></p>;
 }
 
 export function SnmpV2cDisabledNote() {
-  return <p className="snmp-v2c-disabled" role="note"><ShieldCheck size={14} aria-hidden="true" /><span>{V2C_DISABLED}</span></p>;
+  const t = useUiText();
+  return <p className="snmp-v2c-disabled" role="note"><ShieldCheck size={14} aria-hidden="true" /><span>{t(V2C_DISABLED)}</span></p>;
 }
 
 type FieldProps = {
@@ -43,18 +47,19 @@ type FieldProps = {
 };
 
 /** Version picker: SNMPv3 (authPriv) first with a "Recomendado" badge, then v2c with its note, or the opt-out notice. */
-export function SnmpVersionField({ value, onChange, v2cAllowed, legend = 'Versão' }: FieldProps) {
+export function SnmpVersionField({ value, onChange, v2cAllowed, legend }: FieldProps) {
+  const t = useUiText();
   const name = useId();
   const noteId = `${name}-v2c-note`;
   useEffect(() => { if (v2cAllowed === false && value === 'V2C') onChange('V3'); }, [v2cAllowed, value, onChange]);
   return <fieldset className="snmp-version-field">
-    <legend>{legend}</legend>
+    <legend>{legend ?? t('snmp.version.legend')}</legend>
     <div className="snmp-version-options">
-      <label className={value === 'V3' ? 'selected' : ''}><input type="radio" name={name} value="V3" checked={value === 'V3'} onChange={() => onChange('V3')} /><span>SNMPv3 (authPriv)</span><span className="snmp-version-badge">Recomendado</span></label>
+      <label className={value === 'V3' ? 'selected' : ''}><input type="radio" name={name} value="V3" checked={value === 'V3'} onChange={() => onChange('V3')} /><span>SNMPv3 (authPriv)</span><span className="snmp-version-badge">{t('snmp.version.recommended')}</span></label>
       {v2cAllowed === null && <label className="pending" aria-busy="true"><input type="radio" name={name} value="V2C" checked={false} disabled aria-describedby={noteId} onChange={() => undefined} /><span>SNMPv2c</span></label>}
       {v2cAllowed === true && <label className={value === 'V2C' ? 'selected' : ''}><input type="radio" name={name} value="V2C" checked={value === 'V2C'} aria-describedby={value === 'V2C' ? noteId : undefined} onChange={() => onChange('V2C')} /><span>SNMPv2c</span></label>}
     </div>
-    {v2cAllowed === null ? <p id={noteId} className="snmp-v2c-pending" role="status">{V2C_PENDING}</p> : v2cAllowed === false ? <SnmpV2cDisabledNote /> : value === 'V2C' && <SnmpV2cNote id={noteId} />}
+    {v2cAllowed === null ? <p id={noteId} className="snmp-v2c-pending" role="status">{t(V2C_PENDING)}</p> : v2cAllowed === false ? <SnmpV2cDisabledNote /> : value === 'V2C' && <SnmpV2cNote id={noteId} />}
   </fieldset>;
 }
 
@@ -70,6 +75,7 @@ type CommunityProps = {
 
 /** Community input with the 8-character minimum checked inline once the user types or leaves the field. */
 export function SnmpCommunityField({ label, value, onChange, required = true, help, spanLabel = false }: CommunityProps) {
+  const t = useUiText();
   const id = useId();
   const [touched, setTouched] = useState(false);
   const tooShort = value.length < snmpCredentialBounds.secret.min && (touched || value.length > 0);
@@ -79,7 +85,7 @@ export function SnmpCommunityField({ label, value, onChange, required = true, he
   return <label htmlFor={id}>
     {spanLabel ? <span>{label}</span> : label}
     <input id={id} type="password" autoComplete="new-password" required={required} minLength={snmpCredentialBounds.secret.min} maxLength={snmpCredentialBounds.secret.max} value={value} aria-invalid={tooShort || undefined} aria-describedby={describedBy} onBlur={() => setTouched(true)} onChange={(event) => onChange(event.target.value)} />
-    {tooShort && <small id={errorId} className="snmp-field-error" aria-live="polite">{COMMUNITY_TOO_SHORT}</small>}
+    {tooShort && <small id={errorId} className="snmp-field-error" aria-live="polite">{t(COMMUNITY_TOO_SHORT, undefined, { min: snmpCredentialBounds.secret.min })}</small>}
     {help && <small id={helpId}>{help}</small>}
   </label>;
 }

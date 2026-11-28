@@ -1,3 +1,7 @@
+import type { useUiText } from '@/components/ui/use-ui-text';
+
+type Translate = ReturnType<typeof useUiText>;
+
 /** Input bounds enforced by the SNMP API (PR #85); mirrored here so the forms fail early with a clear message. */
 export const snmpConfigBounds = {
   port: { min: 1, max: 65535 },
@@ -13,14 +17,14 @@ export const snmpCredentialBounds = {
 } as const;
 
 type ConfigValues = { port: number; intervalMinutes: number; timeoutMs: number; retries: number };
-const configLabels: Record<keyof typeof snmpConfigBounds, string> = { port: 'Porta', intervalMinutes: 'Intervalo (min)', timeoutMs: 'Timeout (ms)', retries: 'Retries' };
+const configLabels: Record<keyof typeof snmpConfigBounds, string> = { port: 'snmp.bounds.field.port', intervalMinutes: 'snmp.bounds.field.intervalMinutes', timeoutMs: 'snmp.bounds.field.timeoutMs', retries: 'snmp.bounds.field.retries' };
 
 /** First out-of-range polling field as a message, or '' when the config is valid. */
-export function snmpConfigError(config: ConfigValues): string {
+export function snmpConfigError(t: Translate, config: ConfigValues): string {
   for (const key of Object.keys(snmpConfigBounds) as Array<keyof typeof snmpConfigBounds>) {
     const { min, max } = snmpConfigBounds[key];
     const value = config[key];
-    if (!Number.isInteger(value) || value < min || value > max) return `${configLabels[key]}: indica um número inteiro entre ${min} e ${max}.`;
+    if (!Number.isInteger(value) || value < min || value > max) return t('snmp.bounds.integerRange', undefined, { field: t(configLabels[key]), min, max });
   }
   return '';
 }
@@ -28,18 +32,18 @@ export function snmpConfigError(config: ConfigValues): string {
 type CredentialValues = { version: string; label?: string; username?: string; community?: string; authKey?: string; privKey?: string };
 
 /** First invalid credential field as a message, or '' when the credential can be sent. */
-export function snmpCredentialError(credential: CredentialValues): string {
+export function snmpCredentialError(t: Translate, credential: CredentialValues): string {
   const { secret } = snmpCredentialBounds;
-  if ((credential.label ?? '').length > snmpCredentialBounds.label.max) return `A etiqueta tem no máximo ${snmpCredentialBounds.label.max} caracteres.`;
+  if ((credential.label ?? '').length > snmpCredentialBounds.label.max) return t('snmp.bounds.labelTooLong', undefined, { max: snmpCredentialBounds.label.max });
   if (credential.version === 'V2C') {
     const community = credential.community ?? '';
-    if (community.length < secret.min || community.length > secret.max) return `A comunidade deve ter entre ${secret.min} e ${secret.max} caracteres.`;
+    if (community.length < secret.min || community.length > secret.max) return t('snmp.bounds.communityLength', undefined, { min: secret.min, max: secret.max });
     return '';
   }
   const username = (credential.username ?? '').trim();
-  if (!username || username.length > snmpCredentialBounds.username.max) return `O username SNMPv3 é obrigatório e tem no máximo ${snmpCredentialBounds.username.max} caracteres.`;
-  for (const [value, label] of [[credential.authKey ?? '', 'auth key'], [credential.privKey ?? '', 'privacy key']] as const) {
-    if (value.length < secret.min || value.length > secret.max) return `A ${label} deve ter entre ${secret.min} e ${secret.max} caracteres.`;
+  if (!username || username.length > snmpCredentialBounds.username.max) return t('snmp.bounds.usernameRequired', undefined, { max: snmpCredentialBounds.username.max });
+  for (const [value, key] of [[credential.authKey ?? '', 'snmp.bounds.authKeyLength'], [credential.privKey ?? '', 'snmp.bounds.privacyKeyLength']] as const) {
+    if (value.length < secret.min || value.length > secret.max) return t(key, undefined, { min: secret.min, max: secret.max });
   }
   return '';
 }

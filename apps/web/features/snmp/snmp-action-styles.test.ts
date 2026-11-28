@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { translateMessage } from '@/lib/i18n/i18n';
 
 const styles = readFileSync(resolve(process.cwd(), 'app/globals.css'), 'utf8');
 
@@ -8,12 +9,18 @@ describe('SNMP action button styles', () => {
   it('uses functional headings without section eyebrows', () => {
     const source = readFileSync(resolve(process.cwd(), 'features/snmp/snmp-page.tsx'), 'utf8');
     expect(source).not.toContain('section-kicker');
-    expect(source).toContain('Polling e segurança');
-    expect(source).toContain('Credenciais por finalidade');
-    expect(source).toContain('Disponibilidade e tráfego');
-    expect(source).toContain('Traps recentes');
-    expect(source).toContain('Divergências');
-    expect(source).toContain('Pré-visualização da alteração');
+    const headings = [
+      ['snmp.page.pollingAndSecurity', 'Polling e segurança'],
+      ['snmp.page.credentialsByPurpose', 'Credenciais por finalidade'],
+      ['snmp.page.availabilityAndTraffic', 'Disponibilidade e tráfego'],
+      ['snmp.page.recentTraps', 'Traps recentes'],
+      ['snmp.page.drifts', 'Divergências'],
+      ['snmp.page.changePreview', 'Pré-visualização da alteração'],
+    ] as const;
+    for (const [key, heading] of headings) {
+      expect(source).toContain(`'${key}'`);
+      expect(translateMessage('pt-PT', key)).toBe(heading);
+    }
   });
 
   it('uses one shared 160×35px size and lets toolbar actions fit narrow screens', () => {

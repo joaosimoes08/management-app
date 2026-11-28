@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { containerReceiverView, CREDENTIAL_TEST_UI_LIMIT_MS, describeCredentialTest, iosXeSetupLines, lastTestLabel, latestJob, receiverAddresses, RECEIVER_PLACEHOLDER, type SnmpReceiverSettings } from './snmp-setup';
 import { translateSourceText } from '@/lib/i18n/source-text-messages';
+import { translateMessage } from '@/lib/i18n/i18n';
+const pt = (key: string, fallback?: string, params?: Record<string, string | number>) => translateMessage('pt-PT', key, fallback, params);
+const en = (key: string, fallback?: string, params?: Record<string, string | number>) => translateMessage('en-US', key, fallback, params);
 
 const iface = (id: string, address: string, internal = false) => ({ id, instanceId: 'i1', name: id, address, internal, lastSeenAt: '2026-11-23T10:00:00.000Z' });
 const settings = (patch: Partial<SnmpReceiverSettings> = {}): SnmpReceiverSettings => ({ listenAll: true, selectedInterfaceIds: [], interfaces: [iface('eth0', '10.0.0.5'), iface('lo', '127.0.0.1', true), iface('ll', '169.254.1.2'), iface('v6', 'fe80::1'), iface('eth1', '10.0.1.5')], ...patch });
@@ -18,7 +21,7 @@ describe('receiverAddresses', () => {
 
 describe('iosXeSetupLines', () => {
   it('builds SNMPv3 authPriv lines with placeholders for every key and maps the protocols', () => {
-    const lines = iosXeSetupLines({ receiver: '10.0.0.5', username: 'netops', authProtocol: 'SHA512', privProtocol: 'AES256' });
+    const lines = iosXeSetupLines(pt, { receiver: '10.0.0.5', username: 'netops', authProtocol: 'SHA512', privProtocol: 'AES256' });
     expect(lines.v3).toContain('snmp-server user netops MGMT-APP v3 auth sha-2 512 <AUTH-KEY> priv aes 256 <PRIV-KEY> access MGMT-APP-SNMP');
     expect(lines.v3).toContain('snmp-server host 10.0.0.5 version 3 priv netops');
     expect(lines.v3).toContain('snmp-server trap-source <INTERFACE-DE-GESTAO>');
@@ -27,7 +30,7 @@ describe('iosXeSetupLines', () => {
     expect(lines.v2c).toBeNull();
   });
   it('adds the UDP port when it is not 162, informs once the engine ID exists, and v2c lines when v2c is allowed', () => {
-    const lines = iosXeSetupLines({ receiver: null, port: 1162, engineId: '800000090300AABBCCDDEEFF', v2cAllowed: true });
+    const lines = iosXeSetupLines(pt, { receiver: null, port: 1162, engineId: '800000090300AABBCCDDEEFF', v2cAllowed: true });
     expect(lines.v3).toContain(`snmp-server host ${RECEIVER_PLACEHOLDER} version 3 priv mgmt-app udp-port 1162`);
     expect(lines.informs).toContain(`snmp-server engineID remote ${RECEIVER_PLACEHOLDER} udp-port 1162 800000090300AABBCCDDEEFF`);
     expect(lines.v2c).toContain('snmp-server community <COMMUNITY> RO MGMT-APP-SNMP-V2C');
@@ -50,21 +53,21 @@ const job = (patch: Record<string, unknown>) => ({ id: 'j1', type: 'CREDENTIAL_T
 
 describe('describeCredentialTest', () => {
   it('shows OK with the time and sysName', () => {
-    expect(describeCredentialTest(job({ result: { reachable: true, durationMs: 42, sysName: 'core-sw-01' } }))).toEqual({ state: 'ok', label: 'OK', detail: '42 ms · sysName core-sw-01' });
+    expect(describeCredentialTest(pt, job({ result: { reachable: true, durationMs: 42, sysName: 'core-sw-01' } }))).toEqual({ state: 'ok', label: 'OK', detail: '42 ms · sysName core-sw-01' });
   });
   it('tells timeout, authentication failure, other errors and running apart', () => {
-    expect(describeCredentialTest(job({ status: 'FAILED', errorCode: 'SNMP_TIMEOUT', startedAt: '2026-11-23T10:00:00.000Z', completedAt: '2026-11-23T10:00:05.000Z' }))).toMatchObject({ state: 'timeout', label: 'Sem resposta (timeout)', detail: expect.stringContaining('5000 ms') });
-    expect(describeCredentialTest(job({ status: 'FAILED', errorCode: 'SNMP_AUTHENTICATION_FAILED' }))).toMatchObject({ state: 'auth', label: 'Falha de autenticação' });
-    expect(describeCredentialTest(job({ status: 'FAILED', errorCode: 'SNMP_EXECUTION_FAILED' }))).toMatchObject({ state: 'failed', detail: 'SNMP_EXECUTION_FAILED' });
-    expect(describeCredentialTest(job({ status: 'RUNNING' }), undefined, Date.parse('2026-11-23T10:00:10.000Z'))).toEqual({ state: 'running', label: 'A testar…' });
+    expect(describeCredentialTest(pt, job({ status: 'FAILED', errorCode: 'SNMP_TIMEOUT', startedAt: '2026-11-23T10:00:00.000Z', completedAt: '2026-11-23T10:00:05.000Z' }))).toMatchObject({ state: 'timeout', label: 'Sem resposta (timeout)', detail: expect.stringContaining('5000 ms') });
+    expect(describeCredentialTest(pt, job({ status: 'FAILED', errorCode: 'SNMP_AUTHENTICATION_FAILED' }))).toMatchObject({ state: 'auth', label: 'Falha de autenticação' });
+    expect(describeCredentialTest(pt, job({ status: 'FAILED', errorCode: 'SNMP_EXECUTION_FAILED' }))).toMatchObject({ state: 'failed', detail: 'SNMP_EXECUTION_FAILED' });
+    expect(describeCredentialTest(pt, job({ status: 'RUNNING' }), undefined, Date.parse('2026-11-23T10:00:10.000Z'))).toEqual({ state: 'running', label: 'A testar…' });
   });
   it('explains a test the SNMP service never processed (P0-3 follow-up)', () => {
-    expect(describeCredentialTest(job({ status: 'FAILED', errorCode: 'SNMP_WORKER_UNAVAILABLE', result: { reachable: false, durationMs: 15000 } }))).toMatchObject({ state: 'timeout', label: 'Sem resposta (timeout)', detail: expect.stringContaining('serviço SNMP') });
+    expect(describeCredentialTest(pt, job({ status: 'FAILED', errorCode: 'SNMP_WORKER_UNAVAILABLE', result: { reachable: false, durationMs: 15000 } }))).toMatchObject({ state: 'timeout', label: 'Sem resposta (timeout)', detail: expect.stringContaining('serviço SNMP') });
   });
   it('stops showing "A testar…" once the UI limit passes, even if the job is still open', () => {
     const late = Date.parse('2026-11-23T10:00:00.000Z') + CREDENTIAL_TEST_UI_LIMIT_MS + 1;
-    expect(describeCredentialTest(job({ status: 'PENDING' }), undefined, late)).toMatchObject({ state: 'timeout', label: 'Sem resposta (timeout)' });
-    expect(describeCredentialTest(job({ status: 'RUNNING' }), undefined, late - 2)).toEqual({ state: 'running', label: 'A testar…' });
+    expect(describeCredentialTest(pt, job({ status: 'PENDING' }), undefined, late)).toMatchObject({ state: 'timeout', label: 'Sem resposta (timeout)' });
+    expect(describeCredentialTest(pt, job({ status: 'RUNNING' }), undefined, late - 2)).toEqual({ state: 'running', label: 'A testar…' });
   });
   it('picks the job a click started, else the newest of a type', () => {
     const jobs = [job({ id: 'a', createdAt: '2026-11-23T09:00:00.000Z' }), job({ id: 'b', createdAt: '2026-11-23T11:00:00.000Z' }), job({ id: 'c', type: 'POLL', createdAt: '2026-11-23T12:00:00.000Z' })];
@@ -91,25 +94,26 @@ describe('containerReceiverView', () => {
     const invalid = containerReceiverView(container({ reason: 'SNMP_TRAP_PUBLIC_ADDRESS_INVALID' }));
     expect(required).toMatchObject({ state: 'missing', reason: 'REQUIRED' });
     expect(invalid).toMatchObject({ state: 'missing', reason: 'INVALID' });
-    expect(required && 'message' in required && required.message).toMatch(/Define SNMP_TRAP_PUBLIC_ADDRESS no servidor/);
-    expect(invalid && 'message' in invalid && invalid.message).toMatch(/não é um IP nem um nome DNS válido/);
+    expect(required && 'message' in required && pt(required.message)).toMatch(/Define SNMP_TRAP_PUBLIC_ADDRESS no servidor/);
+    expect(invalid && 'message' in invalid && pt(invalid.message)).toMatch(/não é um IP nem um nome DNS válido/);
     expect(containerReceiverView(container({ reason: null }))).toMatchObject({ reason: 'REQUIRED' });
   });
 });
 
 describe('lastTestLabel', () => {
   it('names every stored test status in words, including a test still running or blocked', () => {
-    expect(lastTestLabel('COMPLETED')).toBe('último teste: OK');
-    expect(lastTestLabel('FAILED')).toBe('último teste: falhou');
-    expect(lastTestLabel('PENDING')).toBe('teste em curso');
-    expect(lastTestLabel('RUNNING')).toBe('teste em curso');
-    expect(lastTestLabel('BLOCKED')).toBe('último teste: bloqueado');
-    expect(lastTestLabel(null)).toBe('ainda não testada');
+    expect(lastTestLabel(pt, 'COMPLETED')).toBe('último teste: OK');
+    expect(lastTestLabel(pt, 'FAILED')).toBe('último teste: falhou');
+    expect(lastTestLabel(pt, 'PENDING')).toBe('teste em curso');
+    expect(lastTestLabel(pt, 'RUNNING')).toBe('teste em curso');
+    expect(lastTestLabel(pt, 'BLOCKED')).toBe('último teste: bloqueado');
+    expect(lastTestLabel(pt, null)).toBe('ainda não testada');
   });
   it('has an EN translation for every label', () => {
     for (const status of ['COMPLETED', 'FAILED', 'PENDING', 'RUNNING', 'BLOCKED', null]) {
-      const label = lastTestLabel(status);
-      expect(translateSourceText('en-US', label), label).not.toBe(label);
+      const label = lastTestLabel(pt, status);
+      expect(lastTestLabel(en, status), label).not.toBe(label);
+      expect(lastTestLabel(en, status)).toBe(translateSourceText('en-US', label));
     }
   });
 });

@@ -5,6 +5,8 @@ import { listDiscoveryJobs, type DiscoveryJob } from './api';
 import { DiscoveryFlowHeader, DiscoveryRunRow } from './discovery-run-parts';
 import { describeDiscoveryError, discoveryFailureReason, discoveryProgressPercent, discoveryStatusLabel, formatResultCount, isActiveDiscoveryJob } from './discovery-status';
 import { parseLimitField } from './discovery-schedule-panel';
+import { translateMessage } from '@/lib/i18n/i18n';
+const pt = (key: string, fallback?: string, params?: Record<string, string | number>) => translateMessage('pt-PT', key, fallback, params);
 
 vi.mock('@/lib/api/client', () => ({ apiFetch: vi.fn() }));
 // The schedule panel also renders the D-P1a SNMP enrichment setting, which reads the role.
@@ -31,24 +33,24 @@ describe('Discovery P0: runs list only for the active site', () => {
 
 describe('Discovery P0: statuses, plural and failure reason', () => {
   it('translates every status and never shows the raw enum', () => {
-    expect(['PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED', 'QUEUED'].map(discoveryStatusLabel)).toEqual(['Pendente', 'Em execução', 'Concluída', 'Falhada', 'Cancelada', 'Na fila']);
-    expect(discoveryStatusLabel('completed')).toBe('Concluída');
-    expect(discoveryStatusLabel(null)).toBe('—');
+    expect(['PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED', 'QUEUED'].map((status) => discoveryStatusLabel(pt, status))).toEqual(['Pendente', 'Em execução', 'Concluída', 'Falhada', 'Cancelada', 'Na fila']);
+    expect(discoveryStatusLabel(pt, 'completed')).toBe('Concluída');
+    expect(discoveryStatusLabel(pt, null)).toBe('—');
   });
 
   it('uses the singular for exactly one result', () => {
-    expect(formatResultCount(0)).toBe('0 resultados');
-    expect(formatResultCount(1)).toBe('1 resultado');
-    expect(formatResultCount(2)).toBe('2 resultados');
+    expect(formatResultCount(pt, 0)).toBe('0 resultados');
+    expect(formatResultCount(pt, 1)).toBe('1 resultado');
+    expect(formatResultCount(pt, 2)).toBe('2 resultados');
   });
 
   it('explains known failure codes, keeps unknown ones visible and says nothing for runs that did not fail', () => {
-    expect(discoveryFailureReason({ status: 'FAILED', errorMessage: 'DISCOVERY_TARGET_NOT_ALLOWED' })).toMatch(/redes autorizadas/);
-    expect(discoveryFailureReason({ status: 'FAILED', errorMessage: 'DISCOVERY_QUEUE_UNAVAILABLE' })).toMatch(/worker e o Redis/);
-    expect(discoveryFailureReason({ status: 'FAILED', errorMessage: 'EHOSTDOWN' })).toBe('EHOSTDOWN');
-    expect(discoveryFailureReason({ status: 'FAILED', errorMessage: null })).toBe('A execução falhou sem indicar o motivo.');
-    expect(discoveryFailureReason({ status: 'COMPLETED', errorMessage: 'DISCOVERY_EXECUTION_FAILED' })).toBeNull();
-    expect(describeDiscoveryError('LIMIT_PROBES')).toBe('A execução parou no limite de sondas.');
+    expect(discoveryFailureReason(pt, { status: 'FAILED', errorMessage: 'DISCOVERY_TARGET_NOT_ALLOWED' })).toMatch(/redes autorizadas/);
+    expect(discoveryFailureReason(pt, { status: 'FAILED', errorMessage: 'DISCOVERY_QUEUE_UNAVAILABLE' })).toMatch(/worker e o Redis/);
+    expect(discoveryFailureReason(pt, { status: 'FAILED', errorMessage: 'EHOSTDOWN' })).toBe('EHOSTDOWN');
+    expect(discoveryFailureReason(pt, { status: 'FAILED', errorMessage: null })).toBe('A execução falhou sem indicar o motivo.');
+    expect(discoveryFailureReason(pt, { status: 'COMPLETED', errorMessage: 'DISCOVERY_EXECUTION_FAILED' })).toBeNull();
+    expect(describeDiscoveryError(pt, 'LIMIT_PROBES')).toBe('A execução parou no limite de sondas.');
   });
 
   it('renders a completed run with translated status and singular count', () => {

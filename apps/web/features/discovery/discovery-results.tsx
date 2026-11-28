@@ -40,19 +40,20 @@ export function formatDurationMs(ms: number | null | undefined): string {
 /** IPAM state of a result as the chips see it: an active reservation counts as RESERVED. */
 const resultIpamState = (result: DiscoveryResult) => (result.ipam ? (result.ipam.activeReservation ? 'RESERVED' : result.ipam.state) : null);
 const resultAccessors: ChipAccessors<DiscoveryResult> = { Review: (result) => result.status, Ipam: resultIpamState };
-const reviewChipLabels = [['PENDING', 'Pendentes'], ['APPROVED', 'Aprovados'], ['IGNORED', 'Ignorados']] as const;
-const ipamChipLabels = [['FREE', 'Livres'], ['OCCUPIED', 'Ocupados'], ['RESERVED', 'Reservados'], ['EXCLUDED', 'Excluídos'], [CHIP_NONE, 'Fora do IPAM']] as const;
+const reviewChipLabels = [['PENDING', 'discovery.results.chip.review.pending'], ['APPROVED', 'discovery.results.chip.review.approved'], ['IGNORED', 'discovery.results.chip.review.ignored']] as const;
+const ipamChipLabels = [['FREE', 'discovery.results.chip.ipam.free'], ['OCCUPIED', 'discovery.results.chip.ipam.occupied'], ['RESERVED', 'discovery.results.chip.ipam.reserved'], ['EXCLUDED', 'discovery.results.chip.ipam.excluded'], [CHIP_NONE, 'discovery.results.chip.ipam.none']] as const;
 
 const ipamTone: Record<string, string> = { FREE: 'free', OCCUPIED: 'occupied', RESERVED: 'reserved', EXCLUDED: 'excluded' };
 
 /** IPAM status of a discovered address; unknown states render as a neutral badge. */
 export function DiscoveryIpamStatus({ ipam }: { ipam?: DiscoveryResultIpam | null }) {
-  if (!ipam) return <span className="muted-cell">Não registado no IPAM</span>;
+  const t = useUiText();
+  if (!ipam) return <span className="muted-cell">{t('discovery.results.notRecordedInIpam')}</span>;
   const reserved = ipam.activeReservation;
   return <>
     <span className={`state-badge ${reserved ? 'reserved' : ipamTone[ipam.state] ?? ''}`.trim()}><i />{reserved ? 'RESERVED' : ipam.state}</span>
     {ipam.hostName && <small>{`Host ${ipam.hostName}`}</small>}
-    {reserved && <small>{`Reservado até ${formatDateTime(reserved.expiresAt)}`}</small>}
+    {reserved && <small>{t('discovery.results.reservedUntil', undefined, { time: formatDateTime(reserved.expiresAt) })}</small>}
   </>;
 }
 
@@ -72,14 +73,15 @@ type Props = {
 
 /** Probe results of one run: sortable table, per-row review and bulk approve/ignore (ADMIN / NETWORK_OPERATOR). */
 export function DiscoveryResultsTable({ results, canEdit, review, bulkDone }: Props) {
+  const t = useUiText();
   const table = useTableUrlState(resultsTableConfig);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulk, setBulk] = useState<{ status: ReviewStatus; ids: string[] } | null>(null);
   // D-P2b: text search and response-type chips narrow the rows first; review/IPAM chips, sort and bulk selection apply on top.
   const tools = useDiscoveryResultsTools(results);
   const visibleResults = useMemo(() => applyChipFilters(tools.rows, table.filters, resultAccessors), [tools.rows, table.filters]);
-  const reviewOptions = chipOptions(reviewChipLabels, facetCounts(tools.rows, table.filters, resultAccessors, 'Review'), { complete: true, selected: table.filters.Review });
-  const ipamOptions = chipOptions(ipamChipLabels, facetCounts(tools.rows, table.filters, resultAccessors, 'Ipam'), { complete: true, selected: table.filters.Ipam, hideEmpty: true });
+  const reviewOptions = chipOptions(reviewChipLabels.map(([value, key]) => [value, t(key)] as const), facetCounts(tools.rows, table.filters, resultAccessors, 'Review'), { complete: true, selected: table.filters.Review });
+  const ipamOptions = chipOptions(ipamChipLabels.map(([value, key]) => [value, t(key)] as const), facetCounts(tools.rows, table.filters, resultAccessors, 'Ipam'), { complete: true, selected: table.filters.Ipam, hideEmpty: true });
   // Only visible pending rows can stay selected, so a bulk action never touches rows hidden by a chip.
   const pendingIds = useMemo(() => new Set(visibleResults.filter((result) => result.status === 'PENDING').map((result) => result.id)), [visibleResults]);
   // Selection only keeps rows that are still pending (a row reviewed elsewhere drops out).
@@ -89,37 +91,36 @@ export function DiscoveryResultsTable({ results, canEdit, review, bulkDone }: Pr
   const hasSnmp = useMemo(() => results.some((result) => result.snmp), [results]);
   // D-P1c: the identity column appears only when the API sends identity suggestions.
   const hasIdentity = useMemo(() => results.some((result) => result.identity), [results]);
-  const t = useUiText();
   const columns = useMemo<DataTableColumn<DiscoveryResult>[]>(() => [
-    { id: 'address', header: 'Endereço', sortValue: (result) => result.address.split(/[.:]/).map((part) => part.padStart(5, '0')).join('.'), cell: (result) => <strong className="mono">{result.address}</strong> },
-    { id: 'hostname', header: 'Hostname', sortValue: (result) => result.hostname ?? null, cell: (result) => result.hostname || <span className="muted-cell">reverse DNS não encontrado</span> },
-    { id: 'probe', header: 'Sonda', cell: (result) => result.outcome ? <DiscoveryOutcomeCell outcome={result.outcome} /> : <small>{probeSummary(result, t)}</small> },
+    { id: 'address', header: t('discovery.results.address'), sortValue: (result) => result.address.split(/[.:]/).map((part) => part.padStart(5, '0')).join('.'), cell: (result) => <strong className="mono">{result.address}</strong> },
+    { id: 'hostname', header: 'Hostname', sortValue: (result) => result.hostname ?? null, cell: (result) => result.hostname || <span className="muted-cell">{t('discovery.results.reverseDnsNotFound')}</span> },
+    { id: 'probe', header: t('discovery.results.probe'), cell: (result) => result.outcome ? <DiscoveryOutcomeCell outcome={result.outcome} /> : <small>{probeSummary(result, t)}</small> },
     ...(hasSnmp ? [{ id: 'snmp', header: 'SNMP', sortValue: (result: DiscoveryResult) => result.snmp?.fields.sysName?.value ?? null, cell: (result: DiscoveryResult) => <DiscoverySnmpCell snmp={result.snmp} /> }] : []),
     ...(hasIdentity ? [{ id: 'identity', header: t('discoveryIdentity.column'), sortValue: (result: DiscoveryResult) => identitySortValue(result.identity), cell: (result: DiscoveryResult) => <DiscoveryIdentityCell identity={result.identity} /> }] : []),
     { id: 'ipam', header: 'IPAM', sortValue: resultIpamState, cell: (result) => <DiscoveryIpamStatus ipam={result.ipam} /> },
-    { id: 'status', header: 'Revisão', sortValue: (result) => result.status, cell: (result) => <span className={`state-badge ${result.status === 'APPROVED' ? 'approved' : result.status === 'IGNORED' ? 'rejected' : 'pending'}`}><i />{result.status}</span> },
-    ...(canEdit ? [{ id: 'actions', header: 'Ações', className: 'table-actions', cell: (result: DiscoveryResult) => result.status === 'PENDING' ? <><button className="secondary-button" aria-label={`Aprovar ${result.address}`} onClick={() => void review(result.id, 'APPROVED')}><Check size={13} /> Aprovar</button><button className="danger-button" aria-label={`Ignorar ${result.address}`} onClick={() => void review(result.id, 'IGNORED')}><X size={13} /> Ignorar</button></> : <DiscoveryPromoteAction result={result} /> }] : []),
+    { id: 'status', header: t('discovery.results.revision'), sortValue: (result) => result.status, cell: (result) => <span className={`state-badge ${result.status === 'APPROVED' ? 'approved' : result.status === 'IGNORED' ? 'rejected' : 'pending'}`}><i />{result.status}</span> },
+    ...(canEdit ? [{ id: 'actions', header: t('discovery.results.actions'), className: 'table-actions', cell: (result: DiscoveryResult) => result.status === 'PENDING' ? <><button className="secondary-button" aria-label={t('discovery.results.approveNamed', undefined, { address: result.address })} onClick={() => void review(result.id, 'APPROVED')}><Check size={13} /> {t('discovery.results.approve')}</button><button className="danger-button" aria-label={t('discovery.results.ignoreNamed', undefined, { address: result.address })} onClick={() => void review(result.id, 'IGNORED')}><X size={13} /> {t('discovery.results.ignore')}</button></> : <DiscoveryPromoteAction result={result} /> }] : []),
   ], [canEdit, hasIdentity, hasSnmp, review, t]);
   const rows = useMemo(() => sortByColumns(visibleResults, columns, table.sort), [columns, visibleResults, table.sort]);
   const byId = useMemo(() => new Map(results.map((result) => [result.id, result])), [results]);
   const tooMany = selectedIds.length > BULK_REVIEW_MAX;
 
   return <>
-    {canEdit && <div className="table-actions" role="toolbar" aria-label="Revisão em massa">
-      <span className="muted-cell">{selectedIds.length ? `${selectedIds.length} selecionados` : 'Seleciona resultados pendentes para rever em massa.'}</span>
-      <button className="secondary-button" disabled={!selectedIds.length || tooMany} onClick={() => setBulk({ status: 'APPROVED', ids: selectedIds })}><Check size={13} /> Aprovar selecionados</button>
-      <button className="danger-button" disabled={!selectedIds.length || tooMany} onClick={() => setBulk({ status: 'IGNORED', ids: selectedIds })}><X size={13} /> Ignorar selecionados</button>
+    {canEdit && <div className="table-actions" role="toolbar" aria-label={t('discovery.results.bulkReview')}>
+      <span className="muted-cell">{selectedIds.length ? t('discovery.results.selectedCount', undefined, { count: selectedIds.length }) : t('discovery.results.selectPendingResultsToReview')}</span>
+      <button className="secondary-button" disabled={!selectedIds.length || tooMany} onClick={() => setBulk({ status: 'APPROVED', ids: selectedIds })}><Check size={13} /> {t('discovery.results.approveSelected')}</button>
+      <button className="danger-button" disabled={!selectedIds.length || tooMany} onClick={() => setBulk({ status: 'IGNORED', ids: selectedIds })}><X size={13} /> {t('discovery.results.ignoreSelected')}</button>
     </div>}
     {results.length > 0 && <div className="discovery-results-tools">{tools.searchField}<DiscoveryResultsCsvButton rows={rows} /></div>}
     {results.length > 0 && <FilterChipBar>
-      <FilterChips label="Revisão" value={table.filters.Review} options={reviewOptions} total={tools.rows.length} onChange={(value) => table.setFilter('Review', value)} />
+      <FilterChips label={t('discovery.results.revision')} value={table.filters.Review} options={reviewOptions} total={tools.rows.length} onChange={(value) => table.setFilter('Review', value)} />
       <FilterChips label="IPAM" value={table.filters.Ipam} options={ipamOptions} total={tools.rows.length} onChange={(value) => table.setFilter('Ipam', value)} />
       {tools.typeChips}
     </FilterChipBar>}
     {tooMany && <div className="ipam-alert warning" role="note">{t('groupB.discovery.bulkMax', undefined, { count: BULK_REVIEW_MAX })}</div>}
-    <DataTable rows={rows} columns={columns} rowKey={(result) => result.id} label="Resultados de sondas" sort={table.sort} onSortChange={table.setSort} defaultSort={table.defaultSort}
-      selection={canEdit ? { selected: new Set(selectedIds), onChange: setSelected, isSelectable: (result) => result.status === 'PENDING', rowLabel: (result, selectable) => t(selectable ? 'groupB.discovery.selectRow' : 'groupB.discovery.rowReviewed', undefined, { address: result.address }), allLabel: 'Selecionar todos os resultados pendentes' } : undefined}
-      empty={<div className="no-data">{results.length ? 'Nenhum resultado com estes filtros.' : 'Não existem resultados alcançáveis para esta execução.'}</div>} />
+    <DataTable rows={rows} columns={columns} rowKey={(result) => result.id} label={t('discovery.results.probeResults')} sort={table.sort} onSortChange={table.setSort} defaultSort={table.defaultSort}
+      selection={canEdit ? { selected: new Set(selectedIds), onChange: setSelected, isSelectable: (result) => result.status === 'PENDING', rowLabel: (result, selectable) => t(selectable ? 'groupB.discovery.selectRow' : 'groupB.discovery.rowReviewed', undefined, { address: result.address }), allLabel: t('discovery.results.selectAllPendingResults') } : undefined}
+      empty={<div className="no-data">{results.length ? t('discovery.results.noResultsMatchTheseFilters') : t('discovery.results.thereAreNoReachableResults')}</div>} />
     {bulk && <BulkReviewDialog
       title={t(bulk.status === 'APPROVED' ? 'groupB.discovery.bulkApproveTitle' : 'groupB.discovery.bulkIgnoreTitle')}
       actionLabel={t(bulk.status === 'APPROVED' ? 'groupB.discovery.approve' : 'groupB.common.ignore')}
