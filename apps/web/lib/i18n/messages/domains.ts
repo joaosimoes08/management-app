@@ -15,3 +15,4 @@ export { settings } from './settings';
 export { shell } from './shell';
 export { snmp } from './snmp';
 export { tags } from './tags';
+export { topology } from './topology';

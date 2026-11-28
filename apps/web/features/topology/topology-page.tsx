@@ -27,6 +27,7 @@ import { ImpactPanel, PathView } from './impact-panel';
 import type { TopologyConnection, TopologyMap, TopologyMapType, TopologyNode } from './types';
 import { topologyToolbarSummary } from './toolbar-summary';
 import { useUiText } from '@/components/ui/use-ui-text';
+import type { TopologyText } from './topology-text';
 import { isSnmpNetworkDevice, useSnmpHealthMap, type SnmpHealthSummaryItem } from '@/features/snmp/health/health-api';
 import { badgeStatus, snmpHealthDescription, snmpHealthStatusLabel } from '@/features/snmp/health/health-badge';
 
@@ -50,7 +51,7 @@ function TopologyDeviceNode({ data, selected }: NodeProps<TopologyFlowNode>) {
     {data.alertSummary && <span className={`topology-node-alert topology-node-alert--${String(data.alertSummary.highestSeverity).toLowerCase()}`} aria-label={`${data.alertSummary.count} alertas ativos · ${data.alertSummary.highestSeverity}`}>{data.alertSummary.count} · {data.alertSummary.highestSeverity}</span>}
     {healthPill && <span className="topology-node-health" data-health={health} aria-hidden="true">{snmpHealthStatusLabel(t, data.health?.status)}{data.health?.issueCount ? ` · ${data.health.issueCount}` : ''}</span>}
     <Handle type="source" position={Position.Right} className="topology-device-handle" />
-    <span className="topology-device-tooltip" role="tooltip"><strong>{data.deviceName}</strong><span><small>Hostname:</small><b>{data.hostname || 'Não definido'}</b></span><span><small>Modelo:</small><b>{data.modelName || data.equipmentType}</b></span><span><small>Localização:</small><b>{data.location || 'Não definida'}</b></span><span><small>IP Management:</small><b>{data.managementIp || 'não definido'}</b></span><span><small>Status:</small><b>{data.status.toLowerCase()}</b></span>{data.alertSummary && <span><small>Alertas ativos:</small><b style={{ color: topologySeverityColor(data.alertSummary.highestSeverity) }}>{data.alertSummary.count} · {data.alertSummary.highestSeverity}</b></span>}{health && <span><small>{t('snmpHealth.column')}:</small><b>{snmpHealthStatusLabel(t, data.health?.status)}{data.health?.issueCount ? ` · ${t('snmpHealth.issues', undefined, { count: data.health.issueCount })}` : ''}</b></span>}</span>
+    <span className="topology-device-tooltip" role="tooltip"><strong>{data.deviceName}</strong><span><small>Hostname:</small><b>{data.hostname || t('topology.page.notSet')}</b></span><span><small>{t('topology.page.model')}</small><b>{data.modelName || data.equipmentType}</b></span><span><small>{t('topology.page.location')}</small><b>{data.location || t('topology.page.notSet2')}</b></span><span><small>IP Management:</small><b>{data.managementIp || t('topology.page.notSet3')}</b></span><span><small>Status:</small><b>{data.status.toLowerCase()}</b></span>{data.alertSummary && <span><small>{t('topology.page.activeAlerts')}</small><b style={{ color: topologySeverityColor(data.alertSummary.highestSeverity) }}>{data.alertSummary.count} · {data.alertSummary.highestSeverity}</b></span>}{health && <span><small>{t('snmpHealth.column')}:</small><b>{snmpHealthStatusLabel(t, data.health?.status)}{data.health?.issueCount ? ` · ${t('snmpHealth.issues', undefined, { count: data.health.issueCount })}` : ''}</b></span>}</span>
   </div>;
 }
 
@@ -84,10 +85,10 @@ function connectionPort(deviceId: string, interfaceId: string | null | undefined
   return (interfaces[deviceId] ?? []).find((port) => port.id === interfaceId);
 }
 
-function configuredPortLabel(node: TopologyNode | undefined, port?: DeviceInterface) {
+function configuredPortLabel(node: TopologyNode | undefined, port: DeviceInterface | undefined, ui: TopologyText) {
   const layoutPorts = allPortLayoutPorts(node?.device?.model?.portLayout);
   const mappedPort = layoutPorts.find((item) => item.portKey === port?.portKey || item.portKey === port?.name);
-  return mappedPort?.label ?? port?.portKey ?? port?.name ?? 'Porta não definida';
+  return mappedPort?.label ?? port?.portKey ?? port?.name ?? ui('topology.page.portNotSet');
 }
 
 function toFlowNode(node: TopologyNode, alertSummary?: TopologyNodeAlertSummary, healthMap?: ReadonlyMap<string, SnmpHealthSummaryItem>): TopologyFlowNode {
@@ -166,8 +167,8 @@ export function TopologyPage() {
   const searchMatch = current ? findTopologyNode(current.nodes, search) : undefined;
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
-  const typeOptions = useMemo(() => topologyTypeOptions(current?.nodes ?? []), [current?.nodes]);
-  const locationOptions = useMemo(() => topologyLocationOptions(current?.nodes ?? []), [current?.nodes]);
+  const typeOptions = useMemo(() => topologyTypeOptions(current?.nodes ?? [], tx), [current?.nodes, tx]);
+  const locationOptions = useMemo(() => topologyLocationOptions(current?.nodes ?? [], tx), [current?.nodes, tx]);
   const hiddenNodeIds = useMemo(() => hiddenTopologyNodeIds(current?.nodes ?? [], filters, nodeAlertSummaries), [current?.nodes, filters, nodeAlertSummaries]);
   const highlight = useMemo(() => (!current ? null : impactTarget && impactResult ? impactHighlight(impactResult, current) : pathResult?.found ? pathHighlight(pathResult, current) : null), [current, impactTarget, impactResult, pathResult]);
   const visibleNodes = useMemo(() => withHighlightClasses(withHiddenNodes(nodes, hiddenNodeIds), highlight?.nodes ?? null, 'node'), [nodes, hiddenNodeIds, highlight]);
@@ -179,8 +180,8 @@ export function TopologyPage() {
   useEffect(() => {
     if (!current) return;
     setNodes(current.nodes.map((node) => { const flowNode = toFlowNode(node, nodeAlertSummaries.get(node.deviceId), snmpHealthMap); const pending = pendingPositions?.find((item) => item.id === node.id); return pending ? { ...flowNode, position: pending.position } : flowNode; }));
-    setEdges(current.connections.map((edge) => makeFlowEdge(edge, current, interfacesByDevice, setSelectedEdgeId)));
-  }, [current, interfacesByDevice, pendingPositions, setEdges, setNodes]);
+    setEdges(current.connections.map((edge) => makeFlowEdge(edge, current, interfacesByDevice, setSelectedEdgeId, tx)));
+  }, [current, interfacesByDevice, pendingPositions, setEdges, setNodes, tx]);
   useEffect(() => {
     if (!current) return;
     const currentNodes = new Map(current.nodes.map((node) => [node.id, node]));
@@ -220,21 +221,21 @@ export function TopologyPage() {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setFullscreen(false);
-        setFullscreenAnnouncement('Modo de ecrã inteiro desativado.');
+        setFullscreenAnnouncement(tx('topology.page.fullScreenModeOff'));
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [fullscreen]);
+  }, [fullscreen, tx]);
   useEffect(() => {
     if (!fullscreenAnnouncement || !fullscreenAnnouncementRef.current) return;
     fullscreenAnnouncementRef.current.textContent = fullscreen
-      ? 'Modo de ecrã inteiro ativado. Prima Escape para sair.'
-      : 'Modo de ecrã inteiro desativado.';
-  }, [fullscreen, fullscreenAnnouncement]);
+      ? tx('topology.page.fullScreenModeOnPress')
+      : tx('topology.page.fullScreenModeOff');
+  }, [fullscreen, fullscreenAnnouncement, tx]);
 
-  const create = useMutation({ mutationFn: () => createTopologyMap({ name: name.trim(), type: mapType, siteId, ...(mapType === 'VLAN_SUBNET' ? { filters: { vlanIds: selectedVlanIds } } : {}) }), onSuccess: (map) => { setWarning(''); setName(''); setSelectedVlanIds([]); setSelected(map.id); void queryClient.invalidateQueries({ queryKey: ['topology', 'maps', siteId] }); }, onError: () => setWarning('Não foi possível criar o mapa. Confirma as permissões do Site e tenta novamente.') });
-  const remove = useMutation({ mutationFn: () => deleteTopologyMap(selected, current?.revision), onSuccess: () => { setWarning(''); setSelected(''); void queryClient.invalidateQueries({ queryKey: ['topology', 'maps', siteId] }); }, onError: () => setWarning('Não foi possível eliminar o mapa. Confirma as permissões do Site e tenta novamente.') });
+  const create = useMutation({ mutationFn: () => createTopologyMap({ name: name.trim(), type: mapType, siteId, ...(mapType === 'VLAN_SUBNET' ? { filters: { vlanIds: selectedVlanIds } } : {}) }), onSuccess: (map) => { setWarning(''); setName(''); setSelectedVlanIds([]); setSelected(map.id); void queryClient.invalidateQueries({ queryKey: ['topology', 'maps', siteId] }); }, onError: () => setWarning(tx('topology.page.couldNotCreateTheMap')) });
+  const remove = useMutation({ mutationFn: () => deleteTopologyMap(selected, current?.revision), onSuccess: () => { setWarning(''); setSelected(''); void queryClient.invalidateQueries({ queryKey: ['topology', 'maps', siteId] }); }, onError: () => setWarning(tx('topology.page.couldNotDeleteTheMap')) });
   const persist = (next: Node[]) => {
     if (!current) return;
     setPendingPositions(next);
@@ -247,7 +248,7 @@ export function TopologyPage() {
         await detail.refetch();
       } catch (error) {
         setSaveState('failed');
-        setWarning(String(error).includes('alterado') ? 'Este mapa foi alterado noutro separador. As posições locais foram mantidas; recarrega ou tenta guardar novamente.' : 'Não foi possível guardar as posições. As posições locais foram mantidas; tenta novamente.');
+        setWarning(String(error).includes('alterado') ? tx('topology.page.thisMapWasChangedIn') : tx('topology.page.couldNotSaveThePositions'));
       }
     }, 500);
   };
@@ -262,7 +263,7 @@ export function TopologyPage() {
     setPendingConnection({ sourceDeviceId, targetDeviceId });
     setNewSourcePortId('');
     setNewTargetPortId('');
-    setWarning('Seleciona uma porta livre em cada equipamento para criar a ligação.');
+    setWarning(tx('topology.page.selectAFreePortOn'));
   };
   const createConnectionFromPorts = async () => {
     if (!current || !pendingConnection || !newSourcePortId || !newTargetPortId || newSourcePortId === newTargetPortId) return;
@@ -271,7 +272,7 @@ export function TopologyPage() {
       setPendingConnection(null); setNewSourcePortId(''); setNewTargetPortId('');
       await Promise.all([detail.refetch(), interfaceAvailability.refetch()]); setWarning('');
     } catch (error) {
-      setWarning(String(error).includes('já utilizadas') ? 'Uma das portas já está ligada. Escolhe novamente entre as portas livres.' : String(error).includes('alterado') ? 'O mapa mudou entretanto. Recarrega antes de criar a ligação.' : 'Não foi possível criar a ligação.');
+      setWarning(String(error).includes('já utilizadas') ? tx('topology.page.oneOfThePortsIs') : String(error).includes('alterado') ? tx('topology.page.theMapHasChangedMeanwhile') : tx('topology.page.couldNotCreateTheLink'));
       const [, availability] = await Promise.all([detail.refetch(), interfaceAvailability.refetch()]);
       const occupied = new Set(availability.data?.usedInterfaceIds ?? []);
       setNewSourcePortId((id) => retainAvailableInterfaceId(id, occupied));
@@ -284,15 +285,15 @@ export function TopologyPage() {
     try {
       await replaceTopologyNodes(current.id, current.revision, next.map((node) => ({ id: node.id, deviceId: node.id.split(':').pop()!, x: node.position.x, y: node.position.y })));
       setDeviceId(''); await detail.refetch(); setWarning('');
-    } catch (error) { setWarning(String(error).includes('alterado') ? 'O mapa mudou entretanto. Recarrega antes de adicionar o equipamento.' : 'Não foi possível adicionar o equipamento ao mapa.'); }
+    } catch (error) { setWarning(String(error).includes('alterado') ? tx('topology.page.theMapHasChangedMeanwhile2') : tx('topology.page.couldNotAddTheDevice')); }
   };
   const saveConnection = async () => {
     if (!selectedConnection) return;
-    try { await updateTopologyConnection(selectedConnection.id, { label: edgeLabel.trim() || undefined, notes: edgeNotes.trim() || undefined, type: edgeType, sourceInterfaceId: sourcePortId || null, targetInterfaceId: targetPortId || null, expectedRevisions: current ? { [current.id]: current.revision } : {} }); await detail.refetch(); setWarning(''); } catch (error) { setWarning(String(error).includes('já utilizadas') ? 'Uma das portas já foi atribuída a outra ligação. Escolhe novamente entre as portas livres.' : String(error).includes('alterado') ? 'O mapa mudou entretanto. Recarrega antes de atualizar a ligação.' : 'Não foi possível atualizar a ligação.'); const [, availability] = await Promise.all([detail.refetch(), interfaceAvailability.refetch()]); const occupied = new Set(availability.data?.usedInterfaceIds ?? []); setSourcePortId((id) => retainAvailableInterfaceId(id, occupied)); setTargetPortId((id) => retainAvailableInterfaceId(id, occupied)); }
+    try { await updateTopologyConnection(selectedConnection.id, { label: edgeLabel.trim() || undefined, notes: edgeNotes.trim() || undefined, type: edgeType, sourceInterfaceId: sourcePortId || null, targetInterfaceId: targetPortId || null, expectedRevisions: current ? { [current.id]: current.revision } : {} }); await detail.refetch(); setWarning(''); } catch (error) { setWarning(String(error).includes('já utilizadas') ? tx('topology.page.oneOfThePortsIs2') : String(error).includes('alterado') ? tx('topology.page.theMapHasChangedMeanwhile3') : tx('topology.page.couldNotUpdateTheLink')); const [, availability] = await Promise.all([detail.refetch(), interfaceAvailability.refetch()]); const occupied = new Set(availability.data?.usedInterfaceIds ?? []); setSourcePortId((id) => retainAvailableInterfaceId(id, occupied)); setTargetPortId((id) => retainAvailableInterfaceId(id, occupied)); }
   };
   const removeConnection = async () => {
     if (!current || !selectedConnection) return;
-    try { await deleteTopologyConnection(current.id, selectedConnection.id, current.revision); setSelectedEdgeId(''); await detail.refetch(); setWarning(''); } catch (error) { setWarning(String(error).includes('alterado') ? 'O mapa mudou entretanto. Recarrega antes de remover a ligação.' : 'Não foi possível remover a ligação.'); }
+    try { await deleteTopologyConnection(current.id, selectedConnection.id, current.revision); setSelectedEdgeId(''); await detail.refetch(); setWarning(''); } catch (error) { setWarning(String(error).includes('alterado') ? tx('topology.page.theMapHasChangedMeanwhile4') : tx('topology.page.couldNotRemoveTheLink')); }
   };
   const mapOptions = useMemo(() => maps.data?.items ?? [], [maps.data]);
   useEffect(() => { if (analysisRequested && !selected && mapOptions.length) setSelected(mapOptions[0].id); }, [analysisRequested, selected, mapOptions]);
@@ -308,7 +309,7 @@ export function TopologyPage() {
   const toggleFullscreen = () => {
     const next = !fullscreen;
     setFullscreen(next);
-    setFullscreenAnnouncement(next ? 'Modo de ecrã inteiro ativado. Prima Escape para sair.' : 'Modo de ecrã inteiro desativado.');
+    setFullscreenAnnouncement(next ? tx('topology.page.fullScreenModeOnPress') : tx('topology.page.fullScreenModeOff'));
   };
 
   const openDeviceInterfaces = (device: TopologyNode['device']) => {
@@ -317,70 +318,70 @@ export function TopologyPage() {
   };
 
   const closeConnectionCard = () => setSelectedEdgeId('');
-  const selectedConnectionDisplay = selectedConnection && current ? connectionDisplay(selectedConnection, current, interfacesByDevice) : undefined;
+  const selectedConnectionDisplay = selectedConnection && current ? connectionDisplay(selectedConnection, current, interfacesByDevice, tx) : undefined;
 
   const topbarActions = <div className="topology-topbar-actions">
-    <select className="context-toolbar-selector" aria-label="Mapa do site" value={selected} onChange={(event) => { setSelected(event.target.value); setFilters(emptyTopologyFilters); }}><option value="">Seleciona mapa…</option>{mapOptions.map((map) => <option key={map.id} value={map.id}>{map.name} · {map.type.replace('_', ' ')}</option>)}</select>
-    {pendingConnection && current && <details className="topology-topbar-menu" open onToggle={(event) => { if (!event.currentTarget.open) setPendingConnection(null); }}><summary>Concluir ligação</summary><div className="topology-topbar-form"><strong>Seleciona as portas da ligação</strong><label>Porta de origem<select aria-label="Porta de origem da nova ligação" value={newSourcePortId} onChange={(event) => setNewSourcePortId(event.target.value)} disabled={interfaceData.isLoading || interfaceData.isError || interfaceAvailability.isLoading || interfaceAvailability.isError || !newSourcePorts.length}><option value="">{interfaceAvailability.isLoading ? 'A verificar disponibilidade…' : newSourcePorts.length ? 'Seleciona uma porta livre' : 'Sem portas livres'}</option>{newSourcePorts.map((port) => <option key={port.id} value={port.id}>{port.name}</option>)}</select></label><label>Porta de destino<select aria-label="Porta de destino da nova ligação" value={newTargetPortId} onChange={(event) => setNewTargetPortId(event.target.value)} disabled={interfaceData.isLoading || interfaceData.isError || interfaceAvailability.isLoading || interfaceAvailability.isError || !newTargetPorts.length}><option value="">{interfaceAvailability.isLoading ? 'A verificar disponibilidade…' : newTargetPorts.length ? 'Seleciona uma porta livre' : 'Sem portas livres'}</option>{newTargetPorts.map((port) => <option key={port.id} value={port.id}>{port.name}</option>)}</select></label>{(interfaceData.isError || interfaceAvailability.isError) && <p role="alert">Não foi possível verificar as portas livres. Atualiza o mapa e tenta novamente.</p>}<button className="primary-button" onClick={() => void createConnectionFromPorts()} disabled={!newSourcePortId || !newTargetPortId || newSourcePortId === newTargetPortId || interfaceData.isLoading || interfaceData.isError || interfaceAvailability.isLoading || interfaceAvailability.isError}>Criar ligação</button><button type="button" className="secondary-button" onClick={() => setPendingConnection(null)}>Cancelar</button></div></details>}
+    <select className="context-toolbar-selector" aria-label={tx('topology.page.siteMap')} value={selected} onChange={(event) => { setSelected(event.target.value); setFilters(emptyTopologyFilters); }}><option value="">{tx('topology.page.selectAMap')}</option>{mapOptions.map((map) => <option key={map.id} value={map.id}>{map.name} · {map.type.replace('_', ' ')}</option>)}</select>
+    {pendingConnection && current && <details className="topology-topbar-menu" open onToggle={(event) => { if (!event.currentTarget.open) setPendingConnection(null); }}><summary>{tx('topology.page.finishLink')}</summary><div className="topology-topbar-form"><strong>{tx('topology.page.selectTheLinkPorts')}</strong><label>{tx('topology.page.sourcePort')}<select aria-label={tx('topology.page.sourcePortOfTheNew')} value={newSourcePortId} onChange={(event) => setNewSourcePortId(event.target.value)} disabled={interfaceData.isLoading || interfaceData.isError || interfaceAvailability.isLoading || interfaceAvailability.isError || !newSourcePorts.length}><option value="">{interfaceAvailability.isLoading ? tx('topology.page.checkingAvailability') : newSourcePorts.length ? tx('topology.page.selectAFreePort') : tx('topology.page.noFreePorts')}</option>{newSourcePorts.map((port) => <option key={port.id} value={port.id}>{port.name}</option>)}</select></label><label>{tx('topology.page.destinationPort')}<select aria-label={tx('topology.page.destinationPortOfTheNew')} value={newTargetPortId} onChange={(event) => setNewTargetPortId(event.target.value)} disabled={interfaceData.isLoading || interfaceData.isError || interfaceAvailability.isLoading || interfaceAvailability.isError || !newTargetPorts.length}><option value="">{interfaceAvailability.isLoading ? tx('topology.page.checkingAvailability') : newTargetPorts.length ? tx('topology.page.selectAFreePort') : tx('topology.page.noFreePorts')}</option>{newTargetPorts.map((port) => <option key={port.id} value={port.id}>{port.name}</option>)}</select></label>{(interfaceData.isError || interfaceAvailability.isError) && <p role="alert">{tx('topology.page.couldNotCheckTheFree')}</p>}<button className="primary-button" onClick={() => void createConnectionFromPorts()} disabled={!newSourcePortId || !newTargetPortId || newSourcePortId === newTargetPortId || interfaceData.isLoading || interfaceData.isError || interfaceAvailability.isLoading || interfaceAvailability.isError}>{tx('topology.page.createLink')}</button><button type="button" className="secondary-button" onClick={() => setPendingConnection(null)}>{tx('topology.page.cancel')}</button></div></details>}
     {current && <TopologyFiltersMenu filters={filters} onChange={setFilters} types={typeOptions} locations={locationOptions} alertsUnavailable={operationalAlerts.isError} />}
     {current && <TopologyLegend types={typeOptions} />}
-    <details className="topology-topbar-menu topology-impact-menu" open={pathFrom ? true : undefined}><summary>Impacto e caminho</summary><div className="topology-topbar-form">
-      <strong>Impacto</strong><label>Equipamento que vai abaixo<select aria-label="Equipamento para analisar impacto" value={impactDeviceId} onChange={(event) => setImpactDeviceId(event.target.value)}><option value="">Seleciona…</option>{siteDevices.map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}</select></label>
-      <button type="button" className="primary-button" disabled={!impactDeviceId} onClick={analyseImpact}>Analisar impacto</button>
-      <strong>Caminho entre dois equipamentos</strong>
+    <details className="topology-topbar-menu topology-impact-menu" open={pathFrom ? true : undefined}><summary>{tx('topology.page.impactAndPath')}</summary><div className="topology-topbar-form">
+      <strong>{tx('topology.page.impact')}</strong><label>{tx('topology.page.deviceThatGoesDown')}<select aria-label={tx('topology.page.deviceToAnalyseImpactFor')} value={impactDeviceId} onChange={(event) => setImpactDeviceId(event.target.value)}><option value="">{tx('topology.page.select')}</option>{siteDevices.map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}</select></label>
+      <button type="button" className="primary-button" disabled={!impactDeviceId} onClick={analyseImpact}>{tx('topology.page.analyseImpact')}</button>
+      <strong>{tx('topology.page.pathBetweenTwoDevices')}</strong>
       <PathView devices={siteDevices} initialFrom={pathFrom} onResult={onPathResult} />
     </div></details>
-    <details className="topology-topbar-menu"><summary>Editar mapa</summary><div className="topology-topbar-form">
-      <strong>Criar mapa</strong><label>Nome<input aria-label="Nome do novo mapa" value={name} onChange={(event) => setName(event.target.value)} placeholder="Ex.: Rede principal" /></label><label>Tipo<select aria-label="Tipo do novo mapa" value={mapType} onChange={(event) => setMapType(event.target.value as TopologyMapType)}>{types.map((type) => <option key={type}>{type}</option>)}</select></label>
-      {mapType === 'VLAN_SUBNET' && <label>VLANs associadas<select multiple aria-label="VLANs do mapa" value={selectedVlanIds} onChange={(event) => setSelectedVlanIds([...event.target.selectedOptions].map((option) => option.value))}>{vlans.data?.items.map((vlan) => <option key={vlan.id} value={vlan.id}>VLAN {vlan.vlanId} · {vlan.name}</option>)}</select></label>}
-      <button className="primary-button" disabled={!name.trim() || !siteId || create.isPending} onClick={() => create.mutate()}>{create.isPending ? 'A criar…' : 'Criar mapa'}</button>
-      {current && <><strong>Adicionar equipamento</strong><label>Equipamento<select aria-label="Equipamento para adicionar" value={deviceId} onChange={(event) => setDeviceId(event.target.value)}><option value="">Seleciona…</option>{devices.data?.items.filter((device) => !current.nodes.some((node) => node.deviceId === device.id)).map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}</select></label><button className="secondary-button" disabled={!deviceId} onClick={() => void addDevice()}>Adicionar ao mapa</button></>}
-      {selectedConnection && <><strong>Ligação selecionada</strong><small>{selectedConnection.source === 'MANUAL' ? 'Documentada' : `Observada (${selectedConnection.source ?? 'origem desconhecida'})`}</small><label>Etiqueta<input aria-label="Etiqueta da ligação" value={edgeLabel} onChange={(event) => setEdgeLabel(event.target.value)} placeholder="Etiqueta" /></label><label>Porta de origem<select aria-label="Porta de origem" value={sourcePortId} onChange={(event) => setSourcePortId(event.target.value)} disabled={interfaceData.isLoading || interfaceData.isError || interfaceAvailability.isLoading || interfaceAvailability.isError}><option value="">Porta não indicada</option>{selectedSourcePorts.map((port) => <option key={port.id} value={port.id}>{port.name}</option>)}</select></label><label>Porta de destino<select aria-label="Porta de destino" value={targetPortId} onChange={(event) => setTargetPortId(event.target.value)} disabled={interfaceData.isLoading || interfaceData.isError || interfaceAvailability.isLoading || interfaceAvailability.isError}><option value="">Porta não indicada</option>{selectedTargetPorts.map((port) => <option key={port.id} value={port.id}>{port.name}</option>)}</select></label>{interfaceAvailability.isError && <p role="alert">Não foi possível verificar a disponibilidade das portas.</p>}<label>Percurso físico / patch panel<textarea aria-label="Percurso físico / patch panel" value={edgeNotes} onChange={(event) => setEdgeNotes(event.target.value)} placeholder="Patch panel, porta, bastidor, etiqueta do cabo…" rows={3} /></label><label>Tipo da ligação<select aria-label="Tipo da ligação" value={edgeType} onChange={(event) => setEdgeType(event.target.value as 'PHYSICAL' | 'LOGICAL')}><option value="PHYSICAL">Física</option><option value="LOGICAL">Lógica</option></select></label><button className="primary-button" onClick={() => void saveConnection()} disabled={interfaceAvailability.isLoading || interfaceAvailability.isError || interfaceData.isLoading || interfaceData.isError}>Guardar ligação</button><button className="secondary-button danger" onClick={() => void removeConnection()}>Remover ligação</button></>}
-      {selected && <button className="secondary-button danger" onClick={() => remove.mutate()} disabled={remove.isPending}>{remove.isPending ? 'A eliminar…' : 'Eliminar mapa'}</button>}
-      {warning && <p className="ipam-alert error" role="alert">{warning} {create.isError && <button type="button" className="secondary-button" onClick={() => create.mutate()}>Tentar criar novamente</button>} {remove.isError && <button type="button" className="secondary-button" onClick={() => remove.mutate()}>Tentar eliminar novamente</button>}</p>}
+    <details className="topology-topbar-menu"><summary>{tx('topology.page.editMap')}</summary><div className="topology-topbar-form">
+      <strong>{tx('topology.page.createMap')}</strong><label>{tx('topology.page.name')}<input aria-label={tx('topology.page.newMapName')} value={name} onChange={(event) => setName(event.target.value)} placeholder={tx('topology.page.eGMainNetwork')} /></label><label>{tx('topology.page.type')}<select aria-label={tx('topology.page.newMapType')} value={mapType} onChange={(event) => setMapType(event.target.value as TopologyMapType)}>{types.map((type) => <option key={type}>{type}</option>)}</select></label>
+      {mapType === 'VLAN_SUBNET' && <label>{tx('topology.page.linkedVlans')}<select multiple aria-label={tx('topology.page.mapVlans')} value={selectedVlanIds} onChange={(event) => setSelectedVlanIds([...event.target.selectedOptions].map((option) => option.value))}>{vlans.data?.items.map((vlan) => <option key={vlan.id} value={vlan.id}>VLAN {vlan.vlanId} · {vlan.name}</option>)}</select></label>}
+      <button className="primary-button" disabled={!name.trim() || !siteId || create.isPending} onClick={() => create.mutate()}>{create.isPending ? tx('topology.page.creating') : tx('topology.page.createMap')}</button>
+      {current && <><strong>{tx('topology.page.addEquipment')}</strong><label>{tx('topology.page.equipment')}<select aria-label={tx('topology.page.deviceToAdd')} value={deviceId} onChange={(event) => setDeviceId(event.target.value)}><option value="">{tx('topology.page.select')}</option>{devices.data?.items.filter((device) => !current.nodes.some((node) => node.deviceId === device.id)).map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}</select></label><button className="secondary-button" disabled={!deviceId} onClick={() => void addDevice()}>{tx('topology.page.addToMap')}</button></>}
+      {selectedConnection && <><strong>{tx('topology.page.selectedLink')}</strong><small>{selectedConnection.source === 'MANUAL' ? tx('topology.page.documented') : `Observada (${selectedConnection.source ?? 'origem desconhecida'})`}</small><label>{tx('topology.page.tag')}<input aria-label={tx('topology.page.linkLabel')} value={edgeLabel} onChange={(event) => setEdgeLabel(event.target.value)} placeholder={tx('topology.page.tag')} /></label><label>{tx('topology.page.sourcePort')}<select aria-label={tx('topology.page.sourcePort')} value={sourcePortId} onChange={(event) => setSourcePortId(event.target.value)} disabled={interfaceData.isLoading || interfaceData.isError || interfaceAvailability.isLoading || interfaceAvailability.isError}><option value="">{tx('topology.page.portNotGiven')}</option>{selectedSourcePorts.map((port) => <option key={port.id} value={port.id}>{port.name}</option>)}</select></label><label>{tx('topology.page.destinationPort')}<select aria-label={tx('topology.page.destinationPort')} value={targetPortId} onChange={(event) => setTargetPortId(event.target.value)} disabled={interfaceData.isLoading || interfaceData.isError || interfaceAvailability.isLoading || interfaceAvailability.isError}><option value="">{tx('topology.page.portNotGiven')}</option>{selectedTargetPorts.map((port) => <option key={port.id} value={port.id}>{port.name}</option>)}</select></label>{interfaceAvailability.isError && <p role="alert">{tx('topology.page.couldNotCheckPortAvailability')}</p>}<label>{tx('topology.page.physicalPathPatchPanel')}<textarea aria-label={tx('topology.page.physicalPathPatchPanel')} value={edgeNotes} onChange={(event) => setEdgeNotes(event.target.value)} placeholder={tx('topology.page.patchPanelPortRackCable')} rows={3} /></label><label>{tx('topology.page.linkType')}<select aria-label={tx('topology.page.linkType')} value={edgeType} onChange={(event) => setEdgeType(event.target.value as 'PHYSICAL' | 'LOGICAL')}><option value="PHYSICAL">{tx('topology.page.physical')}</option><option value="LOGICAL">{tx('topology.page.logical')}</option></select></label><button className="primary-button" onClick={() => void saveConnection()} disabled={interfaceAvailability.isLoading || interfaceAvailability.isError || interfaceData.isLoading || interfaceData.isError}>{tx('topology.page.saveLink')}</button><button className="secondary-button danger" onClick={() => void removeConnection()}>{tx('topology.page.removeLink')}</button></>}
+      {selected && <button className="secondary-button danger" onClick={() => remove.mutate()} disabled={remove.isPending}>{remove.isPending ? tx('topology.page.deleting') : tx('topology.page.deleteMap')}</button>}
+      {warning && <p className="ipam-alert error" role="alert">{warning} {create.isError && <button type="button" className="secondary-button" onClick={() => create.mutate()}>{tx('topology.page.tryCreatingAgain')}</button>} {remove.isError && <button type="button" className="secondary-button" onClick={() => remove.mutate()}>{tx('topology.page.tryDeletingAgain')}</button>}</p>}
     </div></details>
   </div>;
   const toolbarSummary = topologyToolbarSummary({ mapName: current?.name, nodeCount: current?.nodes.length ?? 0, visibleCount, filtering, connectionCount: current?.connections.length ?? 0, alertsUnavailable: operationalAlerts.isError, problemCount: mapProblemCount }, tx);
-  const mapViewActions = <><span className="topology-toolbar-summary" title={toolbarSummary}>{toolbarSummary}</span><ToolbarMore label="Controlos do mapa"><button type="button" disabled={!searchMatch} onClick={() => searchMatch && focusNode(searchMatch.id)}>Encontrar equipamento</button><button type="button" aria-pressed={labelsVisible} onClick={() => setLabelsVisible((value) => !value)}>{labelsVisible ? 'Ocultar etiquetas' : 'Mostrar etiquetas'}</button><button type="button" aria-pressed={showGrid} onClick={() => setShowGrid((value) => !value)}>{showGrid ? 'Ocultar grelha' : 'Mostrar grelha'}</button><button type="button" onClick={() => void flow?.zoomIn({ duration: 180 })}>Ampliar</button><button type="button" onClick={() => void flow?.zoomOut({ duration: 180 })}>Reduzir</button><button type="button" onClick={() => void flow?.fitView({ duration: 300, padding: 0.2 })}>Ajustar mapa</button><button type="button" aria-pressed={interactive} onClick={() => setInteractive((value) => !value)}>{interactive ? 'Bloquear mapa' : 'Desbloquear mapa'}</button><button type="button" onClick={toggleFullscreen}>Alternar ecrã inteiro</button></ToolbarMore></>;
+  const mapViewActions = <><span className="topology-toolbar-summary" title={toolbarSummary}>{toolbarSummary}</span><ToolbarMore label={tx('topology.page.mapControls')}><button type="button" disabled={!searchMatch} onClick={() => searchMatch && focusNode(searchMatch.id)}>{tx('topology.page.findDevice')}</button><button type="button" aria-pressed={labelsVisible} onClick={() => setLabelsVisible((value) => !value)}>{labelsVisible ? tx('topology.page.hideLabels') : tx('topology.page.showLabels')}</button><button type="button" aria-pressed={showGrid} onClick={() => setShowGrid((value) => !value)}>{showGrid ? tx('topology.page.hideGrid') : tx('topology.page.showGrid')}</button><button type="button" onClick={() => void flow?.zoomIn({ duration: 180 })}>{tx('topology.page.zoomIn')}</button><button type="button" onClick={() => void flow?.zoomOut({ duration: 180 })}>{tx('topology.page.zoomOut')}</button><button type="button" onClick={() => void flow?.fitView({ duration: 300, padding: 0.2 })}>{tx('topology.page.fitMap')}</button><button type="button" aria-pressed={interactive} onClick={() => setInteractive((value) => !value)}>{interactive ? tx('topology.page.lockMap') : tx('topology.page.unlockMap')}</button><button type="button" onClick={toggleFullscreen}>{tx('topology.page.toggleFullScreen')}</button></ToolbarMore></>;
 
-  return <PageShell section="Topologia" toolbarKey={workspace} context={['Infraestrutura']} search={workspace === 'manual' ? { value: search, onChange: setSearch, placeholder: 'Procurar equipamento no mapa', ariaLabel: 'Procurar equipamento no mapa', scopeLabel: 'Mapas manuais' } : undefined} moduleTabs={<nav className="infra-menu" aria-label="Visualização de topologia"><button className={workspace === 'manual' ? 'active' : ''} aria-pressed={workspace === 'manual'} onClick={() => setWorkspace('manual')}><MapIcon size={15}/><span>Mapas manuais</span></button><button className={workspace === 'observed' ? 'active' : ''} aria-pressed={workspace === 'observed'} onClick={() => setWorkspace('observed')}><Activity size={15}/><span>Observada e reconciliação</span></button></nav>} toolbar={<div className="topology-toolbar-stack">{workspace === 'manual' ? <div className="topology-toolbar-row">{topbarActions}{mapViewActions}</div> : <div className="topology-toolbar-row">{observedToolbar}</div>}</div>}>
+  return <PageShell section={tx('topology.page.topology')} toolbarKey={workspace} context={[tx('topology.page.infrastructure')]} search={workspace === 'manual' ? { value: search, onChange: setSearch, placeholder: tx('topology.page.searchForADeviceOn'), ariaLabel: tx('topology.page.searchForADeviceOn'), scopeLabel: tx('topology.page.manualMaps') } : undefined} moduleTabs={<nav className="infra-menu" aria-label={tx('topology.page.topologyView')}><button className={workspace === 'manual' ? 'active' : ''} aria-pressed={workspace === 'manual'} onClick={() => setWorkspace('manual')}><MapIcon size={15}/><span>{tx('topology.page.manualMaps')}</span></button><button className={workspace === 'observed' ? 'active' : ''} aria-pressed={workspace === 'observed'} onClick={() => setWorkspace('observed')}><Activity size={15}/><span>{tx('topology.page.observedAndReconciliation')}</span></button></nav>} toolbar={<div className="topology-toolbar-stack">{workspace === 'manual' ? <div className="topology-toolbar-row">{topbarActions}{mapViewActions}</div> : <div className="topology-toolbar-row">{observedToolbar}</div>}</div>}>
     <div className="topology-page">
       {workspace === 'observed' ? <ObservedTopology onToolbarChange={setObservedToolbar} /> : <>
-        <section className={`topology-canvas panel${fullscreen ? ' topology-canvas--fullscreen' : ''}${labelsVisible ? '' : ' topology-canvas--auto-labels'}`} aria-label="Área do mapa de topologia">
+        <section className={`topology-canvas panel${fullscreen ? ' topology-canvas--fullscreen' : ''}${labelsVisible ? '' : ' topology-canvas--auto-labels'}`} aria-label={tx('topology.page.topologyMapArea')}>
 
-          {current && search.trim() && !searchMatch && <p className="topology-map-no-results" role="status">Nenhum equipamento encontrado para “{search.trim()}”.</p>}
-          {current && filtering && visibleCount === 0 && <p className="topology-map-no-results" role="status">Nenhum equipamento corresponde aos filtros.</p>}
+          {current && search.trim() && !searchMatch && <p className="topology-map-no-results" role="status">{tx('topology.page.noDeviceFoundFor')}{search.trim()}”.</p>}
+          {current && filtering && visibleCount === 0 && <p className="topology-map-no-results" role="status">{tx('topology.page.noDeviceMatchesTheFilters')}</p>}
           <span ref={fullscreenAnnouncementRef} className="topology-sr-only" aria-live="polite" />
           {warning && <p className="ipam-alert error topology-warning" role="alert">{warning}</p>}
-          {current && <p className={`topology-save-status ${saveState}`} role="status" aria-live="polite">{saveState === 'pending' ? 'A guardar posições…' : saveState === 'failed' ? <>Falha ao guardar posições. <button type="button" onClick={retrySave}>Tentar novamente</button> <button type="button" onClick={reloadMap}>Recarregar mapa</button></> : 'Todas as posições estão guardadas.'}</p>}
-          {selectedConnection && selectedConnectionDisplay && <aside className="topology-terminal-card" aria-label="Configuração da ligação"><header><strong>Terminal · {selectedConnection.type ?? 'Ligação'}</strong><button type="button" className="topology-terminal-close" aria-label="Fechar configuração" onClick={closeConnectionCard}>×</button></header><div className="topology-terminal-tabs" role="tablist" aria-label="Extremos da ligação"><button role="tab" aria-selected={selectedConnectionTab === 'source'} onClick={() => setSelectedConnectionTab('source')}>{selectedConnectionDisplay.sourceName}</button><button role="tab" aria-selected={selectedConnectionTab === 'target'} onClick={() => setSelectedConnectionTab('target')}>{selectedConnectionDisplay.targetName}</button></div><div className="topology-terminal-output" role="tabpanel"><span>{selectedConnectionTab === 'source' ? selectedConnectionDisplay.sourcePort : selectedConnectionDisplay.targetPort}</span><p className="topology-terminal-note">Não há configuração CLI disponível para esta ligação.</p></div></aside>}
-          {impactTarget && <aside className="topology-impact-card" aria-labelledby="topology-impact-title"><header><strong id="topology-impact-title"><span>Impacto</span>{impactResult?.origin.name ? ` · ${impactResult.origin.name}` : ''}</strong><button type="button" className="topology-terminal-close" aria-label="Fechar impacto" onClick={clearImpact}>×</button></header>
-            {current && highlight && <p className="topology-impact-legend"><span className="topology-impact-key topology-impact-key--down">Vai abaixo</span><span className="topology-impact-key topology-impact-key--cut">Sem caminho</span><span className="topology-impact-key topology-impact-key--degraded">Perde uma alimentação</span>{highlight.offMap > 0 && <small><span>Fora deste mapa:</span> {highlight.offMap}</small>}</p>}
-            {!current && <p className="panel-description">Seleciona um mapa para destacar os equipamentos afetados.</p>}
+          {current && <p className={`topology-save-status ${saveState}`} role="status" aria-live="polite">{saveState === 'pending' ? tx('topology.page.savingPositions') : saveState === 'failed' ? <>{tx('topology.page.failedToSavePositions')} <button type="button" onClick={retrySave}>{tx('topology.page.tryAgain')}</button> <button type="button" onClick={reloadMap}>{tx('topology.page.reloadMap')}</button></> : tx('topology.page.allPositionsAreSaved')}</p>}
+          {selectedConnection && selectedConnectionDisplay && <aside className="topology-terminal-card" aria-label={tx('topology.page.linkConfiguration')}><header><strong>Terminal · {selectedConnection.type ?? tx('topology.page.link')}</strong><button type="button" className="topology-terminal-close" aria-label={tx('topology.page.closeConfiguration')} onClick={closeConnectionCard}>×</button></header><div className="topology-terminal-tabs" role="tablist" aria-label={tx('topology.page.linkEndpoints')}><button role="tab" aria-selected={selectedConnectionTab === 'source'} onClick={() => setSelectedConnectionTab('source')}>{selectedConnectionDisplay.sourceName}</button><button role="tab" aria-selected={selectedConnectionTab === 'target'} onClick={() => setSelectedConnectionTab('target')}>{selectedConnectionDisplay.targetName}</button></div><div className="topology-terminal-output" role="tabpanel"><span>{selectedConnectionTab === 'source' ? selectedConnectionDisplay.sourcePort : selectedConnectionDisplay.targetPort}</span><p className="topology-terminal-note">{tx('topology.page.thereIsNoCliConfiguration')}</p></div></aside>}
+          {impactTarget && <aside className="topology-impact-card" aria-labelledby="topology-impact-title"><header><strong id="topology-impact-title"><span>{tx('topology.page.impact')}</span>{impactResult?.origin.name ? ` · ${impactResult.origin.name}` : ''}</strong><button type="button" className="topology-terminal-close" aria-label={tx('topology.page.closeImpact')} onClick={clearImpact}>×</button></header>
+            {current && highlight && <p className="topology-impact-legend"><span className="topology-impact-key topology-impact-key--down">{tx('topology.page.goesDown')}</span><span className="topology-impact-key topology-impact-key--cut">{tx('topology.page.noPath')}</span><span className="topology-impact-key topology-impact-key--degraded">{tx('topology.page.losesOnePowerFeed')}</span>{highlight.offMap > 0 && <small><span>{tx('topology.page.notOnThisMap')}</span> {highlight.offMap}</small>}</p>}
+            {!current && <p className="panel-description">{tx('topology.page.selectAMapToHighlight')}</p>}
             <ImpactPanel target={impactTarget} siteId={siteId} onMap onResult={onImpactResult} headingId="topology-impact-title" />
           </aside>}
-          {!impactTarget && pathResult?.found && current && highlight && <p className="topology-impact-legend topology-path-legend" role="status"><span className="topology-impact-key topology-impact-key--path">Caminho documentado</span><span>Saltos:</span> {pathResult.hops}{highlight.offMap > 0 && <small><span>Fora deste mapa:</span> {highlight.offMap}</small>}</p>}
+          {!impactTarget && pathResult?.found && current && highlight && <p className="topology-impact-legend topology-path-legend" role="status"><span className="topology-impact-key topology-impact-key--path">{tx('topology.page.documentedPath')}</span><span>{tx('topology.page.hops')}</span> {pathResult.hops}{highlight.offMap > 0 && <small><span>{tx('topology.page.notOnThisMap')}</span> {highlight.offMap}</small>}</p>}
           <ReactFlow nodes={visibleNodes} edges={visibleEdges} nodeTypes={topologyNodeTypes} edgeTypes={topologyEdgeTypes} onInit={setFlow} onNodesChange={handleNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_event, node) => { const mapNode = current?.nodes.find((item) => item.id === node.id); openDeviceInterfaces(mapNode?.device); }} onEdgeClick={(_event, edge) => { setSelectedEdgeId(edge.id); setSelectedConnectionTab('source'); }} nodesDraggable={interactive} nodesConnectable={interactive} elementsSelectable={interactive} fitView><>{showGrid && <Background />}<MiniMap /></></ReactFlow>
-          {!selected && !maps.isLoading && <div className="topology-canvas-empty"><strong>Seleciona ou cria um mapa</strong><span>O teu mapa de topologia aparece aqui.</span></div>}
+          {!selected && !maps.isLoading && <div className="topology-canvas-empty"><strong>{tx('topology.page.selectOrCreateAMap')}</strong><span>{tx('topology.page.yourTopologyMapAppearsHere')}</span></div>}
         </section>
       </>}
     </div>
   </PageShell>;
 }
 
-function connectionDisplay(connection: TopologyConnection, map: TopologyMap, interfaces: Record<string, DeviceInterface[]>) {
+function connectionDisplay(connection: TopologyConnection, map: TopologyMap, interfaces: Record<string, DeviceInterface[]>, ui: TopologyText) {
   const source = map.nodes.find((node) => node.deviceId === connection.sourceDeviceId);
   const target = map.nodes.find((node) => node.deviceId === connection.targetDeviceId);
   const sourcePort = connectionPort(connection.sourceDeviceId, connection.sourceInterfaceId, interfaces);
   const targetPort = connectionPort(connection.targetDeviceId, connection.targetInterfaceId, interfaces);
   const sourceName = source?.device?.name ?? connection.sourceDeviceId;
   const targetName = target?.device?.name ?? connection.targetDeviceId;
-  const sourcePortName = configuredPortLabel(source, sourcePort);
-  const targetPortName = configuredPortLabel(target, targetPort);
-  return { sourceName, targetName, sourcePort: sourcePortName, targetPort: targetPortName, tooltip: `${connection.label || connection.type || 'Ligação'} / ${sourceName} (Device 1) / ${sourcePortName} / ${targetName} (Device 2) / ${targetPortName}` };
+  const sourcePortName = configuredPortLabel(source, sourcePort, ui);
+  const targetPortName = configuredPortLabel(target, targetPort, ui);
+  return { sourceName, targetName, sourcePort: sourcePortName, targetPort: targetPortName, tooltip: `${connection.label || connection.type || ui('topology.page.link')} / ${sourceName} (Device 1) / ${sourcePortName} / ${targetName} (Device 2) / ${targetPortName}` };
 }
 
-function makeFlowEdge(connection: TopologyConnection, map: TopologyMap, interfaces: Record<string, DeviceInterface[]>, onSelect: (id: string) => void): TopologyFlowEdge {
-  const display = connectionDisplay(connection, map, interfaces);
+function makeFlowEdge(connection: TopologyConnection, map: TopologyMap, interfaces: Record<string, DeviceInterface[]>, onSelect: (id: string) => void, ui: TopologyText): TopologyFlowEdge {
+  const display = connectionDisplay(connection, map, interfaces, ui);
   return { id: connection.id, type: 'topologyConnection', source: connection.sourceNodeId, target: connection.targetNodeId, data: { ...display, onSelect }, label: connection.label ?? connection.type };
 }
