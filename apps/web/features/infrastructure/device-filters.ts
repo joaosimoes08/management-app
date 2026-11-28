@@ -5,6 +5,7 @@
  * Step 36: `tag=<id>[,<id>]` keeps devices that carry every listed tag; saved views store it too.
  * `type=SERVER` (or another EquipmentType) narrows the list by equipment type; `type=SERVER` replaces the old Servidores tab.
  */
+import { portugueseText, type InfrastructureText } from './infrastructure-text';
 import { hasTableFilters, parseTableState, serializeTableState, type TableStateConfig } from '@/components/data-table';
 
 export type DeviceUrlFilters = { status: string; critical: string; lifecycle: string; lifecycleKind: string; tier: string; tag: string; type: string };
@@ -25,29 +26,31 @@ export function deviceFilterQuery(filters: Partial<DeviceUrlFilters> = {}): stri
     .join('');
 }
 
-/** Equipment types offered by the Equipamentos "Tipo" filter (values match EquipmentType). */
-export const deviceTypeOptions: ReadonlyArray<readonly [string, string]> = [['SWITCH', 'Switches'], ['ROUTER', 'Routers'], ['FIREWALL', 'Firewalls'], ['SERVER', 'Servidores'], ['STORAGE', 'Storage'], ['OTHER', 'Outros']];
+/** Equipment types offered by the Equipamentos "Tipo" filter (values match EquipmentType); labels are message keys. */
+const deviceTypeKeys: ReadonlyArray<readonly [string, string]> = [['SWITCH', 'infrastructure.deviceFilters.type.switches'], ['ROUTER', 'infrastructure.deviceFilters.type.routers'], ['FIREWALL', 'infrastructure.deviceFilters.type.firewalls'], ['SERVER', 'infrastructure.deviceFilters.type.servers'], ['STORAGE', 'infrastructure.deviceFilters.type.storage'], ['OTHER', 'infrastructure.deviceFilters.type.otherTypes']];
+export const deviceTypeOptions = (ui: InfrastructureText = portugueseText): ReadonlyArray<readonly [string, string]> => deviceTypeKeys.map(([value, key]) => [value, ui(key)] as const);
 
-const statusLabels: Record<string, string> = { ACTIVE: 'Ativo', INACTIVE: 'Inativo', MAINTENANCE: 'Em manutenção', RETIRED: 'Retirado', UNKNOWN: 'Desconhecido' };
+const statusKeys: Record<string, string> = { ACTIVE: 'infrastructure.deviceFilters.status.active', INACTIVE: 'infrastructure.deviceFilters.status.inactive', MAINTENANCE: 'infrastructure.deviceFilters.status.maintenance', RETIRED: 'infrastructure.deviceFilters.status.retired', UNKNOWN: 'infrastructure.deviceFilters.status.unknown' };
+const statusLabel = (value: string, ui: InfrastructureText) => { const key = statusKeys[value.trim().toUpperCase()]; return key ? ui(key) : value.trim(); };
 /** Device states offered by the Equipamentos "Estado" chips (values match DeviceStatus). */
-export const deviceStatusOptions: ReadonlyArray<readonly [string, string]> = Object.entries(statusLabels);
+export const deviceStatusOptions = (ui: InfrastructureText = portugueseText): ReadonlyArray<readonly [string, string]> => Object.entries(statusKeys).map(([value, key]) => [value, ui(key)] as const);
 /** Chip label for a status value, including comma lists from dashboard links ("Ativo, Em manutenção"). */
-export const deviceStatusLabel = (value: string) => value.split(',').map((part) => statusLabels[part.trim().toUpperCase()] ?? part.trim()).join(', ');
+export const deviceStatusLabel = (value: string, ui: InfrastructureText = portugueseText) => value.split(',').map((part) => statusLabel(part, ui)).join(', ');
 
 /** Readable summary of the active filters, e.g. ["Estado: Ativo, Em manutenção", "Críticos"]. */
-export function deviceFilterLabels(filters: DeviceUrlFilters, tagName?: string): string[] {
+export function deviceFilterLabels(filters: DeviceUrlFilters, tagName?: string, ui: InfrastructureText = portugueseText): string[] {
   const labels: string[] = [];
-  if (filters.status) labels.push(`Estado: ${filters.status.split(',').map((value) => statusLabels[value.trim().toUpperCase()] ?? value.trim()).join(', ')}`);
-  if (filters.critical === 'true') labels.push('Críticos');
-  else if (filters.critical === 'false') labels.push('Não críticos');
-  else if (filters.critical) labels.push(`Crítico: ${filters.critical}`);
+  if (filters.status) labels.push(ui('infrastructure.deviceFilters.label.status', undefined, { value: deviceStatusLabel(filters.status, ui) }));
+  if (filters.critical === 'true') labels.push(ui('infrastructure.deviceFilters.label.critical'));
+  else if (filters.critical === 'false') labels.push(ui('infrastructure.deviceFilters.label.notCritical'));
+  else if (filters.critical) labels.push(ui('infrastructure.deviceFilters.label.criticalValue', undefined, { value: filters.critical }));
   const due = /^due:(\d+)$/.exec(filters.lifecycle);
-  if (filters.lifecycle === 'overdue') labels.push('Ciclo de vida expirado');
-  else if (due) labels.push(`Ciclo de vida nos próximos ${due[1]} dias`);
-  else if (filters.lifecycle) labels.push(`Ciclo de vida: ${filters.lifecycle}`);
-  if (filters.lifecycleKind) labels.push(`Tipo de data: ${filters.lifecycleKind}`);
-  if (filters.tier) labels.push(`Criticidade: ${filters.tier}`);
-  if (filters.tag) labels.push(`Etiqueta: ${tagName || filters.tag}`);
-  if (filters.type) labels.push(`Tipo: ${deviceTypeOptions.find(([value]) => value === filters.type)?.[1] ?? filters.type}`);
+  if (filters.lifecycle === 'overdue') labels.push(ui('infrastructure.deviceFilters.label.lifecycleExpired'));
+  else if (due) labels.push(ui('infrastructure.deviceFilters.label.lifecycleDue', undefined, { days: due[1] }));
+  else if (filters.lifecycle) labels.push(ui('infrastructure.deviceFilters.label.lifecycle', undefined, { value: filters.lifecycle }));
+  if (filters.lifecycleKind) labels.push(ui('infrastructure.deviceFilters.label.dateType', undefined, { value: filters.lifecycleKind }));
+  if (filters.tier) labels.push(ui('infrastructure.deviceFilters.label.tier', undefined, { value: filters.tier }));
+  if (filters.tag) labels.push(ui('infrastructure.deviceFilters.label.tag', undefined, { value: tagName || filters.tag }));
+  if (filters.type) labels.push(ui('infrastructure.deviceFilters.label.type', undefined, { value: deviceTypeOptions(ui).find(([value]) => value === filters.type)?.[1] ?? filters.type }));
   return labels;
 }

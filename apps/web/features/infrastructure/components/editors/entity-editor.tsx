@@ -47,14 +47,14 @@ export function EntityEditor({ modal, close, editingId, animateDeviceEntry = fal
 
   if (modal === 'device') return <DeviceEditor key={editingId || 'new'} close={close} editingId={editingId} animateEntry={animateDeviceEntry} form={form.device} setForm={setForm.device} racks={racks} models={models} assets={assets} ips={ips} save={save} formError={formError} fieldErrors={deviceFieldErrors} initialTab={deviceTab} onDevicePower={onDevicePower} />;
 
-  if (modal === 'rack') return <Modal title={editingId ? 'Editar bastidor' : 'Novo bastidor'} close={close}><form className="modal-form" onSubmit={(event) => {
+  if (modal === 'rack') return <Modal title={editingId ? ui('infrastructure.entityEditor.editRack') : ui('infrastructure.entityEditor.newRack')} close={close}><form className="modal-form" onSubmit={(event) => {
     event.preventDefault();
     if (saveRack) { void saveRack(); return; }
     void save(editingId ? `/api/v1/racks/${editingId}` : '/api/v1/racks', { name: form.rack.name, roomId: form.rack.roomId });
   }}>
-    <p className="form-help">Todos os bastidores usam o modelo padrão fixo de 42U.</p>
-    <label>Nome<input required value={form.rack.name} onChange={(event) => setForm.rack({ ...form.rack, name: event.target.value })} /></label>
-    <label>Sala<select required value={form.rack.roomId} onChange={(event) => setForm.rack({ ...form.rack, roomId: event.target.value })}>{rooms.map((room) => <option key={room.id} value={room.id}>{room.building.name} / {room.name}</option>)}</select></label>
+    <p className="form-help">{ui('infrastructure.entityEditor.allRacksUseTheFixed')}</p>
+    <label>{ui('infrastructure.entityEditor.name')}<input required value={form.rack.name} onChange={(event) => setForm.rack({ ...form.rack, name: event.target.value })} /></label>
+    <label>{ui('infrastructure.entityEditor.room')}<select required value={form.rack.roomId} onChange={(event) => setForm.rack({ ...form.rack, roomId: event.target.value })}>{rooms.map((room) => <option key={room.id} value={room.id}>{room.building.name} / {room.name}</option>)}</select></label>
     {saveRack && <RackPowerFields value={form.rack.power ?? emptyRackPower()} onChange={(power) => setForm.rack({ ...form.rack, power })} {...rackPower} />}
     <FormError message={formError} />
     <ModalActions close={close} />
@@ -64,8 +64,8 @@ export function EntityEditor({ modal, close, editingId, animateDeviceEntry = fal
   const editedModel = editingId ? models.find((model) => model.id === editingId) : undefined;
   const storedFront = editedModel ? editedModel.frontAssetId ?? editedModel.frontAsset?.id ?? '' : '';
   const frontRequired = !editingId || Boolean(storedFront);
-  const missingFrontWarning = editingId && !storedFront && !form.model.frontAssetId ? 'Sem imagem frontal — adiciona uma quando possível.' : undefined;
-  return <Modal title={editingId ? 'Editar modelo' : 'Novo modelo'} close={close}><form className="modal-form" onSubmit={(event) => {
+  const missingFrontWarning = editingId && !storedFront && !form.model.frontAssetId ? ui('infrastructure.entityEditor.noFrontImageAddOne') : undefined;
+  return <Modal title={editingId ? ui('infrastructure.entityEditor.editModel') : ui('infrastructure.entityEditor.newModel')} close={close}><form className="modal-form" onSubmit={(event) => {
     event.preventDefault();
     const { frontAssetId, backAssetId, ...modelPayload } = form.model;
     void save(editingId ? `/api/v1/device-models/${editingId}` : '/api/v1/device-models', {
@@ -76,17 +76,17 @@ export function EntityEditor({ modal, close, editingId, animateDeviceEntry = fal
     });
   }}>
     <div className="form-row">
-      <label>Fabricante<input required value={form.model.manufacturer} onChange={(event) => setForm.model({ ...form.model, manufacturer: event.target.value })} /></label>
-      <label>Modelo<input required value={form.model.model} onChange={(event) => setForm.model({ ...form.model, model: event.target.value })} /></label>
+      <label>{ui('infrastructure.entityEditor.manufacturer')}<input required value={form.model.manufacturer} onChange={(event) => setForm.model({ ...form.model, manufacturer: event.target.value })} /></label>
+      <label>{ui('infrastructure.entityEditor.model')}<input required value={form.model.model} onChange={(event) => setForm.model({ ...form.model, model: event.target.value })} /></label>
     </div>
-    <label>Tipo<select value={form.model.type} onChange={(event) => setForm.model({ ...form.model, type: event.target.value })}>{EQUIPMENT_TYPES.map((option) => <option key={option}>{option}</option>)}</select></label>
-    <label className="checkbox-label"><input type="checkbox" checked={form.model.supportsNetworkPorts} onChange={(event) => setForm.model({ ...form.model, supportsNetworkPorts: event.target.checked })} /> Tem portas de rede configuráveis</label>
-    <label>Portas de rede<input type="number" min="1" value={form.model.networkPortCount} onChange={(event) => setForm.model({ ...form.model, networkPortCount: event.target.value })} /></label>
+    <label>{ui('infrastructure.entityEditor.type')}<select value={form.model.type} onChange={(event) => setForm.model({ ...form.model, type: event.target.value })}>{EQUIPMENT_TYPES.map((option) => <option key={option}>{option}</option>)}</select></label>
+    <label className="checkbox-label"><input type="checkbox" checked={form.model.supportsNetworkPorts} onChange={(event) => setForm.model({ ...form.model, supportsNetworkPorts: event.target.checked })} /> {ui('infrastructure.entityEditor.hasConfigurableNetworkPorts')}</label>
+    <label>{ui('infrastructure.entityEditor.networkPorts')}<input type="number" min="1" value={form.model.networkPortCount} onChange={(event) => setForm.model({ ...form.model, networkPortCount: event.target.value })} /></label>
     <div className="model-face-images">
       <AssetUploadPicker label={ui('infra.model.frontImage')} required={frontRequired} value={form.model.frontAssetId} assets={assets} onChange={(value) => setForm.model({ ...form.model, frontAssetId: value })} help={frontRequired ? ui('infra.model.frontImageRequiredHelp') : ui('infra.model.frontImageHelp')} warning={missingFrontWarning} />
       <AssetUploadPicker label={ui('infra.model.rearImage')} value={form.model.backAssetId} assets={assets} onChange={(value) => setForm.model({ ...form.model, backAssetId: value })} help={ui('infra.model.rearImageHelp')} />
     </div>
-    {form.model.supportsNetworkPorts && <p className="form-help">Depois de guardar, mapeia todas as portas em “Mapear portas”: o total das duas faces tem de ser igual ao número de portas de rede.</p>}
+    {form.model.supportsNetworkPorts && <p className="form-help">{ui('infrastructure.entityEditor.afterSavingMapEveryPort')}</p>}
     <FormError message={formError} />
     <ModalActions close={close} />
   </form></Modal>;

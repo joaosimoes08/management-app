@@ -6,12 +6,14 @@ import { detectDeviceModelPortLayout, getDeviceModelPortLayoutFaces, saveDeviceM
 import { buildFacesSave, EMPTY_FACE_LAYOUT, type PortLayoutAssetsDraft, type PortLayoutFacesDraft } from '../components/models/port-layout-editor';
 import type { DeviceModel, RackFace } from '../types';
 import { expectedPortCount, primaryPortFace } from '../utils';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 /**
  * State and actions of the model port-layout editor (Modelos → template). `openModal('layout')` shows it;
  * `onSaved` runs after a successful save (the workspace closes the modal and refreshes Infrastructure).
  */
 export function usePortLayoutEditor({ openModal, onSaved }: { openModal: (modal: string) => void; onSaved: () => Promise<unknown> }) {
+  const ui = useUiText();
   const [layoutModel, setLayoutModel] = useState<DeviceModel | null>(null);
   const [layoutFaces, setLayoutFaces] = useState<PortLayoutFacesDraft | null>(null);
   const [layoutFace, setLayoutFace] = useState<RackFace>('rear');
@@ -51,7 +53,7 @@ export function usePortLayoutEditor({ openModal, onSaved }: { openModal: (modal:
       }, face);
       setLayoutFaces({ ...layoutFaces, [face]: { ...current, ...proposal, ports: Array.isArray(proposal?.ports) ? proposal.ports : [] } });
     } catch (cause) {
-      setLayoutError(cause instanceof Error ? cause.message : 'A deteção falhou.');
+      setLayoutError(cause instanceof Error ? cause.message : ui('infrastructure.usePortLayoutEditor.detectionFailed'));
     }
   };
 
@@ -73,7 +75,7 @@ export function usePortLayoutEditor({ openModal, onSaved }: { openModal: (modal:
       setLayoutFaces(null);
       await onSaved();
     } catch (cause) {
-      setLayoutError(cause instanceof ApiRequestError && cause.code === 'PORT_LAYOUT_CONFLICT' ? 'Alterado por outra pessoa — recarrega' : cause instanceof Error ? cause.message : 'Não foi possível guardar o template.');
+      setLayoutError(cause instanceof ApiRequestError && cause.code === 'PORT_LAYOUT_CONFLICT' ? ui('infrastructure.usePortLayoutEditor.changedBySomeoneElseReload') : cause instanceof Error ? cause.message : ui('infrastructure.usePortLayoutEditor.couldNotSaveTheTemplate'));
     } finally {
       setLayoutSaving(false);
     }

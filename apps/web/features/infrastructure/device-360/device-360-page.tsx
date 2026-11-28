@@ -20,6 +20,7 @@ import { getDevice, listDeviceIpAddresses, listInterfaces } from '../api';
 import type { Device } from '../types';
 import { AssetImage } from '../components/asset-image';
 import { device360Keys, getDeviceAttestation, getDeviceSnmpOverview, listDevice360Connections, listDeviceAuditEvents, listDeviceHosts, listDeviceLifecycleDates, listDeviceOpenChanges, q } from './api';
+import { portugueseText, type InfrastructureText } from '../infrastructure-text';
 
 /**
  * Step 29 — read-first Device 360 page.
@@ -45,8 +46,8 @@ const ROLES = {
 } as const;
 
 /** SNMP Phase 1 step 5.4: drift statuses as the API stores them (PENDING / ACCEPTED / IGNORED), in Portuguese. */
-const driftStatusLabels: Record<string, string> = { PENDING: 'Pendente', ACCEPTED: 'Aceite', IGNORED: 'Ignorada' };
-export const snmpDriftStatusLabel = (status?: string | null) => (status ? driftStatusLabels[status] ?? status : driftStatusLabels.PENDING);
+const driftStatusLabels: Record<string, string> = { PENDING: 'infrastructure.device360Page.drift.pending', ACCEPTED: 'infrastructure.device360Page.drift.accepted', IGNORED: 'infrastructure.device360Page.drift.ignored' };
+export const snmpDriftStatusLabel = (status?: string | null, ui: InfrastructureText = portugueseText) => (status ? (driftStatusLabels[status] ? ui(driftStatusLabels[status]) : status) : ui(driftStatusLabels.PENDING));
 /** Pending drifts (a drift without a status is pending), plus a count per other status if the API ever returns them. */
 export function driftCounts(drifts?: Array<{ status?: string }>): { pending: number; other: Array<[string, number]> } {
   const counts = new Map<string, number>();
@@ -58,19 +59,20 @@ export function driftCounts(drifts?: Array<{ status?: string }>): { pending: num
 type FutureDeviceFields = { criticalityTier?: 'T1' | 'T2' | 'T3' | null };
 /** Same labels as the cadence settings (Step 28b). */
 /** SNMP polling state for the Device 360 summary: only an explicit true/false is known; anything else is shown as unknown, never as "Ativo". */
-export function snmpStateLabel(enabled?: boolean | null): string {
-  if (enabled === true) return 'Ativo';
-  if (enabled === false) return 'Desativado';
-  return 'Estado desconhecido';
+export function snmpStateLabel(enabled?: boolean | null, ui: InfrastructureText = portugueseText): string {
+  if (enabled === true) return ui('infrastructure.device360Page.snmp.active');
+  if (enabled === false) return ui('infrastructure.device360Page.snmp.disabled');
+  return ui('infrastructure.device360Page.snmp.unknown');
 }
 
-const TIER_LABELS: Record<string, string> = { T1: 'T1 · Vital', T2: 'T2 · Importante', T3: 'T3 · Padrão' };
+const TIER_LABELS: Record<string, string> = { T1: 'infrastructure.device360Page.tier.t1', T2: 'infrastructure.device360Page.tier.t2', T3: 'infrastructure.device360Page.tier.t3' };
 
 const fmt = (value?: string | null) => (value ? new Date(value).toLocaleString('pt-PT', { dateStyle: 'short', timeStyle: 'short' }) : '—');
 
 function Section({ id, title, fullHref, fullLabel, children }: { id: string; title: string; fullHref?: string; fullLabel?: string; children: ReactNode }) {
+  const ui = useUiText();
   return <section className="ipam-card device-360-section" aria-labelledby={`d360-${id}`} data-section={id}>
-    <header className="device-360-section-head"><h2 id={`d360-${id}`}>{title}</h2>{fullHref && <a className="text-button" href={fullHref}>{fullLabel ?? 'Ver na página completa'} <ExternalLink size={12} aria-hidden="true" /></a>}</header>
+    <header className="device-360-section-head"><h2 id={`d360-${id}`}>{title}</h2>{fullHref && <a className="text-button" href={fullHref}>{fullLabel ?? ui('infrastructure.device360Page.viewFullPage')} <ExternalLink size={12} aria-hidden="true" /></a>}</header>
     {children}
   </section>;
 }
@@ -78,17 +80,19 @@ function Section({ id, title, fullHref, fullLabel, children }: { id: string; tit
 const EmptyLine = ({ children }: { children: ReactNode }) => <p className="panel-description device-360-empty">{children}</p>;
 
 function SectionBody<T>({ query, empty, children }: { query: { data?: T; isLoading: boolean; isFetching?: boolean; error: unknown; refetch?: () => unknown }; empty: (data: T) => string | null; children: (data: T) => ReactNode }) {
-  if (query.isLoading) return <EmptyLine>A carregar…</EmptyLine>;
+  const ui = useUiText();
+  if (query.isLoading) return <EmptyLine>{ui('infrastructure.device360Page.loading')}</EmptyLine>;
   if (query.error) return <div className="device-360-error" role="alert">
-    <EmptyLine>Não foi possível carregar esta secção.</EmptyLine>
-    {query.refetch && <button type="button" className="text-button" disabled={query.isFetching} onClick={() => { void query.refetch?.(); }}>{query.isFetching ? 'A tentar…' : 'Tentar novamente'}</button>}
+    <EmptyLine>{ui('infrastructure.device360Page.couldNotLoadThisSection')}</EmptyLine>
+    {query.refetch && <button type="button" className="text-button" disabled={query.isFetching} onClick={() => { void query.refetch?.(); }}>{query.isFetching ? ui('infrastructure.device360Page.retrying') : ui('infrastructure.device360Page.tryAgain')}</button>}
   </div>;
-  if (query.data === undefined) return <EmptyLine>Sem dados.</EmptyLine>;
+  if (query.data === undefined) return <EmptyLine>{ui('infrastructure.device360Page.noData')}</EmptyLine>;
   const message = empty(query.data);
   return message ? <EmptyLine>{message}</EmptyLine> : <>{children(query.data)}</>;
 }
 
 export function Device360Page({ deviceId }: { deviceId: string }) {
+  const ui = useUiText();
   const { hasRole, user } = useAuth();
   const t = useUiText();
   const can = (key: keyof typeof ROLES) => ROLES[key].some((role) => hasRole(role));
@@ -119,8 +123,8 @@ export function Device360Page({ deviceId }: { deviceId: string }) {
   const hosts = useQuery({ queryKey: device360Keys.hosts(deviceId, siteId), queryFn: () => listDeviceHosts(siteId, deviceId), enabled: ready && Boolean(siteId) && can('hosts') });
   const audit = useQuery({ queryKey: device360Keys.audit(deviceId), queryFn: () => listDeviceAuditEvents(deviceId), enabled: ready && can('audit') });
 
-  if (!deviceId || deviceQuery.error) return <PageShell section="Mapa físico"><div className="module-page device-360"><section className="ipam-card empty-context" role="alert"><Server size={28} /><strong>Equipamento não encontrado</strong><span>Não foi possível abrir este equipamento ou não tens acesso a ele.</span><a className="secondary-button" href="/infraestrutura?tab=devices">Voltar à lista de equipamentos</a></section></div></PageShell>;
-  if (!device) return <PageShell section="Mapa físico"><div className="module-page device-360"><EmptyLine>A carregar equipamento…</EmptyLine></div></PageShell>;
+  if (!deviceId || deviceQuery.error) return <PageShell section={ui('infrastructure.device360Page.physicalMap')}><div className="module-page device-360"><section className="ipam-card empty-context" role="alert"><Server size={28} /><strong>{ui('infrastructure.device360Page.deviceNotFound')}</strong><span>{ui('infrastructure.device360Page.couldNotOpenThisDevice')}</span><a className="secondary-button" href="/infraestrutura?tab=devices">{ui('infrastructure.device360Page.backToTheDeviceList')}</a></section></div></PageShell>;
+  if (!device) return <PageShell section={ui('infrastructure.device360Page.physicalMap')}><div className="module-page device-360"><EmptyLine>{ui('infrastructure.device360Page.loadingEquipment')}</EmptyLine></div></PageShell>;
 
   const rack = device.rack;
   const location = [device.site?.name, rack?.room?.building?.name, rack?.room?.name, rack?.name, device.rackUnitStart ? `U${device.rackUnitStart}${device.rackUnitSize && device.rackUnitSize > 1 ? `–${device.rackUnitStart + device.rackUnitSize - 1}` : ''}` : null].filter(Boolean).join(' · ');
@@ -130,59 +134,59 @@ export function Device360Page({ deviceId }: { deviceId: string }) {
   const rackHref = rack ? `/infraestrutura${q({ siteId, buildingId: rack.room?.building?.id, roomId: rack.room?.id, rackId: rack.id })}` : null;
   const outlets = (device.power as { outlets?: Array<{ pduName?: string; outletIndex?: number; pduId?: string }> } | null | undefined)?.outlets ?? [];
 
-  return <PageShell section="Mapa físico"><div className="module-page device-360">
+  return <PageShell section={ui('infrastructure.device360Page.physicalMap')}><div className="module-page device-360">
     <header className="workspace-head device-360-head">
       {imageAsset && <AssetImage asset={imageAsset} className="device-360-image" alt={t('infra.frontOf', undefined, { name: modelName || device.name })} loading="eager" fallback={false} />}
       <div>
         <h1>{device.name}</h1>
-        <p>{[device.type, modelName, location || 'Sem localização'].filter(Boolean).join(' · ')}</p>
+        <p>{[device.type, modelName, location || ui('infrastructure.device360Page.noLocation')].filter(Boolean).join(' · ')}</p>
         <p className="device-360-badges">
           <span className="state-badge"><i />{device.status}</span>
           {showHealth && <SnmpDeviceHealthBadge deviceId={device.id} />}
-          {tier ? <span className="state-badge warning" data-testid="tier-badge" title="Criticidade">{TIER_LABELS[tier] ?? tier}</span> : device.isCritical ? <span className="state-badge warning" data-testid="tier-badge">Crítico</span> : null}
+          {tier ? <span className="state-badge warning" data-testid="tier-badge" title={ui('infrastructure.device360Page.criticality')}>{TIER_LABELS[tier] ? ui(TIER_LABELS[tier]) : tier}</span> : device.isCritical ? <span className="state-badge warning" data-testid="tier-badge">{ui('infrastructure.device360Page.critical')}</span> : null}
         </p>
         {device.tags?.length ? <TagChips tags={device.tags} className="device-360-tags" /> : null}
       </div>
       <div className="device-360-actions">
-        {can('edit') && <a className="primary-button" href={deviceEditHref({ id: device.id, siteId })}><Pencil size={14} aria-hidden="true" /> Editar</a>}
-        {canEditTags && <button type="button" className="secondary-button" onClick={() => setEditingTags(true)}><Tags size={14} aria-hidden="true" /> Etiquetas</button>}
-        {rackHref && <a className="secondary-button" href={rackHref}>Abrir no rack</a>}
-        <button type="button" className="secondary-button" aria-expanded={impactOpen} aria-controls="d360-impacto-section" onClick={() => setImpactOpen((open) => !open)}><Activity size={14} aria-hidden="true" /> Impacto</button>
-        {siteId && <a className="secondary-button" href={`/topology${q({ siteId, pathFrom: device.id })}`}><Route size={14} aria-hidden="true" /> Caminho até…</a>}
-        {can('changeCreate') && <a className="secondary-button" href={`/alteracoes${q({ siteId, new: '1', deviceId: device.id })}`}><Plus size={14} aria-hidden="true" /> Criar alteração</a>}
+        {can('edit') && <a className="primary-button" href={deviceEditHref({ id: device.id, siteId })}><Pencil size={14} aria-hidden="true" /> {ui('infrastructure.device360Page.edit')}</a>}
+        {canEditTags && <button type="button" className="secondary-button" onClick={() => setEditingTags(true)}><Tags size={14} aria-hidden="true" /> {ui('infrastructure.device360Page.tags')}</button>}
+        {rackHref && <a className="secondary-button" href={rackHref}>{ui('infrastructure.device360Page.openInRack')}</a>}
+        <button type="button" className="secondary-button" aria-expanded={impactOpen} aria-controls="d360-impacto-section" onClick={() => setImpactOpen((open) => !open)}><Activity size={14} aria-hidden="true" /> {ui('infrastructure.device360Page.impact')}</button>
+        {siteId && <a className="secondary-button" href={`/topology${q({ siteId, pathFrom: device.id })}`}><Route size={14} aria-hidden="true" /> {ui('infrastructure.device360Page.pathTo')}</a>}
+        {can('changeCreate') && <a className="secondary-button" href={`/alteracoes${q({ siteId, new: '1', deviceId: device.id })}`}><Plus size={14} aria-hidden="true" /> {ui('infrastructure.device360Page.createChange')}</a>}
       </div>
     </header>
     {editingTags && device && siteId && <TagEditor siteId={siteId} canCreate={canManageTagCatalog(hasRole)} itemLabel={device.name} selected={device.tags ?? []} save={async (tagIds) => { await setDeviceTags(device.id, tagIds); await queryClient.invalidateQueries({ queryKey: device360Keys.device(deviceId) }); void queryClient.invalidateQueries({ queryKey: ['tags', siteId] }); void queryClient.invalidateQueries({ queryKey: ['infrastructure', 'devices', siteId] }); }} close={() => setEditingTags(false)} />}
 
     {impactOpen && <section id="d360-impacto-section" className="ipam-card device-360-section device-360-impact" aria-labelledby="d360-impacto" data-section="impacto">
-      <header className="device-360-section-head"><h2 id="d360-impacto">Impacto se este equipamento for abaixo</h2><button type="button" className="text-button" onClick={() => setImpactOpen(false)}>Fechar</button></header>
+      <header className="device-360-section-head"><h2 id="d360-impacto">{ui('infrastructure.device360Page.impactIfThisDeviceGoes')}</h2><button type="button" className="text-button" onClick={() => setImpactOpen(false)}>{ui('infrastructure.device360Page.close')}</button></header>
       <ImpactPanel target={{ kind: 'DEVICE', id: device.id }} siteId={siteId} headingId="d360-impacto" />
     </section>}
 
     <div className="device-360-grid">
-      <Section id="resumo" title="Resumo">
+      <Section id="resumo" title={ui('infrastructure.device360Page.summary')}>
         <dl className="device-360-facts">
           <dt>Hostname</dt><dd>{device.hostname || '—'}</dd>
-          <dt>IP de gestão</dt><dd>{device.managementIp || '—'}</dd>
-          <dt>N.º de série</dt><dd>{device.serialNumber || '—'}</dd>
-          <dt>Etiqueta</dt><dd>{device.assetTag || '—'}</dd>
-          <dt>Origem</dt><dd>{device.source || '—'}</dd>
+          <dt>{ui('infrastructure.device360Page.managementIp')}</dt><dd>{device.managementIp || '—'}</dd>
+          <dt>{ui('infrastructure.device360Page.serialNo')}</dt><dd>{device.serialNumber || '—'}</dd>
+          <dt>{ui('infrastructure.device360Page.tag')}</dt><dd>{device.assetTag || '—'}</dd>
+          <dt>{ui('infrastructure.device360Page.source')}</dt><dd>{device.source || '—'}</dd>
         </dl>
-        {device.notes && <p className="panel-description">Notas: {device.notes}</p>}
-        {device.requiredConfig && !device.requiredConfig.complete && <p className="ipam-scope-note" role="status">Configuração em falta: {device.requiredConfig.missing.join(', ')}</p>}
+        {device.notes && <p className="panel-description">{ui('infrastructure.device360Page.notes')} {device.notes}</p>}
+        {device.requiredConfig && !device.requiredConfig.complete && <p className="ipam-scope-note" role="status">{ui('infrastructure.device360Page.missingConfiguration')} {device.requiredConfig.missing.join(', ')}</p>}
       </Section>
 
-      <Section id="interfaces" title="Interfaces e IPs" fullHref={`/ipam${q({ siteId, q: device.name })}`} fullLabel="Ver no IPAM">
-        {can('interfaces') && <SectionBody query={interfaces} empty={(list) => (list.length ? null : 'Sem interfaces registadas.')}>{(list) => <ul className="device-360-list">{list.slice(0, 12).map((item) => <li key={item.id}>{item.name}</li>)}{list.length > 12 && <li>+{list.length - 12} interfaces</li>}</ul>}</SectionBody>}
-        {siteId ? <SectionBody query={ips} empty={(r) => (r.items.length ? null : 'Sem IPs atribuídos.')}>{(r) => <ul className="device-360-list">{r.items.map((ip) => <li key={ip.id}><a href={`/ipam${q({ siteId, subnetId: (ip as { subnetId?: string }).subnetId, ipId: ip.id })}`}>{ip.address}</a></li>)}</ul>}</SectionBody> : <EmptyLine>Sem Site: os IPs aparecem depois de associar um Site.</EmptyLine>}
+      <Section id="interfaces" title={ui('infrastructure.device360Page.interfacesAndIps')} fullHref={`/ipam${q({ siteId, q: device.name })}`} fullLabel={ui('infrastructure.device360Page.viewInIpam')}>
+        {can('interfaces') && <SectionBody query={interfaces} empty={(list) => (list.length ? null : ui('infrastructure.device360Page.noInterfacesRecorded'))}>{(list) => <ul className="device-360-list">{list.slice(0, 12).map((item) => <li key={item.id}>{item.name}</li>)}{list.length > 12 && <li>+{list.length - 12} interfaces</li>}</ul>}</SectionBody>}
+        {siteId ? <SectionBody query={ips} empty={(r) => (r.items.length ? null : ui('infrastructure.device360Page.noIpsAssigned'))}>{(r) => <ul className="device-360-list">{r.items.map((ip) => <li key={ip.id}><a href={`/ipam${q({ siteId, subnetId: (ip as { subnetId?: string }).subnetId, ipId: ip.id })}`}>{ip.address}</a></li>)}</ul>}</SectionBody> : <EmptyLine>{ui('infrastructure.device360Page.noSiteOsIpsAparecem')}</EmptyLine>}
       </Section>
 
-      <Section id="ligacoes" title="Ligações" fullHref={`/topology${q({ siteId, deviceId: device.id })}`} fullLabel="Ver na Topologia">
-        <SectionBody query={connections} empty={(list) => (list.length ? null : 'Sem ligações registadas.')}>{(list) => <ul className="device-360-list">{list.map((c) => { const outgoing = c.sourceDeviceId === deviceId; const other = outgoing ? c.targetDevice : c.sourceDevice; const local = outgoing ? c.sourceInterface : c.targetInterface; const remote = outgoing ? c.targetInterface : c.sourceInterface; return <li key={c.id}>{local?.name ?? '—'} → {other ? <a href={`/infraestrutura/equipamentos/${encodeURIComponent(other.id)}${q({ siteId })}`}>{other.name}</a> : '—'}{remote?.name ? ` (${remote.name})` : ''}{c.type ? t(`infra.device360.connectionType.${c.type === 'LOGICAL' ? 'logical' : 'physical'}`) : ''}</li>; })}</ul>}</SectionBody>
+      <Section id="ligacoes" title={ui('infrastructure.device360Page.connections')} fullHref={`/topology${q({ siteId, deviceId: device.id })}`} fullLabel={ui('infrastructure.device360Page.viewInTopology')}>
+        <SectionBody query={connections} empty={(list) => (list.length ? null : ui('infrastructure.device360Page.noConnectionsRecorded'))}>{(list) => <ul className="device-360-list">{list.map((c) => { const outgoing = c.sourceDeviceId === deviceId; const other = outgoing ? c.targetDevice : c.sourceDevice; const local = outgoing ? c.sourceInterface : c.targetInterface; const remote = outgoing ? c.targetInterface : c.sourceInterface; return <li key={c.id}>{local?.name ?? '—'} → {other ? <a href={`/infraestrutura/equipamentos/${encodeURIComponent(other.id)}${q({ siteId })}`}>{other.name}</a> : '—'}{remote?.name ? ` (${remote.name})` : ''}{c.type ? t(`infra.device360.connectionType.${c.type === 'LOGICAL' ? 'logical' : 'physical'}`) : ''}</li>; })}</ul>}</SectionBody>
       </Section>
 
-      <Section id="energia" title="Energia" fullHref={rackHref ?? undefined} fullLabel="Ver energia do rack">
-        {outlets.length ? <ul className="device-360-list">{outlets.map((o, i) => <li key={`${o.pduId ?? ''}:${o.outletIndex ?? i}`}>{t('infra.device360.outlet', undefined, { pdu: o.pduName ?? 'PDU', outlet: o.outletIndex ?? '—' })}</li>)}</ul> : <EmptyLine>Sem tomadas de PDU ligadas.</EmptyLine>}
+      <Section id="energia" title={ui('infrastructure.device360Page.power')} fullHref={rackHref ?? undefined} fullLabel={ui('infrastructure.device360Page.viewRackPower')}>
+        {outlets.length ? <ul className="device-360-list">{outlets.map((o, i) => <li key={`${o.pduId ?? ''}:${o.outletIndex ?? i}`}>{t('infra.device360.outlet', undefined, { pdu: o.pduName ?? 'PDU', outlet: o.outletIndex ?? '—' })}</li>)}</ul> : <EmptyLine>{ui('infrastructure.device360Page.noPduOutletsConnected')}</EmptyLine>}
       </Section>
 
       {showHealth && <Section id="saude" title={t('snmpHealth.panel.title')} fullHref={`/snmp${q({ deviceId: device.id })}`} fullLabel={t('snmpHealth.panel.full')}>
@@ -192,28 +196,28 @@ export function Device360Page({ deviceId }: { deviceId: string }) {
       {showHealth && <Section id="limites" title={t('healthLimits.deviceSection')} fullHref="/definicoes?tab=health" fullLabel={t('healthLimits.siteLink')}>
         <DeviceHealthThresholdsPanel deviceId={device.id} />
       </Section>}
-      {can('snmp') && <Section id="snmp" title="SNMP" fullHref={`/snmp${q({ deviceId: device.id })}`} fullLabel="Ver no SNMP">
-        <SectionBody query={snmp} empty={(r) => (r.config ? null : 'Sem SNMP configurado.')}>{(r) => { const drifts = driftCounts(r.drifts); return <dl className="device-360-facts"><dt>Estado</dt><dd>{snmpStateLabel(r.config?.enabled)}</dd><dt>Última recolha</dt><dd>{fmt(r.latestSnapshot?.observedAt ?? r.latestSnapshot?.collectedAt ?? r.latestSnapshot?.createdAt)}</dd><dt>Divergências pendentes</dt><dd>{drifts.pending}</dd>{drifts.other.map(([status, count]) => <Fragment key={status}><dt>{`Divergências: ${snmpDriftStatusLabel(status)}`}</dt><dd>{count}</dd></Fragment>)}<dt>Traps recentes</dt><dd>{(r.traps ?? []).length}</dd></dl>; }}</SectionBody>
+      {can('snmp') && <Section id="snmp" title="SNMP" fullHref={`/snmp${q({ deviceId: device.id })}`} fullLabel={ui('infrastructure.device360Page.viewInSnmp')}>
+        <SectionBody query={snmp} empty={(r) => (r.config ? null : ui('infrastructure.device360Page.noSnmpConfigured'))}>{(r) => { const drifts = driftCounts(r.drifts); return <dl className="device-360-facts"><dt>{ui('infrastructure.device360Page.status')}</dt><dd>{snmpStateLabel(r.config?.enabled, ui)}</dd><dt>{ui('infrastructure.device360Page.lastCollection')}</dt><dd>{fmt(r.latestSnapshot?.observedAt ?? r.latestSnapshot?.collectedAt ?? r.latestSnapshot?.createdAt)}</dd><dt>{ui('infrastructure.device360Page.pendingDrifts')}</dt><dd>{drifts.pending}</dd>{drifts.other.map(([status, count]) => <Fragment key={status}><dt>{ui('infrastructure.device360Page.driftsOfStatus', undefined, { status: snmpDriftStatusLabel(status, ui) })}</dt><dd>{count}</dd></Fragment>)}<dt>{ui('infrastructure.device360Page.recentTraps')}</dt><dd>{(r.traps ?? []).length}</dd></dl>; }}</SectionBody>
       </Section>}
 
-      {can('hosts') && <Section id="host" title="Host e serviços" fullHref={`/infraestrutura${q({ tab: 'devices', type: 'SERVER', 'hosts-site': siteId })}`} fullLabel="Ver servidores em Equipamentos">
-        {siteId ? <SectionBody query={hosts} empty={(list) => (list.length ? null : 'Sem host associado.')}>{(list) => <ul className="device-360-list">{list.map((h) => <li key={h.id}><strong>{h.name}</strong>{h.operatingSystem ? ` · ${h.operatingSystem}` : ''}{h.agent?.state ? t('infra.device360.agentState', undefined, { state: h.agent.state }) : ''}{h.services.length ? <ul className="device-360-list">{h.services.map((sv) => <li key={sv.id}>{sv.name}{sv.port ? `:${sv.port}` : ''}{sv.protocol ? ` (${sv.protocol})` : ''}{sv.observedStatus ? ` · ${sv.observedStatus}` : ''}</li>)}</ul> : <EmptyLine>Sem serviços registados.</EmptyLine>}</li>)}</ul>}</SectionBody> : <EmptyLine>Sem host associado.</EmptyLine>}
+      {can('hosts') && <Section id="host" title={ui('infrastructure.device360Page.hostAndServices')} fullHref={`/infraestrutura${q({ tab: 'devices', type: 'SERVER', 'hosts-site': siteId })}`} fullLabel={ui('infrastructure.device360Page.viewServersInEquipment')}>
+        {siteId ? <SectionBody query={hosts} empty={(list) => (list.length ? null : ui('infrastructure.device360Page.noLinkedHost'))}>{(list) => <ul className="device-360-list">{list.map((h) => <li key={h.id}><strong>{h.name}</strong>{h.operatingSystem ? ` · ${h.operatingSystem}` : ''}{h.agent?.state ? t('infra.device360.agentState', undefined, { state: h.agent.state }) : ''}{h.services.length ? <ul className="device-360-list">{h.services.map((sv) => <li key={sv.id}>{sv.name}{sv.port ? `:${sv.port}` : ''}{sv.protocol ? ` (${sv.protocol})` : ''}{sv.observedStatus ? ` · ${sv.observedStatus}` : ''}</li>)}</ul> : <EmptyLine>{ui('infrastructure.device360Page.noServicesRecorded')}</EmptyLine>}</li>)}</ul>}</SectionBody> : <EmptyLine>{ui('infrastructure.device360Page.noLinkedHost')}</EmptyLine>}
       </Section>}
 
-      <Section id="ciclo" title="Ciclo de vida" fullHref={`/infraestrutura${q({ siteId, tab: 'lifecycle' })}`} fullLabel="Ver datas de ciclo de vida">
-        {siteId ? <SectionBody query={lifecycle} empty={(list) => (list.length ? null : 'Sem datas de ciclo de vida.')}>{(list) => <ul className="device-360-list">{list.map((d) => <li key={d.id}>{d.kind} · {fmt(d.dueDate)}</li>)}</ul>}</SectionBody> : <EmptyLine>Sem datas de ciclo de vida.</EmptyLine>}
+      <Section id="ciclo" title={ui('infrastructure.device360Page.lifecycle')} fullHref={`/infraestrutura${q({ siteId, tab: 'lifecycle' })}`} fullLabel={ui('infrastructure.device360Page.viewLifecycleDates')}>
+        {siteId ? <SectionBody query={lifecycle} empty={(list) => (list.length ? null : ui('infrastructure.device360Page.noLifecycleDates'))}>{(list) => <ul className="device-360-list">{list.map((d) => <li key={d.id}>{d.kind} · {fmt(d.dueDate)}</li>)}</ul>}</SectionBody> : <EmptyLine>{ui('infrastructure.device360Page.noLifecycleDates')}</EmptyLine>}
       </Section>
 
-      {can('attestation') && <Section id="atestacao" title="Atestação" fullHref={`/attestacao-ativos${q({ siteId, q: device.name })}`} fullLabel="Ver em Ativos críticos">
-        {!device.isCritical ? <EmptyLine>Não é um ativo crítico.</EmptyLine> : <SectionBody query={attestation} empty={(a) => (a ? null : 'Sem atestação registada.')}>{(a) => <dl className="device-360-facts"><dt>Última revisão</dt><dd>{a!.latestOutcome ? `${a!.latestOutcome} · ${fmt(a!.latestConfirmedAt)}` : 'Sem revisão'}</dd><dt>Prazo</dt><dd>{fmt(a!.dueDate)}</dd></dl>}</SectionBody>}
+      {can('attestation') && <Section id="atestacao" title={ui('infrastructure.device360Page.attestation')} fullHref={`/attestacao-ativos${q({ siteId, q: device.name })}`} fullLabel={ui('infrastructure.device360Page.viewInCriticalAssets')}>
+        {!device.isCritical ? <EmptyLine>{ui('infrastructure.device360Page.notACriticalAsset')}</EmptyLine> : <SectionBody query={attestation} empty={(a) => (a ? null : ui('infrastructure.device360Page.noAttestationRecorded'))}>{(a) => <dl className="device-360-facts"><dt>{ui('infrastructure.device360Page.lastReview')}</dt><dd>{a!.latestOutcome ? `${a!.latestOutcome} · ${fmt(a!.latestConfirmedAt)}` : ui('infrastructure.device360Page.notReviewed')}</dd><dt>{ui('infrastructure.device360Page.due')}</dt><dd>{fmt(a!.dueDate)}</dd></dl>}</SectionBody>}
       </Section>}
 
-      {can('changes') && <Section id="alteracoes" title="Alterações" fullHref={`/alteracoes${q({ siteId, q: device.name })}`} fullLabel="Ver em Alterações">
-        {siteId ? <SectionBody query={changes} empty={(list) => (list.length ? null : 'Sem alterações abertas ou agendadas.')}>{(list) => <ul className="device-360-list">{list.map((p) => <li key={p.id}><a href={`/alteracoes${q({ siteId, q: p.title })}`}>{p.title}</a> · {p.status} · {fmt(p.plannedStartAt)}</li>)}</ul>}</SectionBody> : <EmptyLine>Sem alterações abertas ou agendadas.</EmptyLine>}
+      {can('changes') && <Section id="alteracoes" title={ui('infrastructure.device360Page.changes')} fullHref={`/alteracoes${q({ siteId, q: device.name })}`} fullLabel={ui('infrastructure.device360Page.viewInChanges')}>
+        {siteId ? <SectionBody query={changes} empty={(list) => (list.length ? null : ui('infrastructure.device360Page.noOpenOrScheduledChanges'))}>{(list) => <ul className="device-360-list">{list.map((p) => <li key={p.id}><a href={`/alteracoes${q({ siteId, q: p.title })}`}>{p.title}</a> · {p.status} · {fmt(p.plannedStartAt)}</li>)}</ul>}</SectionBody> : <EmptyLine>{ui('infrastructure.device360Page.noOpenOrScheduledChanges')}</EmptyLine>}
       </Section>}
 
-      {can('audit') && <Section id="historico" title="Histórico" fullHref={`/auditoria${q({ entityType: 'Device', entityId: device.id, q: device.id })}`} fullLabel="Ver na Auditoria">
-        <SectionBody query={audit} empty={(list) => (list.length ? null : 'Sem eventos de auditoria.')}>{(list) => <ul className="device-360-list">{list.map((e) => { const who = e.user ?? e.actor; return <li key={e.id}><time dateTime={e.createdAt}>{fmt(e.createdAt)}</time> · {e.action}{who ? ` · ${who.displayName || who.username}` : ''}</li>; })}</ul>}</SectionBody>
+      {can('audit') && <Section id="historico" title={ui('infrastructure.device360Page.history')} fullHref={`/auditoria${q({ entityType: 'Device', entityId: device.id, q: device.id })}`} fullLabel={ui('infrastructure.device360Page.viewInAudit')}>
+        <SectionBody query={audit} empty={(list) => (list.length ? null : ui('infrastructure.device360Page.noAuditEvents'))}>{(list) => <ul className="device-360-list">{list.map((e) => { const who = e.user ?? e.actor; return <li key={e.id}><time dateTime={e.createdAt}>{fmt(e.createdAt)}</time> · {e.action}{who ? ` · ${who.displayName || who.username}` : ''}</li>; })}</ul>}</SectionBody>
       </Section>}
     </div>
   </div></PageShell>;

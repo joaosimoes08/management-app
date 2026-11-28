@@ -39,8 +39,8 @@ export interface DeviceEditorProps {
   onDevicePower?: () => void;
 }
 
-const LEGACY_HINT = 'Configuração em falta: este equipamento é anterior a este requisito. Podes guardar outras alterações e completar mais tarde.';
-const POWER_AUTO_NOTE = 'Ao guardar, as fichas são ligadas automaticamente a tomadas livres da PDU do bastidor. Podes ajustá-las depois em “Ligações elétricas”.';
+const LEGACY_HINT = 'infrastructure.deviceEditor.legacyHint';
+const POWER_AUTO_NOTE = 'infrastructure.deviceEditor.powerAutoNote';
 
 /**
  * Device create/edit form split into tabs (Geral, Localização, Rede, Imagens, Energia). The body scrolls inside the
@@ -96,7 +96,7 @@ export function DeviceEditor({ close, editingId, animateEntry = false, form, set
     if (!attempted) return undefined;
     return blocking.find((item) => item.fieldId === fieldId)?.config.missingMessage;
   };
-  const hintFor = (fieldId: string) => { const gap = missing.find((item) => !item.blocking && item.fieldId === fieldId); return gap ? `${LEGACY_HINT} ${gap.config.missingMessage}` : undefined; };
+  const hintFor = (fieldId: string) => { const gap = missing.find((item) => !item.blocking && item.fieldId === fieldId); return gap ? `${ui(LEGACY_HINT)} ${gap.config.missingMessage}` : undefined; };
   const tabErrorCount = (key: DeviceEditorTab) => {
     const ids = new Set([...blocking.filter((item) => item.tab === key).map((item) => item.fieldId), ...apiErrors.filter((item) => item.tab === key).map((item) => item.fieldId)]);
     return ids.size;
@@ -200,69 +200,69 @@ export function DeviceEditor({ close, editingId, animateEntry = false, form, set
   /** Decorative preview of the chosen (or inherited) image; the picker below carries the label. */
   const imagePreview = (assetId: string | undefined, fallback: AssetFile | null | undefined) => {
     const asset = assets.find((item) => item.id === assetId) ?? fallback;
-    return <div className="device-editor-image-preview" aria-hidden="true">{asset ? <AssetImage asset={asset} alt="" /> : <span>Sem imagem</span>}</div>;
+    return <div className="device-editor-image-preview" aria-hidden="true">{asset ? <AssetImage asset={asset} alt="" /> : <span>{ui('infrastructure.deviceEditor.noImage')}</span>}</div>;
   };
 
   const panel = (key: DeviceEditorTab, children: React.ReactNode) => <section role="tabpanel" id={`device-panel-${key}`} aria-labelledby={`device-tab-${key}`} data-tab={key} hidden={tab !== key} tabIndex={0} className="device-editor-panel">{children}</section>;
 
-  return <Modal title={isNew ? 'Novo equipamento' : 'Gerir equipamento'} close={close} entryMotion={!isNew && animateEntry} className="device-editor-modal">
+  return <Modal title={isNew ? ui('infrastructure.deviceEditor.newEquipment') : ui('infrastructure.deviceEditor.manageEquipment')} close={close} entryMotion={!isNew && animateEntry} className="device-editor-modal">
     <form ref={formRef} className="modal-form device-editor-form" noValidate onSubmit={submit}>
       {!isNew && form.name && <p className="device-editor-subtitle">{form.name}</p>}
-      <div role="tablist" aria-label="Definições do equipamento" className="device-editor-tabs">
+      <div role="tablist" aria-label={ui('infrastructure.deviceEditor.deviceSettings')} className="device-editor-tabs">
         {DEVICE_EDITOR_TABS.map((key) => {
           const errors = tabErrorCount(key);
           const hint = !errors && tabHasHint(key);
           return <button key={key} ref={(node) => { tabRefs.current[key] = node; }} type="button" role="tab" id={`device-tab-${key}`} aria-controls={`device-panel-${key}`} aria-selected={tab === key} tabIndex={tab === key ? 0 : -1} className="device-editor-tab" data-state={errors ? 'error' : hint ? 'hint' : undefined} onClick={() => setTab(key)} onKeyDown={onTabKeyDown}>
-            {deviceEditorTabLabel(key, registry)}
+            {deviceEditorTabLabel(key, registry, ui)}
             {errors > 0 && <span className="device-editor-tab-badge" data-testid={`tab-errors-${key}`}><span aria-hidden="true">{errors}</span><span className="topology-sr-only">{` · ${ui('infra.missingRequired', undefined, { count: errors })}`}</span></span>}
-            {hint && <span className="device-editor-tab-hint" data-testid={`tab-hint-${key}`}><span aria-hidden="true">!</span><span className="topology-sr-only"> · configuração em falta</span></span>}
+            {hint && <span className="device-editor-tab-hint" data-testid={`tab-hint-${key}`}><span aria-hidden="true">!</span><span className="topology-sr-only"> {ui('infrastructure.deviceEditor.missingConfiguration')}</span></span>}
           </button>;
         })}
       </div>
 
       <div className="device-editor-body">
         {panel('geral', <>
-          <label htmlFor="device-name">Nome{requiredMark}<input {...a11y('device-name')} required aria-required="true" value={form.name} onChange={(event) => update({ name: event.target.value }, 'device-name')} /></label>
+          <label htmlFor="device-name">{ui('infrastructure.deviceEditor.name')}{requiredMark}<input {...a11y('device-name')} required aria-required="true" value={form.name} onChange={(event) => update({ name: event.target.value }, 'device-name')} /></label>
           {note('device-name')}
           <div className="form-row">
-            <label htmlFor="device-type">Tipo<select id="device-type" value={form.type} onChange={(event) => update({ type: event.target.value }, 'device-type')}>{EQUIPMENT_TYPES.map((option) => <option key={option}>{option}</option>)}</select></label>
-            <label htmlFor="device-status">Estado<select id="device-status" value={form.status} onChange={(event) => update({ status: event.target.value }, 'device-status')}>{['UNKNOWN', 'ACTIVE', 'INACTIVE', 'MAINTENANCE', 'RETIRED'].map((option) => <option key={option}>{option}</option>)}</select></label>
+            <label htmlFor="device-type">{ui('infrastructure.deviceEditor.type')}<select id="device-type" value={form.type} onChange={(event) => update({ type: event.target.value }, 'device-type')}>{EQUIPMENT_TYPES.map((option) => <option key={option}>{option}</option>)}</select></label>
+            <label htmlFor="device-status">{ui('infrastructure.deviceEditor.status')}<select id="device-status" value={form.status} onChange={(event) => update({ status: event.target.value }, 'device-status')}>{['UNKNOWN', 'ACTIVE', 'INACTIVE', 'MAINTENANCE', 'RETIRED'].map((option) => <option key={option}>{option}</option>)}</select></label>
           </div>
-          <label htmlFor="device-model">Modelo (opcional)<select id="device-model" value={form.modelId} onChange={(event) => update({ modelId: event.target.value }, 'device-model')}><option value="">Sem modelo — usar ícone genérico</option>{models.filter((item) => item.type === form.type).map((item) => <option key={item.id} value={item.id}>{item.manufacturer} {item.model}</option>)}</select></label>
-          <small className="form-help">O modelo fornece imagens, fichas e consumo por omissão.</small>
-          <label htmlFor="device-criticality">Criticidade<select id="device-criticality" value={form.criticalityTier ?? ''} onChange={(event) => update({ criticalityTier: event.target.value as DeviceForm['criticalityTier'], isCritical: event.target.value !== '' })}><option value="">Não crítico</option><option value="T1">T1 · Vital</option><option value="T2">T2 · Importante</option><option value="T3">T3 · Padrão</option></select></label>
-          <small className="form-help">Ativos críticos pedem revisão periódica; a cadência de cada tier está em Definições.</small>
+          <label htmlFor="device-model">{ui('infrastructure.deviceEditor.modelOptional')}<select id="device-model" value={form.modelId} onChange={(event) => update({ modelId: event.target.value }, 'device-model')}><option value="">{ui('infrastructure.deviceEditor.noModelUseAGeneric')}</option>{models.filter((item) => item.type === form.type).map((item) => <option key={item.id} value={item.id}>{item.manufacturer} {item.model}</option>)}</select></label>
+          <small className="form-help">{ui('infrastructure.deviceEditor.theModelProvidesDefaultImages')}</small>
+          <label htmlFor="device-criticality">{ui('infrastructure.deviceEditor.criticality')}<select id="device-criticality" value={form.criticalityTier ?? ''} onChange={(event) => update({ criticalityTier: event.target.value as DeviceForm['criticalityTier'], isCritical: event.target.value !== '' })}><option value="">{ui('infrastructure.deviceEditor.notCritical')}</option><option value="T1">T1 · Vital</option><option value="T2">{ui('infrastructure.deviceEditor.t2Important')}</option><option value="T3">{ui('infrastructure.deviceEditor.t3Standard')}</option></select></label>
+          <small className="form-help">{ui('infrastructure.deviceEditor.criticalAssetsNeedPeriodicReview')}</small>
         </>)}
 
         {panel('localizacao', <>
-          <label htmlFor="device-rack">Bastidor<select {...a11y('device-rack')} value={form.rackId} onChange={(event) => update({ rackId: event.target.value }, 'device-rack')}><option value="">Por localizar</option>{racks.map((rack) => <option key={rack.id} value={rack.id}>{rack.room?.name} / {rack.name}</option>)}</select></label>
+          <label htmlFor="device-rack">{ui('infrastructure.deviceEditor.rack')}<select {...a11y('device-rack')} value={form.rackId} onChange={(event) => update({ rackId: event.target.value }, 'device-rack')}><option value="">{ui('infrastructure.deviceEditor.notPlaced')}</option>{racks.map((rack) => <option key={rack.id} value={rack.id}>{rack.room?.name} / {rack.name}</option>)}</select></label>
           {note('device-rack')}
           <div className="form-row">
-            <label htmlFor="device-rack-unit-start">U inicial<input {...a11y('device-rack-unit-start')} type="number" min="1" value={form.rackUnitStart} onChange={(event) => update({ rackUnitStart: event.target.value }, 'device-rack-unit-start')} /></label>
-            <label htmlFor="device-rack-unit-size">Tamanho U<input {...a11y('device-rack-unit-size')} type="number" min="1" value={form.rackUnitSize} onChange={(event) => update({ rackUnitSize: event.target.value }, 'device-rack-unit-size')} /></label>
+            <label htmlFor="device-rack-unit-start">{ui('infrastructure.deviceEditor.startU')}<input {...a11y('device-rack-unit-start')} type="number" min="1" value={form.rackUnitStart} onChange={(event) => update({ rackUnitStart: event.target.value }, 'device-rack-unit-start')} /></label>
+            <label htmlFor="device-rack-unit-size">{ui('infrastructure.deviceEditor.sizeU')}<input {...a11y('device-rack-unit-size')} type="number" min="1" value={form.rackUnitSize} onChange={(event) => update({ rackUnitSize: event.target.value }, 'device-rack-unit-size')} /></label>
           </div>
           {note('device-rack-unit-start')}{note('device-rack-unit-size')}
-          {statusForcedActive && <small className="form-warning device-status-forced" role="note">Ao colocar num bastidor, o estado passa a ACTIVE.</small>}
-          <small className="form-help">Num bastidor, o equipamento precisa de imagem traseira e de fichas ligadas à PDU.</small>
+          {statusForcedActive && <small className="form-warning device-status-forced" role="note">{ui('infrastructure.deviceEditor.placingItInARack')}</small>}
+          <small className="form-help">{ui('infrastructure.deviceEditor.inARackTheDevice')}</small>
         </>)}
 
         {panel('rede', <>
           <label htmlFor="device-hostname">Hostname<input {...a11y('device-hostname')} value={form.hostname} onChange={(event) => update({ hostname: event.target.value }, 'device-hostname')} /></label>
           {note('device-hostname')}
           <div className="form-row">
-            <label htmlFor="device-management-ip">IP de gestão{form.snmpEnabled && requiredMark}<input {...a11y('device-management-ip')} required={!!form.snmpEnabled} value={form.managementIp} onChange={(event) => update({ managementIp: event.target.value }, 'device-management-ip')} /></label>
-            <label htmlFor="device-ipam">IPAM<select id="device-ipam" value={form.managementIpAddressId} onChange={(event) => update({ managementIpAddressId: event.target.value }, 'device-ipam')}><option value="">Sem associação</option>{ips.map((ip) => <option key={ip.id} value={ip.id}>{ip.address} · {ip.hostname || 'sem hostname'}</option>)}</select></label>
+            <label htmlFor="device-management-ip">{ui('infrastructure.deviceEditor.managementIp')}{form.snmpEnabled && requiredMark}<input {...a11y('device-management-ip')} required={!!form.snmpEnabled} value={form.managementIp} onChange={(event) => update({ managementIp: event.target.value }, 'device-management-ip')} /></label>
+            <label htmlFor="device-ipam">IPAM<select id="device-ipam" value={form.managementIpAddressId} onChange={(event) => update({ managementIpAddressId: event.target.value }, 'device-ipam')}><option value="">{ui('infrastructure.deviceEditor.notLinked')}</option>{ips.map((ip) => <option key={ip.id} value={ip.id}>{ip.address} · {ip.hostname || ui('infrastructure.deviceEditor.noHostname')}</option>)}</select></label>
           </div>
           {note('device-management-ip')}
-          {admin && isNew && <fieldset className="snmp-onboarding-section"><legend>SNMP (opcional)</legend>
-            <label className="checkbox-label"><input type="checkbox" checked={!!form.snmpEnabled} onChange={(event) => update({ snmpEnabled: event.target.checked })} /> Configurar polling e credenciais SNMP</label>
-            {form.snmpEnabled && <><p className="form-help">READ é obrigatória; TRAP é opcional e tem de usar um segredo diferente.</p>
+          {admin && isNew && <fieldset className="snmp-onboarding-section"><legend>{ui('infrastructure.deviceEditor.snmpOptional')}</legend>
+            <label className="checkbox-label"><input type="checkbox" checked={!!form.snmpEnabled} onChange={(event) => update({ snmpEnabled: event.target.checked })} /> {ui('infrastructure.deviceEditor.configureSnmpPollingAndCredentials')}</label>
+            {form.snmpEnabled && <><p className="form-help">{ui('infrastructure.deviceEditor.readIsRequiredTrapIs')}</p>
               <SnmpVersionField value={form.snmpVersion ?? 'V3'} v2cAllowed={v2cAllowed} onChange={setSnmpVersion} />
-              <div className="form-row"><label>Porta<input type="number" min="1" max="65535" value={form.snmpPort ?? '161'} onChange={(event) => update({ snmpPort: event.target.value })} /></label></div>
-              <div className="form-row"><label>Intervalo (min)<input type="number" min="5" value={form.snmpIntervalMinutes ?? '15'} onChange={(event) => update({ snmpIntervalMinutes: event.target.value })} /></label><label>Timeout (ms)<input type="number" min="500" value={form.snmpTimeoutMs ?? '5000'} onChange={(event) => update({ snmpTimeoutMs: event.target.value })} /></label></div>
+              <div className="form-row"><label>{ui('infrastructure.deviceEditor.port')}<input type="number" min="1" max="65535" value={form.snmpPort ?? '161'} onChange={(event) => update({ snmpPort: event.target.value })} /></label></div>
+              <div className="form-row"><label>{ui('infrastructure.deviceEditor.intervalMin')}<input type="number" min="5" value={form.snmpIntervalMinutes ?? '15'} onChange={(event) => update({ snmpIntervalMinutes: event.target.value })} /></label><label>Timeout (ms)<input type="number" min="500" value={form.snmpTimeoutMs ?? '5000'} onChange={(event) => update({ snmpTimeoutMs: event.target.value })} /></label></div>
               <label>Retries<input type="number" min="0" max="5" value={form.snmpRetries ?? '2'} onChange={(event) => update({ snmpRetries: event.target.value })} /></label>
-              {form.snmpVersion === 'V2C' ? <SnmpCommunityField label="Community READ" value={form.snmpReadCommunity ?? ''} onChange={(snmpReadCommunity) => update({ snmpReadCommunity })} /> : <><div className="form-row"><label>Auth<select value={form.snmpAuthProtocol ?? 'SHA256'} onChange={(event) => update({ snmpAuthProtocol: event.target.value as DeviceForm['snmpAuthProtocol'] })}><option>SHA256</option><option>SHA384</option><option>SHA512</option>{form.snmpCompatibilitySha1 && <option>SHA1</option>}</select></label><label>Privacidade<select value={form.snmpPrivProtocol ?? 'AES128'} onChange={(event) => update({ snmpPrivProtocol: event.target.value as DeviceForm['snmpPrivProtocol'] })}><option>AES128</option><option>AES256</option></select></label></div><label className="checkbox-label"><input type="checkbox" checked={!!form.snmpCompatibilitySha1} onChange={(event) => update({ snmpCompatibilitySha1: event.target.checked, snmpAuthProtocol: event.target.checked ? form.snmpAuthProtocol : form.snmpAuthProtocol === 'SHA1' ? 'SHA256' : form.snmpAuthProtocol })} /> Permitir compatibilidade SHA-1</label><label>Username READ<input required value={form.snmpReadUsername ?? ''} onChange={(event) => update({ snmpReadUsername: event.target.value })} /></label><label>Auth key READ<input required minLength={8} type="password" value={form.snmpReadAuthKey ?? ''} onChange={(event) => update({ snmpReadAuthKey: event.target.value })} autoComplete="new-password" /></label><label>Privacy key READ<input required minLength={8} type="password" value={form.snmpReadPrivKey ?? ''} onChange={(event) => update({ snmpReadPrivKey: event.target.value })} autoComplete="new-password" /></label></>}
-              <label className="checkbox-label"><input type="checkbox" checked={!!form.snmpTrapEnabled} onChange={(event) => update({ snmpTrapEnabled: event.target.checked })} /> Configurar também credencial TRAP distinta</label>
+              {form.snmpVersion === 'V2C' ? <SnmpCommunityField label="Community READ" value={form.snmpReadCommunity ?? ''} onChange={(snmpReadCommunity) => update({ snmpReadCommunity })} /> : <><div className="form-row"><label>Auth<select value={form.snmpAuthProtocol ?? 'SHA256'} onChange={(event) => update({ snmpAuthProtocol: event.target.value as DeviceForm['snmpAuthProtocol'] })}><option>SHA256</option><option>SHA384</option><option>SHA512</option>{form.snmpCompatibilitySha1 && <option>SHA1</option>}</select></label><label>{ui('infrastructure.deviceEditor.privacy')}<select value={form.snmpPrivProtocol ?? 'AES128'} onChange={(event) => update({ snmpPrivProtocol: event.target.value as DeviceForm['snmpPrivProtocol'] })}><option>AES128</option><option>AES256</option></select></label></div><label className="checkbox-label"><input type="checkbox" checked={!!form.snmpCompatibilitySha1} onChange={(event) => update({ snmpCompatibilitySha1: event.target.checked, snmpAuthProtocol: event.target.checked ? form.snmpAuthProtocol : form.snmpAuthProtocol === 'SHA1' ? 'SHA256' : form.snmpAuthProtocol })} /> {ui('infrastructure.deviceEditor.allowSha1Compatibility')}</label><label>Username READ<input required value={form.snmpReadUsername ?? ''} onChange={(event) => update({ snmpReadUsername: event.target.value })} /></label><label>Auth key READ<input required minLength={8} type="password" value={form.snmpReadAuthKey ?? ''} onChange={(event) => update({ snmpReadAuthKey: event.target.value })} autoComplete="new-password" /></label><label>Privacy key READ<input required minLength={8} type="password" value={form.snmpReadPrivKey ?? ''} onChange={(event) => update({ snmpReadPrivKey: event.target.value })} autoComplete="new-password" /></label></>}
+              <label className="checkbox-label"><input type="checkbox" checked={!!form.snmpTrapEnabled} onChange={(event) => update({ snmpTrapEnabled: event.target.checked })} /> {ui('infrastructure.deviceEditor.alsoConfigureASeparateTrap')}</label>
               {form.snmpTrapEnabled && (form.snmpVersion === 'V2C' ? <SnmpCommunityField label="Community TRAP" value={form.snmpTrapCommunity ?? ''} onChange={(snmpTrapCommunity) => update({ snmpTrapCommunity })} /> : <><label>Username TRAP<input required value={form.snmpTrapUsername ?? ''} onChange={(event) => update({ snmpTrapUsername: event.target.value })} /></label><label>Auth key TRAP<input required minLength={8} type="password" value={form.snmpTrapAuthKey ?? ''} onChange={(event) => update({ snmpTrapAuthKey: event.target.value })} autoComplete="new-password" /></label><label>Privacy key TRAP<input required minLength={8} type="password" value={form.snmpTrapPrivKey ?? ''} onChange={(event) => update({ snmpTrapPrivKey: event.target.value })} autoComplete="new-password" /></label></>)}
             </>}
           </fieldset>}
@@ -272,12 +272,12 @@ export function DeviceEditor({ close, editingId, animateEntry = false, form, set
           <div className="device-editor-images">
             <div className="device-editor-image">
               {imagePreview(form.frontAssetId, model?.frontAsset)}
-              <AssetPicker id="device-front-image" invalid={!!errorFor('device-front-image')} describedBy={errorFor('device-front-image') ? 'device-front-image-note' : undefined} label="Imagem frontal (substitui a do modelo)" emptyLabel="Usar a imagem do modelo" value={form.frontAssetId} assets={assets} onChange={(value) => update({ frontAssetId: value }, 'device-front-image')} />
+              <AssetPicker id="device-front-image" invalid={!!errorFor('device-front-image')} describedBy={errorFor('device-front-image') ? 'device-front-image-note' : undefined} label={ui('infrastructure.deviceEditor.frontImageOverridesTheModel')} emptyLabel={ui('infrastructure.deviceEditor.useTheModelImage')} value={form.frontAssetId} assets={assets} onChange={(value) => update({ frontAssetId: value }, 'device-front-image')} />
               {note('device-front-image')}
             </div>
             <div className="device-editor-image">
               {imagePreview(form.backAssetId, model?.backAsset)}
-              <AssetPicker id="device-rear-image" invalid={!!errorFor('device-rear-image')} describedBy={errorFor('device-rear-image') || hintFor('device-rear-image') ? 'device-rear-image-note' : undefined} required={rearRequired && isPlacementChange(form, baseContext) && !(model?.backAssetId || model?.backAsset)} label={rearRequired ? 'Imagem traseira (obrigatória no bastidor)' : 'Imagem traseira (substitui a do modelo)'} emptyLabel={model?.backAssetId || model?.backAsset ? 'Usar a imagem do modelo' : 'Sem imagem'} value={form.backAssetId ?? ''} assets={assets} onChange={(value) => update({ backAssetId: value }, 'device-rear-image')} />
+              <AssetPicker id="device-rear-image" invalid={!!errorFor('device-rear-image')} describedBy={errorFor('device-rear-image') || hintFor('device-rear-image') ? 'device-rear-image-note' : undefined} required={rearRequired && isPlacementChange(form, baseContext) && !(model?.backAssetId || model?.backAsset)} label={rearRequired ? ui('infrastructure.deviceEditor.rearImageRequiredInA') : ui('infrastructure.deviceEditor.rearImageOverridesTheModel')} emptyLabel={model?.backAssetId || model?.backAsset ? ui('infrastructure.deviceEditor.useTheModelImage') : ui('infrastructure.deviceEditor.noImage')} value={form.backAssetId ?? ''} assets={assets} onChange={(value) => update({ backAssetId: value }, 'device-rear-image')} />
               {note('device-rear-image')}
             </div>
           </div>
@@ -287,8 +287,8 @@ export function DeviceEditor({ close, editingId, animateEntry = false, form, set
           <DevicePowerFields form={form} models={models} onChange={(patch) => update(patch, 'device-power-plugs', 'device-power-watts')}
             errors={{ plugs: errorFor('device-power-plugs'), watts: errorFor('device-power-watts') }}
             hints={{ plugs: errorFor('device-power-plugs') ? undefined : hintFor('device-power-plugs'), watts: errorFor('device-power-watts') ? undefined : hintFor('device-power-watts') }} />
-          {sendsPower && <small className="form-help device-power-auto">{POWER_AUTO_NOTE}</small>}
-          {onDevicePower && editingId && form.rackId && <button type="button" className="secondary-button device-power-open" onClick={onDevicePower}><Plug size={14} /> Ligações elétricas</button>}
+          {sendsPower && <small className="form-help device-power-auto">{ui(POWER_AUTO_NOTE)}</small>}
+          {onDevicePower && editingId && form.rackId && <button type="button" className="secondary-button device-power-open" onClick={onDevicePower}><Plug size={14} /> {ui('infrastructure.deviceEditor.powerConnections')}</button>}
         </>)}
       </div>
 
@@ -296,8 +296,8 @@ export function DeviceEditor({ close, editingId, animateEntry = false, form, set
         <FormError message={formError} />
         <div className="modal-actions">
           {totalErrors > 0 && <span className="device-editor-missing" role="status">{ui('infra.missingRequired', undefined, { count: totalErrors })}</span>}
-          <button type="button" className="secondary-button" onClick={close}>Cancelar</button>
-          <button className="primary-button" aria-disabled={totalErrors > 0 || undefined} data-blocked={totalErrors > 0 || undefined}><Check size={14} /> Guardar</button>
+          <button type="button" className="secondary-button" onClick={close}>{ui('infrastructure.deviceEditor.cancel')}</button>
+          <button className="primary-button" aria-disabled={totalErrors > 0 || undefined} data-blocked={totalErrors > 0 || undefined}><Check size={14} /> {ui('infrastructure.deviceEditor.save')}</button>
         </div>
       </div>
     </form>

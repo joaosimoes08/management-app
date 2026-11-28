@@ -3,12 +3,14 @@
 import { useCallback, useState } from 'react';
 import { createAsset, setDeviceModelFaceAsset } from '../api';
 import type { RackFace } from '../types';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 /**
  * State and actions of the asset upload modal: the chosen file, its name, the model and face it is for.
  * `onUploaded` runs after a successful upload; `onError` receives the message of a failed one.
  */
 export function useAssetUpload({ openModal, onUploaded, onError }: { openModal: (modal: string) => void; onUploaded: () => Promise<unknown>; onError: (message: string) => void }) {
+  const ui = useUiText();
   const [uploading, setUploading] = useState(false);
   const [pendingUpload, setPendingUpload] = useState<File | null>(null);
   const [assetName, setAssetName] = useState('');
@@ -33,7 +35,7 @@ export function useAssetUpload({ openModal, onUploaded, onError }: { openModal: 
       openModal('');
       await onUploaded();
     } catch (cause) {
-      onError(cause instanceof Error ? cause.message : 'Upload falhou.');
+      onError(cause instanceof Error ? cause.message : ui('infrastructure.useAssetUpload.uploadFailed'));
     } finally {
       setUploading(false);
     }

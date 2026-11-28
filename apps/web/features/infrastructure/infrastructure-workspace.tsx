@@ -82,6 +82,9 @@ const emptyInterfaceForm: InterfaceFormState = { id: '', name: '', portKey: '', 
  * selection and the editors (modals); each tab is its own component under ./tabs and reads what tabs share from
  * the workspace context. URL-backed navigation (tab, search, device filters) lives in useWorkspaceNavigation.
  */
+/** Stored as a key by the deep-link callback and translated when shown. */
+const DEEP_LINK_ERROR = 'infrastructure.workspace.couldNotOpenTheEquipment';
+
 export function InfrastructureWorkspace() {
   const { confirm: askConfirm, confirmDialog } = useConfirm();
   const queryClient = useQueryClient();
@@ -307,7 +310,7 @@ export function InfrastructureWorkspace() {
         history.replaceState({}, '', `/infraestrutura?siteId=${siteId}&buildingId=${created.id}`);
       }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Não foi possível criar o edifício.');
+      setError(cause instanceof Error ? cause.message : ui('infrastructure.workspace.couldNotCreateTheBuilding'));
     }
   };
   const createRoom = async () => {
@@ -327,7 +330,7 @@ export function InfrastructureWorkspace() {
         history.replaceState({}, '', `/infraestrutura?siteId=${siteId}&buildingId=${roomForm.buildingId}&roomId=${created.id}`);
       }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Não foi possível criar a sala.');
+      setError(cause instanceof Error ? cause.message : ui('infrastructure.workspace.couldNotCreateTheRoom'));
     }
   };
   const openDevice = useCallback((selected: Device) => {
@@ -376,7 +379,7 @@ export function InfrastructureWorkspace() {
     void editDevice(selected, false, requestedTab);
   }, [siteId, editDevice, setTab]);
   const reportDeepLinkError = useCallback((cause: unknown) => {
-    setError(cause instanceof Error ? cause.message : 'Não foi possível abrir o equipamento.');
+    setError(cause instanceof Error ? cause.message : DEEP_LINK_ERROR);
   }, []);
   const editInterface = (item: DeviceInterface) => {
     setSelectedInterface(item);
@@ -416,9 +419,9 @@ export function InfrastructureWorkspace() {
         void offerPowerStep(saved as Device, previousRackId);
       }
     } catch (cause) {
-      setFormError(cause instanceof Error ? cause.message : 'Operação falhou.');
+      setFormError(cause instanceof Error ? cause.message : ui('infrastructure.workspace.operationFailed'));
       // Field-level 400s on a device save are shown on their fields (and the tab that holds them).
-      if (cause instanceof ApiRequestError && cause.status === 400 && /^\/api\/v1\/(devices|snmp\/onboarding\/devices)/.test(path)) setDeviceFieldErrors(mapApiFieldErrors(cause.payload));
+      if (cause instanceof ApiRequestError && cause.status === 400 && /^\/api\/v1\/(devices|snmp\/onboarding\/devices)/.test(path)) setDeviceFieldErrors(mapApiFieldErrors(cause.payload, ui));
     }
   };
 
@@ -458,7 +461,7 @@ export function InfrastructureWorkspace() {
       if (editingId) void queryClient.invalidateQueries({ queryKey: ['infrastructure', 'racks', siteId] });
       const details = cause instanceof ApiRequestError && cause.status === 409 ? cause.payload?.details as PowerConflictDetails | undefined : undefined;
       if (details?.devices?.length) setRackPowerConflict({ kind: cause instanceof ApiRequestError && cause.code === 'PDU_HAS_CONNECTIONS' ? 'ups' : 'outlets', devices: details.devices });
-      setFormError(cause instanceof Error ? cause.message : 'Operação falhou.');
+      setFormError(cause instanceof Error ? cause.message : ui('infrastructure.workspace.operationFailed'));
     }
   };
   /** "Desligar todos da UPS": frees every UPS outlet of the edited rack, then saves the form again. */
@@ -562,12 +565,13 @@ export function InfrastructureWorkspace() {
     openDevice, editDevice, setError, invalidateInfrastructure, askConfirm, offerPowerStep,
   }), [siteId, navigation, devices, device, snmpHealth, racks, roleCanEdit, canEdit, canUpdateDevice, canEditPower, scopeActions, openDevice, editDevice, invalidateInfrastructure, askConfirm, offerPowerStep]);
 
-  if (!siteId) return <PageShell section="Infraestrutura" helpTopic={helpTopic} moduleTabs={canReadHosts ? tabNavigation : undefined}><div className="module-page infrastructure-workspace"><header className="workspace-head"><div><h1>Infraestrutura</h1><p>Seleciona um Site no seletor superior para começar.</p></div></header>{deepLinkedDeviceId ? <><DeepLinkDeviceLoader deviceId={deepLinkedDeviceId} loadDevice={getDevice} onOpen={openDeepLinkedDevice} onError={reportDeepLinkError} /><section className="ipam-card empty-context"><MapPinned size={28} /><strong>{device ? `${device.name} · ${device.type}` : error || 'A carregar equipamento…'}</strong><p>O equipamento está sem Site. Seleciona um Site no seletor superior para associá-lo e guardar alterações.</p></section><EntityEditor modal={modal} close={() => setModal('')} editingId={editingId} animateDeviceEntry={animateDeviceEdit} form={{ rack: rackForm, device: deviceForm, model: modelForm }} setForm={{ rack: setRackForm, device: setDeviceForm, model: setModelForm }} rooms={[]} racks={[]} models={[]} assets={[]} ips={EMPTY_IPS} save={save} formError={formError} deviceFieldErrors={deviceFieldErrors} deviceTab={deviceEditorTab} /></> : <section className="ipam-card empty-context"><MapPinned size={28} /><strong>Seleciona um Site no seletor superior</strong></section>}{serverHosts}</div></PageShell>;
+  const errorText = error === DEEP_LINK_ERROR ? ui(DEEP_LINK_ERROR) : error;
+  if (!siteId) return <PageShell section={ui('infrastructure.workspace.infrastructure')} helpTopic={helpTopic} moduleTabs={canReadHosts ? tabNavigation : undefined}><div className="module-page infrastructure-workspace"><header className="workspace-head"><div><h1>{ui('infrastructure.workspace.infrastructure')}</h1><p>{ui('infrastructure.workspace.selectASiteInThe')}</p></div></header>{deepLinkedDeviceId ? <><DeepLinkDeviceLoader deviceId={deepLinkedDeviceId} loadDevice={getDevice} onOpen={openDeepLinkedDevice} onError={reportDeepLinkError} /><section className="ipam-card empty-context"><MapPinned size={28} /><strong>{device ? `${device.name} · ${device.type}` : errorText || ui('infrastructure.workspace.loadingEquipment')}</strong><p>{ui('infrastructure.workspace.oEquipamentoEstaNoSite')}</p></section><EntityEditor modal={modal} close={() => setModal('')} editingId={editingId} animateDeviceEntry={animateDeviceEdit} form={{ rack: rackForm, device: deviceForm, model: modelForm }} setForm={{ rack: setRackForm, device: setDeviceForm, model: setModelForm }} rooms={[]} racks={[]} models={[]} assets={[]} ips={EMPTY_IPS} save={save} formError={formError} deviceFieldErrors={deviceFieldErrors} deviceTab={deviceEditorTab} /></> : <section className="ipam-card empty-context"><MapPinned size={28} /><strong>{ui('infrastructure.workspace.selectASiteInThe2')}</strong></section>}{serverHosts}</div></PageShell>;
   const locationControls = <LocationControls buildings={buildings} rooms={rooms} buildingId={buildingId} roomId={roomId} chooseBuilding={chooseBuilding} chooseRoom={chooseRoom} canCreateBuilding={canCreateBuilding} canCreateRoom={canCreateRoom} canUpdateBuilding={canUpdateBuilding} canUpdateRoom={canUpdateRoom} onEditBuilding={(building) => { setEditingLocationId(building.id); setBuildingForm({ name: building.name, description: building.description ?? '' }); setModal('building-edit'); }} onEditRoom={(room) => { setEditingLocationId(room.id); setRoomForm({ name: room.name, buildingId: room.buildingId }); setModal('room-edit'); }} busy={busy} />;
 
-  if (tab === 'permissions' && effective?.tabs?.permissions) return <PageShell section="Mapa físico" toolbarKey={tab} helpTopic={helpTopic} moduleTabs={tabNavigation}><PermissionsTab siteId={siteId} buildings={buildings} /></PageShell>;
+  if (tab === 'permissions' && effective?.tabs?.permissions) return <PageShell section={ui('infrastructure.workspace.physicalMap')} toolbarKey={tab} helpTopic={helpTopic} moduleTabs={tabNavigation}><PermissionsTab siteId={siteId} buildings={buildings} /></PageShell>;
 
-  return <InfrastructureWorkspaceProvider value={workspace}>{confirmDialog}<PageShell section="Mapa físico" toolbarKey={tab} helpTopic={helpTopic} moduleTabs={tabNavigation} search={tab === 'racks' || tab === 'sites' ? undefined : { value: search, onChange: setSearch, placeholder: ui('infra.searchIn', undefined, { tab: tabName.toLocaleLowerCase() }), scopeLabel: tabName }} rackSearch={rackSearchContext} toolbar={tab === 'sites' ? undefined : locationControls}><DeepLinkDeviceLoader deviceId={deepLinkedDeviceId} loadDevice={getDevice} onOpen={openDeepLinkedDevice} onError={reportDeepLinkError} /><div className="module-page infrastructure-workspace"><h1 className="topology-sr-only">Mapa físico</h1>{(error || errorMessage) && <div className="ipam-alert error"><X size={15} />{error || errorMessage}</div>}
+  return <InfrastructureWorkspaceProvider value={workspace}>{confirmDialog}<PageShell section={ui('infrastructure.workspace.physicalMap')} toolbarKey={tab} helpTopic={helpTopic} moduleTabs={tabNavigation} search={tab === 'racks' || tab === 'sites' ? undefined : { value: search, onChange: setSearch, placeholder: ui('infra.searchIn', undefined, { tab: tabName.toLocaleLowerCase() }), scopeLabel: tabName }} rackSearch={rackSearchContext} toolbar={tab === 'sites' ? undefined : locationControls}><DeepLinkDeviceLoader deviceId={deepLinkedDeviceId} loadDevice={getDevice} onOpen={openDeepLinkedDevice} onError={reportDeepLinkError} /><div className="module-page infrastructure-workspace"><h1 className="topology-sr-only">{ui('infrastructure.workspace.physicalMap')}</h1>{(errorText || errorMessage) && <div className="ipam-alert error"><X size={15} />{errorText || errorMessage}</div>}
     {tab === 'sites' && <SitesTab siteId={siteId} siteName={activeSite?.name ?? 'Site'} />}
     {tab === 'racks' && <RacksTab rooms={rooms} buildingId={buildingId} roomId={roomId} rackId={rackId} setRoomId={setRoomId} setRackId={setRackId} onEditRack={editRack} deletingRackId={deletingRackId} setDeletingRackId={setDeletingRackId} />}
     {tab === 'devices' && <DevicesTab activeDeviceFilters={activeDeviceFilters} missingConfigLabel={missingConfigLabel} deviceTagFilterName={deviceTagFilterName} tierCounts={devicesData?.tierCounts} canManageTags={canManageTags} canTagDevice={canTagDevice} onManageTags={() => setManagingDeviceTags(true)} onEditTags={setTagEditorDevice} onNew={newDevice} onRetire={(item) => setRetirementDeviceId(item.id)} serverHosts={serverHosts} />}

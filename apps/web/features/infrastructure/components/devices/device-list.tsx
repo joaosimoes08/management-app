@@ -158,9 +158,9 @@ export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire,
     if (status) changes.status = status;
     if (modelId) changes.modelId = modelId === '__none__' ? null : modelId;
     if (rackId) changes.rackId = rackId === '__unplaced__' ? null : rackId;
-    if (!Object.keys(changes).length) { setError('Seleciona pelo menos um campo para alterar.'); return; }
+    if (!Object.keys(changes).length) { setError(ui('infrastructure.deviceList.selectAtLeastOneField')); return; }
     const summary = Object.entries(changes).map(([key, value]) => `${key}: ${value ?? ui('infra.bulk.noValue')}`).join('\n');
-    if (!(await askConfirm({ title: 'Atualizar equipamentos', message: `Atualizar ${selected.length} equipamentos com os seguintes campos?\n\n${summary}`, confirmLabel: 'Atualizar' }))) return;
+    if (!(await askConfirm({ title: ui('infrastructure.deviceList.updateDevices'), message: ui('infrastructure.deviceList.confirmBulkUpdate', undefined, { count: selected.length, summary }), confirmLabel: ui('infrastructure.deviceList.refresh') }))) return;
     setError(''); setUpdating(true);
     try {
       const outcome = await onBulkUpdate?.(selected, changes);
@@ -168,65 +168,65 @@ export function DeviceList({ devices, search, onSelect, onEdit, onNew, onRetire,
       const failedNames = outcome.failed.map(({ id, message }) => `${devices.find((item) => item.id === id)?.name ?? id}: ${message}`);
       const auditNames = outcome.auditFailed.map(({ id, message }) => `${devices.find((item) => item.id === id)?.name ?? id}: ${message}`);
       const messages = [];
-      if (outcome.updated) messages.push(`${outcome.updated} guardado(s).`);
-      if (failedNames.length) messages.push(`Não guardados: ${failedNames.join(' · ')}`);
-      if (auditNames.length) messages.push(`Guardados, auditoria falhou: ${auditNames.join(' · ')}`);
-      if (outcome.batchAuditFailed) messages.push('Auditoria do lote falhou; atualizações guardadas.');
-      setError(messages.join(' · ') || 'Não foram guardadas atualizações.');
+      if (outcome.updated) messages.push(ui('infrastructure.deviceList.bulkSaved', undefined, { count: outcome.updated }));
+      if (failedNames.length) messages.push(ui('infrastructure.deviceList.bulkNotSaved', undefined, { names: failedNames.join(' · ') }));
+      if (auditNames.length) messages.push(ui('infrastructure.deviceList.bulkAuditFailed', undefined, { names: auditNames.join(' · ') }));
+      if (outcome.batchAuditFailed) messages.push(ui('infrastructure.deviceList.batchAuditFailedEquipmentUpdates'));
+      setError(messages.join(' · ') || ui('infrastructure.deviceList.noUpdatesWereSaved'));
       setSelected(outcome.failed.map((item) => item.id));
       if (!outcome.failed.length) closeBulkPopover(true);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Não foi possível atualizar os equipamentos selecionados.');
+      setError(cause instanceof Error ? cause.message : ui('infrastructure.deviceList.couldNotUpdateTheSelected'));
     } finally { setUpdating(false); }
   }
   return <>{confirmDialog}<section className="ipam-card">
-    <div className="panel-heading"><div><h2>Equipamentos ativos</h2></div>{headingFilters}</div>
+    <div className="panel-heading"><div><h2>{ui('infrastructure.deviceList.activeDevices')}</h2></div>{headingFilters}</div>
     {filterChips}
-    {onTierFilterChange && <div className="summary-stats settings-audit-stats tier-filter" role="group" aria-label="Filtrar por criticidade">
-      {([['', 'Todos', tierCounts ? tierCounts.T1 + tierCounts.T2 + tierCounts.T3 + tierCounts.none : undefined], ['T1', 'T1 · Vital', tierCounts?.T1], ['T2', 'T2 · Importante', tierCounts?.T2], ['T3', 'T3 · Padrão', tierCounts?.T3]] as const).map(([value, label, count]) => (
+    {onTierFilterChange && <div className="summary-stats settings-audit-stats tier-filter" role="group" aria-label={ui('infrastructure.deviceList.filterByCriticality')}>
+      {([['', ui('infrastructure.deviceList.all'), tierCounts ? tierCounts.T1 + tierCounts.T2 + tierCounts.T3 + tierCounts.none : undefined], ['T1', 'T1 · Vital', tierCounts?.T1], ['T2', ui('infrastructure.deviceList.t2Important'), tierCounts?.T2], ['T3', ui('infrastructure.deviceList.t3Standard'), tierCounts?.T3]] as const).map(([value, label, count]) => (
         <button key={value || 'all'} type="button" aria-pressed={tierFilter === value} className={tierFilter === value ? 'active' : ''} onClick={() => onTierFilterChange(tierFilter === value ? '' : value)}><strong>{count ?? '—'}</strong><span>{label}</span></button>
       ))}
     </div>}
     {(toolbarFilters || canEdit || (canImport && onImport)) && <PageToolbarPortal><div className="device-list-toolbar">
       {toolbarFilters}
-      {canImport && onImport && <button className="secondary-button" type="button" onClick={onImport}>Importar CSV</button>}
+      {canImport && onImport && <button className="secondary-button" type="button" onClick={onImport}>{ui('infrastructure.deviceList.importCsv')}</button>}
       {canEdit && <div className="device-selection-dropdown" ref={selectionMenuRef} onKeyDown={handleSelectionMenuKeyDown}>
-        <div className="device-selection-split" role="group" aria-label="Seleção de equipamentos">
-        <button type="button" className={`device-selection-toggle${allVisible ? ' is-active' : ''}`} aria-pressed={allVisible} aria-label={allVisible ? 'Desselecionar todos os visíveis' : 'Selecionar todos os visíveis'} title={allVisible ? 'Desselecionar todos os visíveis' : 'Selecionar todos os visíveis'} disabled={!visibleIds.length} onClick={() => { if (allVisible) deselectVisible(); else selectVisible(); }}>
-          {allVisible ? <X size={14} aria-hidden="true" /> : <Check size={14} aria-hidden="true" />}<span className="toolbar-action-label">{allVisible ? 'Desselecionar todos' : 'Selecionar visíveis'}</span>
+        <div className="device-selection-split" role="group" aria-label={ui('infrastructure.deviceList.deviceSelection')}>
+        <button type="button" className={`device-selection-toggle${allVisible ? ' is-active' : ''}`} aria-pressed={allVisible} aria-label={allVisible ? ui('infrastructure.deviceList.deselectAllVisible') : ui('infrastructure.deviceList.selectAllVisible')} title={allVisible ? ui('infrastructure.deviceList.deselectAllVisible') : ui('infrastructure.deviceList.selectAllVisible')} disabled={!visibleIds.length} onClick={() => { if (allVisible) deselectVisible(); else selectVisible(); }}>
+          {allVisible ? <X size={14} aria-hidden="true" /> : <Check size={14} aria-hidden="true" />}<span className="toolbar-action-label">{allVisible ? ui('infrastructure.deviceList.deselectAll') : ui('infrastructure.deviceList.selectVisible')}</span>
         </button>
-        <button ref={selectionTriggerRef} type="button" className="device-selection-trigger" aria-label="Mais opções de seleção" title="Mais opções de seleção" aria-haspopup={bulkPopoverPhase !== 'closed' ? 'dialog' : 'menu'} aria-controls={selectionMenuOpen || selectionMenuPhase === 'closing' ? 'device-selection-menu' : bulkPopoverOpen || bulkPopoverPhase === 'closing' ? 'device-bulk-popover' : undefined} aria-expanded={selectionMenuOpen || bulkPopoverOpen} onClick={() => { if (selectionMenuOpen) closeSelectionMenu(); else if (bulkPopoverOpen) closeBulkPopover(); else { if (selectionMenuCloseTimer.current !== null) window.clearTimeout(selectionMenuCloseTimer.current); selectionMenuCloseTimer.current = null; restoreSelectionFocus.current = false; if (selectionMenuPhase === 'closing') setSelectionMenuPhase('closed'); if (bulkPopoverPhase === 'closing') setBulkPopoverPhase('closed'); setSelectionMenuPhase('open'); } }}>
+        <button ref={selectionTriggerRef} type="button" className="device-selection-trigger" aria-label={ui('infrastructure.deviceList.moreSelectionOptions')} title={ui('infrastructure.deviceList.moreSelectionOptions')} aria-haspopup={bulkPopoverPhase !== 'closed' ? 'dialog' : 'menu'} aria-controls={selectionMenuOpen || selectionMenuPhase === 'closing' ? 'device-selection-menu' : bulkPopoverOpen || bulkPopoverPhase === 'closing' ? 'device-bulk-popover' : undefined} aria-expanded={selectionMenuOpen || bulkPopoverOpen} onClick={() => { if (selectionMenuOpen) closeSelectionMenu(); else if (bulkPopoverOpen) closeBulkPopover(); else { if (selectionMenuCloseTimer.current !== null) window.clearTimeout(selectionMenuCloseTimer.current); selectionMenuCloseTimer.current = null; restoreSelectionFocus.current = false; if (selectionMenuPhase === 'closing') setSelectionMenuPhase('closed'); if (bulkPopoverPhase === 'closing') setBulkPopoverPhase('closed'); setSelectionMenuPhase('open'); } }}>
           <ChevronDown size={13} aria-hidden="true" />
         </button>
         </div>
-        {selectionMenuPhase !== 'closed' && <div id="device-selection-menu" className={`device-selection-menu${selectionMenuAlignment === 'right' ? ' align-right' : ''}${selectionMenuPhase === 'closing' ? ' closing' : ''}`} role="menu" inert={selectionMenuPhase === 'closing'} aria-hidden={selectionMenuPhase === 'closing'} aria-label="Opções de seleção de equipamentos">
+        {selectionMenuPhase !== 'closed' && <div id="device-selection-menu" className={`device-selection-menu${selectionMenuAlignment === 'right' ? ' align-right' : ''}${selectionMenuPhase === 'closing' ? ' closing' : ''}`} role="menu" inert={selectionMenuPhase === 'closing'} aria-hidden={selectionMenuPhase === 'closing'} aria-label={ui('infrastructure.deviceList.deviceSelectionOptions')}>
           {allVisible
-            ? <button type="button" role="menuitem" onClick={() => { deselectVisible(); closeSelectionMenu(true); }}><X size={14} aria-hidden="true" />Desselecionar todos os visíveis</button>
-            : <button type="button" role="menuitem" onClick={selectAllVisibleAndEdit}><Check size={14} aria-hidden="true" />Selecionar todos os visíveis</button>}
-          {someVisible && !allVisible && <button type="button" role="menuitem" onClick={() => { deselectVisible(); closeSelectionMenu(true); }}><X size={14} aria-hidden="true" />Desselecionar visíveis</button>}
-          {selected.length > 0 && <button type="button" role="menuitem" onClick={openBulkPopover}><Edit3 size={14} aria-hidden="true" />Editar {selected.length} selecionado{selected.length === 1 ? '' : 's'}</button>}
+            ? <button type="button" role="menuitem" onClick={() => { deselectVisible(); closeSelectionMenu(true); }}><X size={14} aria-hidden="true" />{ui('infrastructure.deviceList.deselectAllVisible')}</button>
+            : <button type="button" role="menuitem" onClick={selectAllVisibleAndEdit}><Check size={14} aria-hidden="true" />{ui('infrastructure.deviceList.selectAllVisible')}</button>}
+          {someVisible && !allVisible && <button type="button" role="menuitem" onClick={() => { deselectVisible(); closeSelectionMenu(true); }}><X size={14} aria-hidden="true" />{ui('infrastructure.deviceList.deselectVisible')}</button>}
+          {selected.length > 0 && <button type="button" role="menuitem" onClick={openBulkPopover}><Edit3 size={14} aria-hidden="true" />{ui('infrastructure.deviceList.edit')} {selected.length} selecionado{selected.length === 1 ? '' : 's'}</button>}
         </div>}
-        {bulkPopoverPhase !== 'closed' && <div id="device-bulk-popover" ref={bulkPopoverRef} className={`device-bulk-popover${bulkPopoverAlignment === 'right' ? ' align-right' : ''}${bulkPopoverPhase === 'closing' ? ' closing' : ''}`} role="dialog" aria-label={`Alterar ${selected.length} equipamentos selecionados`} inert={bulkPopoverPhase === 'closing'} aria-hidden={bulkPopoverPhase === 'closing'}>
-          <div className="device-bulk-popover-heading"><strong>{selected.length} selecionado{selected.length === 1 ? '' : 's'}</strong><button type="button" className="device-bulk-popover-close" aria-label="Fechar ações em lote" onClick={() => closeBulkPopover(true)}><X size={14} /></button></div>
+        {bulkPopoverPhase !== 'closed' && <div id="device-bulk-popover" ref={bulkPopoverRef} className={`device-bulk-popover${bulkPopoverAlignment === 'right' ? ' align-right' : ''}${bulkPopoverPhase === 'closing' ? ' closing' : ''}`} role="dialog" aria-label={ui('infrastructure.deviceList.bulkEditSelected', undefined, { count: selected.length })} inert={bulkPopoverPhase === 'closing'} aria-hidden={bulkPopoverPhase === 'closing'}>
+          <div className="device-bulk-popover-heading"><strong>{selected.length} selecionado{selected.length === 1 ? '' : 's'}</strong><button type="button" className="device-bulk-popover-close" aria-label={ui('infrastructure.deviceList.closeBulkActions')} onClick={() => closeBulkPopover(true)}><X size={14} /></button></div>
           <div className="device-bulk-toolbar">
-            <label>Estado<select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">Sem alteração</option>{['ACTIVE', 'INACTIVE', 'MAINTENANCE', 'RETIRED', 'UNKNOWN'].map((item) => <option key={item}>{item}</option>)}</select></label>
-            <label>Modelo<select value={modelId} onChange={(event) => setModelId(event.target.value)}><option value="">Sem alteração</option><option value="__none__">Sem modelo</option>{models.map((item) => <option key={item.id} value={item.id}>{item.manufacturer} {item.model}</option>)}</select></label>
-            <label className="device-bulk-location">Localização (bastidor)<select value={rackId} onChange={(event) => setRackId(event.target.value)}><option value="">Sem alteração</option><option value="__unplaced__">Sem bastidor</option>{racks.map((item) => <option key={item.id} value={item.id}>{item.room?.building?.name} / {item.room?.name} / {item.name}</option>)}</select></label>
-            <div className="device-bulk-actions"><button type="button" className="primary-button" disabled={updating} onClick={() => void applyBulk()}>{updating ? 'A atualizar…' : 'Aplicar alterações'}</button><button type="button" className="secondary-button" disabled={updating} onClick={() => { setSelected([]); closeBulkPopover(true); }}>Limpar seleção</button></div>
+            <label>{ui('infrastructure.deviceList.status')}<select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">{ui('infrastructure.deviceList.noChange')}</option>{['ACTIVE', 'INACTIVE', 'MAINTENANCE', 'RETIRED', 'UNKNOWN'].map((item) => <option key={item}>{item}</option>)}</select></label>
+            <label>{ui('infrastructure.deviceList.model')}<select value={modelId} onChange={(event) => setModelId(event.target.value)}><option value="">{ui('infrastructure.deviceList.noChange')}</option><option value="__none__">{ui('infrastructure.deviceList.noModel')}</option>{models.map((item) => <option key={item.id} value={item.id}>{item.manufacturer} {item.model}</option>)}</select></label>
+            <label className="device-bulk-location">{ui('infrastructure.deviceList.locationRack')}<select value={rackId} onChange={(event) => setRackId(event.target.value)}><option value="">{ui('infrastructure.deviceList.noChange')}</option><option value="__unplaced__">{ui('infrastructure.deviceList.noRack')}</option>{racks.map((item) => <option key={item.id} value={item.id}>{item.room?.building?.name} / {item.room?.name} / {item.name}</option>)}</select></label>
+            <div className="device-bulk-actions"><button type="button" className="primary-button" disabled={updating} onClick={() => void applyBulk()}>{updating ? ui('infrastructure.deviceList.refreshing') : ui('infrastructure.deviceList.applyChanges')}</button><button type="button" className="secondary-button" disabled={updating} onClick={() => { setSelected([]); closeBulkPopover(true); }}>{ui('infrastructure.deviceList.clearSelection')}</button></div>
           </div>
         </div>}
       </div>}
-      {canEdit && <button className="primary-button" type="button" aria-label="Adicionar equipamento" title="Adicionar equipamento" onClick={onNew}><Plus size={14} aria-hidden="true" /> <span className="toolbar-add-label">Adicionar<span className="toolbar-action-label"> equipamento</span></span></button>}
+      {canEdit && <button className="primary-button" type="button" aria-label={ui('infrastructure.deviceList.addEquipment')} title={ui('infrastructure.deviceList.addEquipment')} onClick={onNew}><Plus size={14} aria-hidden="true" /> <span className="toolbar-add-label">{ui('infrastructure.deviceList.add')}<span className="toolbar-action-label"> {ui('infrastructure.deviceList.equipment')}</span></span></button>}
     </div></PageToolbarPortal>}
     {error && <div role="status" className="ipam-alert">{error}</div>}
     {devices.map((device) => <div className={`host-row infra-device-row ${selectedId === device.id ? 'selected' : ''}`} key={device.id} onClick={() => onSelect(device)} aria-current={selectedId === device.id ? 'true' : undefined}>
-      {canEdit && <input type="checkbox" aria-label={`Selecionar ${device.name}`} checked={selected.includes(device.id)} onClick={(event) => event.stopPropagation()} onChange={(event) => setSelected(event.target.checked ? [...selected, device.id] : selected.filter((id) => id !== device.id))} />}
+      {canEdit && <input type="checkbox" aria-label={ui('infrastructure.deviceList.selectDevice', undefined, { name: device.name })} checked={selected.includes(device.id)} onClick={(event) => event.stopPropagation()} onChange={(event) => setSelected(event.target.checked ? [...selected, device.id] : selected.filter((id) => id !== device.id))} />}
       <span className="host-icon equipment-type-icon-frame">{device.frontAsset ?? device.model?.frontAsset ? <AssetImage asset={device.frontAsset ?? device.model?.frontAsset} alt={ui('infra.frontImageOf', undefined, { name: device.name })} className="catalog-icon" fallback={<EquipmentTypeIcon type={device.type} />} /> : <EquipmentTypeIcon type={device.type} />}</span>
-      <span><strong>{device.name}</strong><small>{device.type} · {device.model ? `${device.model.manufacturer} ${device.model.model}` : 'Sem modelo'} · {device.managementIp || 'Sem IP de gestão'} · {device.rack ? `${device.rack.name} / ${device.rackUnitStart ?? '?'}U` : 'Por localizar'}</small><TagChips tags={device.tags} limit={4} /></span>
+      <span><strong>{device.name}</strong><small>{device.type} · {device.model ? `${device.model.manufacturer} ${device.model.model}` : ui('infrastructure.deviceList.noModel')} · {device.managementIp || ui('infrastructure.deviceList.noManagementIp')} · {device.rack ? `${device.rack.name} / ${device.rackUnitStart ?? '?'}U` : ui('infrastructure.deviceList.notPlaced')}</small><TagChips tags={device.tags} limit={4} /></span>
       {health && isSnmpNetworkDevice(device.type) && <SnmpHealthBadge item={health.get(device.id) ?? null} />}
       <em className="status-active">{device.status}</em>
-      {(canEdit || canRetire || onEditTags) && <span className="row-actions">{onEditTags && (canEditTagsFor?.(device) ?? true) && <button type="button" className="icon-button subtle" aria-label={`Etiquetas de ${device.name}`} title="Etiquetas" onClick={(event) => { event.stopPropagation(); onEditTags(device); }}><Tags size={14} /></button>}{canEdit && <button type="button" className="icon-button subtle" aria-label={ui('infra.editNamed', undefined, { name: device.name })} onClick={(event) => { event.stopPropagation(); onEdit(device, event.detail > 0); }}><Edit3 size={14} /></button>}{canRetire && <button type="button" className="icon-button subtle" aria-label={ui('infra.reviewRetirementOf', undefined, { name: device.name })} onClick={(event) => { event.stopPropagation(); onRetire(device); }}><Archive size={14} /></button>}</span>}
+      {(canEdit || canRetire || onEditTags) && <span className="row-actions">{onEditTags && (canEditTagsFor?.(device) ?? true) && <button type="button" className="icon-button subtle" aria-label={ui('infrastructure.deviceList.deviceTags', undefined, { name: device.name })} title={ui('infrastructure.deviceList.tags')} onClick={(event) => { event.stopPropagation(); onEditTags(device); }}><Tags size={14} /></button>}{canEdit && <button type="button" className="icon-button subtle" aria-label={ui('infra.editNamed', undefined, { name: device.name })} onClick={(event) => { event.stopPropagation(); onEdit(device, event.detail > 0); }}><Edit3 size={14} /></button>}{canRetire && <button type="button" className="icon-button subtle" aria-label={ui('infra.reviewRetirementOf', undefined, { name: device.name })} onClick={(event) => { event.stopPropagation(); onRetire(device); }}><Archive size={14} /></button>}</span>}
     </div>)}
-    {!devices.length && <div className="empty-context"><Server size={26} /><strong>{search ? 'Sem equipamentos correspondentes' : 'Não existem equipamentos ativos neste Site'}</strong></div>}
+    {!devices.length && <div className="empty-context"><Server size={26} /><strong>{search ? ui('infrastructure.deviceList.noMatchingEquipment') : ui('infrastructure.deviceList.thereIsNoActiveEquipment')}</strong></div>}
   </section></>;
 }
