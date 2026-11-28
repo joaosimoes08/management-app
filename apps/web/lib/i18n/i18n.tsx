@@ -6,7 +6,7 @@ import { getConfiguredLocale, hasSavedOrganizationLocale } from '@/lib/runtime-c
 import { setFormatLocale } from '@/lib/format/date';
 import { STORAGE_KEYS, getLocalItem } from '@/lib/storage-keys';
 import { isAppLocale, isLazyLocale } from './locales/catalog';
-import { getLoadedLocaleBundle, loadLocaleBundle, translateWithBundle } from './locales/loader';
+import { getLoadedLocaleBundle, loadLocaleBundle, needsLocaleBundle, translateWithBundle } from './locales/loader';
 import { domainMessages } from './messages/registry';
 
 export type AppLocale = 'pt-PT' | 'en-US' | 'es-ES' | 'fr-FR' | 'de-DE' | 'it-IT';
@@ -3105,7 +3105,7 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   // Bumped when an added language's file arrives, so keyed texts re-render in that language.
   const [bundleVersion, setBundleVersion] = useState(0);
   useEffect(() => {
-    if (!isLazyLocale(locale) || getLoadedLocaleBundle(locale)) return;
+    if (!isLazyLocale(locale) || !needsLocaleBundle(locale)) return;
     let cancelled = false;
     void loadLocaleBundle(locale).then(() => { if (!cancelled) setBundleVersion((version) => version + 1); }).catch(() => undefined);
     return () => { cancelled = true; };

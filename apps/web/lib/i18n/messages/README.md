@@ -39,9 +39,17 @@ chosen. One file holding all six locales would put every language in the main bu
    the `sourceText` tables alone: other screens may still show the same text, and the final
    removal PR deletes them as a whole.
 6. Run `npm run i18n:check` from the repo root. It finds the folder by itself and fails when a
-   locale file is missing, keys differ from pt-PT, a key is duplicated, the folder is not in
-   `domains.ts`, or a key is not used by any app code (orphan). Plural forms (`.one`, `.other`)
-   count as their base key, and `` `prefix.${…}` `` template keys count for every key under it.
+   locale file is missing, keys differ from pt-PT, a key is listed twice in one file, a key is
+   also in another domain, the `i18n.tsx` block or a `../locales/<locale>.ts` `messages` table,
+   the folder is not in `domains.ts`, or a key is not used by any app code (orphan). Plural forms
+   (`.one`, `.other`) count as their base key, and `` `prefix.${…}` `` template keys count for
+   every key under it.
+   - Build dynamic keys **only as template literals**: `` t(`tags.color.${color}`) ``. String
+     concatenation (`t('tags.color.' + color)`) is not recognised, so those keys are reported as
+     orphans.
+   - One template prefix marks **every** key under it as used, so the check can no longer find an
+     orphan there. Keep the prefix as narrow as the keys it really builds (`` `tags.color.${…}` ``,
+     never `` `tags.${…}` ``).
 
 ## The test every domain PR copies
 

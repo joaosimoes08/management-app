@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
+import { collidingKeys, duplicateKeys, isKeyUsed, isSkippedDirectory, MESSAGES_DIRECTORY } from './i18n/domain-rules.mjs';
 
 const root = process.cwd();
 const operationalFiles = [
@@ -111,21 +112,26 @@ function sourceFile(relative, kind = ts.ScriptKind.TSX) {
   return ts.createSourceFile(relative, fs.readFileSync(path.join(root, relative), 'utf8'), ts.ScriptTarget.Latest, true, kind);
 }
 
-function objectKeys(variableName, source) {
-  const keys = new Set();
+/** Every property name of `variableName`'s object literal, in order, duplicates included. */
+function objectKeyList(variableName, source) {
+  const keys = [];
   function visit(node) {
     let initializer = ts.isVariableDeclaration(node) ? node.initializer : undefined;
     // `{ ... } satisfies Record<K, string>` and `{ ... } as const` (per-domain message files).
     while (initializer && (ts.isSatisfiesExpression(initializer) || ts.isAsExpression(initializer))) initializer = initializer.expression;
     if (initializer && node.name.getText(source) === variableName && ts.isObjectLiteralExpression(initializer)) {
       for (const property of initializer.properties) {
-        if (ts.isPropertyAssignment(property)) keys.add(ts.isStringLiteral(property.name) ? property.name.text : property.name.getText(source));
+        if (ts.isPropertyAssignment(property)) keys.push(ts.isStringLiteral(property.name) ? property.name.text : property.name.getText(source));
       }
     }
     ts.forEachChild(node, visit);
   }
   visit(source);
   return keys;
+}
+
+function objectKeys(variableName, source) {
+  return new Set(objectKeyList(variableName, source));
 }
 
 const i18n = sourceFile('apps/web/lib/i18n/i18n.tsx');
@@ -153,7 +159,7 @@ const portuguese = /[áàãâéêíóôõúçÁÀÃÂÉÊÍÓÔÕÚÇ]|\b(Não|S
 // Per-domain keyed messages: apps/web/lib/i18n/messages/<domain>/<locale>.ts, registered in messages/domains.ts.
 // Found automatically; every domain must have all 6 locale files with exactly the keys of its pt-PT file.
 const allLocales = ['pt-PT', 'en-US', 'es-ES', 'fr-FR', 'de-DE', 'it-IT'];
-const messagesRoot = 'apps/web/lib/i18n/messages';
+const messagesRoot = MESSAGES_DIRECTORY;
 const domainErrors = [];
 const domainKeys = new Map(); // key -> domain
 const domainNames = fs.readdirSync(path.join(root, messagesRoot), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
@@ -169,7 +175,10 @@ for (const domain of domainNames) {
   for (const locale of allLocales) {
     const relative = `${messagesRoot}/${domain}/${locale}.ts`;
     if (!fs.existsSync(path.join(root, relative))) { domainErrors.push(`messages/${domain}/${locale}.ts is missing`); continue; }
-    keysByLocale[locale] = objectKeys('messages', sourceFile(relative, ts.ScriptKind.TS));
+    const keyList = objectKeyList('messages', sourceFile(relative, ts.ScriptKind.TS));
+    const duplicates = duplicateKeys(keyList);
+    if (duplicates.length) domainErrors.push(`messages/${domain}/${locale}.ts lists a key more than once: ${duplicates.join(', ')}`);
+    keysByLocale[locale] = new Set(keyList);
     if (locale !== 'pt-PT' && locale !== 'en-US' && indexText && !indexText.includes(`import('./${locale}')`)) domainErrors.push(`messages/${domain}/index.ts does not lazy-load ./${locale}`);
   }
   const source = keysByLocale['pt-PT'] ?? new Set();
@@ -187,24 +196,26 @@ for (const domain of domainNames) {
     else domainKeys.set(key, domain);
   }
 }
+// A domain key may not also be in a locales/<locale>.ts messages table: the loader spreads the domain
+// table last, so the domain text would silently replace the other one.
+for (const locale of ['es-ES', 'fr-FR', 'de-DE', 'it-IT']) {
+  const tableKeys = objectKeys('messages', sourceFile(`apps/web/lib/i18n/locales/${locale}.ts`, ts.ScriptKind.TS));
+  for (const key of collidingKeys(domainKeys.keys(), tableKeys)) domainErrors.push(`${key} is defined in messages/${domainKeys.get(key)}/ and in locales/${locale}.ts messages`);
+}
 // Orphan keys: a domain key no app code uses. Plural forms (.one/.other/...) count as their base key, and
 // `prefix.${...}` template keys count for every key under that prefix.
 const appSources = [];
 (function walk(directory) {
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-    if (['node_modules', '.next', 'messages'].includes(entry.name) && entry.isDirectory()) continue;
     const full = path.join(directory, entry.name);
+    if (entry.isDirectory() && isSkippedDirectory(path.relative(root, full))) continue;
     if (entry.isDirectory()) walk(full);
     else if (/\.(ts|tsx)$/.test(entry.name) && !/\.test\.(ts|tsx)$/.test(entry.name)) appSources.push(fs.readFileSync(full, 'utf8'));
   }
 })(path.join(root, 'apps/web'));
 const appText = appSources.join('\n');
 for (const [key, domain] of domainKeys) {
-  const base = key.replace(/\.(zero|one|two|few|many|other)$/, '');
-  const quoted = (value) => [`'${value}'`, `"${value}"`, `\`${value}\``].some((literal) => appText.includes(literal));
-  const parts = base.split('.');
-  const prefixes = parts.slice(1).map((_, index) => `\`${parts.slice(0, index + 1).join('.')}.\${`);
-  if (!quoted(base) && !prefixes.some((prefix) => appText.includes(prefix))) domainErrors.push(`${key} (messages/${domain}/) is not used by any app code`);
+  if (!isKeyUsed(key, appText)) domainErrors.push(`${key} (messages/${domain}/) is not used by any app code`);
 }
 
 // `npm run i18n:check -- --locales[=es-ES,fr-FR]`: what each added language still lacks compared with en-US.
