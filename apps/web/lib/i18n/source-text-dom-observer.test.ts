@@ -1,38 +1,38 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { loadLegacyMessages, observeLegacyDom, translateLegacyDom } from './i18n';
-import { legacyEnglishMessages, translateLegacyText } from './legacy-messages';
+import { loadSourceTextMessages, observeSourceTextDom, translateSourceTextDom } from './i18n';
+import { sourceTextEnglishMessages, translateSourceText } from './source-text-messages';
 
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ authenticated: false, loading: false }) }));
 
-const [first, second, third] = Object.keys(legacyEnglishMessages).filter((key) => translateLegacyText('en-US', key) !== key).slice(0, 3);
-const en = (text: string) => translateLegacyText('en-US', text);
+const [first, second, third] = Object.keys(sourceTextEnglishMessages).filter((key) => translateSourceText('en-US', key) !== key).slice(0, 3);
+const en = (text: string) => translateSourceText('en-US', text);
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 /** Subtree walks made by the translation layer (jsdom's querySelector also uses tree walkers, with other filters). */
 const layerWalks = (spy: { mock: { calls: unknown[][] } }) => spy.mock.calls.filter((call) => call[1] === (NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT)).length;
 
-// The English legacy table loads on demand; load it once so the translations below are synchronous.
-beforeAll(async () => { await loadLegacyMessages(); });
+// The English source-text table loads on demand; load it once so the translations below are synchronous.
+beforeAll(async () => { await loadSourceTextMessages(); });
 
 afterEach(() => {
   vi.restoreAllMocks();
   document.body.innerHTML = '';
   // Leave the module in its Portuguese state for the next test.
-  observeLegacyDom('pt-PT', document.body)();
+  observeSourceTextDom('pt-PT', document.body)();
 });
 
-describe('legacy DOM observer', () => {
+describe('source-text DOM observer', () => {
   it('translates the data-label that phone card layouts show before each table cell', () => {
     const root = document.createElement('div');
     root.innerHTML = '<table><tbody><tr><td data-label="Última trap">x</td><td data-label="IP de origem">y</td></tr></tbody></table>';
-    translateLegacyDom('en-US', root);
+    translateSourceTextDom('en-US', root);
     expect([...root.querySelectorAll('td')].map((cell) => cell.getAttribute('data-label'))).toEqual(['Last trap', 'Source IP']);
-    translateLegacyDom('pt-PT', root);
+    translateSourceTextDom('pt-PT', root);
   });
 
   it('translates added nodes, edited text and edited attributes in en-US', async () => {
     const root = document.createElement('div');
     document.body.append(root);
-    const disconnect = observeLegacyDom('en-US', root);
+    const disconnect = observeSourceTextDom('en-US', root);
 
     const button = document.createElement('button');
     button.setAttribute('aria-label', first);
@@ -54,7 +54,7 @@ describe('legacy DOM observer', () => {
     const root = document.createElement('div');
     root.innerHTML = `<table title="${first}"><tbody><tr><td>${second}</td><td>${third}</td></tr></tbody></table>`;
     document.body.append(root);
-    const disconnect = observeLegacyDom('en-US', root);
+    const disconnect = observeSourceTextDom('en-US', root);
     const walker = vi.spyOn(document, 'createTreeWalker');
 
     root.querySelector('table')!.setAttribute('title', second);
@@ -82,12 +82,12 @@ describe('legacy DOM observer', () => {
     const root = document.createElement('div');
     root.innerHTML = `<span title="${first}">${second}</span>`;
     document.body.append(root);
-    observeLegacyDom('en-US', root)();
+    observeSourceTextDom('en-US', root)();
     expect(root.querySelector('span')!.textContent).toBe(en(second));
 
     const observerSpy = vi.spyOn(window, 'MutationObserver');
     const walker = vi.spyOn(document, 'createTreeWalker');
-    const disconnect = observeLegacyDom('pt-PT', root);
+    const disconnect = observeSourceTextDom('pt-PT', root);
     expect(root.querySelector('span')!.textContent).toBe(second);
     expect(root.querySelector('span')!.getAttribute('title')).toBe(first);
     expect(observerSpy).not.toHaveBeenCalled();
@@ -95,16 +95,16 @@ describe('legacy DOM observer', () => {
 
     // Nothing left to restore: a second Portuguese pass does no work.
     walker.mockClear();
-    observeLegacyDom('pt-PT', root)();
+    observeSourceTextDom('pt-PT', root)();
     expect(layerWalks(walker)).toBe(0);
   });
 
-  it('keeps translateLegacyDom usable on its own', () => {
+  it('keeps translateSourceTextDom usable on its own', () => {
     const span = document.createElement('span');
     span.textContent = first;
-    translateLegacyDom('en-US', span);
+    translateSourceTextDom('en-US', span);
     expect(span.textContent).toBe(en(first));
-    translateLegacyDom('pt-PT', span);
+    translateSourceTextDom('pt-PT', span);
     expect(span.textContent).toBe(first);
   });
 });

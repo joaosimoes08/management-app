@@ -1,8 +1,8 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { createElement, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { observeLegacyDom, translateLegacyDom } from './i18n';
-import { translateLegacyText } from './legacy-messages';
+import { observeSourceTextDom, translateSourceTextDom } from './i18n';
+import { translateSourceText } from './source-text-messages';
 import { I18nProvider } from './i18n';
 import { SubnetsView } from '@/features/ipam/components/subnets-view';
 import type { IpAddressRow } from '@/features/ipam/types';
@@ -11,43 +11,43 @@ vi.mock('@/lib/auth', () => ({ useAuth: () => ({ authenticated: false, loading: 
 
 afterEach(cleanup);
 
-describe('legacy infrastructure messages', () => {
+describe('source-text infrastructure messages', () => {
   it('translates the selected equipment update fallback', () => {
-    expect(translateLegacyText('en-US', 'Não foi possível atualizar os equipamentos selecionados.'))
+    expect(translateSourceText('en-US', 'Não foi possível atualizar os equipamentos selecionados.'))
       .toBe('Could not update the selected equipment.');
   });
 
   it('translates bulk update outcomes while preserving persistence and audit status', () => {
-    expect(translateLegacyText('en-US', '3 guardado(s).')).toBe('3 saved.');
-    expect(translateLegacyText('en-US', '1 guardado(s). · Guardados, auditoria falhou: Router: A atualização foi guardada, mas não foi possível registar a auditoria.'))
+    expect(translateSourceText('en-US', '3 guardado(s).')).toBe('3 saved.');
+    expect(translateSourceText('en-US', '1 guardado(s). · Guardados, auditoria falhou: Router: A atualização foi guardada, mas não foi possível registar a auditoria.'))
       .toBe('1 saved. · Saved, but audit failed: Router: The update was saved, but its audit record could not be written.');
-    expect(translateLegacyText('en-US', 'Não guardados: Router: Scope denied'))
+    expect(translateSourceText('en-US', 'Não guardados: Router: Scope denied'))
       .toBe('Not saved: Router: Scope denied');
   });
 
   it('keeps React-updated counts and attestation outcomes when translating a reused text node', () => {
     const count = document.createElement('span');
     count.textContent = '0';
-    translateLegacyDom('en-US', count);
+    translateSourceTextDom('en-US', count);
     const countText = count.firstChild as Text;
     countText.data = '1';
-    translateLegacyDom('en-US', countText);
+    translateSourceTextDom('en-US', countText);
     expect(count.textContent).toBe('1');
 
     const outcome = document.createElement('span');
     outcome.textContent = 'Pendente';
-    translateLegacyDom('en-US', outcome);
+    translateSourceTextDom('en-US', outcome);
     const outcomeText = outcome.firstChild as Text;
     outcomeText.data = 'CONFIRMED';
-    translateLegacyDom('en-US', outcomeText);
+    translateSourceTextDom('en-US', outcomeText);
     expect(outcome.textContent).toBe('CONFIRMED');
   });
 
-  it('does not restore stale text when the legacy DOM observer sees React updates', async () => {
+  it('does not restore stale text when the source-text DOM observer sees React updates', async () => {
     const root = document.createElement('div');
     root.innerHTML = '<span>0</span><span>Pendente</span>';
     const [count, outcome] = [...root.querySelectorAll('span')];
-    const disconnect = observeLegacyDom('en-US', root);
+    const disconnect = observeSourceTextDom('en-US', root);
     try {
       count.firstChild!.textContent = '1';
       outcome.firstChild!.textContent = 'CONFIRMED';
@@ -61,7 +61,7 @@ describe('legacy infrastructure messages', () => {
   });
 });
 
-describe('legacy DOM translation updates', () => {
+describe('source-text DOM translation updates', () => {
   it('updates the IPAM reservation row and actions when React reuses translated table nodes', async () => {
     const subnet = { id: 'subnet-1', cidr: '10.254.251.0/29', version: 4, siteId: 'site-1' };
     const availableIp: IpAddressRow = { id: 'a1d50edd-9355-4e92-84cc-1172d01512c6', address: '10.254.251.2', subnetId: subnet.id, state: 'FREE', reservations: [] };
@@ -118,7 +118,7 @@ describe('Phase E portal and settings messages', () => {
     ['4 pedidos por decidir', '4 requests awaiting decision'],
     ['Limiares: aviso 80% · crítico 90%', 'Thresholds: warning 80% · critical 90%'],
   ])('translates %s', (pt, en) => {
-    expect(translateLegacyText('en-US', pt)).toBe(en);
+    expect(translateSourceText('en-US', pt)).toBe(en);
   });
 });
 
@@ -133,7 +133,7 @@ describe('Step 35 labels', () => {
     ['· todos os Sites', '· all Sites'],
     ['Remover filtro de configuração em falta', 'Remove missing-configuration filter'],
   ])('translates %s', (pt, en) => {
-    expect(translateLegacyText('en-US', pt)).toBe(en);
+    expect(translateSourceText('en-US', pt)).toBe(en);
   });
 });
 
@@ -145,6 +145,6 @@ describe('unknown SNMP trap sources: hide existing traps', () => {
     ['10.9.9.9: 12 traps existentes ocultadas.', '10.9.9.9: 12 existing traps hidden.'],
     ['Não foi possível ocultar as traps.', 'Could not hide the traps.'],
   ])('translates %s', (pt, en) => {
-    expect(translateLegacyText('en-US', pt)).toBe(en);
+    expect(translateSourceText('en-US', pt)).toBe(en);
   });
 });

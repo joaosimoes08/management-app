@@ -1,6 +1,6 @@
 import { cleanup, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { translateLegacyText } from '@/lib/i18n/legacy-messages';
+import { translateSourceText } from '@/lib/i18n/source-text-messages';
 import { DiscoveryResultsTable } from './discovery-results';
 import { DiscoveryOutcomeCell, DiscoveryRunOutcomeSummary } from './discovery-outcomes';
 import type { DiscoveryHostOutcome, DiscoveryOutcomeCounts, DiscoveryResult } from './api';
@@ -58,6 +58,6 @@ describe('D-P2a structured scan outcomes', () => {
       ['DNS inverso: 1 com PTR · 10 sem PTR · 1 falhas', 'Reverse DNS: 1 with PTR · 10 without PTR · 1 failed'],
       ['SNMP: 10 lidos · 0 parciais · 1 autenticação falhou · 1 sem resposta · 0 erros · 0 não tentados (política)', 'SNMP: 10 read · 0 partial · 1 authentication failed · 1 no response · 0 errors · 0 not tried (policy)'],
     ];
-    for (const [pt, en] of texts) expect(translateLegacyText('en-US', pt)).toBe(en);
+    for (const [pt, en] of texts) expect(translateSourceText('en-US', pt)).toBe(en);
   });
 });

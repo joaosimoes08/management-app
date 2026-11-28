@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LocaleDocumentTitle } from '@/components/layout/locale-document-title';
 import { STORAGE_KEYS } from '@/lib/storage-keys';
 import { I18nProvider, applyDocumentTitle, translateMessage } from './i18n';
-import { translateLegacyText } from './legacy-messages';
+import { translateSourceText } from './source-text-messages';
 import { LAZY_LOCALES } from './locales/catalog';
 import { loadLocaleBundle, translateWithBundle } from './locales/loader';
 
@@ -15,16 +15,16 @@ beforeEach(() => { window.localStorage.clear(); });
 afterEach(() => { cleanup(); document.head.innerHTML = ''; });
 
 describe('prototype member names are never translations', () => {
-  it.each(prototypeNames)('legacy English table leaves "%s" as it is', (name) => {
-    expect(() => translateLegacyText('en-US', name)).not.toThrow();
-    expect(translateLegacyText('en-US', name)).toBe(name);
-    expect(translateLegacyText('en-US', `  ${name} `)).toBe(`  ${name} `);
+  it.each(prototypeNames)('source-text English table leaves "%s" as it is', (name) => {
+    expect(() => translateSourceText('en-US', name)).not.toThrow();
+    expect(translateSourceText('en-US', name)).toBe(name);
+    expect(translateSourceText('en-US', `  ${name} `)).toBe(`  ${name} `);
   });
 
   it.each(prototypeNames)('each added language falls back to English for "%s"', async (name) => {
     for (const locale of LAZY_LOCALES) {
       const bundle = await loadLocaleBundle(locale);
-      const result = translateWithBundle(bundle, name, (text) => translateLegacyText('en-US', text));
+      const result = translateWithBundle(bundle, name, (text) => translateSourceText('en-US', text));
       expect(result).toBe(name);
       expect(result).not.toMatch(/function|\[native code\]/);
     }

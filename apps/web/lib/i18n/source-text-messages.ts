@@ -1,8 +1,8 @@
 import type { AppLocale } from './i18n';
 
-type LegacyDictionary = Record<string, string>;
+type SourceTextDictionary = Record<string, string>;
 
-const enUS: LegacyDictionary = {
+const enUS: SourceTextDictionary = {
   // Observed topology: API errors for non-network or out-of-scope devices (2026-11-26)
   'SNMP só pode ser configurado em equipamentos de rede.': 'SNMP can only be configured on network devices.',
   'Recurso de infraestrutura não encontrado.': 'Infrastructure resource not found.',
@@ -2847,7 +2847,7 @@ const substitutions: Array<[RegExp, string]> = [
   [/\bsem imagem traseira\b/g, 'no rear image'],
 ];
 
-export function translateLegacyText(locale: AppLocale, input: string): string {
+export function translateSourceText(locale: AppLocale, input: string): string {
   if (locale === 'pt-PT') return input;
   const leading = input.match(/^\s*/)?.[0] ?? '';
   const trailing = input.match(/\s*$/)?.[0] ?? '';
@@ -2859,4 +2859,4 @@ export function translateLegacyText(locale: AppLocale, input: string): string {
   return `${leading}${translated}${trailing}`;
 }
 
-export const legacyEnglishMessages = enUS;
+export const sourceTextEnglishMessages = enUS;

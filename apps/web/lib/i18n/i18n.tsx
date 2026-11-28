@@ -142,6 +142,38 @@ const messages: Record<'pt-PT' | 'en-US', Record<string, string>> = {
     'infra.rack.rangeOf': '{start}–{end} de {total}',
     'infra.frontOf': 'Frente de {name}',
     'tags.deleteNamed': 'Eliminar {name}',
+    'tags.label': 'Etiquetas',
+    'tags.manage': 'Gerir etiquetas',
+    'tags.saveError': 'Não foi possível guardar as etiquetas.',
+    'tags.loading': 'A carregar etiquetas…',
+    'tags.color.gray': 'Cinzento',
+    'tags.color.blue': 'Azul',
+    'tags.color.green': 'Verde',
+    'tags.color.amber': 'Âmbar',
+    'tags.color.red': 'Vermelho',
+    'tags.color.purple': 'Roxo',
+    'tags.filter.label': 'Filtrar por etiqueta',
+    'tags.filter.all': 'Todas as etiquetas',
+    'tags.filter.removed': 'Etiqueta removida',
+    'tags.new.nameLabel': 'Nome da nova etiqueta',
+    'tags.new.placeholder': 'Nova etiqueta',
+    'tags.new.colorLabel': 'Cor da nova etiqueta',
+    'tags.new.create': 'Criar',
+    'tags.empty.canCreate': 'Este site ainda não tem etiquetas. Cria a primeira abaixo.',
+    'tags.empty.readOnly': 'Este site ainda não tem etiquetas. Um administrador pode criá-las.',
+    'tags.editor.title': 'Etiquetas · {name}',
+    'tags.editor.options': 'Etiquetas do site',
+    'tags.editor.cancel': 'Cancelar',
+    'tags.editor.save': 'Guardar etiquetas',
+    'tags.manager.nameLabel': 'Nome da etiqueta',
+    'tags.manager.colorLabel': 'Cor da etiqueta',
+    'tags.manager.usesTitle': 'Equipamentos · Sub-redes',
+    'tags.manager.save': 'Guardar',
+    'tags.manager.confirmDeleteUsed': 'Eliminar a etiqueta "{name}"? Sai de {uses} itens.',
+    'tags.manager.confirmDelete': 'Eliminar a etiqueta "{name}"?',
+    'tags.manager.description': 'As etiquetas pertencem a este site e servem equipamentos e sub-redes. Contagem: equipamentos · sub-redes.',
+    'tags.manager.readOnlyNote': 'Só administradores e operadores de sistemas podem criar, renomear ou eliminar etiquetas.',
+    'tags.manager.close': 'Fechar',
     'infra.ports.front.tab': 'Frente',
     'infra.ports.rear.tab': 'Traseira',
     'infra.ports.front.image': 'Imagem frontal do modelo',
@@ -1589,6 +1621,38 @@ const messages: Record<'pt-PT' | 'en-US', Record<string, string>> = {
     'infra.rack.rangeOf': '{start}–{end} of {total}',
     'infra.frontOf': 'Front of {name}',
     'tags.deleteNamed': 'Delete {name}',
+    'tags.label': 'Tags',
+    'tags.manage': 'Manage tags',
+    'tags.saveError': 'Could not save the tags.',
+    'tags.loading': 'Loading tags…',
+    'tags.color.gray': 'Gray',
+    'tags.color.blue': 'Blue',
+    'tags.color.green': 'Green',
+    'tags.color.amber': 'Amber',
+    'tags.color.red': 'Red',
+    'tags.color.purple': 'Purple',
+    'tags.filter.label': 'Filter by tag',
+    'tags.filter.all': 'All tags',
+    'tags.filter.removed': 'Removed tag',
+    'tags.new.nameLabel': 'New tag name',
+    'tags.new.placeholder': 'New tag',
+    'tags.new.colorLabel': 'New tag colour',
+    'tags.new.create': 'Create',
+    'tags.empty.canCreate': 'This site has no tags yet. Create the first one below.',
+    'tags.empty.readOnly': 'This site has no tags yet. An administrator can create them.',
+    'tags.editor.title': 'Tags · {name}',
+    'tags.editor.options': 'Site tags',
+    'tags.editor.cancel': 'Cancel',
+    'tags.editor.save': 'Save tags',
+    'tags.manager.nameLabel': 'Tag name',
+    'tags.manager.colorLabel': 'Tag colour',
+    'tags.manager.usesTitle': 'Devices · Subnets',
+    'tags.manager.save': 'Save',
+    'tags.manager.confirmDeleteUsed': 'Delete the tag "{name}"? It is removed from {uses} items.',
+    'tags.manager.confirmDelete': 'Delete the tag "{name}"?',
+    'tags.manager.description': 'Tags belong to this site and apply to devices and subnets. Count: devices · subnets.',
+    'tags.manager.readOnlyNote': 'Only administrators and systems operators can create, rename or delete tags.',
+    'tags.manager.close': 'Close',
     'infra.ports.front.tab': 'Front',
     'infra.ports.rear.tab': 'Rear',
     'infra.ports.front.image': 'Model front image',
@@ -2925,30 +2989,30 @@ const translatedAttributeValues = new WeakMap<Element, Map<string, string>>();
 /** data-label: the column name a table cell shows before its value when tables collapse to cards on phones. */
 const translatedAttributes = ['aria-label', 'placeholder', 'title', 'data-label'] as const;
 
-/** Translations of legacy strings already seen (the same labels repeat on every refresh). */
-const legacyTranslationCache = new Map<string, string>();
-const legacyTranslationCacheLimit = 5000;
+/** Translations of source-text strings already seen (the same labels repeat on every refresh). */
+const sourceTextTranslationCache = new Map<string, string>();
+const sourceTextTranslationCacheLimit = 5000;
 /** True once an English pass has changed the page, so switching back to Portuguese knows it must restore. */
-let legacyDomTranslated = false;
+let sourceTextDomTranslated = false;
 
 /**
- * The English table for legacy hard-coded Portuguese text (about 160 kB) is only needed in en-US, so it
+ * The English table for hard-coded (source-text) Portuguese text (about 160 kB) is only needed in en-US, so it
  * loads on demand instead of shipping with every page. Portuguese, the default, never downloads it.
  */
-type LegacyTranslator = (locale: AppLocale, input: string) => string;
-let legacyTranslator: LegacyTranslator | null = null;
-let legacyTranslatorLoad: Promise<LegacyTranslator> | null = null;
+type SourceTextTranslator = (locale: AppLocale, input: string) => string;
+let sourceTextTranslator: SourceTextTranslator | null = null;
+let sourceTextTranslatorLoad: Promise<SourceTextTranslator> | null = null;
 
-export function loadLegacyMessages(): Promise<LegacyTranslator> {
-  if (legacyTranslator) return Promise.resolve(legacyTranslator);
-  legacyTranslatorLoad ??= import('./legacy-messages').then((module) => {
-    legacyTranslator = module.translateLegacyText;
-    return legacyTranslator;
+export function loadSourceTextMessages(): Promise<SourceTextTranslator> {
+  if (sourceTextTranslator) return Promise.resolve(sourceTextTranslator);
+  sourceTextTranslatorLoad ??= import('./source-text-messages').then((module) => {
+    sourceTextTranslator = module.translateSourceText;
+    return sourceTextTranslator;
   }).catch((error: unknown) => {
-    legacyTranslatorLoad = null;
+    sourceTextTranslatorLoad = null;
     throw error;
   });
-  return legacyTranslatorLoad;
+  return sourceTextTranslatorLoad;
 }
 
 /**
@@ -2957,7 +3021,7 @@ export function loadLegacyMessages(): Promise<LegacyTranslator> {
  */
 export function loadLocaleTexts(locale: AppLocale): Promise<void> {
   if (locale === 'pt-PT') return Promise.resolve();
-  return Promise.all([loadLegacyMessages(), isLazyLocale(locale) ? loadLocaleBundle(locale) : undefined]).then(() => undefined);
+  return Promise.all([loadSourceTextMessages(), isLazyLocale(locale) ? loadLocaleBundle(locale) : undefined]).then(() => undefined);
 }
 
 // Start the download as soon as this module runs when the browser is already known to use a
@@ -2972,18 +3036,18 @@ if (typeof window !== 'undefined') {
   }
 }
 
-function translateLegacy(locale: AppLocale, input: string) {
-  if (locale === 'pt-PT' || !legacyTranslator) return input;
-  const english = legacyTranslator;
+function translateSourceTextCached(locale: AppLocale, input: string) {
+  if (locale === 'pt-PT' || !sourceTextTranslator) return input;
+  const english = sourceTextTranslator;
   const bundle = isLazyLocale(locale) ? getLoadedLocaleBundle(locale) : undefined;
   // Until an added language's file arrives, show English and keep nothing in the cache.
   if (isLazyLocale(locale) && !bundle) return english('en-US', input);
   const cacheKey = `${locale}\u0000${input}`;
-  let translated = legacyTranslationCache.get(cacheKey);
+  let translated = sourceTextTranslationCache.get(cacheKey);
   if (translated === undefined) {
     translated = bundle ? translateWithBundle(bundle, input, (text) => english('en-US', text)) : english(locale, input);
-    if (legacyTranslationCache.size >= legacyTranslationCacheLimit) legacyTranslationCache.clear();
-    legacyTranslationCache.set(cacheKey, translated);
+    if (sourceTextTranslationCache.size >= sourceTextTranslationCacheLimit) sourceTextTranslationCache.clear();
+    sourceTextTranslationCache.set(cacheKey, translated);
   }
   return translated;
 }
@@ -2997,7 +3061,7 @@ function translateTextNode(locale: AppLocale, node: Text) {
     originalText.set(node, current);
   }
   const source = originalText.get(node) ?? current;
-  const next = translateLegacy(locale, source);
+  const next = translateSourceTextCached(locale, source);
   if (current !== next) node.nodeValue = next;
   translatedText.set(node, next);
 }
@@ -3012,7 +3076,7 @@ function translateAttribute(locale: AppLocale, element: Element, attribute: stri
   const previousTranslation = translated.get(attribute);
   if (!saved.has(attribute) || (previousTranslation !== undefined && current !== previousTranslation)) saved.set(attribute, current);
   const source = saved.get(attribute) ?? '';
-  const next = translateLegacy(locale, source);
+  const next = translateSourceTextCached(locale, source);
   if (current !== next) element.setAttribute(attribute, next);
   translated.set(attribute, next);
 }
@@ -3021,8 +3085,8 @@ function translateElement(locale: AppLocale, element: Element) {
   for (const attribute of translatedAttributes) translateAttribute(locale, element, attribute);
 }
 
-export function translateLegacyDom(locale: AppLocale, root: Node) {
-  if (locale !== 'pt-PT') legacyDomTranslated = true;
+export function translateSourceTextDom(locale: AppLocale, root: Node) {
+  if (locale !== 'pt-PT') sourceTextDomTranslated = true;
   if (root.nodeType === Node.TEXT_NODE) translateTextNode(locale, root as Text);
   if (root.nodeType === Node.ELEMENT_NODE) translateElement(locale, root as Element);
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
@@ -3040,12 +3104,12 @@ export function translateLegacyDom(locale: AppLocale, root: Node) {
  * text node, the edited attribute, or each newly added subtree once. The observer's own edits are
  * dropped instead of being processed again in the next batch.
  */
-export function observeLegacyDom(locale: AppLocale, root: Node) {
+export function observeSourceTextDom(locale: AppLocale, root: Node) {
   if (locale === 'pt-PT') {
-    if (legacyDomTranslated) { translateLegacyDom(locale, root); legacyDomTranslated = false; }
+    if (sourceTextDomTranslated) { translateSourceTextDom(locale, root); sourceTextDomTranslated = false; }
     return () => undefined;
   }
-  translateLegacyDom(locale, root);
+  translateSourceTextDom(locale, root);
   const observer = new MutationObserver((mutations) => {
     const added = new Set<Node>();
     for (const mutation of mutations) {
@@ -3061,7 +3125,7 @@ export function observeLegacyDom(locale: AppLocale, root: Node) {
       if (!node.isConnected) continue;
       let ancestor = node.parentNode;
       while (ancestor && !added.has(ancestor)) ancestor = ancestor.parentNode;
-      if (!ancestor) translateLegacyDom(locale, node);
+      if (!ancestor) translateSourceTextDom(locale, node);
     }
     // Everything still queued was written by the passes above.
     observer.takeRecords();
@@ -3116,11 +3180,11 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     return () => { window.cancelAnimationFrame(frame); observer.disconnect(); };
   }, [locale, bundleVersion]);
   useEffect(() => {
-    if (locale === 'pt-PT' || (legacyTranslator && (!isLazyLocale(locale) || getLoadedLocaleBundle(locale)))) return observeLegacyDom(locale, document.body);
+    if (locale === 'pt-PT' || (sourceTextTranslator && (!isLazyLocale(locale) || getLoadedLocaleBundle(locale)))) return observeSourceTextDom(locale, document.body);
     let cancelled = false;
     let disconnect: (() => void) | undefined;
     // If an added language's file cannot load, its hard-coded texts still show in English.
-    void loadLocaleTexts(locale).catch(() => loadLegacyMessages()).then(() => { if (!cancelled) disconnect = observeLegacyDom(locale, document.body); }).catch(() => undefined);
+    void loadLocaleTexts(locale).catch(() => loadSourceTextMessages()).then(() => { if (!cancelled) disconnect = observeSourceTextDom(locale, document.body); }).catch(() => undefined);
     return () => { cancelled = true; disconnect?.(); };
   }, [locale]);
   // Keep the shared date/number formatters on the active language before children render.

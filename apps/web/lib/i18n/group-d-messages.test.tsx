@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { clientErrorMessage } from '@/lib/api/errors';
 import { translateMessage } from './i18n';
-import { translateLegacyText } from './legacy-messages';
+import { translateSourceText } from './source-text-messages';
 
 // Shared UI follows the active language through useOptionalI18n; render it in English here.
 vi.mock('@/lib/i18n/i18n', async (importOriginal) => {
@@ -36,10 +36,10 @@ describe('i18n group D (shell-wide, app, lib)', () => {
   });
 
   it('translates auth messages and the API generic fallbacks shown as sent', () => {
-    expect(translateLegacyText('en-US', 'A sessão expirou.')).toBe('The session has expired.');
-    expect(translateLegacyText('en-US', 'Não foi possível contactar o Keycloak.')).toBe('Could not reach Keycloak.');
-    expect(translateLegacyText('en-US', 'O recurso não foi encontrado.')).toBe('The resource was not found.');
-    expect(translateLegacyText('en-US', 'Categoria')).toBe('Category');
+    expect(translateSourceText('en-US', 'A sessão expirou.')).toBe('The session has expired.');
+    expect(translateSourceText('en-US', 'Não foi possível contactar o Keycloak.')).toBe('Could not reach Keycloak.');
+    expect(translateSourceText('en-US', 'O recurso não foi encontrado.')).toBe('The resource was not found.');
+    expect(translateSourceText('en-US', 'Categoria')).toBe('Category');
   });
 
   it('renders the bulk review dialog in English', async () => {

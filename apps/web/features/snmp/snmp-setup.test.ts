@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { containerReceiverView, CREDENTIAL_TEST_UI_LIMIT_MS, describeCredentialTest, iosXeSetupLines, lastTestLabel, latestJob, receiverAddresses, RECEIVER_PLACEHOLDER, type SnmpReceiverSettings } from './snmp-setup';
-import { translateLegacyText } from '@/lib/i18n/legacy-messages';
+import { translateSourceText } from '@/lib/i18n/source-text-messages';
 
 const iface = (id: string, address: string, internal = false) => ({ id, instanceId: 'i1', name: id, address, internal, lastSeenAt: '2026-11-23T10:00:00.000Z' });
 const settings = (patch: Partial<SnmpReceiverSettings> = {}): SnmpReceiverSettings => ({ listenAll: true, selectedInterfaceIds: [], interfaces: [iface('eth0', '10.0.0.5'), iface('lo', '127.0.0.1', true), iface('ll', '169.254.1.2'), iface('v6', 'fe80::1'), iface('eth1', '10.0.1.5')], ...patch });
@@ -109,7 +109,7 @@ describe('lastTestLabel', () => {
   it('has an EN translation for every label', () => {
     for (const status of ['COMPLETED', 'FAILED', 'PENDING', 'RUNNING', 'BLOCKED', null]) {
       const label = lastTestLabel(status);
-      expect(translateLegacyText('en-US', label), label).not.toBe(label);
+      expect(translateSourceText('en-US', label), label).not.toBe(label);
     }
   });
 });

@@ -186,6 +186,38 @@ export const messages: LocaleBundle['messages'] = {
   "infra.rack.rangeOf": "{start}–{end} de {total}",
   "infra.frontOf": "Parte frontal de {name}",
   "tags.deleteNamed": "Eliminar {name}",
+  "tags.label": "Etiquetas",
+  "tags.manage": "Gestionar etiquetas",
+  "tags.saveError": "No se han podido guardar las etiquetas.",
+  "tags.loading": "Cargando etiquetas…",
+  "tags.color.gray": "Gris",
+  "tags.color.blue": "Azul",
+  "tags.color.green": "Verde",
+  "tags.color.amber": "Ámbar",
+  "tags.color.red": "Rojo",
+  "tags.color.purple": "Morado",
+  "tags.filter.label": "Filtrar por etiqueta",
+  "tags.filter.all": "Todas las etiquetas",
+  "tags.filter.removed": "Etiqueta eliminada",
+  "tags.new.nameLabel": "Nombre de la nueva etiqueta",
+  "tags.new.placeholder": "Nueva etiqueta",
+  "tags.new.colorLabel": "Color de la nueva etiqueta",
+  "tags.new.create": "Crear",
+  "tags.empty.canCreate": "Este site todavía no tiene etiquetas. Cree la primera a continuación.",
+  "tags.empty.readOnly": "Este site todavía no tiene etiquetas. Un administrador puede crearlas.",
+  "tags.editor.title": "Etiquetas · {name}",
+  "tags.editor.options": "Etiquetas del site",
+  "tags.editor.cancel": "Cancelar",
+  "tags.editor.save": "Guardar etiquetas",
+  "tags.manager.nameLabel": "Nombre de la etiqueta",
+  "tags.manager.colorLabel": "Color de la etiqueta",
+  "tags.manager.usesTitle": "Dispositivos · Subredes",
+  "tags.manager.save": "Guardar",
+  "tags.manager.confirmDeleteUsed": "¿Eliminar la etiqueta \"{name}\"? Se quitará de {uses} elementos.",
+  "tags.manager.confirmDelete": "¿Eliminar la etiqueta \"{name}\"?",
+  "tags.manager.description": "Las etiquetas pertenecen a este site y se aplican a dispositivos y subredes. Recuento: dispositivos · subredes.",
+  "tags.manager.readOnlyNote": "Solo los administradores y los operadores de sistemas pueden crear, renombrar o eliminar etiquetas.",
+  "tags.manager.close": "Cerrar",
   "infra.ports.front.tab": "Frontal",
   "infra.ports.rear.tab": "Trasera",
   "infra.ports.front.image": "Imagen frontal del modelo",
@@ -2033,7 +2065,7 @@ export const messages: LocaleBundle['messages'] = {
 };
 
 /** Hard-coded Portuguese UI text (source) → translation. */
-export const legacy: LocaleBundle['legacy'] = {
+export const sourceText: LocaleBundle['sourceText'] = {
   // Observed topology: API errors for non-network or out-of-scope devices (2026-11-26)
   "SNMP só pode ser configurado em equipamentos de rede.": "SNMP solo se puede configurar en dispositivos de red.",
   "Recurso de infraestrutura não encontrado.": "Recurso de infraestructura no encontrado.",
@@ -4464,7 +4496,7 @@ export const legacy: LocaleBundle['legacy'] = {
 };
 
 /**
- * Rules for Portuguese text with variable parts, in the same order as in legacy-messages.ts.
+ * Rules for Portuguese text with variable parts, in the same order as in source-text-messages.ts.
  * The "Porta: introduzca" and "Intervalo (min): introduzca" rules match the Spanish text the "indica um número inteiro" rule leaves behind ("introduzca" where en-US has "enter").
  */
 export const substitutions: NonNullable<LocaleBundle['substitutions']> = [
