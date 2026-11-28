@@ -52,6 +52,7 @@ describe('i18n group D (shell-wide, app, lib)', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('1 of 2 applied.');
     expect(screen.getByText('Applied · APPROVED')).toBeInTheDocument();
     expect(screen.getByText('Could not apply the review to this item.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
+    // The dialog's header X (CompactModal) and its footer button.
+    expect(screen.getAllByRole('button', { name: 'Close' })).toHaveLength(2);
   });
 });

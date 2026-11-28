@@ -182,7 +182,7 @@ function TagManagerRow({ tag, siteId, onChanged }: { tag: Tag; siteId: string; o
   const remove = useMutation({ mutationFn: () => deleteTag(tag.id), onSuccess: refresh });
   const askRemove = async () => {
     const uses = tag.deviceCount + tag.subnetCount;
-    const message = uses ? ui('tags.manager.confirmDeleteUsed', undefined, { name: tag.name, uses }) : ui('tags.manager.confirmDelete', undefined, { name: tag.name });
+    const message = uses ? ui('tags.manager.confirmDeleteUsed', undefined, { name: tag.name, count: uses }) : ui('tags.manager.confirmDelete', undefined, { name: tag.name });
     if (await confirm({ message, destructive: true })) remove.mutate();
   };
   const error = save.error ?? remove.error;

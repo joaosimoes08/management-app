@@ -94,7 +94,7 @@ export function AppSidebar({ collapsed, onToggle, onClose }: AppSidebarProps) {
       <div className="sidebar-spacer" />
       <div className="sidebar-bottom-row">
         <div className="sidebar-account-controls"><div className="sidebar-profile-control"><UserMenu /></div></div>
-        <button className="sidebar-collapse-toggle icon-button subtle" onClick={onToggle} title={collapsed ? 'Fixar menu aberto' : 'Recolher menu'} aria-label={collapsed ? 'Fixar menu aberto' : 'Recolher menu'}>
+        <button className="sidebar-collapse-toggle icon-button subtle" onClick={onToggle} title={collapsed ? ui('shell.sidebar.pin') : ui('shell.sidebar.collapse')} aria-label={collapsed ? ui('shell.sidebar.pin') : ui('shell.sidebar.collapse')}>
           {collapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
         </button>
       </div>

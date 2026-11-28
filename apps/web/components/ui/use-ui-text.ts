@@ -1,7 +1,8 @@
 import { translateMessage, useOptionalI18n } from '@/lib/i18n/i18n';
 
-type UiText = (key: string, fallback?: string, params?: Record<string, string | number>) => string;
-const portugueseText: UiText = (key, fallback, params) => translateMessage('pt-PT', key, fallback, params);
+export type UiText = (key: string, fallback?: string, params?: Record<string, string | number>) => string;
+/** The Portuguese copy, for helpers called outside a component (their callers pass the hook's t). */
+export const portugueseText: UiText = (key, fallback, params) => translateMessage('pt-PT', key, fallback, params);
 
 /**
  * t() for shared UI (dialogs, toasts, menus, paging). It follows the active language inside

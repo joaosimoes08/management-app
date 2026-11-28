@@ -27,7 +27,7 @@ const countText = (count: number | undefined) => (count === undefined ? '…' : 
  */
 export function FilterChips({ label, value, options, onChange, total, allLabel }: FilterChipsProps) {
   const t = useUiText();
-  const all = allLabel ?? t('filterChips.all', 'Todos');
+  const all = allLabel ?? t('filterChips.all');
   return <div className="filter-chips" role="group" aria-label={label}>
     <span className="filter-chips-label" aria-hidden="true">{label}</span>
     <button type="button" className={`filter-chip${value === '' ? ' active' : ''}`} aria-pressed={value === ''} onClick={() => onChange('')}>
@@ -48,5 +48,5 @@ export function FilterChips({ label, value, options, onChange, total, allLabel }
  */
 export function FilterChipBar({ label, children }: { label?: string; children: ReactNode }) {
   const t = useUiText();
-  return <div className="filter-chip-bar" role="group" aria-label={label ?? t('filterChips.bar', 'Filtros rápidos')}>{children}</div>;
+  return <div className="filter-chip-bar" role="group" aria-label={label ?? t('filterChips.bar')}>{children}</div>;
 }

@@ -8,7 +8,7 @@ import { ChevronRight, ClipboardCheck, GitPullRequestArrow, History, Loader2, Se
 import { useRouter } from 'next/navigation';
 import { dashboardKeys, searchPlatform, type GlobalSearchResult } from '@/features/dashboard/api';
 import { entityHref } from '@/lib/routes';
-import { useUiText } from '@/components/ui/use-ui-text';
+import { portugueseText, useUiText, type UiText } from '@/components/ui/use-ui-text';
 
 type SearchResult = GlobalSearchResult;
 
@@ -17,8 +17,8 @@ export { globalSearchPath, isSearchTypesInvalid } from '@/features/dashboard/api
 const siteIdFromHref = (href: string) => { try { return new URL(href, 'http://local').searchParams.get('siteId'); } catch { return null; } };
 export const withDevicePage = (item: SearchResult): SearchResult => item.type === 'DEVICE' ? { ...item, href: entityHref({ kind: 'device', id: item.id, siteId: siteIdFromHref(item.href) }) } : item;
 /** A quality finding with a fix page gets a second entry that opens it directly. */
-export const expandSearchResults = (items: SearchResult[]): SearchResult[] => items.map(withDevicePage).flatMap((item) => item.type === 'QUALITY_FINDING' && item.actionHref && item.actionHref !== item.href
-  ? [item, { id: `${item.id}-action`, type: 'QUALITY_FINDING_ACTION', title: `Corrigir: ${item.title}`, detail: 'Qualidade · abrir a página de correção', href: item.actionHref }]
+export const expandSearchResults = (items: SearchResult[], text: UiText = portugueseText): SearchResult[] => items.map(withDevicePage).flatMap((item) => item.type === 'QUALITY_FINDING' && item.actionHref && item.actionHref !== item.href
+  ? [item, { id: `${item.id}-action`, type: 'QUALITY_FINDING_ACTION', title: text('shell.search.fixTitle', undefined, { title: item.title }), detail: text('shell.search.fixDetail'), href: item.actionHref }]
   : [item]);
 const resultIcons: Record<string, typeof Search> = { CHANGE_PLAN: GitPullRequestArrow, AUDIT_EVENT: History, QUALITY_FINDING: ClipboardCheck, QUALITY_FINDING_ACTION: Wrench };
 export type RackSearchItem = { id: string; name: string; roomId?: string; room?: { id: string; building?: { id: string } }; devices?: { name: string }[] };
@@ -71,7 +71,7 @@ export function GlobalSearchPalette({ open, onClose, rackSearch, localSearch }: 
   const platformSearch = scope !== 'local' && open && term.length >= 2;
   // Fresh on every search and never kept once the palette moves on (gcTime 0); no retry, as before.
   const search = useQuery({ queryKey: dashboardKeys.search(term), queryFn: ({ signal }) => searchPlatform(term, signal), enabled: platformSearch, retry: false, staleTime: 0, gcTime: 0, refetchOnReconnect: false });
-  const items: SearchResult[] = platformSearch && search.data ? expandSearchResults(search.data.items) : [];
+  const items: SearchResult[] = platformSearch && search.data ? expandSearchResults(search.data.items, ui) : [];
   const searching = platformSearch && search.isFetching;
   const failed = platformSearch && search.isError;
   // New results start with the first one selected.

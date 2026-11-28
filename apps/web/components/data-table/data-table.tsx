@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 import { ArrowDown, ArrowUp, ArrowUpDown, Download } from 'lucide-react';
+import { useUiText } from '@/components/ui/use-ui-text';
 import { csvFileName, downloadCsv, toCsv, type CsvColumn, type CsvOptions } from './csv';
 import { nextSort, sortRows, type SortState, type SortValue } from './table-state';
 
@@ -67,6 +68,7 @@ const ariaSort = (sort: SortState | undefined, id: string) => (sort?.column === 
  * via `useTableUrlState`.
  */
 export function DataTable<Row>({ rows, columns, rowKey, label, className, sort, onSortChange, defaultSort = null, selection, loading = false, skeletonRows = 0, empty }: DataTableProps<Row>) {
+  const ui = useUiText();
   const selectable = (row: Row) => selection?.isSelectable?.(row) ?? true;
   const selectableKeys = selection ? rows.filter(selectable).map(rowKey) : [];
   const selectedVisible = selection ? selectableKeys.filter((key) => selection.selected.has(key)).length : 0;
@@ -104,7 +106,7 @@ export function DataTable<Row>({ rows, columns, rowKey, label, className, sort, 
               <button type="button" className="data-table-sort" onClick={() => onSortChange(nextSort(sort ?? null, column.id, defaultSort))}>
                 {column.header}
                 <Icon size={11} aria-hidden="true" />
-                {direction && <span className="topology-sr-only">{direction === 'ascending' ? 'ordem crescente' : 'ordem decrescente'}</span>}
+                {direction && <span className="topology-sr-only">{direction === 'ascending' ? ui('common.table.sortAscending') : ui('common.table.sortDescending')}</span>}
               </button>
             </th>;
           })}
@@ -135,7 +137,9 @@ export type CsvExportButtonProps<Row> = {
 };
 
 /** Downloads exactly the rows passed in (the filtered, sorted view). */
-export function CsvExportButton<Row>({ rows, columns, fileName, options, label = 'Exportar CSV' }: CsvExportButtonProps<Row>) {
+export function CsvExportButton<Row>({ rows, columns, fileName, options, label: labelProp }: CsvExportButtonProps<Row>) {
+  const ui = useUiText();
+  const label = labelProp ?? ui('common.table.exportCsv');
   return <button type="button" className="secondary-button" aria-label={label} title={label} disabled={!rows.length} onClick={() => downloadCsv(csvFileName(fileName), toCsv(rows, columns, options))}>
     <Download size={14} /> <span className="toolbar-action-label">{label}</span>
   </button>;

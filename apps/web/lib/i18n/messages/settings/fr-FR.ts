@@ -1,0 +1,31 @@
+/** Settings (role requests): Français. Loaded only when fr-FR is chosen. */
+import type { SettingsMessageKey } from './pt-PT';
+
+export const messages: Record<string, string> = {
+  'settings.requests.filter.pending': 'En attente',
+  'settings.requests.filter.approved': 'Approuvées',
+  'settings.requests.filter.rejected': 'Rejetées',
+  'settings.requests.filter.all': 'Tous',
+  'settings.requests.status.PENDING': 'En attente',
+  'settings.requests.status.PROCESSING': 'En cours de traitement',
+  'settings.requests.status.APPROVED': 'Approuvée',
+  'settings.requests.status.REJECTED': 'Rejetée',
+  'settings.requests.loadError': 'Impossible de charger les demandes de rôles.',
+  'settings.requests.decideError': 'Impossible de statuer sur la demande.',
+  'settings.requests.rejectTitle': 'Rejeter la demande',
+  'settings.requests.reject': 'Rejeter',
+  'settings.requests.title': 'Demandes de rôles',
+  'settings.requests.column.user': 'Utilisateur',
+  'settings.requests.column.roles': 'Rôles demandés',
+  'settings.requests.column.status': 'État',
+  'settings.requests.column.createdAt': 'Demandé le',
+  'settings.requests.column.decidedAt': 'Décision',
+  'settings.requests.column.actions': 'Actions',
+  'settings.requests.finish': 'Terminer',
+  'settings.requests.approve': 'Approuver',
+  'settings.requests.saving': 'Enregistrement…',
+  'settings.requests.statusFilter': 'État',
+  'settings.requests.refresh': 'Actualiser',
+  'settings.requests.emptyPending': 'Aucune demande de rôle en attente.',
+  'settings.requests.empty': 'Aucune demande de rôle dans cet état.',
+} satisfies Record<SettingsMessageKey, string>;
