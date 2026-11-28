@@ -88,4 +88,9 @@ export const messages: Record<string, string> = {
   "server.snmp.devicesLeftObservedSite": "Los dispositivos ya no pertenecen al Site observado.",
   "server.dashboard.deviceNoSite": "Dispositivo · sin site",
   "server.snmp.trap.threshold": "umbral {value}%",
+  "server.common.device": "Dispositivo",
+  "server.dashboard.noHostname": "sin hostname",
+  "server.infrastructure.face.rear": "trasera",
+  "server.infrastructure.powerSource.model": "modelo",
+  "server.inventory.discovery": "descubrimiento",
 } satisfies Record<ServerMessageKey, string>;

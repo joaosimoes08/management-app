@@ -89,6 +89,11 @@ export const messages = {
   "server.snmp.devicesLeftObservedSite": "Os equipamentos já não pertencem ao Site observado.",
   "server.dashboard.deviceNoSite": "Equipamento · sem Site",
   "server.snmp.trap.threshold": "limiar {value}%",
+  "server.common.device": "Equipamento",
+  "server.dashboard.noHostname": "sem hostname",
+  "server.infrastructure.face.rear": "traseira",
+  "server.infrastructure.powerSource.model": "modelo",
+  "server.inventory.discovery": "descoberta",
 } as const satisfies Record<string, string>;
 
 export type ServerMessageKey = keyof typeof messages;

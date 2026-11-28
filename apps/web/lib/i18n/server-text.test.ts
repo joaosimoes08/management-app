@@ -97,3 +97,22 @@ describe('localizeServerTextFor', () => {
     expect(localizeServerTextFor('en-US', 'desconhecido')).toBe('desconhecido');
   });
 });
+
+// Review L3: API texts that main's on-page rewriter translated as whole texts. The values are what main 0715e74d showed per locale.
+const mainWholeTexts: Array<[api: string, shown: Record<Exclude<AppLocale, 'pt-PT'>, string>]> = [
+  ['Equipamento', { 'en-US': 'Equipment', 'es-ES': 'Dispositivo', 'fr-FR': 'Équipement', 'de-DE': 'Gerät', 'it-IT': 'Dispositivo' }],
+  ['sem hostname', { 'en-US': 'no hostname', 'es-ES': 'sin hostname', 'fr-FR': 'sans nom d’hôte', 'de-DE': 'kein Hostname', 'it-IT': 'nessun hostname' }],
+  ['traseira', { 'en-US': 'rear', 'es-ES': 'trasera', 'fr-FR': 'arrière', 'de-DE': 'Rückseite', 'it-IT': 'retro' }],
+  ['modelo', { 'en-US': 'model', 'es-ES': 'modelo', 'fr-FR': 'modèle', 'de-DE': 'Modell', 'it-IT': 'modello' }],
+  ['descoberta', { 'en-US': 'discovery', 'es-ES': 'descubrimiento', 'fr-FR': 'découverte', 'de-DE': 'Discovery', 'it-IT': 'rilevamento' }],
+];
+
+describe('API texts main translated as whole texts', () => {
+  it.each(mainWholeTexts)('shows %s as main did in every locale', async (api, shown) => {
+    expect(localizeServerText(pt, api)).toBe(api);
+    for (const [locale, text] of Object.entries(shown) as Array<[AppLocale, string]>) {
+      if (locale !== 'en-US') await loadLocaleBundle(locale);
+      expect(localizeServerText(tFor(locale), api), locale).toBe(text);
+    }
+  });
+});
