@@ -4,6 +4,7 @@ import { apiBlob } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth';
 import { useEffect, useState, type ImgHTMLAttributes, type ReactNode } from 'react';
 import type { AssetFile } from '../types';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 type AssetImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> & {
   asset?: AssetFile | null;
@@ -36,6 +37,7 @@ export function clearAssetBlobCache() { assetBlobs.clear(); }
 
 /** Renders an authenticated asset image as an object URL (assets require a Bearer token). */
 export function AssetImage({ asset, alt, className, loading = 'lazy', fallback, ...props }: AssetImageProps) {
+  const ui = useUiText();
   const { authenticated } = useAuth();
   const [src, setSrc] = useState('');
 
@@ -64,5 +66,5 @@ export function AssetImage({ asset, alt, className, loading = 'lazy', fallback, 
 
   return src
     ? <img src={src} alt={alt} className={className} loading={loading} {...props} />
-    : fallback ?? <span className="asset-image-placeholder" aria-label={alt}>Imagem indisponível</span>;
+    : fallback ?? <span className="asset-image-placeholder" aria-label={alt}>{ui('infrastructure.assetImage.imageUnavailable')}</span>;
 }

@@ -6,12 +6,13 @@ import { Server } from 'lucide-react';
 import { listMissingConfigDevices, type MissingConfigDevice } from '../../api';
 import { EquipmentTypeIcon } from '../equipment-type-icon';
 import { useUiText } from '@/components/ui/use-ui-text';
+import { portugueseText, type InfrastructureText } from '../../infrastructure-text';
 
 const PAGE_SIZE = 50;
 
-function modelLabel(model: MissingConfigDevice['model']): string {
-  if (!model) return 'Sem modelo';
-  return typeof model === 'string' ? model : `${model.manufacturer ?? ''} ${model.model ?? ''}`.trim() || 'Sem modelo';
+function modelLabel(model: MissingConfigDevice['model'], ui: InfrastructureText = portugueseText): string {
+  if (!model) return ui('infrastructure.crossSiteMissingConfigList.noModel');
+  return typeof model === 'string' ? model : `${model.manufacturer ?? ''} ${model.model ?? ''}`.trim() || ui('infrastructure.crossSiteMissingConfigList.noModel');
 }
 
 /**
@@ -33,15 +34,15 @@ export function CrossSiteMissingConfigList({ config, label }: { config: string; 
   const heading = ui('infra.missingConfigHeading', undefined, { devices: ui('infra.deviceCount', undefined, { count: total }), sites: ui('infra.siteCount', undefined, { count: siteCount }) });
 
   return <section className="ipam-card cross-site-missing-config" aria-labelledby="cross-site-missing-config-heading">
-    <div className="panel-heading"><div><h2 id="cross-site-missing-config-heading">{isLoading ? 'A carregar…' : heading}</h2></div></div>
-    {isError && <div role="status" className="ipam-alert error">Não foi possível carregar os equipamentos em falta.</div>}
+    <div className="panel-heading"><div><h2 id="cross-site-missing-config-heading">{isLoading ? ui('infrastructure.crossSiteMissingConfigList.loading') : heading}</h2></div></div>
+    {isError && <div role="status" className="ipam-alert error">{ui('infrastructure.crossSiteMissingConfigList.couldNotLoadTheDevices')}</div>}
     {items.map((item) => <a key={item.id} className="host-row infra-device-row cross-site-missing-config-row" href={item.href}>
       <span className="host-icon equipment-type-icon-frame"><EquipmentTypeIcon type={item.type} /></span>
-      <span><strong>{item.name}</strong><small>{item.type} · {modelLabel(item.model)} · {item.rackName ? `${item.rackName} / ${item.rackUnitStart ?? '?'}U` : 'Por localizar'}</small></span>
-      <span className="cross-site-missing-config-site">{item.siteName ?? 'Sem Site'}</span>
+      <span><strong>{item.name}</strong><small>{item.type} · {modelLabel(item.model, ui)} · {item.rackName ? `${item.rackName} / ${item.rackUnitStart ?? '?'}U` : ui('infrastructure.crossSiteMissingConfigList.notPlaced')}</small></span>
+      <span className="cross-site-missing-config-site">{item.siteName ?? ui('infrastructure.crossSiteMissingConfigList.noSite')}</span>
       <em className="status-active">{item.status}</em>
     </a>)}
-    {!isLoading && !isError && !items.length && <div className="empty-context"><Server size={26} /><strong>Nenhum equipamento em falta</strong></div>}
+    {!isLoading && !isError && !items.length && <div className="empty-context"><Server size={26} /><strong>{ui('infrastructure.crossSiteMissingConfigList.noDevicesMissing')}</strong></div>}
     {totalPages > 1 && <div className="ip-history-pagination"><button type="button" className="secondary-button" disabled={page <= 1} onClick={() => setPage(page - 1)}>{ui('common.previous')}</button><span>{page} / {totalPages}</span><button type="button" className="secondary-button" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>{ui('common.next')}</button></div>}
   </section>;
 }

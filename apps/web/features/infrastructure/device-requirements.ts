@@ -5,6 +5,7 @@ import { apiFetch } from '@/lib/api/client';
 import type { ApiErrorPayload } from '@/lib/api/errors';
 import type { DeviceForm } from './forms';
 import type { DeviceModel } from './types';
+import { portugueseText, type InfrastructureText } from './infrastructure-text';
 
 /**
  * Required device configuration, read from the API registry (GET /api/v1/devices/required-configs,
@@ -19,14 +20,14 @@ import type { DeviceModel } from './types';
 export const DEVICE_EDITOR_TABS = ['geral', 'localizacao', 'rede', 'imagens', 'energia'] as const;
 export type DeviceEditorTab = typeof DEVICE_EDITOR_TABS[number];
 
-const DEFAULT_TAB_LABELS: Record<DeviceEditorTab, string> = { geral: 'Geral', localizacao: 'Localização', rede: 'Rede', imagens: 'Imagens', energia: 'Energia' };
+const DEFAULT_TAB_LABELS: Record<DeviceEditorTab, string> = { geral: 'infrastructure.deviceRequirements.tab.general', localizacao: 'infrastructure.deviceRequirements.tab.location', rede: 'infrastructure.deviceRequirements.tab.network', imagens: 'infrastructure.deviceRequirements.tab.images', energia: 'infrastructure.deviceRequirements.tab.power' };
 
 export function isDeviceEditorTab(value: unknown): value is DeviceEditorTab {
   return typeof value === 'string' && (DEVICE_EDITOR_TABS as readonly string[]).includes(value);
 }
 
-export function deviceEditorTabLabel(tab: DeviceEditorTab, registry?: RequiredConfigRegistry | null): string {
-  return registry?.tabs.find((item) => item.key === tab)?.label ?? DEFAULT_TAB_LABELS[tab];
+export function deviceEditorTabLabel(tab: DeviceEditorTab, registry?: RequiredConfigRegistry | null, ui: InfrastructureText = portugueseText): string {
+  return registry?.tabs.find((item) => item.key === tab)?.label ?? ui(DEFAULT_TAB_LABELS[tab]);
 }
 
 // ── Registry (API) ───────────────────────────────────────────────────────────
@@ -208,7 +209,7 @@ type RawError = { config?: unknown; tab?: unknown; fields?: unknown; field?: unk
  * - REQUIRED_CONFIG_MISSING: `details.errors[{ config, tab, fields, reason, message }]`;
  * - VALIDATION_ERROR: `details.errors` as plain strings ("name must be …"), mapped by their first word.
  */
-export function mapApiFieldErrors(payload: ApiErrorPayload | undefined | null): MappedFieldError[] {
+export function mapApiFieldErrors(payload: ApiErrorPayload | undefined | null, ui: InfrastructureText = portugueseText): MappedFieldError[] {
   if (!payload || typeof payload !== 'object') return [];
   const record = payload as Record<string, unknown>;
   const details = record.details && typeof record.details === 'object' ? record.details as Record<string, unknown> : {};
@@ -227,7 +228,7 @@ export function mapApiFieldErrors(payload: ApiErrorPayload | undefined | null): 
       message = typeof item.message === 'string' ? item.message : item.constraints && typeof item.constraints === 'object' ? Object.values(item.constraints).filter((value) => typeof value === 'string').join(' ') : '';
     }
     if (!target || mapped.some((entry) => entry.fieldId === target.fieldId)) continue;
-    mapped.push({ ...target, message: message || 'Valor inválido.' });
+    mapped.push({ ...target, message: message || ui('infrastructure.deviceRequirements.invalidValue') });
   }
   return mapped;
 }

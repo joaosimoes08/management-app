@@ -20,11 +20,13 @@ function readAsDataUrl(file: File): Promise<string> {
 }
 
 export function ModalActions({ close }: { close: () => void }) {
-  return <div className="modal-actions"><button type="button" className="secondary-button" onClick={close}>Cancelar</button><button className="primary-button"><Check size={14} /> Guardar</button></div>;
+  const ui = useUiText();
+  return <div className="modal-actions"><button type="button" className="secondary-button" onClick={close}>{ui('infrastructure.editorShared.cancel')}</button><button className="primary-button"><Check size={14} /> {ui('infrastructure.editorShared.save')}</button></div>;
 }
 
-export function AssetPicker({ label, value, assets, onChange, required = false, emptyLabel = 'Seleciona um asset', id, invalid = false, describedBy }: { label: string; value: string; assets: AssetFile[]; onChange: (value: string) => void; required?: boolean; emptyLabel?: string; id?: string; invalid?: boolean; describedBy?: string }) {
-  return <label htmlFor={id}>{label}<select id={id} value={value ?? ''} required={required} aria-required={required || undefined} aria-invalid={invalid || undefined} aria-describedby={describedBy} onChange={(event) => onChange(event.target.value)}><option value="">{emptyLabel}</option>{assets.map((asset) => <option key={asset.id} value={asset.id}>{assetDisplayName(asset)}</option>)}</select></label>;
+export function AssetPicker({ label, value, assets, onChange, required = false, emptyLabel, id, invalid = false, describedBy }: { label: string; value: string; assets: AssetFile[]; onChange: (value: string) => void; required?: boolean; emptyLabel?: string; id?: string; invalid?: boolean; describedBy?: string }) {
+  const ui = useUiText();
+  return <label htmlFor={id}>{label}<select id={id} value={value ?? ''} required={required} aria-required={required || undefined} aria-invalid={invalid || undefined} aria-describedby={describedBy} onChange={(event) => onChange(event.target.value)}><option value="">{emptyLabel ?? ui('infrastructure.editorShared.selectAnAsset')}</option>{assets.map((asset) => <option key={asset.id} value={asset.id}>{assetDisplayName(asset, ui)}</option>)}</select></label>;
 }
 
 /** Asset picker with an upload button: the uploaded image is created as an asset and selected. */

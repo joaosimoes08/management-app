@@ -65,29 +65,29 @@ export function DeviceImport({ siteId, models, close, onComplete }: { siteId: st
     if (!file) return;
     try {
       const parsed = parseDeviceCsv(await file.text());
-      if (parsed.length < 2) throw new Error('O CSV deve incluir cabeçalhos e pelo menos uma linha.');
+      if (parsed.length < 2) throw new Error(ui('infrastructure.deviceImport.theCsvMustIncludeHeaders'));
       setFileName(file.name); setColumns(parsed[0]); setValues(parsed); setPreview(null); setError('');
       setMapping(detectDeviceImportMapping(parsed[0]));
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Não foi possível ler o ficheiro.'); }
+    } catch (cause) { setError(cause instanceof Error ? cause.message : ui('infrastructure.deviceImport.couldNotReadTheFile')); }
   }
   async function validate() {
     setBusy(true); setError('');
     try { setPreview(await apiFetch<Preview>('/api/v1/devices/import/preview', { method: 'POST', body: JSON.stringify({ siteId, rows: mappedRows }) })); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : 'Falha ao validar o CSV.'); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : ui('infrastructure.deviceImport.couldNotValidateTheCsv')); }
     finally { setBusy(false); }
   }
   async function confirmImport() {
-    if (!preview || preview.invalid || !(await askConfirm({ title: 'Importar equipamentos', message: `Importar ${preview.valid} equipamentos para este Site?`, confirmLabel: 'Importar' }))) return;
+    if (!preview || preview.invalid || !(await askConfirm({ title: ui('infrastructure.deviceImport.importDevices'), message: ui('infrastructure.deviceImport.confirmImport', undefined, { count: preview.valid }), confirmLabel: ui('infrastructure.deviceImport.import') }))) return;
     setBusy(true); setError('');
     try { await apiFetch('/api/v1/devices/import', { method: 'POST', body: JSON.stringify({ siteId, rows: mappedRows }) }); onComplete(); close(); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : 'A importação falhou. Valida novamente o ficheiro.'); setPreview(null); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : ui('infrastructure.deviceImport.theImportFailedValidateThe')); setPreview(null); }
     finally { setBusy(false); }
   }
-  return <>{confirmDialog}<div className="modal-backdrop" role="presentation"><section ref={dialogRef} className="modal-card" role="dialog" aria-modal="true" aria-labelledby="device-import-title"><header className="modal-header"><div><h2 id="device-import-title">Importar equipamentos CSV</h2></div><button className="icon-button" onClick={close} aria-label="Fechar">×</button></header>
-    <label>Ficheiro CSV<input type="file" accept=".csv,text/csv" onChange={(event) => void readFile(event.target.files?.[0])} /></label>{fileName && <p>{fileName} · {Math.max(0, values.length - 1)} linhas</p>}
-    {columns.length > 0 && <fieldset><legend>Associar colunas</legend>{deviceImportFields.map((field) => <label key={field} style={{ display: 'inline-flex', gap: 8, margin: 6 }}>{field}<select value={mapping[field] ?? ''} onChange={(event) => { setMapping({ ...mapping, [field]: event.target.value ? Number(event.target.value) : undefined }); setPreview(null); }}><option value="">Ignorar</option>{columns.map((column, index) => <option key={index} value={index}>{column}</option>)}</select></label>)}</fieldset>}
-    {mapping.modelId !== undefined && <p>O modelo pode ser identificado pelo nome e fabricante, ou pelo ID.</p>}
+  return <>{confirmDialog}<div className="modal-backdrop" role="presentation"><section ref={dialogRef} className="modal-card" role="dialog" aria-modal="true" aria-labelledby="device-import-title"><header className="modal-header"><div><h2 id="device-import-title">{ui('infrastructure.deviceImport.importDevicesFromCsv')}</h2></div><button className="icon-button" onClick={close} aria-label={ui('infrastructure.deviceImport.close')}>×</button></header>
+    <label>{ui('infrastructure.deviceImport.csvFile')}<input type="file" accept=".csv,text/csv" onChange={(event) => void readFile(event.target.files?.[0])} /></label>{fileName && <p>{fileName} · {Math.max(0, values.length - 1)} linhas</p>}
+    {columns.length > 0 && <fieldset><legend>{ui('infrastructure.deviceImport.mapColumns')}</legend>{deviceImportFields.map((field) => <label key={field} style={{ display: 'inline-flex', gap: 8, margin: 6 }}>{field}<select value={mapping[field] ?? ''} onChange={(event) => { setMapping({ ...mapping, [field]: event.target.value ? Number(event.target.value) : undefined }); setPreview(null); }}><option value="">{ui('infrastructure.deviceImport.ignore')}</option>{columns.map((column, index) => <option key={index} value={index}>{column}</option>)}</select></label>)}</fieldset>}
+    {mapping.modelId !== undefined && <p>{ui('infrastructure.deviceImport.theModelCanBeIdentified')}</p>}
     {error && <div className="ipam-alert error">{error}</div>}{preview && <><p>{ui('infra.import.summary', undefined, { valid: preview.valid, invalid: preview.invalid })}</p><div style={{ maxHeight: 260, overflow: 'auto' }}>{preview.rows.map((item) => <div key={item.rowNumber} className={`host-row ${item.valid ? '' : 'error'}`}><strong>{ui('infra.import.row', undefined, { row: item.rowNumber })}</strong><span>{String(item.data.name ?? ui('infra.import.noName'))}</span>{item.errors.length > 0 && <small>{item.errors.join(' · ')}</small>}</div>)}</div></>}
-    <footer className="modal-actions"><button className="secondary-button" onClick={close}>Cancelar</button><button className="secondary-button" disabled={!values.length || busy} onClick={() => void validate()}>{busy ? 'A validar…' : 'Pré-visualizar e validar'}</button>{preview && <button className="primary-button" disabled={busy || preview.invalid > 0 || preview.valid === 0} onClick={() => void confirmImport()}>{busy ? ui('infra.import.importing') : ui('infra.import.confirm', undefined, { count: preview.valid })}</button>}</footer>
+    <footer className="modal-actions"><button className="secondary-button" onClick={close}>{ui('infrastructure.deviceImport.cancel')}</button><button className="secondary-button" disabled={!values.length || busy} onClick={() => void validate()}>{busy ? ui('infrastructure.deviceImport.validating') : ui('infrastructure.deviceImport.previewAndValidate')}</button>{preview && <button className="primary-button" disabled={busy || preview.invalid > 0 || preview.valid === 0} onClick={() => void confirmImport()}>{busy ? ui('infra.import.importing') : ui('infra.import.confirm', undefined, { count: preview.valid })}</button>}</footer>
   </section></div></>;
 }

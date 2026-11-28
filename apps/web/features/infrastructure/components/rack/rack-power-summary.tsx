@@ -9,6 +9,7 @@ import { formatWatts, powerLevelFromApi, type PowerLevel } from '../../power';
 import type { PowerFeedSource, Rack } from '../../types';
 import { useUiText } from '@/components/ui/use-ui-text';
 import { isFiniteNumber, isRecord, parseJson } from '@/lib/data-guards';
+import { portugueseText, type InfrastructureText } from '../../infrastructure-text';
 
 const THRESHOLDS_KEY = 'mgmt.rack-power-thresholds';
 const MIN_PERCENT = 1;
@@ -40,13 +41,15 @@ export function writePowerThresholds(value: RackPowerThresholds) {
   }
 }
 
-const errorMessage = (error: unknown) => (error instanceof Error && error.message ? error.message : 'Não foi possível carregar o resumo de energia.');
+const LOAD_ERROR = 'infrastructure.rackPowerSummary.loadError';
+const errorMessage = (error: unknown, ui: InfrastructureText = portugueseText) => (error instanceof Error && error.message ? error.message : ui(LOAD_ERROR));
 
 /**
  * Loads the rack power summary (#86) when the rack has PDUs. Plain state rather than React Query: the rack view is
  * rendered without a QueryClient in tests and the summary must follow every rack refresh (connect / disconnect).
  */
 export function useRackPowerSummary(rack: Pick<Rack, 'id' | 'pdus' | 'devices'>, thresholds: RackPowerThresholds) {
+  const ui = useUiText();
   const [summary, setSummary] = useState<RackPowerSummary | null>(null);
   const [error, setError] = useState('');
   const enabled = Boolean(rack.pdus?.length);
@@ -56,11 +59,12 @@ export function useRackPowerSummary(rack: Pick<Rack, 'id' | 'pdus' | 'devices'>,
     let active = true;
     getRackPowerSummary(rack.id, { warningPercent, criticalPercent })
       .then((next) => { if (active) { setSummary(next); setError(''); } })
-      .catch((reason: unknown) => { if (active) { setSummary(null); setError(errorMessage(reason)); } });
+      .catch((reason: unknown) => { if (active) { setSummary(null); setError(errorMessage(reason, (key) => key)); } });
     return () => { active = false; };
     // The rack object changes after every power edit, so the summary refreshes with it.
   }, [enabled, rack, warningPercent, criticalPercent]);
-  return { summary, error, setSummary };
+  // The fallback message is kept as its key and translated here, so a language change also updates it.
+  return { summary, error: error === LOAD_ERROR ? ui(LOAD_ERROR) : error, setSummary };
 }
 
 /** PDU id → level from the summary, so the strips use the same thresholds as the summary. */
@@ -79,12 +83,12 @@ export function summaryDeviceLevels(summary: RackPowerSummary | null): Map<strin
 }
 
 const LEVEL_BADGE: Record<PowerLevel, { className: string; label: string }> = {
-  ok: { className: 'occupied', label: 'Energia OK' },
-  warn: { className: 'reserved', label: 'Energia em aviso' },
-  over: { className: 'excluded', label: 'Energia crítica' },
+  ok: { className: 'occupied', label: 'infrastructure.rackPowerSummary.level.ok' },
+  warn: { className: 'reserved', label: 'infrastructure.rackPowerSummary.level.warn' },
+  over: { className: 'excluded', label: 'infrastructure.rackPowerSummary.level.over' },
 };
-const SOURCE_LABEL: Record<PowerFeedSource, string> = { SUPPLIER: 'Rede', UPS: 'UPS' };
-const REASON_LABEL: Record<string, string> = { watts: 'potência', failoverWatts: 'failover', outlets: 'tomadas' };
+const SOURCE_LABEL: Record<PowerFeedSource, string> = { SUPPLIER: 'infrastructure.rackPowerSummary.source.supplier', UPS: 'infrastructure.rackPowerSummary.source.ups' };
+const REASON_LABEL: Record<string, string> = { watts: 'infrastructure.rackPowerSummary.reason.watts', failoverWatts: 'infrastructure.rackPowerSummary.reason.failoverWatts', outlets: 'infrastructure.rackPowerSummary.reason.outlets' };
 
 const percent = (value: number | null | undefined) => (typeof value === 'number' && Number.isFinite(value) ? `${formatNumber(value, { maximumFractionDigits: 1 })}%` : '—');
 
@@ -105,7 +109,7 @@ export function RackPowerSummaryStrip({ summary, error, onEditThresholds }: Rack
       (strip?.closest('.rack-overview-row') ?? strip)?.scrollIntoView?.({ block: 'nearest' });
     }
   }, [rackId]);
-  if (error) return <div className="ipam-alert error" role="alert" data-testid="rack-power-strip">{error}<button type="button" className="icon-button subtle" onClick={onEditThresholds} aria-label="Limiares de energia" title="Limiares de energia"><SlidersHorizontal size={14} aria-hidden="true" /></button></div>;
+  if (error) return <div className="ipam-alert error" role="alert" data-testid="rack-power-strip">{error}<button type="button" className="icon-button subtle" onClick={onEditThresholds} aria-label={ui('infrastructure.rackPowerSummary.powerThresholds')} title={ui('infrastructure.rackPowerSummary.powerThresholds')}><SlidersHorizontal size={14} aria-hidden="true" /></button></div>;
   if (!summary) return null;
   const level = powerLevelFromApi(summary.level);
   const badge = LEVEL_BADGE[level];
@@ -119,24 +123,24 @@ export function RackPowerSummaryStrip({ summary, error, onEditThresholds }: Rack
   const missingBudget = summary.capacity?.missingBudgetPduIds?.length ?? 0;
   return <div id="rack-power-summary" data-testid="rack-power-strip" data-level={level}>
     <div className="table-actions">
-      <span className={`state-badge ${badge.className}`} data-testid="rack-power-level"><i />{badge.label}</span>
-      <span className="rack-power-threshold-note">{`Limiares: aviso ${percent(summary.thresholds.warningPercent)} · crítico ${percent(summary.thresholds.criticalPercent)}`}</span>
-      <button type="button" className="icon-button subtle" onClick={onEditThresholds} aria-label="Limiares de energia" title="Limiares de energia"><SlidersHorizontal size={14} aria-hidden="true" /></button>
+      <span className={`state-badge ${badge.className}`} data-testid="rack-power-level"><i />{ui(badge.label)}</span>
+      <span className="rack-power-threshold-note">{ui('infrastructure.rackPowerSummary.thresholdsNote', undefined, { warning: percent(summary.thresholds.warningPercent), critical: percent(summary.thresholds.criticalPercent) })}</span>
+      <button type="button" className="icon-button subtle" onClick={onEditThresholds} aria-label={ui('infrastructure.rackPowerSummary.powerThresholds')} title={ui('infrastructure.rackPowerSummary.powerThresholds')}><SlidersHorizontal size={14} aria-hidden="true" /></button>
     </div>
     <div className="detail-grid">
-      <div><span>Consumo estimado</span><strong>{capacity ? ui('infra.rack.powerOf', undefined, { draw: formatWatts(draw), capacity: formatWatts(capacity) }) : formatWatts(draw)}</strong></div>
+      <div><span>{ui('infrastructure.rackPowerSummary.estimatedDraw')}</span><strong>{capacity ? ui('infra.rack.powerOf', undefined, { draw: formatWatts(draw), capacity: formatWatts(capacity) }) : formatWatts(draw)}</strong></div>
       {sources.map((source) => <div key={source}><span>{ui(`infra.rack.utilisation.${source}`)}</span><strong>{percent(summary.utilisation?.bySource?.[source])}</strong></div>)}
-      {summary.utilisation?.worstFailoverPercent != null && <div><span>Pior caso em failover</span><strong>{percent(summary.utilisation.worstFailoverPercent)}</strong></div>}
-      {outlets && <div><span>Tomadas ocupadas</span><strong>{`${outlets.used}/${outlets.total} (${percent(outlets.percent)})`}</strong></div>}
-      {unconnected > 0 && <div><span>Equipamentos sem energia</span><strong>{unconnected}</strong></div>}
+      {summary.utilisation?.worstFailoverPercent != null && <div><span>{ui('infrastructure.rackPowerSummary.worstCaseFailover')}</span><strong>{percent(summary.utilisation.worstFailoverPercent)}</strong></div>}
+      {outlets && <div><span>{ui('infrastructure.rackPowerSummary.usedOutlets')}</span><strong>{`${outlets.used}/${outlets.total} (${percent(outlets.percent)})`}</strong></div>}
+      {unconnected > 0 && <div><span>{ui('infrastructure.rackPowerSummary.unpoweredDevices')}</span><strong>{unconnected}</strong></div>}
     </div>
-    {missingBudget > 0 && <div className="ipam-alert warning">{missingBudget === 1 ? 'Uma PDU não tem orçamento de potência definido.' : `${missingBudget} PDUs não têm orçamento de potência definido.`}</div>}
+    {missingBudget > 0 && <div className="ipam-alert warning">{missingBudget === 1 ? ui('infrastructure.rackPowerSummary.onePduHasNoPower') : ui('infrastructure.rackPowerSummary.pdusHaveNoBudget', undefined, { count: missingBudget })}</div>}
     {(nearPdus.length > 0 || nearDevices.length > 0) && <div className="ipam-alert warning" data-testid="rack-power-near-limit">
-      <strong>Perto do limite</strong>
+      <strong>{ui('infrastructure.rackPowerSummary.nearTheLimit')}</strong>
       {nearPdus.map((pdu) => {
-        const name = pdu.name?.trim() || `PDU ${SOURCE_LABEL[pdu.source] ?? pdu.source}`;
-        const reasons = (pdu.reasons ?? []).map((reason) => REASON_LABEL[reason] ?? reason).join(', ');
-        return <span key={pdu.id}>{reasons ? `${name} — perto do limite em: ${reasons}` : name}</span>;
+        const name = pdu.name?.trim() || `PDU ${SOURCE_LABEL[pdu.source] ? ui(SOURCE_LABEL[pdu.source]) : pdu.source}`;
+        const reasons = (pdu.reasons ?? []).map((reason) => REASON_LABEL[reason] ? ui(REASON_LABEL[reason]) : reason).join(', ');
+        return <span key={pdu.id}>{reasons ? ui('infrastructure.rackPowerSummary.nearLimitReasons', undefined, { name, reasons }) : name}</span>;
       })}
       {nearDevices.length > 0 && <div className="table-actions">{nearDevices.map((device) => {
         const deviceLevel = powerLevelFromApi(device.level);
@@ -155,6 +159,7 @@ export interface RackPowerThresholdsModalProps {
 
 /** Edits the warning / critical thresholds. The API validates them; its 400 message is shown as is. */
 export function RackPowerThresholdsModal({ rackId, value, onSaved, close }: RackPowerThresholdsModalProps) {
+  const ui = useUiText();
   const [warning, setWarning] = useState(String(value.warningPercent));
   const [critical, setCritical] = useState(String(value.criticalPercent));
   const [error, setError] = useState('');
@@ -169,7 +174,7 @@ export function RackPowerThresholdsModal({ rackId, value, onSaved, close }: Rack
       writePowerThresholds(thresholds);
       onSaved(thresholds, summary);
     } catch (reason) {
-      setError(errorMessage(reason));
+      setError(errorMessage(reason, ui));
     } finally {
       setSaving(false);
     }
@@ -182,20 +187,20 @@ export function RackPowerThresholdsModal({ rackId, value, onSaved, close }: Rack
       writePowerThresholds({});
       onSaved({}, summary);
     } catch (reason) {
-      setError(errorMessage(reason));
+      setError(errorMessage(reason, ui));
     } finally {
       setSaving(false);
     }
   };
-  return <CompactModal title="Limiares de energia" close={close}>
+  return <CompactModal title={ui('infrastructure.rackPowerSummary.powerThresholds')} close={close}>
     <form className="modal-form" onSubmit={submit}>
       {error && <div className="ipam-alert error" role="alert">{error}</div>}
-      <label>Aviso (% do orçamento ou das tomadas)<input type="number" min={MIN_PERCENT} max={MAX_PERCENT} required value={warning} onChange={(event) => setWarning(event.target.value)} /></label>
-      <label>Crítico (% do orçamento ou das tomadas)<input type="number" min={MIN_PERCENT} max={MAX_PERCENT} required value={critical} onChange={(event) => setCritical(event.target.value)} /></label>
+      <label>{ui('infrastructure.rackPowerSummary.warningOfBudgetOrOutlets')}<input type="number" min={MIN_PERCENT} max={MAX_PERCENT} required value={warning} onChange={(event) => setWarning(event.target.value)} /></label>
+      <label>{ui('infrastructure.rackPowerSummary.criticalOfBudgetOrOutlets')}<input type="number" min={MIN_PERCENT} max={MAX_PERCENT} required value={critical} onChange={(event) => setCritical(event.target.value)} /></label>
       <div className="modal-actions">
-        <button type="button" className="secondary-button" disabled={saving} onClick={() => void reset()}>Repor predefinição</button>
-        <button type="button" className="secondary-button" disabled={saving} onClick={close}>Cancelar</button>
-        <button type="submit" className="primary-button" disabled={saving}>{saving ? 'A guardar…' : 'Guardar'}</button>
+        <button type="button" className="secondary-button" disabled={saving} onClick={() => void reset()}>{ui('infrastructure.rackPowerSummary.resetToDefault')}</button>
+        <button type="button" className="secondary-button" disabled={saving} onClick={close}>{ui('infrastructure.rackPowerSummary.cancel')}</button>
+        <button type="submit" className="primary-button" disabled={saving}>{saving ? ui('infrastructure.rackPowerSummary.saving') : ui('infrastructure.rackPowerSummary.save')}</button>
       </div>
     </form>
   </CompactModal>;

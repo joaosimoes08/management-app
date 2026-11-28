@@ -8,6 +8,7 @@ import { RackWorkspace } from '../components/rack/rack-workspace';
 import { withoutPduConnection } from '../power';
 import type { Rack, RackEditDraft, RackPlacementPlan, RoomWithBuilding } from '../types';
 import { useInfrastructureWorkspace } from '../workspace-context';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 type RacksTabProps = {
   rooms: RoomWithBuilding[];
@@ -25,6 +26,7 @@ type RacksTabProps = {
 
 /** Bastidores: the racks of the selected Room, with placement, reordering, rack deletion and PDU disconnects. */
 export function RacksTab({ rooms, buildingId, roomId, rackId, setRoomId, setRackId, onEditRack, deletingRackId, setDeletingRackId }: RacksTabProps) {
+  const ui = useUiText();
   const queryClient = useQueryClient();
   const { hasRole } = useAuth();
   const { siteId, racks, navigation, access, snmpHealth, openDevice, editDevice, setError, invalidateInfrastructure, askConfirm, offerPowerStep } = useInfrastructureWorkspace();
@@ -51,7 +53,7 @@ export function RacksTab({ rooms, buildingId, roomId, rackId, setRoomId, setRack
       setError('');
       return await previewDevicePlacement(deviceId, { rackId: targetRackId, rackUnitStart });
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : 'Não foi possível pré-visualizar a posição do equipamento.';
+      const message = cause instanceof Error ? cause.message : ui('infrastructure.racksTab.couldNotPreviewTheEquipment');
       setError(message);
       throw cause;
     }
@@ -66,7 +68,7 @@ export function RacksTab({ rooms, buildingId, roomId, rackId, setRoomId, setRack
       if (placed && placed.rackId !== targetRackId) void offerPowerStep({ ...placed, rackId: targetRackId }, placed.rackId ?? '');
       return result;
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : 'Não foi possível atualizar a localização do equipamento.';
+      const message = cause instanceof Error ? cause.message : ui('infrastructure.racksTab.couldNotUpdateTheEquipment');
       setError(message);
       throw cause;
     }
@@ -77,13 +79,13 @@ export function RacksTab({ rooms, buildingId, roomId, rackId, setRoomId, setRack
       await apiReorderRacks(targetRoomId, rackIds);
       await invalidateInfrastructure();
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : 'Não foi possível guardar a ordem dos bastidores.';
+      const message = cause instanceof Error ? cause.message : ui('infrastructure.racksTab.couldNotSaveRackOrder');
       setError(message);
       throw cause;
     }
   };
   const deleteRack = async (rack: Rack) => {
-    if (!(await askConfirm({ message: `Eliminar o bastidor “${rack.name}”? Os bastidores seguintes serão deslocados uma posição para a esquerda.`, destructive: true }))) return;
+    if (!(await askConfirm({ message: ui('infrastructure.racksTab.confirmDelete', undefined, { name: rack.name }), destructive: true }))) return;
     setDeletingRackId(rack.id);
     setError('');
     try {
@@ -94,7 +96,7 @@ export function RacksTab({ rooms, buildingId, roomId, rackId, setRoomId, setRack
       history.replaceState({}, '', `${url.pathname}${url.search}`);
       await invalidateInfrastructure();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Não foi possível eliminar o bastidor.');
+      setError(cause instanceof Error ? cause.message : ui('infrastructure.racksTab.couldNotDeleteTheRack'));
     } finally {
       setDeletingRackId('');
     }

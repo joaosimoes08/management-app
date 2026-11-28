@@ -2,6 +2,7 @@ import type { AssetFile, Device, DeviceInterface, DeviceModel, PortLayout, PortL
 import { getPublicRuntimeConfig } from '@/lib/runtime-config';
 import { STORAGE_KEYS, getLocalItem, getSessionItem } from '@/lib/storage-keys';
 import { isRecord, isString, parseJson } from '@/lib/data-guards';
+import { portugueseText, type InfrastructureText } from './infrastructure-text';
 
 export const FIXED_RACK_IMAGE = '/assets/rack-empty-42u.png?v=2';
 export const RACK_UNITS = 42;
@@ -47,8 +48,8 @@ export function assetFileUrl(asset: Pick<AssetFile, 'id'>): string {
   return `${getPublicRuntimeConfig().apiUrl}/api/v1/assets/${asset.id}/file`;
 }
 
-export function assetDisplayName(asset?: AssetFile | null): string {
-  return asset?.filename ?? 'Asset sem nome';
+export function assetDisplayName(asset?: AssetFile | null, ui: InfrastructureText = portugueseText): string {
+  return asset?.filename ?? ui('infrastructure.utils.unnamedAsset');
 }
 
 /** Persisted workspace context (site/building/room) across visits. */
@@ -263,8 +264,8 @@ export function writeRackView(view: RackView): void {
   }
 }
 
-export function formatPortTooltipTitle(item: DeviceInterface | null | undefined, port: Pick<PortLayoutPort, 'portKey' | 'label'> | null | undefined): string {
-  const value = String(item?.portKey || port?.portKey || item?.name || port?.label || 'Porta');
+export function formatPortTooltipTitle(item: DeviceInterface | null | undefined, port: Pick<PortLayoutPort, 'portKey' | 'label'> | null | undefined, ui: InfrastructureText = portugueseText): string {
+  const value = String(item?.portKey || port?.portKey || item?.name || port?.label || ui('infrastructure.utils.port'));
   return value.replace(/^ethernet/i, 'Eth').replace(/^eth/i, 'Eth');
 }
 

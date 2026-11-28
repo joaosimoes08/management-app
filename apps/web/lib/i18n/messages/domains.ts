@@ -7,6 +7,7 @@ export { common } from './common';
 export { criticalAssets } from './critical-assets';
 export { dashboard } from './dashboard';
 export { discovery } from './discovery';
+export { infrastructure } from './infrastructure';
 export { operations } from './operations';
 export { settings } from './settings';
 export { shell } from './shell';

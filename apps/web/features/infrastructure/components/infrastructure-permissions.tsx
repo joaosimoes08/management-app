@@ -6,12 +6,14 @@ import { Edit3, Trash2 } from 'lucide-react';
 import { createInfrastructurePermission, deleteInfrastructurePermission, listInfrastructureGroups, listInfrastructurePermissions } from '../api';
 import type { BuildingWithRooms, InfrastructureAction, InfrastructurePermission } from '../types';
 import { useConfirm } from '@/components/ui/confirm-dialog';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 const actions: InfrastructureAction[] = ['READ', 'CREATE', 'UPDATE', 'DELETE'];
 type PermissionDraft = { groupId: string; scopeType: string; scopeId: string };
 type PermissionChange = { create: (PermissionDraft & { permission: InfrastructureAction })[]; deleteIds: string[] };
 
 export function InfrastructurePermissions({ siteId, buildings }: { siteId: string; buildings: BuildingWithRooms[] }) {
+  const ui = useUiText();
   const { confirm: askConfirm, confirmDialog } = useConfirm();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<PermissionDraft>({ groupId: '', scopeType: 'SITE', scopeId: siteId });
@@ -33,8 +35,8 @@ export function InfrastructurePermissions({ siteId, buildings }: { siteId: strin
   const selectedRules = permissions.filter((item) => item.group?.id === draft.groupId && item.scopeType === draft.scopeType && item.scopeId === draft.scopeId);
   const selectedActions = selectedRules.map((item) => item.permission);
   const fullControl = actions.every((action) => selectedActions.includes(action));
-  const resources = draft.scopeType === 'SITE' ? [{ id: siteId, label: 'Todo o Site' }] : draft.scopeType === 'BUILDING' ? buildings.map((building) => ({ id: building.id, label: building.name })) : rooms.map((room) => ({ id: room.id, label: `${room.building.name} · ${room.name}` }));
-  const labelFor = (item: InfrastructurePermission) => item.scopeType === 'SITE' ? 'Todo o Site' : item.scopeType === 'BUILDING' ? buildings.find((candidate) => candidate.id === item.scopeId)?.name ?? item.scopeId : (() => { const room = rooms.find((candidate) => candidate.id === item.scopeId); return room ? `${room.building.name} · ${room.name}` : item.scopeId; })();
+  const resources = draft.scopeType === 'SITE' ? [{ id: siteId, label: ui('infrastructure.permissions.wholeSite') }] : draft.scopeType === 'BUILDING' ? buildings.map((building) => ({ id: building.id, label: building.name })) : rooms.map((room) => ({ id: room.id, label: `${room.building.name} · ${room.name}` }));
+  const labelFor = (item: InfrastructurePermission) => item.scopeType === 'SITE' ? ui('infrastructure.permissions.wholeSite') : item.scopeType === 'BUILDING' ? buildings.find((candidate) => candidate.id === item.scopeId)?.name ?? item.scopeId : (() => { const room = rooms.find((candidate) => candidate.id === item.scopeId); return room ? `${room.building.name} · ${room.name}` : item.scopeId; })();
   const ready = Boolean(draft.groupId && draft.scopeId);
 
   const toggleAction = (action: InfrastructureAction, enabled: boolean) => {
@@ -56,16 +58,16 @@ export function InfrastructurePermissions({ siteId, buildings }: { siteId: strin
 
   const editRule = (item: InfrastructurePermission) => setDraft({ groupId: item.group?.id ?? '', scopeType: item.scopeType, scopeId: item.scopeId });
   const clearSelected = async () => {
-    if (!selectedRules.length || !(await askConfirm({ title: 'Apagar permissões', message: 'Apagar todas as permissões deste grupo no âmbito selecionado?', confirmLabel: 'Apagar', destructive: true }))) return;
+    if (!selectedRules.length || !(await askConfirm({ title: ui('infrastructure.permissions.deletePermissions'), message: ui('infrastructure.permissions.deleteAllPermissionsOfThis'), confirmLabel: ui('infrastructure.permissions.delete'), destructive: true }))) return;
     mutation.mutate({ create: [], deleteIds: selectedRules.map((item) => item.id) });
   };
 
   return <>{confirmDialog}<section className="ipam-card permissions-panel">
-    <div className="panel-heading"><div><h2>Permissões dos grupos</h2></div></div>
-    {error && <div className="ipam-alert error">{error instanceof Error ? error.message : 'Não foi possível carregar as permissões.'}</div>}
-    <div className="permission-scope-picker"><select value={draft.groupId} onChange={(event) => setDraft({ ...draft, groupId: event.target.value })}><option value="">Escolher grupo…</option>{(groupsQuery.data ?? []).map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select><select value={draft.scopeType} onChange={(event) => { const scopeType = event.target.value; setDraft({ ...draft, scopeType, scopeId: scopeType === 'SITE' ? siteId : '' }); }}><option value="SITE">Site</option><option value="BUILDING">Edifício</option><option value="ROOM">Sala</option></select><select value={draft.scopeId} onChange={(event) => setDraft({ ...draft, scopeId: event.target.value })}><option value="">Escolher âmbito…</option>{resources.map((resource) => <option key={resource.id} value={resource.id}>{resource.label}</option>)}</select></div>
-    <div className="permission-checkboxes"><label className="full-control"><input type="checkbox" disabled={!ready || mutation.isPending} checked={ready && fullControl} onChange={(event) => toggleFullControl(event.target.checked)} /><span><strong>FULL CONTROL</strong><small>Todas as permissões</small></span></label>{actions.map((action) => <label key={action}><input type="checkbox" disabled={!ready || mutation.isPending} checked={ready && selectedActions.includes(action)} onChange={(event) => toggleAction(action, event.target.checked)} /><span>{action}</span></label>)}</div>
-    {selectedRules.length > 0 && <div className="permission-editor-actions"><button className="danger-button" disabled={mutation.isPending} onClick={clearSelected}><Trash2 size={14} /> Limpar permissões</button></div>}
-    <div><div className="permission-rule-list">{permissions.map((item) => <article className="permission-rule-row" key={item.id}><span><strong>{item.group?.name} · {item.scopeType} · {labelFor(item)}</strong><small>{item.permission}</small></span><div className="row-actions"><button title="Editar permissão" onClick={() => editRule(item)}><Edit3 size={14} /></button><button title="Apagar permissão" className="danger" disabled={mutation.isPending} onClick={() => mutation.mutate({ create: [], deleteIds: [item.id] })}><Trash2 size={14} /></button></div></article>)}</div>{!permissionsQuery.isLoading && !permissions.length && <div className="no-data">Ainda não existem permissões de Infraestrutura neste Site.</div>}</div>
+    <div className="panel-heading"><div><h2>{ui('infrastructure.permissions.groupPermissions')}</h2></div></div>
+    {error && <div className="ipam-alert error">{error instanceof Error ? error.message : ui('infrastructure.permissions.couldNotLoadThePermissions')}</div>}
+    <div className="permission-scope-picker"><select value={draft.groupId} onChange={(event) => setDraft({ ...draft, groupId: event.target.value })}><option value="">{ui('infrastructure.permissions.chooseGroup')}</option>{(groupsQuery.data ?? []).map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select><select value={draft.scopeType} onChange={(event) => { const scopeType = event.target.value; setDraft({ ...draft, scopeType, scopeId: scopeType === 'SITE' ? siteId : '' }); }}><option value="SITE">Site</option><option value="BUILDING">{ui('infrastructure.permissions.building')}</option><option value="ROOM">{ui('infrastructure.permissions.room')}</option></select><select value={draft.scopeId} onChange={(event) => setDraft({ ...draft, scopeId: event.target.value })}><option value="">{ui('infrastructure.permissions.chooseScope')}</option>{resources.map((resource) => <option key={resource.id} value={resource.id}>{resource.label}</option>)}</select></div>
+    <div className="permission-checkboxes"><label className="full-control"><input type="checkbox" disabled={!ready || mutation.isPending} checked={ready && fullControl} onChange={(event) => toggleFullControl(event.target.checked)} /><span><strong>FULL CONTROL</strong><small>{ui('infrastructure.permissions.allPermissions')}</small></span></label>{actions.map((action) => <label key={action}><input type="checkbox" disabled={!ready || mutation.isPending} checked={ready && selectedActions.includes(action)} onChange={(event) => toggleAction(action, event.target.checked)} /><span>{action}</span></label>)}</div>
+    {selectedRules.length > 0 && <div className="permission-editor-actions"><button className="danger-button" disabled={mutation.isPending} onClick={clearSelected}><Trash2 size={14} /> {ui('infrastructure.permissions.clearPermissions')}</button></div>}
+    <div><div className="permission-rule-list">{permissions.map((item) => <article className="permission-rule-row" key={item.id}><span><strong>{item.group?.name} · {item.scopeType} · {labelFor(item)}</strong><small>{item.permission}</small></span><div className="row-actions"><button title={ui('infrastructure.permissions.editPermission')} onClick={() => editRule(item)}><Edit3 size={14} /></button><button title={ui('infrastructure.permissions.deletePermission')} className="danger" disabled={mutation.isPending} onClick={() => mutation.mutate({ create: [], deleteIds: [item.id] })}><Trash2 size={14} /></button></div></article>)}</div>{!permissionsQuery.isLoading && !permissions.length && <div className="no-data">{ui('infrastructure.permissions.thereAreNoInfrastructurePermissions')}</div>}</div>
   </section></>;
 }
