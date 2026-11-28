@@ -1,3 +1,4 @@
+import { loadDomainMessages } from '../messages/registry';
 import type { LazyLocale, LocaleBundle } from './catalog';
 
 /**
@@ -22,8 +23,9 @@ export function loadLocaleBundle(locale: LazyLocale): Promise<LocaleBundle> {
   if (ready) return Promise.resolve(ready);
   let load = pending.get(locale);
   if (!load) {
-    load = importers[locale]().then((module) => {
-      const bundle: LocaleBundle = { messages: module.messages, sourceText: module.sourceText, substitutions: module.substitutions };
+    // The language's own file plus its file of every domain in ../messages, downloaded in parallel.
+    load = Promise.all([importers[locale](), loadDomainMessages(locale)]).then(([module, domainMessages]) => {
+      const bundle: LocaleBundle = { messages: { ...module.messages, ...domainMessages }, sourceText: module.sourceText, substitutions: module.substitutions };
       loaded.set(locale, bundle);
       pending.delete(locale);
       return bundle;

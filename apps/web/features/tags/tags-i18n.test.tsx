@@ -6,10 +6,10 @@ import { createElement, type ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { translateMessage, type AppLocale } from '@/lib/i18n/i18n';
 import { translateSourceText } from '@/lib/i18n/source-text-messages';
-import { messages as deDE } from '@/lib/i18n/locales/de-DE';
-import { messages as esES } from '@/lib/i18n/locales/es-ES';
-import { messages as frFR } from '@/lib/i18n/locales/fr-FR';
-import { messages as itIT } from '@/lib/i18n/locales/it-IT';
+import { messages as deDE } from '@/lib/i18n/messages/tags/de-DE';
+import { messages as esES } from '@/lib/i18n/messages/tags/es-ES';
+import { messages as frFR } from '@/lib/i18n/messages/tags/fr-FR';
+import { messages as itIT } from '@/lib/i18n/messages/tags/it-IT';
 import type { Tag } from './types';
 
 // The tags screens were the first domain moved from hard-coded Portuguese (translated on the page

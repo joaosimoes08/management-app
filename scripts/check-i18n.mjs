@@ -114,8 +114,11 @@ function sourceFile(relative, kind = ts.ScriptKind.TSX) {
 function objectKeys(variableName, source) {
   const keys = new Set();
   function visit(node) {
-    if (ts.isVariableDeclaration(node) && node.name.getText(source) === variableName && ts.isObjectLiteralExpression(node.initializer)) {
-      for (const property of node.initializer.properties) {
+    let initializer = ts.isVariableDeclaration(node) ? node.initializer : undefined;
+    // `{ ... } satisfies Record<K, string>` and `{ ... } as const` (per-domain message files).
+    while (initializer && (ts.isSatisfiesExpression(initializer) || ts.isAsExpression(initializer))) initializer = initializer.expression;
+    if (initializer && node.name.getText(source) === variableName && ts.isObjectLiteralExpression(initializer)) {
+      for (const property of initializer.properties) {
         if (ts.isPropertyAssignment(property)) keys.add(ts.isStringLiteral(property.name) ? property.name.text : property.name.getText(source));
       }
     }
@@ -147,6 +150,63 @@ const missingPortuguese = [...enKeys].filter((key) => !ptKeys.has(key));
 const sourceTextSource = sourceFile('apps/web/lib/i18n/source-text-messages.ts', ts.ScriptKind.TS);
 const sourceTextKeys = objectKeys('enUS', sourceTextSource);
 const portuguese = /[áàãâéêíóôõúçÁÀÃÂÉÊÍÓÔÕÚÇ]|\b(Não|Sem|Criar|Editar|Eliminar|Guardar|Cancelar|Pesquisar|Definições|Descoberta|Infraestrutura|Equipamento|Bastidor|Sala|Edifício|Porta|permitidas|Aplicações|Auditoria|Ajuda|Anterior|Seguinte|Nome|Descrição|Estado|Operacional|disponível|associad|resultados|execução|utilizador|serviço|serviços|Últim|Novo|Nova|Voltar|Abrir|Fechar|Selecion|Carregar|Configura|Imagem|Modelo|Localização|Organização|Membros|Permissões|Ativa|Verificar|Ordem|Ainda|Apenas|Todos|Todas|livres|ocupados|manual|observado|Origem|Notas|Sistema operativo|Portas|Página|Nenhuma|Reordenar|Remover)\b/i;
+// Per-domain keyed messages: apps/web/lib/i18n/messages/<domain>/<locale>.ts, registered in messages/domains.ts.
+// Found automatically; every domain must have all 6 locale files with exactly the keys of its pt-PT file.
+const allLocales = ['pt-PT', 'en-US', 'es-ES', 'fr-FR', 'de-DE', 'it-IT'];
+const messagesRoot = 'apps/web/lib/i18n/messages';
+const domainErrors = [];
+const domainKeys = new Map(); // key -> domain
+const domainNames = fs.readdirSync(path.join(root, messagesRoot), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
+const registry = fs.readFileSync(path.join(root, messagesRoot, 'domains.ts'), 'utf8');
+const registeredDomains = [...registry.matchAll(/^export \{ (\w+) \} from '\.\/([\w-]+)';$/gm)].map((match) => match[2]);
+for (const name of domainNames) if (!registeredDomains.includes(name)) domainErrors.push(`messages/${name}/ is not registered in messages/domains.ts`);
+for (const name of registeredDomains) if (!domainNames.includes(name)) domainErrors.push(`messages/domains.ts registers "${name}", which has no messages/${name}/ folder`);
+for (const domain of domainNames) {
+  const index = path.join(root, messagesRoot, domain, 'index.ts');
+  const indexText = fs.existsSync(index) ? fs.readFileSync(index, 'utf8') : '';
+  if (!indexText) domainErrors.push(`messages/${domain}/index.ts is missing`);
+  const keysByLocale = {};
+  for (const locale of allLocales) {
+    const relative = `${messagesRoot}/${domain}/${locale}.ts`;
+    if (!fs.existsSync(path.join(root, relative))) { domainErrors.push(`messages/${domain}/${locale}.ts is missing`); continue; }
+    keysByLocale[locale] = objectKeys('messages', sourceFile(relative, ts.ScriptKind.TS));
+    if (locale !== 'pt-PT' && locale !== 'en-US' && indexText && !indexText.includes(`import('./${locale}')`)) domainErrors.push(`messages/${domain}/index.ts does not lazy-load ./${locale}`);
+  }
+  const source = keysByLocale['pt-PT'] ?? new Set();
+  for (const locale of allLocales.slice(1)) {
+    const keys = keysByLocale[locale];
+    if (!keys) continue;
+    const missing = [...source].filter((key) => !keys.has(key));
+    const orphan = [...keys].filter((key) => !source.has(key));
+    if (missing.length) domainErrors.push(`messages/${domain}/${locale}.ts is missing: ${missing.join(', ')}`);
+    if (orphan.length) domainErrors.push(`messages/${domain}/${locale}.ts has keys not in pt-PT: ${orphan.join(', ')}`);
+  }
+  for (const key of source) {
+    if (ptKeys.has(key) || enKeys.has(key)) domainErrors.push(`${key} is defined in messages/${domain}/ and in the i18n.tsx block`);
+    else if (domainKeys.has(key)) domainErrors.push(`${key} is defined in messages/${domain}/ and messages/${domainKeys.get(key)}/`);
+    else domainKeys.set(key, domain);
+  }
+}
+// Orphan keys: a domain key no app code uses. Plural forms (.one/.other/...) count as their base key, and
+// `prefix.${...}` template keys count for every key under that prefix.
+const appSources = [];
+(function walk(directory) {
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    if (['node_modules', '.next', 'messages'].includes(entry.name) && entry.isDirectory()) continue;
+    const full = path.join(directory, entry.name);
+    if (entry.isDirectory()) walk(full);
+    else if (/\.(ts|tsx)$/.test(entry.name) && !/\.test\.(ts|tsx)$/.test(entry.name)) appSources.push(fs.readFileSync(full, 'utf8'));
+  }
+})(path.join(root, 'apps/web'));
+const appText = appSources.join('\n');
+for (const [key, domain] of domainKeys) {
+  const base = key.replace(/\.(zero|one|two|few|many|other)$/, '');
+  const quoted = (value) => [`'${value}'`, `"${value}"`, `\`${value}\``].some((literal) => appText.includes(literal));
+  const parts = base.split('.');
+  const prefixes = parts.slice(1).map((_, index) => `\`${parts.slice(0, index + 1).join('.')}.\${`);
+  if (!quoted(base) && !prefixes.some((prefix) => appText.includes(prefix))) domainErrors.push(`${key} (messages/${domain}/) is not used by any app code`);
+}
+
 // `npm run i18n:check -- --locales[=es-ES,fr-FR]`: what each added language still lacks compared with en-US.
 // Report only: translators fill these files in over time, so missing entries do not fail the run.
 const localesArg = process.argv.slice(2).find((arg) => arg === '--locales' || arg.startsWith('--locales='));
@@ -210,10 +270,11 @@ for (const relative of operationalFiles) {
   visit(source);
 }
 
-if (missingEnglish.length || missingPortuguese.length || uncovered.length) {
+if (missingEnglish.length || missingPortuguese.length || uncovered.length || domainErrors.length) {
   if (missingEnglish.length) console.error(`Missing en-US keys: ${missingEnglish.join(', ')}`);
   if (missingPortuguese.length) console.error(`Missing pt-PT keys: ${missingPortuguese.join(', ')}`);
   if (uncovered.length) console.error(`Uncovered source-text UI messages:\n${uncovered.join('\n')}`);
+  if (domainErrors.length) console.error(`Per-domain messages (apps/web/lib/i18n/messages):\n${domainErrors.join('\n')}`);
   process.exit(1);
 }
-console.log(`i18n OK: ${ptKeys.size} keyed messages and ${sourceTextKeys.size} covered source-text messages.`);
+console.log(`i18n OK: ${ptKeys.size + domainKeys.size} keyed messages (${domainKeys.size} in ${domainNames.length} domain folder(s)) and ${sourceTextKeys.size} covered source-text messages.`);
