@@ -4,6 +4,7 @@ import { useEffect, useId, useState, type FormEvent } from 'react';
 import { Bookmark, Link2, Trash2 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { useOptionalToast } from '@/components/ui/toast';
+import { useUiText } from '@/components/ui/use-ui-text';
 import { parseTableState, serializeTableState, type TableFilters, type TableState, type TableStateConfig } from './table-state';
 
 /**
@@ -60,6 +61,7 @@ export function SavedViews<F extends TableFilters>({ pageId, config, table }: Sa
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState('');
   const toast = useOptionalToast();
+  const ui = useUiText();
 
   useEffect(() => {
     const load = () => setViews(readSavedViews(key));
@@ -83,23 +85,23 @@ export function SavedViews<F extends TableFilters>({ pageId, config, table }: Sa
   };
   const copyLink = async () => {
     // Confirm through the app's toast (same as every other confirmation), not inline text that shifts the toolbar.
-    try { await navigator.clipboard.writeText(window.location.href); toast?.success('Copiar ligação desta vista', 'Ligação copiada'); } catch { toast?.error('Copiar ligação desta vista', 'Não foi possível copiar a ligação'); }
+    try { await navigator.clipboard.writeText(window.location.href); toast?.success(ui('common.savedViews.copyLink'), ui('common.savedViews.linkCopied')); } catch { toast?.error(ui('common.savedViews.copyLink'), ui('common.savedViews.copyFailed')); }
   };
 
-  return <div className="interface-toolbar-controls saved-views" role="group" aria-label="Vistas guardadas">
-    <label><span className="toolbar-filter-label">Vista</span><select aria-label="Aplicar vista guardada" title="Aplicar vista guardada" value={active} onChange={(event) => apply(event.target.value)}>
-      <option value="">{views.length ? 'Vista atual' : 'Sem vistas guardadas'}</option>
+  return <div className="interface-toolbar-controls saved-views" role="group" aria-label={ui('common.savedViews.group')}>
+    <label><span className="toolbar-filter-label">{ui('common.savedViews.view')}</span><select aria-label={ui('common.savedViews.apply')} title={ui('common.savedViews.apply')} value={active} onChange={(event) => apply(event.target.value)}>
+      <option value="">{views.length ? ui('common.savedViews.current') : ui('common.savedViews.none')}</option>
       {views.map((view) => <option key={view.name} value={view.name}>{view.name}</option>)}
     </select></label>
     {naming
       ? <form className="interface-toolbar-controls" onSubmit={save}>
-        <label htmlFor={inputId}>Nome da vista</label>
+        <label htmlFor={inputId}>{ui('common.savedViews.name')}</label>
         <input id={inputId} autoFocus maxLength={60} value={name} onChange={(event) => setName(event.target.value)} />
-        <button type="submit" className="secondary-button" disabled={!name.trim()}>Guardar</button>
-        <button type="button" className="secondary-button" onClick={() => { setNaming(false); setName(''); }}>Cancelar</button>
+        <button type="submit" className="secondary-button" disabled={!name.trim()}>{ui('common.savedViews.saveName')}</button>
+        <button type="button" className="secondary-button" onClick={() => { setNaming(false); setName(''); }}>{ui('common.savedViews.cancel')}</button>
       </form>
-      : <button type="button" className="secondary-button" aria-label="Guardar vista" title="Guardar vista" onClick={() => { setName(active); setNaming(true); }}><Bookmark size={14} /> <span className="toolbar-action-label">Guardar vista</span></button>}
-    {active && <button type="button" className="icon-button subtle" aria-label={`Apagar vista ${active}`} title="Apagar vista" onClick={() => writeSavedViews(key, removeSavedView(readSavedViews(key), active))}><Trash2 size={14} /></button>}
-    <button type="button" className="icon-button subtle" aria-label="Copiar ligação desta vista" title="Copiar ligação desta vista" onClick={() => void copyLink()}><Link2 size={14} /></button>
+      : <button type="button" className="secondary-button" aria-label={ui('common.savedViews.save')} title={ui('common.savedViews.save')} onClick={() => { setName(active); setNaming(true); }}><Bookmark size={14} /> <span className="toolbar-action-label">{ui('common.savedViews.save')}</span></button>}
+    {active && <button type="button" className="icon-button subtle" aria-label={ui('common.savedViews.deleteNamed', undefined, { name: active })} title={ui('common.savedViews.delete')} onClick={() => writeSavedViews(key, removeSavedView(readSavedViews(key), active))}><Trash2 size={14} /></button>}
+    <button type="button" className="icon-button subtle" aria-label={ui('common.savedViews.copyLink')} title={ui('common.savedViews.copyLink')} onClick={() => void copyLink()}><Link2 size={14} /></button>
   </div>;
 }

@@ -6,7 +6,6 @@ import { useTableUrlState } from './use-table-url-state';
 import type { TableStateConfig } from './table-state';
 
 vi.mock('@/lib/i18n', () => ({ useI18n: () => ({ locale: 'pt-PT', t: (key: string) => key }) }));
-vi.mock('@/components/ui/use-ui-text', () => ({ useUiText: () => (key: string) => key }));
 
 const config: TableStateConfig<{ status: string }> = { filters: { status: '' }, sortable: ['name'], defaultSort: { column: 'name', direction: 'asc' } };
 

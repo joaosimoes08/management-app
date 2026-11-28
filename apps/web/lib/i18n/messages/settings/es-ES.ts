@@ -1,0 +1,31 @@
+/** Settings (role requests): Español. Loaded only when es-ES is chosen. */
+import type { SettingsMessageKey } from './pt-PT';
+
+export const messages: Record<string, string> = {
+  'settings.requests.filter.pending': 'Pendientes',
+  'settings.requests.filter.approved': 'Aprobadas',
+  'settings.requests.filter.rejected': 'Rechazadas',
+  'settings.requests.filter.all': 'Todos',
+  'settings.requests.status.PENDING': 'Pendiente',
+  'settings.requests.status.PROCESSING': 'En proceso',
+  'settings.requests.status.APPROVED': 'Aprobada',
+  'settings.requests.status.REJECTED': 'Rechazada',
+  'settings.requests.loadError': 'No se han podido cargar las solicitudes de roles.',
+  'settings.requests.decideError': 'No se ha podido resolver la solicitud.',
+  'settings.requests.rejectTitle': 'Rechazar solicitud',
+  'settings.requests.reject': 'Rechazar',
+  'settings.requests.title': 'Solicitudes de roles',
+  'settings.requests.column.user': 'Usuario',
+  'settings.requests.column.roles': 'Roles solicitados',
+  'settings.requests.column.status': 'Estado',
+  'settings.requests.column.createdAt': 'Solicitado el',
+  'settings.requests.column.decidedAt': 'Decisión',
+  'settings.requests.column.actions': 'Acciones',
+  'settings.requests.finish': 'Finalizar',
+  'settings.requests.approve': 'Aprobar',
+  'settings.requests.saving': 'Guardando…',
+  'settings.requests.statusFilter': 'Estado',
+  'settings.requests.refresh': 'Actualizar',
+  'settings.requests.emptyPending': 'No hay solicitudes de roles pendientes.',
+  'settings.requests.empty': 'No hay solicitudes de roles en este estado.',
+} satisfies Record<SettingsMessageKey, string>;

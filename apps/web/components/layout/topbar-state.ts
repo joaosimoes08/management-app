@@ -1,3 +1,5 @@
+import { portugueseText, type UiText } from '@/components/ui/use-ui-text';
+
 export interface TopbarAlert {
   id: string;
   severity: 'CRITICAL' | 'WARNING' | 'INFO';
@@ -33,7 +35,7 @@ export interface TopbarState {
 }
 
 /** Fallback state when GET /dashboard/topbar-state fails. */
-export const unavailableTopbarState = (): TopbarState => ({
+export const unavailableTopbarState = (text: UiText = portugueseText): TopbarState => ({
   environment: {
     state: 'UNAVAILABLE',
     services: [
@@ -45,8 +47,8 @@ export const unavailableTopbarState = (): TopbarState => ({
   alerts: [{
     id: 'environment-unavailable',
     severity: 'CRITICAL',
-    title: 'Ambiente indisponível',
-    detail: 'Não foi possível obter o estado dos serviços.',
+    title: text('shell.topbar.unavailableTitle'),
+    detail: text('shell.topbar.unavailableDetail'),
     href: '/definicoes?tab=system',
     occurredAt: new Date().toISOString(),
   }],

@@ -5,6 +5,7 @@
  * Pure helpers, no React.
  */
 import type { DashboardSeverity } from './severity';
+import { portugueseText, type UiText } from '@/components/ui/use-ui-text';
 
 type Params = Record<string, string | number | boolean | null | undefined>;
 
@@ -59,16 +60,6 @@ export function severityTileHref(siteId: string | undefined, severity: Dashboard
   return count.alerts > 0 || count.quality === 0 ? alertListHref(siteId, { severity }) : qualityListHref(siteId, { severity });
 }
 
-/** Readable names for the layout editor; unknown ids (added later by the API) show their id. */
-export const widgetLabels: Record<string, string> = {
-  'active-alerts': 'Alertas ativos',
-  'quality-queue': 'Qualidade dos dados',
-  'service-health': 'Saúde dos serviços',
-  'recent-changes': 'Atividade recente',
-  'inventory-summary': 'Distribuição atual',
-  'quick-actions': 'Acesso rápido',
-  'running-processes': 'Processos em execução',
-  'discovery-review': 'Discovery a rever ou falhado',
-  'snmp-drifts': 'Divergências SNMP',
-};
-export const widgetLabel = (id: string) => widgetLabels[id] ?? id;
+/** Widgets with a readable name (`dashboard.widget.<id>`) in the layout editor; unknown ids (added later by the API) show their id. */
+export const namedWidgetIds: ReadonlySet<string> = new Set(['active-alerts', 'quality-queue', 'service-health', 'recent-changes', 'inventory-summary', 'quick-actions', 'running-processes', 'discovery-review', 'snmp-drifts']);
+export const widgetLabel = (id: string, text: UiText = portugueseText) => (namedWidgetIds.has(id) ? text(`dashboard.widget.${id}`) : id);

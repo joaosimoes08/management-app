@@ -1,0 +1,31 @@
+/** Settings (role requests): Deutsch. Loaded only when de-DE is chosen. */
+import type { SettingsMessageKey } from './pt-PT';
+
+export const messages: Record<string, string> = {
+  'settings.requests.filter.pending': 'Ausstehend',
+  'settings.requests.filter.approved': 'Genehmigt',
+  'settings.requests.filter.rejected': 'Abgelehnt',
+  'settings.requests.filter.all': 'Alle',
+  'settings.requests.status.PENDING': 'Ausstehend',
+  'settings.requests.status.PROCESSING': 'In Bearbeitung',
+  'settings.requests.status.APPROVED': 'Genehmigt',
+  'settings.requests.status.REJECTED': 'Abgelehnt',
+  'settings.requests.loadError': 'Die Rollenanfragen konnten nicht geladen werden.',
+  'settings.requests.decideError': 'Über die Anfrage konnte nicht entschieden werden.',
+  'settings.requests.rejectTitle': 'Anfrage ablehnen',
+  'settings.requests.reject': 'Ablehnen',
+  'settings.requests.title': 'Rollenanfragen',
+  'settings.requests.column.user': 'Benutzer',
+  'settings.requests.column.roles': 'Angeforderte Rollen',
+  'settings.requests.column.status': 'Status',
+  'settings.requests.column.createdAt': 'Angefordert am',
+  'settings.requests.column.decidedAt': 'Entscheidung',
+  'settings.requests.column.actions': 'Aktionen',
+  'settings.requests.finish': 'Abschließen',
+  'settings.requests.approve': 'Genehmigen',
+  'settings.requests.saving': 'Wird gespeichert…',
+  'settings.requests.statusFilter': 'Status',
+  'settings.requests.refresh': 'Aktualisieren',
+  'settings.requests.emptyPending': 'Es gibt keine ausstehenden Rollenanfragen.',
+  'settings.requests.empty': 'Es gibt keine Rollenanfragen mit diesem Status.',
+} satisfies Record<SettingsMessageKey, string>;

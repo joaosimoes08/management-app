@@ -5,6 +5,7 @@
 import type { TableStateConfig } from '@/components/data-table';
 import type { EntityRef } from '@/lib/routes';
 import type { AuditPageEvent, AuditQuery } from './api';
+import { portugueseText, type UiText } from '@/components/ui/use-ui-text';
 
 /**
  * `?q=&action=&entityType=&actor=&from=YYYY-MM-DD&to=YYYY-MM-DD&http=1&event=<id>`.
@@ -82,4 +83,4 @@ export function metadataEntries(metadata: AuditPageEvent['metadata'], hideDiffKe
     .map(([key, value]) => [key, formatAuditValue(value)]);
 }
 
-export const actorName = (event: Pick<AuditPageEvent, 'user'>) => event.user?.displayName || event.user?.username || 'Sistema';
+export const actorName = (event: Pick<AuditPageEvent, 'user'>, text: UiText = portugueseText) => event.user?.displayName || event.user?.username || text('audit.system');

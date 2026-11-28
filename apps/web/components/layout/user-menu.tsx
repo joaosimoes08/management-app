@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useEscapeClose } from '@/components/ui/use-escape-close';
+import { useUiText } from '@/components/ui/use-ui-text';
 import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
 
@@ -33,14 +34,15 @@ export function placeUserDropdown(anchor: Rect, menu: { width: number; height: n
 export function UserMenu({ compact = false }: { compact?: boolean }) {
   const { user, profile, logout, hasRole } = useAuth();
   const { t } = useI18n();
+  const ui = useUiText();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<{ top: number; left: number; placement: 'top' | 'bottom' } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const displayName = profile?.firstName || user?.username || 'Utilizador';
-  const roleLabel = user?.roles.includes('ADMIN') ? 'Administrador' : user?.roles[0] ?? 'Utilizador';
+  const displayName = profile?.firstName || user?.username || ui('shell.userMenu.user');
+  const roleLabel = user?.roles.includes('ADMIN') ? ui('shell.userMenu.admin') : user?.roles[0] ?? ui('shell.userMenu.user');
 
   const close = useCallback((restoreFocus = true) => {
     setOpen(false);
@@ -105,7 +107,7 @@ export function UserMenu({ compact = false }: { compact?: boolean }) {
     <button type="button" role="menuitem" onClick={() => go('/perfil')}>{t('profile.menu')}</button>
     {(hasRole('ADMIN') || hasRole('AUDITOR')) && <button type="button" role="menuitem" onClick={() => go('/definicoes')}>{t('nav.settings')}</button>}
     <button type="button" role="menuitem" onClick={() => go('/ajuda')}>{t('nav.help')}</button>
-    <button type="button" role="menuitem" className="danger" onClick={() => { close(false); void logout(); }}>{t('common.logout', 'Terminar sessão')}</button>
+    <button type="button" role="menuitem" className="danger" onClick={() => { close(false); void logout(); }}>{ui('shell.userMenu.logout')}</button>
   </div> : null;
 
   return <div ref={rootRef} className={`user-menu ${compact ? 'compact' : ''}`}>

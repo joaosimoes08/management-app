@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 export type HistoryEvent = {
   id: string;
@@ -28,7 +29,9 @@ export type HistoryBlockProps = {
 };
 
 /** "Histórico": dated events with actor and note, in the side-panel style (`host-section` / `host-relation`). */
-export function HistoryBlock({ heading, events, formatDate, empty, noteLabel = 'Notas', headingLevel: Heading = 'h3' }: HistoryBlockProps) {
+export function HistoryBlock({ heading, events, formatDate, empty, noteLabel: noteLabelProp, headingLevel: Heading = 'h3' }: HistoryBlockProps) {
+  const ui = useUiText();
+  const noteLabel = noteLabelProp ?? ui('common.table.historyNotes');
   return <section className="host-section">
     <Heading>{heading}</Heading>
     {events.map((event) => <article className="host-relation" key={event.id}>

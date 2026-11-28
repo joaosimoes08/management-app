@@ -20,9 +20,10 @@ function useDebounced<T>(value: T, delay = 300): T {
 }
 
 function EntityCell({ event }: { event: AuditPageEvent }) {
+  const tx = useUiText();
   const ref = auditEntityRef(event);
   return <span>
-    <strong>{event.entityType ?? 'Sistema'}</strong>
+    <strong>{event.entityType ?? tx('audit.system')}</strong>
     {ref ? <small><EntityLink {...ref} /></small> : event.entityId ? <small className="mono">{event.entityId}</small> : null}
   </span>;
 }
@@ -68,79 +69,79 @@ export default function AuditPage() {
     setExporting(true); setNotice(null);
     try {
       const result = await exportAuditCsv(query, csvFileName('auditoria'));
-      setNotice({ tone: 'success', text: result.rows === null ? 'CSV exportado.' : result.truncated ? tx('groupB.audit.csvTruncated', undefined, { count: result.rows }) : tx('groupB.audit.csvRows', undefined, { count: result.rows }) });
-    } catch (cause) { setNotice({ tone: 'error', text: cause instanceof Error ? cause.message : 'Não foi possível exportar o CSV.' }); }
+      setNotice({ tone: 'success', text: result.rows === null ? tx('audit.csvExported') : result.truncated ? tx('groupB.audit.csvTruncated', undefined, { count: result.rows }) : tx('groupB.audit.csvRows', undefined, { count: result.rows }) });
+    } catch (cause) { setNotice({ tone: 'error', text: cause instanceof Error ? cause.message : tx('audit.csvExportError') }); }
     finally { setExporting(false); }
   };
 
   const columns: DataTableColumn<AuditPageEvent>[] = [
-    { id: 'createdAt', header: 'Data e hora', cell: (event) => <time dateTime={event.createdAt}>{dateTime(event.createdAt)}</time> },
-    { id: 'action', header: 'Ação', cell: (event) => <button type="button" className="link-button" aria-label={`Ver detalhe de ${event.action}`} onClick={() => openDetail(event)}>{event.action}</button> },
-    { id: 'entity', header: 'Registo', cell: (event) => <EntityCell event={event} /> },
-    { id: 'actor', header: 'Utilizador', cell: (event) => actorName(event) },
+    { id: 'createdAt', header: tx('audit.column.createdAt'), cell: (event) => <time dateTime={event.createdAt}>{dateTime(event.createdAt)}</time> },
+    { id: 'action', header: tx('audit.column.action'), cell: (event) => <button type="button" className="link-button" aria-label={tx('audit.viewDetail', undefined, { action: event.action })} onClick={() => openDetail(event)}>{event.action}</button> },
+    { id: 'entity', header: tx('audit.column.entity'), cell: (event) => <EntityCell event={event} /> },
+    { id: 'actor', header: tx('audit.column.actor'), cell: (event) => actorName(event, tx) },
     { id: 'ip', header: 'IP', cell: (event) => (event.ipAddress ? <span className="mono">{event.ipAddress}</span> : <span className="muted-cell">—</span>) },
-    { id: 'diff', header: 'Antes → depois', cell: (event) => (event.hasDiff ? <span className="state-badge approved"><i />Registado</span> : <span className="muted-cell">Sem registo</span>) },
-    { id: 'open', header: <span className="topology-sr-only">Detalhe</span>, cell: (event) => <button type="button" className="icon-button" aria-label={`Abrir detalhe de ${event.action}`} aria-pressed={filters.event === event.id} onClick={() => openDetail(event)}><Eye size={14} /></button> },
+    { id: 'diff', header: tx('audit.column.diff'), cell: (event) => (event.hasDiff ? <span className="state-badge approved"><i />{tx('audit.diffRecorded')}</span> : <span className="muted-cell">{tx('audit.diffMissing')}</span>) },
+    { id: 'open', header: <span className="topology-sr-only">{tx('audit.column.open')}</span>, cell: (event) => <button type="button" className="icon-button" aria-label={tx('audit.openDetail', undefined, { action: event.action })} aria-pressed={filters.event === event.id} onClick={() => openDetail(event)}><Eye size={14} /></button> },
   ];
 
   const count = events.length;
   const facetDays = !filters.from && !filters.to ? facetWindowDays(facets.data) : null;
-  const countLabel = pages.hasNextPage ? `${count} eventos carregados` : `${count} eventos`;
+  const countLabel = pages.hasNextPage ? tx('audit.countLoaded', undefined, { count }) : tx('audit.count', undefined, { count });
 
-  return <PageShell section="Auditoria" search={{ value: search, onChange: setSearch, placeholder: 'Pesquisar ação, registo, IP ou utilizador…', ariaLabel: 'Pesquisar eventos de auditoria', scopeLabel: 'Auditoria' }} actions={<><ToolbarMore label="Filtros"><div className="audit-filters">
-    <label>Utilizador<select aria-label="Filtrar por utilizador" value={filters.actor} onChange={(event) => setFilter('actor', event.target.value)}><option value="">Todos</option>{(facets.data?.actors ?? []).map((actor) => <option key={actor.id} value={actor.id}>{`${actor.displayName || actor.username} (${actor.count})`}</option>)}</select></label>
-    <label>Tipo de registo<select aria-label="Filtrar por tipo de registo" value={filters.entityType} onChange={(event) => setFilter('entityType', event.target.value)}><option value="">Todos</option>{(facets.data?.entityTypes ?? []).map((item) => <option key={item.value} value={item.value}>{`${item.value} (${item.count})`}</option>)}</select></label>
-    <label>Ação<select aria-label="Filtrar por ação" value={filters.action} onChange={(event) => setFilter('action', event.target.value)}><option value="">Todas</option>{(facets.data?.actions ?? []).map((item) => <option key={item.value} value={item.value}>{`${item.value} (${item.count})`}</option>)}</select></label>
-    <label>Desde<input type="date" value={filters.from} max={filters.to || undefined} onChange={(event) => setFilter('from', event.target.value)} /></label>
-    <label>Até<input type="date" value={filters.to} min={filters.from || undefined} onChange={(event) => setFilter('to', event.target.value)} /></label>
-    <label>Pedidos HTTP<select aria-label="Pedidos HTTP" value={filters.http} onChange={(event) => setFilter('http', event.target.value)}><option value="">Ocultar</option><option value="1">Mostrar</option></select></label>
-  </div>{facetDays !== null && <p className="form-help">{`Valores dos últimos ${facetDays} dias`}</p>}</ToolbarMore>
-    {filtering && <button className="topbar-action secondary-button" onClick={clearFilters}><X size={14} /> Limpar filtros</button>}
-    <button className="topbar-action secondary-button" onClick={() => void download()} disabled={exporting || !count}><Download size={14} /> {exporting ? 'A exportar…' : 'Exportar CSV'}</button>
-    <button className="topbar-action secondary-button" onClick={() => { void pages.refetch(); void facets.refetch(); }} disabled={pages.isFetching}><RefreshCw size={14} /> Atualizar</button>
+  return <PageShell section={tx('audit.section')} search={{ value: search, onChange: setSearch, placeholder: tx('audit.search.placeholder'), ariaLabel: tx('audit.search.label'), scopeLabel: tx('audit.section') }} actions={<><ToolbarMore label={tx('audit.filters')}><div className="audit-filters">
+    <label>{tx('audit.column.actor')}<select aria-label={tx('audit.filter.actor')} value={filters.actor} onChange={(event) => setFilter('actor', event.target.value)}><option value="">{tx('audit.filter.allMasculine')}</option>{(facets.data?.actors ?? []).map((actor) => <option key={actor.id} value={actor.id}>{`${actor.displayName || actor.username} (${actor.count})`}</option>)}</select></label>
+    <label>{tx('audit.filter.entityTypeLabel')}<select aria-label={tx('audit.filter.entityType')} value={filters.entityType} onChange={(event) => setFilter('entityType', event.target.value)}><option value="">{tx('audit.filter.allMasculine')}</option>{(facets.data?.entityTypes ?? []).map((item) => <option key={item.value} value={item.value}>{`${item.value} (${item.count})`}</option>)}</select></label>
+    <label>{tx('audit.column.action')}<select aria-label={tx('audit.filter.action')} value={filters.action} onChange={(event) => setFilter('action', event.target.value)}><option value="">{tx('audit.filter.allFeminine')}</option>{(facets.data?.actions ?? []).map((item) => <option key={item.value} value={item.value}>{`${item.value} (${item.count})`}</option>)}</select></label>
+    <label>{tx('audit.filter.from')}<input type="date" value={filters.from} max={filters.to || undefined} onChange={(event) => setFilter('from', event.target.value)} /></label>
+    <label>{tx('audit.filter.to')}<input type="date" value={filters.to} min={filters.from || undefined} onChange={(event) => setFilter('to', event.target.value)} /></label>
+    <label>{tx('audit.filter.http')}<select aria-label={tx('audit.filter.http')} value={filters.http} onChange={(event) => setFilter('http', event.target.value)}><option value="">{tx('audit.filter.hide')}</option><option value="1">{tx('audit.filter.show')}</option></select></label>
+  </div>{facetDays !== null && <p className="form-help">{tx('audit.filter.facetDays', undefined, { days: facetDays })}</p>}</ToolbarMore>
+    {filtering && <button className="topbar-action secondary-button" onClick={clearFilters}><X size={14} /> {tx('audit.clearFilters')}</button>}
+    <button className="topbar-action secondary-button" onClick={() => void download()} disabled={exporting || !count}><Download size={14} /> {exporting ? tx('audit.exporting') : tx('audit.exportCsv')}</button>
+    <button className="topbar-action secondary-button" onClick={() => { void pages.refetch(); void facets.refetch(); }} disabled={pages.isFetching}><RefreshCw size={14} /> {tx('audit.refresh')}</button>
   </>}>
     <PageToolbarPortal><SavedViews pageId="audit" config={auditTableConfig} table={table} /></PageToolbarPortal>
     <div className="module-page aligned-workspace"><section className="ipam-card page-primary-card">
-      <div className="panel-heading"><div><h1>Auditoria</h1><p className="panel-description">Eventos administrativos, alterações de inventário e execuções de discovery, do mais recente para o mais antigo.</p></div></div>
+      <div className="panel-heading"><div><h1>{tx('audit.section')}</h1><p className="panel-description">{tx('audit.description')}</p></div></div>
       {errorMessage && <div className="ipam-alert error" role="alert">{errorMessage}</div>}
       {notice && <div className={`ipam-alert ${notice.tone}`} role={notice.tone === 'error' ? 'alert' : 'status'}>{notice.text}</div>}
-      {facets.data?.truncated && <div className="ipam-alert warning" role="note">As listas de filtros foram limitadas a 500 valores. Escolhe um período para as reduzir.</div>}
+      {facets.data?.truncated && <div className="ipam-alert warning" role="note">{tx('audit.facetsTruncated')}</div>}
       <h2 className="critical-assets-count" aria-live="polite">{countLabel}</h2>
       <DataTable
         rows={events}
         columns={columns}
         rowKey={(event) => event.id}
-        label="Eventos de auditoria"
+        label={tx('audit.table')}
         loading={pages.isLoading}
-        empty={errorMessage ? null : <div className="no-data">{filtering ? 'Sem eventos correspondentes.' : 'Ainda não existem eventos de auditoria.'}</div>}
+        empty={errorMessage ? null : <div className="no-data">{filtering ? tx('audit.emptyFiltered') : tx('audit.empty')}</div>}
       />
-      {pages.hasNextPage && <div className="form-actions"><button type="button" className="secondary-button" disabled={pages.isFetchingNextPage} onClick={() => void pages.fetchNextPage()}>{pages.isFetchingNextPage ? 'A carregar…' : 'Carregar mais'}</button></div>}
+      {pages.hasNextPage && <div className="form-actions"><button type="button" className="secondary-button" disabled={pages.isFetchingNextPage} onClick={() => void pages.fetchNextPage()}>{pages.isFetchingNextPage ? tx('audit.loading') : tx('audit.loadMore')}</button></div>}
     </section></div>
 
-    {detail && <aside className="host-panel" aria-label={`Detalhe de ${detail.action}`}>
-      <div className="host-panel-head"><div><h2>{detail.action}</h2><span>{`${dateTime(detail.createdAt)} · ${actorName(detail)}`}</span></div><button ref={panelClose} className="icon-button" onClick={closeDetail} aria-label="Fechar"><X size={18} /></button></div>
+    {detail && <aside className="host-panel" aria-label={tx('audit.detail.label', undefined, { action: detail.action })}>
+      <div className="host-panel-head"><div><h2>{detail.action}</h2><span>{`${dateTime(detail.createdAt)} · ${actorName(detail, tx)}`}</span></div><button ref={panelClose} className="icon-button" onClick={closeDetail} aria-label={tx('audit.detail.close')}><X size={18} /></button></div>
       <div className="host-detail-grid">
-        <div><span>Tipo de registo</span><strong>{detail.entityType ?? 'Sistema'}</strong></div>
-        <div><span>Registo</span><strong className="mono">{detail.entityId || '—'}</strong></div>
-        <div><span>Utilizador</span><strong>{detail.user ? `${actorName(detail)} (${detail.user.username})` : 'Sistema'}</strong></div>
-        <div><span>Endereço IP</span><strong className="mono">{detail.ipAddress || '—'}</strong></div>
+        <div><span>{tx('audit.filter.entityTypeLabel')}</span><strong>{detail.entityType ?? tx('audit.system')}</strong></div>
+        <div><span>{tx('audit.column.entity')}</span><strong className="mono">{detail.entityId || '—'}</strong></div>
+        <div><span>{tx('audit.column.actor')}</span><strong>{detail.user ? `${actorName(detail, tx)} (${detail.user.username})` : tx('audit.system')}</strong></div>
+        <div><span>{tx('audit.detail.ipAddress')}</span><strong className="mono">{detail.ipAddress || '—'}</strong></div>
       </div>
-      {(() => { const ref = auditEntityRef(detail); return ref ? <div className="form-actions"><EntityLink {...ref} className="secondary-button">Abrir registo</EntityLink><EntityLink kind="audit" id={detail.entityId ?? ''} label="" className="secondary-button">Histórico deste registo</EntityLink></div> : detail.entityId ? <div className="form-actions"><EntityLink kind="audit" id={detail.entityId} label="" className="secondary-button">Histórico deste registo</EntityLink></div> : null; })()}
+      {(() => { const ref = auditEntityRef(detail); return ref ? <div className="form-actions"><EntityLink {...ref} className="secondary-button">{tx('audit.detail.openEntity')}</EntityLink><EntityLink kind="audit" id={detail.entityId ?? ''} label="" className="secondary-button">{tx('audit.detail.entityHistory')}</EntityLink></div> : detail.entityId ? <div className="form-actions"><EntityLink kind="audit" id={detail.entityId} label="" className="secondary-button">{tx('audit.detail.entityHistory')}</EntityLink></div> : null; })()}
       <section className="host-section">
-        <h3>Antes → depois</h3>
+        <h3>{tx('audit.column.diff')}</h3>
         {detail.diff?.length
-          ? <DataTable rows={detail.diff} rowKey={(entry) => entry.field} label="Valores antes e depois" columns={[
-            { id: 'field', header: 'Campo', cell: (entry) => entry.field },
-            { id: 'before', header: 'Antes', className: 'mono', cell: (entry) => formatAuditValue(entry.before) },
-            { id: 'after', header: 'Depois', className: 'mono', cell: (entry) => formatAuditValue(entry.after) },
+          ? <DataTable rows={detail.diff} rowKey={(entry) => entry.field} label={tx('audit.detail.diffTable')} columns={[
+            { id: 'field', header: tx('audit.detail.field'), cell: (entry) => entry.field },
+            { id: 'before', header: tx('audit.detail.before'), className: 'mono', cell: (entry) => formatAuditValue(entry.before) },
+            { id: 'after', header: tx('audit.detail.after'), className: 'mono', cell: (entry) => formatAuditValue(entry.after) },
           ]} />
-          : <p className="panel-description">Este evento não guardou os valores anteriores, por isso não há antes → depois. Mostram-se os dados registados.</p>}
+          : <p className="panel-description">{tx('audit.detail.noDiff')}</p>}
       </section>
       <section className="host-section">
-        <h3>Dados registados</h3>
+        <h3>{tx('audit.detail.metadata')}</h3>
         {(() => { const entries = metadataEntries(detail.metadata, Boolean(detail.diff?.length)); return entries.length
           ? <div className="host-detail-grid">{entries.map(([key, value]) => <div key={key}><span>{key}</span><strong className="mono">{value}</strong></div>)}</div>
-          : <p className="panel-description">Sem dados adicionais.</p>; })()}
+          : <p className="panel-description">{tx('audit.detail.noMetadata')}</p>; })()}
       </section>
     </aside>}
   </PageShell>;

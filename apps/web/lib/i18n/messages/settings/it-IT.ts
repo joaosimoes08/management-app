@@ -1,0 +1,31 @@
+/** Settings (role requests): Italiano. Loaded only when it-IT is chosen. */
+import type { SettingsMessageKey } from './pt-PT';
+
+export const messages: Record<string, string> = {
+  'settings.requests.filter.pending': 'In attesa',
+  'settings.requests.filter.approved': 'Approvate',
+  'settings.requests.filter.rejected': 'Rifiutate',
+  'settings.requests.filter.all': 'Tutti',
+  'settings.requests.status.PENDING': 'In attesa',
+  'settings.requests.status.PROCESSING': 'In elaborazione',
+  'settings.requests.status.APPROVED': 'Approvata',
+  'settings.requests.status.REJECTED': 'Rifiutata',
+  'settings.requests.loadError': 'Impossibile caricare le richieste di ruoli.',
+  'settings.requests.decideError': 'Impossibile decidere sulla richiesta.',
+  'settings.requests.rejectTitle': 'Rifiuta richiesta',
+  'settings.requests.reject': 'Rifiuta',
+  'settings.requests.title': 'Richieste di ruoli',
+  'settings.requests.column.user': 'Utente',
+  'settings.requests.column.roles': 'Ruoli richiesti',
+  'settings.requests.column.status': 'Stato',
+  'settings.requests.column.createdAt': 'Richiesta il',
+  'settings.requests.column.decidedAt': 'Decisione',
+  'settings.requests.column.actions': 'Azioni',
+  'settings.requests.finish': 'Completa',
+  'settings.requests.approve': 'Approva',
+  'settings.requests.saving': 'Salvataggio…',
+  'settings.requests.statusFilter': 'Stato',
+  'settings.requests.refresh': 'Aggiorna',
+  'settings.requests.emptyPending': 'Non ci sono richieste di ruoli in sospeso.',
+  'settings.requests.empty': 'Non ci sono richieste di ruoli in questo stato.',
+} satisfies Record<SettingsMessageKey, string>;

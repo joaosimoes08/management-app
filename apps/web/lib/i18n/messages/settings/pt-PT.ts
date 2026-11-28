@@ -1,0 +1,31 @@
+/** Settings (role requests): Portuguese, the source language. Every other locale file has exactly these keys. */
+export const messages = {
+  'settings.requests.filter.pending': 'Pendentes',
+  'settings.requests.filter.approved': 'Aprovados',
+  'settings.requests.filter.rejected': 'Rejeitados',
+  'settings.requests.filter.all': 'Todos',
+  'settings.requests.status.PENDING': 'Pendente',
+  'settings.requests.status.PROCESSING': 'Em processamento',
+  'settings.requests.status.APPROVED': 'Aprovado',
+  'settings.requests.status.REJECTED': 'Rejeitado',
+  'settings.requests.loadError': 'Não foi possível carregar os pedidos de roles.',
+  'settings.requests.decideError': 'Não foi possível decidir o pedido.',
+  'settings.requests.rejectTitle': 'Rejeitar pedido',
+  'settings.requests.reject': 'Rejeitar',
+  'settings.requests.title': 'Pedidos de roles',
+  'settings.requests.column.user': 'Utilizador',
+  'settings.requests.column.roles': 'Roles pedidos',
+  'settings.requests.column.status': 'Estado',
+  'settings.requests.column.createdAt': 'Pedido em',
+  'settings.requests.column.decidedAt': 'Decisão',
+  'settings.requests.column.actions': 'Ações',
+  'settings.requests.finish': 'Concluir',
+  'settings.requests.approve': 'Aprovar',
+  'settings.requests.saving': 'A guardar…',
+  'settings.requests.statusFilter': 'Estado',
+  'settings.requests.refresh': 'Atualizar',
+  'settings.requests.emptyPending': 'Não há pedidos de roles pendentes.',
+  'settings.requests.empty': 'Não há pedidos de roles neste estado.',
+} as const satisfies Record<string, string>;
+
+export type SettingsMessageKey = keyof typeof messages;

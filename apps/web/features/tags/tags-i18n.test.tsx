@@ -10,6 +10,7 @@ import { messages as deDE } from '@/lib/i18n/messages/tags/de-DE';
 import { messages as esES } from '@/lib/i18n/messages/tags/es-ES';
 import { messages as frFR } from '@/lib/i18n/messages/tags/fr-FR';
 import { messages as itIT } from '@/lib/i18n/messages/tags/it-IT';
+import { messages as ptPT } from '@/lib/i18n/messages/tags/pt-PT';
 import type { Tag } from './types';
 
 // The tags screens were the first domain moved from hard-coded Portuguese (translated on the page
@@ -43,7 +44,7 @@ const keyed: Array<[key: string, portuguese: string, params?: Record<string, str
   ['tags.manager.colorLabel', 'Cor da etiqueta'],
   ['tags.manager.usesTitle', 'Equipamentos · Sub-redes'],
   ['tags.manager.save', 'Guardar'],
-  ['tags.manager.confirmDeleteUsed', 'Eliminar a etiqueta "core"? Sai de 3 itens.', { name: 'core', uses: 3 }],
+  ['tags.manager.confirmDeleteUsed', 'Eliminar a etiqueta "core"? Sai de 3 itens.', { name: 'core', count: 3 }],
   ['tags.manager.confirmDelete', 'Eliminar a etiqueta "core"?', { name: 'core' }],
   ['tags.manager.description', 'As etiquetas pertencem a este site e servem equipamentos e sub-redes. Contagem: equipamentos · sub-redes.'],
   ['tags.manager.readOnlyNote', 'Só administradores e operadores de sistemas podem criar, renomear ou eliminar etiquetas.'],
@@ -62,9 +63,26 @@ describe('tags keyed messages', () => {
     const used = new Set([...source.matchAll(/'(tags\.[\w.]+)'/g)].map((match) => match[1]));
     used.delete('tags.deleteNamed'); // keyed before this change
     expect([...used].sort()).toEqual(keyed.map(([key]) => key).sort());
-    for (const [key] of keyed) {
+    // A plural key exists as its .one and .other forms.
+    const forms = (key: string) => (key in ptPT ? [key] : [`${key}.one`, `${key}.other`]);
+    for (const key of keyed.flatMap(([key]) => forms(key))) {
       for (const locale of ['pt-PT', 'en-US'] as AppLocale[]) expect(translateMessage(locale, key, '∅')).not.toBe('∅');
       for (const bundle of [esES, frFR, deDE, itIT]) expect(bundle[key], key).toBeTruthy();
+    }
+  });
+
+  // The one intended output change: the old single template read "Sai de 1 itens." for one item.
+  it('words the delete confirmation for one item in the singular, in every language', () => {
+    const one = { name: 'core', count: 1 };
+    expect(translateMessage('pt-PT', 'tags.manager.confirmDeleteUsed', undefined, one)).toBe('Eliminar a etiqueta "core"? Sai de 1 item.');
+    expect(translateMessage('en-US', 'tags.manager.confirmDeleteUsed', undefined, one)).toBe('Delete the tag "core"? It is removed from 1 item.');
+    expect(translateMessage('pt-PT', 'tags.manager.confirmDeleteUsed', undefined, { name: 'core', count: 2 })).toBe('Eliminar a etiqueta "core"? Sai de 2 itens.');
+    // Each added language: the .one form is the .other form with the noun in the singular.
+    const nouns: Array<[Record<string, string>, plural: string, singular: string]> = [[esES, 'elementos', 'elemento'], [frFR, 'éléments', 'élément'], [deDE, 'Elementen', 'Element'], [itIT, 'elementi', 'elemento']];
+    for (const [bundle, plural, singular] of nouns) {
+      const other = bundle['tags.manager.confirmDeleteUsed.other'];
+      expect(other).toContain(`{count} ${plural}`);
+      expect(bundle['tags.manager.confirmDeleteUsed.one']).toBe(other.replace(`{count} ${plural}`, `{count} ${singular}`));
     }
   });
 

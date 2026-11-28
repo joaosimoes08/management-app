@@ -1,0 +1,31 @@
+/** Settings (role requests): English, also the fallback of the added languages. */
+import type { SettingsMessageKey } from './pt-PT';
+
+export const messages: Record<string, string> = {
+  'settings.requests.filter.pending': 'Pending',
+  'settings.requests.filter.approved': 'Approved',
+  'settings.requests.filter.rejected': 'Rejected',
+  'settings.requests.filter.all': 'All',
+  'settings.requests.status.PENDING': 'Pending',
+  'settings.requests.status.PROCESSING': 'Processing',
+  'settings.requests.status.APPROVED': 'Approved',
+  'settings.requests.status.REJECTED': 'Rejected',
+  'settings.requests.loadError': 'Could not load the role requests.',
+  'settings.requests.decideError': 'Could not decide the request.',
+  'settings.requests.rejectTitle': 'Reject request',
+  'settings.requests.reject': 'Reject',
+  'settings.requests.title': 'Role requests',
+  'settings.requests.column.user': 'User',
+  'settings.requests.column.roles': 'Requested roles',
+  'settings.requests.column.status': 'Status',
+  'settings.requests.column.createdAt': 'Requested at',
+  'settings.requests.column.decidedAt': 'Decision',
+  'settings.requests.column.actions': 'Actions',
+  'settings.requests.finish': 'Finish',
+  'settings.requests.approve': 'Approve',
+  'settings.requests.saving': 'Saving…',
+  'settings.requests.statusFilter': 'Status',
+  'settings.requests.refresh': 'Refresh',
+  'settings.requests.emptyPending': 'There are no pending role requests.',
+  'settings.requests.empty': 'There are no role requests in this status.',
+} satisfies Record<SettingsMessageKey, string>;
