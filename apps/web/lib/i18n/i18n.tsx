@@ -6,7 +6,7 @@ import { getConfiguredLocale, hasSavedOrganizationLocale } from '@/lib/runtime-c
 import { setFormatLocale } from '@/lib/format/date';
 import { STORAGE_KEYS, getLocalItem } from '@/lib/storage-keys';
 import { isAppLocale, isLazyLocale } from './locales/catalog';
-import { getLoadedLocaleBundle, loadLocaleBundle, needsLocaleBundle, translateWithBundle } from './locales/loader';
+import { getLoadedLocaleBundle, loadLocaleBundle, needsLocaleBundle } from './locales/loader';
 import { domainMessages } from './messages/registry';
 
 export type AppLocale = 'pt-PT' | 'en-US' | 'es-ES' | 'fr-FR' | 'de-DE' | 'it-IT';
@@ -2926,158 +2926,6 @@ type I18nValue = {
 };
 const I18nContext = createContext<I18nValue | undefined>(undefined);
 
-const originalText = new WeakMap<Text, string>();
-const originalAttributes = new WeakMap<Element, Map<string, string>>();
-const translatedText = new WeakMap<Text, string>();
-const translatedAttributeValues = new WeakMap<Element, Map<string, string>>();
-/** data-label: the column name a table cell shows before its value when tables collapse to cards on phones. */
-const translatedAttributes = ['aria-label', 'placeholder', 'title', 'data-label'] as const;
-
-/** Translations of source-text strings already seen (the same labels repeat on every refresh). */
-const sourceTextTranslationCache = new Map<string, string>();
-const sourceTextTranslationCacheLimit = 5000;
-/** True once an English pass has changed the page, so switching back to Portuguese knows it must restore. */
-let sourceTextDomTranslated = false;
-
-/**
- * The English table for hard-coded (source-text) Portuguese text (about 160 kB) is only needed in en-US, so it
- * loads on demand instead of shipping with every page. Portuguese, the default, never downloads it.
- */
-type SourceTextTranslator = (locale: AppLocale, input: string) => string;
-let sourceTextTranslator: SourceTextTranslator | null = null;
-let sourceTextTranslatorLoad: Promise<SourceTextTranslator> | null = null;
-
-export function loadSourceTextMessages(): Promise<SourceTextTranslator> {
-  if (sourceTextTranslator) return Promise.resolve(sourceTextTranslator);
-  sourceTextTranslatorLoad ??= import('./source-text-messages').then((module) => {
-    sourceTextTranslator = module.translateSourceText;
-    return sourceTextTranslator;
-  }).catch((error: unknown) => {
-    sourceTextTranslatorLoad = null;
-    throw error;
-  });
-  return sourceTextTranslatorLoad;
-}
-
-/**
- * Everything a non-Portuguese locale needs for hard-coded text: the English table (also the fallback
- * of every added language) plus, for es-ES, fr-FR, de-DE and it-IT, that language's own file.
- */
-export function loadLocaleTexts(locale: AppLocale): Promise<void> {
-  if (locale === 'pt-PT') return Promise.resolve();
-  return Promise.all([loadSourceTextMessages(), isLazyLocale(locale) ? loadLocaleBundle(locale) : undefined]).then(() => undefined);
-}
-
-// Start the download as soon as this module runs when the browser is already known to use a
-// non-Portuguese language, so the tables are usually ready before the first screen that needs them.
-if (typeof window !== 'undefined') {
-  try {
-    const stored = getLocalItem(STORAGE_KEYS.locale);
-    const initial = isAppLocale(stored) ? stored : getConfiguredLocale();
-    if (initial !== 'pt-PT') void loadLocaleTexts(initial).catch(() => undefined);
-  } catch {
-    // Storage can be unavailable (privacy mode); the provider loads the tables when it switches language.
-  }
-}
-
-function translateSourceTextCached(locale: AppLocale, input: string) {
-  if (locale === 'pt-PT' || !sourceTextTranslator) return input;
-  const english = sourceTextTranslator;
-  const bundle = isLazyLocale(locale) ? getLoadedLocaleBundle(locale) : undefined;
-  // Until an added language's file arrives, show English and keep nothing in the cache.
-  if (isLazyLocale(locale) && !bundle) return english('en-US', input);
-  const cacheKey = `${locale}\u0000${input}`;
-  let translated = sourceTextTranslationCache.get(cacheKey);
-  if (translated === undefined) {
-    translated = bundle ? translateWithBundle(bundle, input, (text) => english('en-US', text)) : english(locale, input);
-    if (sourceTextTranslationCache.size >= sourceTextTranslationCacheLimit) sourceTextTranslationCache.clear();
-    sourceTextTranslationCache.set(cacheKey, translated);
-  }
-  return translated;
-}
-
-function translateTextNode(locale: AppLocale, node: Text) {
-  const current = node.nodeValue ?? '';
-  const previousTranslation = translatedText.get(node);
-  if (!originalText.has(node) || (previousTranslation !== undefined && current !== previousTranslation)) {
-    // React may reuse a text node for new state. Treat that value as the new
-    // source instead of restoring the text that was first rendered here.
-    originalText.set(node, current);
-  }
-  const source = originalText.get(node) ?? current;
-  const next = translateSourceTextCached(locale, source);
-  if (current !== next) node.nodeValue = next;
-  translatedText.set(node, next);
-}
-
-function translateAttribute(locale: AppLocale, element: Element, attribute: string) {
-  if (!element.hasAttribute(attribute)) return;
-  let saved = originalAttributes.get(element);
-  if (!saved) { saved = new Map(); originalAttributes.set(element, saved); }
-  let translated = translatedAttributeValues.get(element);
-  if (!translated) { translated = new Map(); translatedAttributeValues.set(element, translated); }
-  const current = element.getAttribute(attribute) ?? '';
-  const previousTranslation = translated.get(attribute);
-  if (!saved.has(attribute) || (previousTranslation !== undefined && current !== previousTranslation)) saved.set(attribute, current);
-  const source = saved.get(attribute) ?? '';
-  const next = translateSourceTextCached(locale, source);
-  if (current !== next) element.setAttribute(attribute, next);
-  translated.set(attribute, next);
-}
-
-function translateElement(locale: AppLocale, element: Element) {
-  for (const attribute of translatedAttributes) translateAttribute(locale, element, attribute);
-}
-
-export function translateSourceTextDom(locale: AppLocale, root: Node) {
-  if (locale !== 'pt-PT') sourceTextDomTranslated = true;
-  if (root.nodeType === Node.TEXT_NODE) translateTextNode(locale, root as Text);
-  if (root.nodeType === Node.ELEMENT_NODE) translateElement(locale, root as Element);
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
-  let current: Node | null;
-  while ((current = walker.nextNode())) {
-    if (current.nodeType === Node.TEXT_NODE) translateTextNode(locale, current as Text);
-    else translateElement(locale, current as Element);
-  }
-}
-
-/**
- * Keeps hard-coded Portuguese text in English while the app runs in en-US.
- * Portuguese is the source language, so pt-PT only restores what an earlier English pass changed
- * and then watches nothing. In en-US each batch of mutations touches only what changed: the edited
- * text node, the edited attribute, or each newly added subtree once. The observer's own edits are
- * dropped instead of being processed again in the next batch.
- */
-export function observeSourceTextDom(locale: AppLocale, root: Node) {
-  if (locale === 'pt-PT') {
-    if (sourceTextDomTranslated) { translateSourceTextDom(locale, root); sourceTextDomTranslated = false; }
-    return () => undefined;
-  }
-  translateSourceTextDom(locale, root);
-  const observer = new MutationObserver((mutations) => {
-    const added = new Set<Node>();
-    for (const mutation of mutations) {
-      if (mutation.type === 'characterData') {
-        if (mutation.target.isConnected) translateTextNode(locale, mutation.target as Text);
-      } else if (mutation.type === 'attributes') {
-        if (mutation.attributeName && mutation.target.isConnected) translateAttribute(locale, mutation.target as Element, mutation.attributeName);
-      } else {
-        for (const node of mutation.addedNodes) added.add(node);
-      }
-    }
-    for (const node of added) {
-      if (!node.isConnected) continue;
-      let ancestor = node.parentNode;
-      while (ancestor && !added.has(ancestor)) ancestor = ancestor.parentNode;
-      if (!ancestor) translateSourceTextDom(locale, node);
-    }
-    // Everything still queued was written by the passes above.
-    observer.takeRecords();
-  });
-  observer.observe(root, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: [...translatedAttributes] });
-  return () => observer.disconnect();
-}
-
 /** The organization locale to apply, or null when setup has not saved one (same rule as before). */
 export function organizationLocaleFrom(status: { setupCompleted: boolean; organizationName?: string | null; locale?: string | null } | null | undefined): AppLocale | null {
   if (!status || !hasSavedOrganizationLocale(status)) return null;
@@ -3123,14 +2971,6 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     observer.observe(document.head, { childList: true, subtree: true, characterData: true });
     return () => { window.cancelAnimationFrame(frame); observer.disconnect(); };
   }, [locale, bundleVersion]);
-  useEffect(() => {
-    if (locale === 'pt-PT' || (sourceTextTranslator && (!isLazyLocale(locale) || getLoadedLocaleBundle(locale)))) return observeSourceTextDom(locale, document.body);
-    let cancelled = false;
-    let disconnect: (() => void) | undefined;
-    // If an added language's file cannot load, its hard-coded texts still show in English.
-    void loadLocaleTexts(locale).catch(() => loadSourceTextMessages()).then(() => { if (!cancelled) disconnect = observeSourceTextDom(locale, document.body); }).catch(() => undefined);
-    return () => { cancelled = true; disconnect?.(); };
-  }, [locale]);
   // Keep the shared date/number formatters on the active language before children render.
   setFormatLocale(locale);
   const value = useMemo<I18nValue>(() => ({

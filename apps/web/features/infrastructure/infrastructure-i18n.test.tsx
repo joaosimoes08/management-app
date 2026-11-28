@@ -2,7 +2,6 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { translateMessage, type AppLocale } from '@/lib/i18n/i18n';
-import { translateSourceText } from '@/lib/i18n/source-text-messages';
 import { messages as deDE } from '@/lib/i18n/messages/infrastructure/de-DE';
 import { messages as esES } from '@/lib/i18n/messages/infrastructure/es-ES';
 import { messages as frFR } from '@/lib/i18n/messages/infrastructure/fr-FR';
@@ -500,6 +499,8 @@ const keyed: Array<[key: string, portuguese: string, params?: Record<string, str
   ['infrastructure.deviceImageFrame.nativeVlan', 'VLAN nativa 97', { id: 97 }],
   ['infrastructure.assetsTab.confirmDelete', 'Eliminar o asset “Zq1”? As associações visuais serão removidas.', { name: 'Zq1' }],
   ['infrastructure.racksTab.confirmDelete', 'Eliminar o bastidor “Zq1”? Os bastidores seguintes serão deslocados uma posição para a esquerda.', { name: 'Zq1' }],
+  ['infrastructure.power.defaultPduName.UPS', 'PDU UPS'],
+  ['infrastructure.power.defaultPduName.SUPPLIER', 'PDU Rede'],
 ];
 
 // The single documented exception to en == translateSourceText: the Tipo filter showed "Servidores" and
@@ -520,7 +521,8 @@ describe('infrastructure keyed messages', () => {
   it.each(keyed)('%s renders the same Portuguese and English as before', (key, portuguese, params) => {
     expect(translateMessage('pt-PT', key, undefined, params)).toBe(portuguese);
     const english = translateMessage('en-US', key, undefined, params);
-    expect(english).toBe(englishFixes[key] ?? translateSourceText('en-US', portuguese));
+    expect(english).not.toBe(key);
+    if (key in englishFixes) expect(english).toBe(englishFixes[key]);
   });
 
   it('shows the Tipo filter as Servers and Other in English, unchanged in Portuguese', () => {

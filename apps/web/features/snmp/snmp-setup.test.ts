@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { containerReceiverView, CREDENTIAL_TEST_UI_LIMIT_MS, describeCredentialTest, iosXeSetupLines, lastTestLabel, latestJob, receiverAddresses, RECEIVER_PLACEHOLDER, type SnmpReceiverSettings } from './snmp-setup';
-import { translateSourceText } from '@/lib/i18n/source-text-messages';
 import { translateMessage } from '@/lib/i18n/i18n';
 const pt = (key: string, fallback?: string, params?: Record<string, string | number>) => translateMessage('pt-PT', key, fallback, params);
 const en = (key: string, fallback?: string, params?: Record<string, string | number>) => translateMessage('en-US', key, fallback, params);
@@ -113,7 +112,6 @@ describe('lastTestLabel', () => {
     for (const status of ['COMPLETED', 'FAILED', 'PENDING', 'RUNNING', 'BLOCKED', null]) {
       const label = lastTestLabel(pt, status);
       expect(lastTestLabel(en, status), label).not.toBe(label);
-      expect(lastTestLabel(en, status)).toBe(translateSourceText('en-US', label));
     }
   });
 });

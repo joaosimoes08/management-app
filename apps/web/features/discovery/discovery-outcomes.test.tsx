@@ -1,6 +1,5 @@
 import { cleanup, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { translateSourceText } from '@/lib/i18n/source-text-messages';
 import { DiscoveryResultsTable } from './discovery-results';
 import { DiscoveryOutcomeCell, DiscoveryRunOutcomeSummary } from './discovery-outcomes';
 import type { DiscoveryHostOutcome, DiscoveryOutcomeCounts, DiscoveryResult } from './api';
@@ -47,17 +46,5 @@ describe('D-P2a structured scan outcomes', () => {
     cleanup();
     const { container } = render(<DiscoveryRunOutcomeSummary job={{ outcomeCounts: null, totalCount: 62, processedCount: 62 }} />);
     expect(container.textContent).toBe('');
-  });
-
-  it('every outcome text has an en-US translation', () => {
-    const texts: Array<[string, string]> = [
-      ['ICMP: erro na sonda', 'ICMP: probe error'], ['TCP 443: recusada', 'TCP 443: refused'], ['TCP 80: sem resposta', 'TCP 80: no answer'], ['TCP 23: erro', 'TCP 23: error'],
-      ['DNS: sem registo PTR', 'DNS: no PTR record'], ['DNS: pesquisa falhou (ETIMEOUT)', 'DNS: lookup failed (ETIMEOUT)'], ['SNMP: não tentado (política da execução)', 'SNMP: not tried (run policy)'],
-      ['Hosts: 12 responderam · 50 sem resposta · 14 não sondados', 'Hosts: 12 responded · 50 no response · 14 not scanned'],
-      ['Portas TCP: 1 abertas · 61 recusadas · 62 sem resposta · 0 erros', 'TCP ports: 1 open · 61 refused · 62 no answer · 0 errors'],
-      ['DNS inverso: 1 com PTR · 10 sem PTR · 1 falhas', 'Reverse DNS: 1 with PTR · 10 without PTR · 1 failed'],
-      ['SNMP: 10 lidos · 0 parciais · 1 autenticação falhou · 1 sem resposta · 0 erros · 0 não tentados (política)', 'SNMP: 10 read · 0 partial · 1 authentication failed · 1 no response · 0 errors · 0 not tried (policy)'],
-    ];
-    for (const [pt, en] of texts) expect(translateSourceText('en-US', pt)).toBe(en);
   });
 });

@@ -284,4 +284,6 @@ export const messages: Record<string, string> = {
   "operations.quality.tableLabel": "Inventory quality findings",
   "operations.quality.loading": "Loading…",
   "operations.quality.loadMore": "Load more findings",
+  "operations.events.sseUnavailable": "SSE unavailable.",
+  "operations.events.refreshFailed": "Failed to refresh operations.",
 } satisfies Record<OperationsMessageKey, string>;

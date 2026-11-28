@@ -13,6 +13,7 @@ import { formatDateTime } from '@/lib/format/date';
 import { bulkInventoryFindings, inventoryQualityKeys, getInventoryQualityAssignees, getInventoryQualityFacets, listInventoryFindings, type BulkFindingAction, type InventoryFinding } from './api';
 import { QualityBulkDialog, type BulkParams } from './quality-bulk-dialog';
 import { useUiText } from '@/components/ui/use-ui-text';
+import { localizeServerText } from '@/lib/i18n/server-text';
 import {
   ALL, BULK_LIMIT, bulkOutcome, findingDeviceId, findingQueryFrom, findingSeverities, findingStatuses, groupByRule, hasQualityFilters, isActionable,
   isKnownRule, personName, qualityTableConfig, ruleLabel, severityLabel, severityRank, statusCount, statusLabel, statusTabLabel, visibleSelection, type BulkOutcome,
@@ -66,7 +67,7 @@ export function InventoryQualityPage() {
 
   const columns: DataTableColumn<InventoryFinding>[] = [
     { id: 'severity', header: tx('operations.alerts.field.severity'), sortValue: (row) => severityRank[row.severity], cell: (row) => <span className={`status-pill ${row.severity === 'CRITICAL' || row.severity === 'HIGH' ? 'orange' : 'blue'}`}>{severityLabel(row.severity, tx)}</span> },
-    { id: 'title', header: tx('operations.quality.finding'), sortValue: (row) => row.title, cell: (row) => <span><strong>{row.title}</strong><small>{row.detail}</small>{row.suggestedCorrection && <small>{tx('operations.quality.suggestedCorrection', undefined, { correction: row.suggestedCorrection })}</small>}</span> },
+    { id: 'title', header: tx('operations.quality.finding'), sortValue: (row) => row.title, cell: (row) => <span><strong>{localizeServerText(tx, row.title)}</strong><small>{localizeServerText(tx, row.detail)}</small>{row.suggestedCorrection && <small>{tx('operations.quality.suggestedCorrection', undefined, { correction: localizeServerText(tx, row.suggestedCorrection) })}</small>}</span> },
     { id: 'rule', header: tx('operations.quality.rule'), sortValue: (row) => ruleLabel(row.rule, tx), cell: (row) => ruleLabel(row.rule, tx) },
     { id: 'status', header: tx('operations.alerts.field.status'), sortValue: (row) => findingStatuses.indexOf(row.status), cell: (row) => <span>{statusLabel(row.status, tx)}{row.status === 'SNOOZED' && row.snoozedUntil && <small>{tx('operations.alerts.until', undefined, { date: shortDateTime(row.snoozedUntil) })}</small>}</span> },
     { id: 'assignee', header: tx('operations.quality.assignee'), sortValue: (row) => personName(row.assignedTo) || null, cell: (row) => (row.assignedTo ? personName(row.assignedTo) : <span className="muted-cell">{tx('operations.quality.unassigned')}</span>) },
@@ -193,6 +194,6 @@ export function InventoryQualityPage() {
       {pages.hasNextPage && <div className="form-actions"><button type="button" className="secondary-button" disabled={pages.isFetchingNextPage} onClick={() => void pages.fetchNextPage()}>{pages.isFetchingNextPage ? tx('operations.quality.loading') : tx('operations.quality.loadMore')}</button></div>}
     </section></div>
 
-    {dialog && <QualityBulkDialog action={dialog} count={dialogIds.length} finding={rowTarget?.title} assignees={assignees.data ?? []} running={running} outcome={outcome} close={closeDialog} run={(params) => void run(dialog, params, dialogIds)} />}
+    {dialog && <QualityBulkDialog action={dialog} count={dialogIds.length} finding={rowTarget ? localizeServerText(tx, rowTarget.title) : undefined} assignees={assignees.data ?? []} running={running} outcome={outcome} close={closeDialog} run={(params) => void run(dialog, params, dialogIds)} />}
   </PageShell></>;
 }

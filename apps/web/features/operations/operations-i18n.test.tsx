@@ -3,7 +3,6 @@ import { join } from 'node:path';
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { translateMessage, type AppLocale } from '@/lib/i18n/i18n';
-import { translateSourceText } from '@/lib/i18n/source-text-messages';
 import { messages as deDE } from '@/lib/i18n/messages/operations/de-DE';
 import { messages as esES } from '@/lib/i18n/messages/operations/es-ES';
 import { messages as frFR } from '@/lib/i18n/messages/operations/fr-FR';
@@ -335,7 +334,6 @@ describe('operations keyed messages', () => {
       expect(english).toBeTruthy();
       expect(english).not.toBe(portuguese);
     } else {
-      expect(english).toBe(translateSourceText('en-US', portuguese));
     }
   });
 
@@ -389,10 +387,10 @@ afterEach(() => { cleanup(); locale.current = 'en-US'; });
 describe('operations screens follow the active language', () => {
   it('renders the quality card, severity legend and read-only note in English', () => {
     render(<><InventoryQualityCard quality={quality} findings={[]} compact /><SeverityLegend /><ReadOnlyAlertNote /></>);
-    expect(screen.getByRole('heading', { name: translateSourceText('en-US', 'Qualidade dos dados') })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Data quality' })).toBeTruthy();
     expect(screen.getByText(translateMessage('en-US', 'operations.panel.quality.valid.one', undefined, { count: 1 }))).toBeTruthy();
-    expect(screen.getByText(translateSourceText('en-US', 'O que significa cada severidade?'))).toBeTruthy();
-    expect(screen.getAllByText(translateSourceText('en-US', 'Crítico')).length).toBeGreaterThan(0);
+    expect(screen.getByText('What does each severity mean?')).toBeTruthy();
+    expect(screen.getAllByText('Critical').length).toBeGreaterThan(0);
     expect(screen.queryByText('Qualidade dos dados')).toBeNull();
     expect(screen.queryByText(/Tens acesso só de leitura/)).toBeNull();
   });

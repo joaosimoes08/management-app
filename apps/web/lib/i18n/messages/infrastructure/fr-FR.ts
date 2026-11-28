@@ -489,4 +489,6 @@ export const messages: Record<string, string> = {
   'infrastructure.deviceImageFrame.nativeVlan': 'VLAN natif {id}',
   'infrastructure.assetsTab.confirmDelete': 'Supprimer la ressource visuelle « {name} » ? Ses liens visuels seront supprimés.',
   'infrastructure.racksTab.confirmDelete': 'Supprimer la baie « {name} » ? Les baies suivantes seront décalées d’une position vers la gauche.',
+  'infrastructure.power.defaultPduName.UPS': 'PDU UPS',
+  'infrastructure.power.defaultPduName.SUPPLIER': 'PDU secteur',
 } satisfies Record<InfrastructureMessageKey, string>;

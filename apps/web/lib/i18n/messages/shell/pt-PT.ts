@@ -54,6 +54,13 @@ export const messages = {
   'shell.siteSwitcher.create': 'Criar Site',
   'shell.siteSwitcher.createdHint': 'O Site foi adicionado à organização e já pode ser usado como contexto ativo.',
   'shell.siteSwitcher.switch': 'Mudar para este Site',
+  'shell.auth.notAuthenticated': 'Sessão não autenticada.',
+  'shell.auth.noAccessToken': 'O Keycloak não devolveu um access token.',
+  'shell.auth.sessionExpired': 'A sessão expirou.',
+  'shell.auth.keycloakUnreachable': 'Não foi possível contactar o Keycloak.',
+  'shell.auth.setupCheckFailed': 'Não foi possível validar o setup inicial.',
+  'shell.auth.startFailed': 'Não foi possível iniciar a autenticação.',
+  'shell.recentItems.kind.device': 'Equipamento',
 } as const satisfies Record<string, string>;
 
 export type ShellMessageKey = keyof typeof messages;

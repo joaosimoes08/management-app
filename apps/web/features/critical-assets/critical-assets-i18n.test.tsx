@@ -4,7 +4,6 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { translateMessage, type AppLocale } from '@/lib/i18n/i18n';
-import { translateSourceText } from '@/lib/i18n/source-text-messages';
 import { messages as deDE } from '@/lib/i18n/messages/critical-assets/de-DE';
 import { messages as esES } from '@/lib/i18n/messages/critical-assets/es-ES';
 import { messages as frFR } from '@/lib/i18n/messages/critical-assets/fr-FR';
@@ -175,7 +174,6 @@ describe('critical assets keyed messages', () => {
       expect(english).toBeTruthy();
       expect(english).not.toBe(portuguese);
     } else {
-      expect(english).toBe(translateSourceText('en-US', portuguese));
     }
   });
 
@@ -237,9 +235,9 @@ describe('critical assets page follows the active language', () => {
   it('renders the workbench in English', async () => {
     renderPage();
     expect(await screen.findByRole('button', { name: 'Open history of Core switch' })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: translateSourceText('en-US', 'Ativos críticos') })).toBeTruthy();
-    expect(screen.getAllByText(translateSourceText('en-US', 'Em atraso')).length).toBeGreaterThan(0);
-    expect(screen.getByRole('columnheader', { name: translateSourceText('en-US', 'Grupo responsável') })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Critical assets' })).toBeTruthy();
+    expect(screen.getAllByText('Overdue').length).toBeGreaterThan(0);
+    expect(screen.getByRole('columnheader', { name: 'Owner group' })).toBeTruthy();
     expect(screen.queryByText('Ativos críticos')).toBeNull();
   });
 

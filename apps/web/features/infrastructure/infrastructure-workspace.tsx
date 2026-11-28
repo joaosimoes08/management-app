@@ -68,6 +68,7 @@ import { ModelsTab } from './tabs/models-tab';
 import { AssetsTab } from './tabs/assets-tab';
 import { InterfacesTab } from './tabs/interfaces-tab';
 import { PermissionsTab } from './tabs/permissions-tab';
+import { localizeServerText } from '@/lib/i18n/server-text';
 
 const EMPTY_IPS: IpAddress[] = [];
 const NO_ACTIONS: string[] = [];
@@ -117,7 +118,8 @@ export function InfrastructureWorkspace() {
   const [deviceFieldErrors, setDeviceFieldErrors] = useState<MappedFieldError[]>([]);
   const [deviceEditorTab, setDeviceEditorTab] = useState<DeviceEditorTab | undefined>(undefined);
   const requiredConfigRegistry = useRequiredConfigRegistry();
-  const missingConfigLabel = requiredConfigRegistry?.configs?.find((config) => config.key === missingConfig)?.label ?? missingConfig;
+  const registryConfigLabel = requiredConfigRegistry?.configs?.find((config) => config.key === missingConfig)?.label;
+  const missingConfigLabel = registryConfigLabel ? localizeServerText(ui, registryConfigLabel) : missingConfig;
   useEffect(() => { setFormError(''); setDeviceFieldErrors([]); }, [modal]);
   /** D-P1b: discovery result being promoted (create form open) and the device it became (SNMP offer). */
   const promotionRef = useRef<DiscoveryPromotionRequest | null>(null);

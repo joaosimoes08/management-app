@@ -14,6 +14,7 @@ export { ipam } from './ipam';
 export { netapp } from './netapp';
 export { operations } from './operations';
 export { portal } from './portal';
+export { server } from './server';
 export { settings } from './settings';
 export { shell } from './shell';
 export { snmp } from './snmp';

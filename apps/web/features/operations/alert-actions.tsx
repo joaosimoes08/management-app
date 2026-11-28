@@ -13,6 +13,7 @@ import { formatDateTime } from '@/lib/format/date';
 import { bulkOperationalAlerts, operationsKeys, BULK_ALERT_LIMIT, type BulkAlertAction, type BulkAlertResponse } from './api';
 import { SNOOZE_CHOICES, snoozeHoursLabel, type Translate } from './alert-meta';
 import { useUiText } from '@/components/ui/use-ui-text';
+import { localizeServerText } from '@/lib/i18n/server-text';
 
 export const OPERATOR_ROLES = ['ADMIN', 'NETWORK_OPERATOR', 'SYSTEMS_OPERATOR'] as const;
 
@@ -41,7 +42,7 @@ export function outcomeText(outcome: AlertActionOutcome, t: Translate): string {
   let done = t(`operations.alerts.done.${outcome.action}`, undefined, { count: outcome.succeeded });
   if (outcome.snoozedUntil && outcome.succeeded) done += ` ${t('operations.alerts.until', undefined, { date: formatDateTime(outcome.snoozedUntil, { dateStyle: 'short', timeStyle: 'short' }) })}`;
   let text = `${done}.`;
-  if (outcome.failed) text += ` ${t('operations.alerts.failed', undefined, { count: outcome.failed, failures: outcome.failures.map((item) => `${item.title} (${item.message})`).join('; ') })}`;
+  if (outcome.failed) text += ` ${t('operations.alerts.failed', undefined, { count: outcome.failed, failures: outcome.failures.map((item) => `${localizeServerText(t, item.title)} (${localizeServerText(t, item.message)})`).join('; ') })}`;
   return text;
 }
 

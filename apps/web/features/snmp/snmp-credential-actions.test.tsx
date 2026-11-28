@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/api/client';
 import { ApiRequestError, apiErrorMessage, localizedApiErrors } from '@/lib/api/errors';
 import { translateMessage } from '@/lib/i18n/i18n';
-import { translateSourceText } from '@/lib/i18n/source-text-messages';
 import SnmpPage from './snmp-page';
 import { snmpCredentialBusy, snmpCredentialDeleteMessage, snmpCredentialUsage } from './snmp-credential-usage';
 
@@ -152,7 +151,6 @@ describe('snmpCredentialUsage', () => {
     const usage = snmpCredentialUsage('READ', overview({ config }) as never, english);
     expect(snmpCredentialDeleteMessage({ purpose: 'TRAP', version: 'V3', username: null, label: null }, undefined, usage, english)).toBe('Delete the TRAP · V3 credential of this device?\nOnly this credential is removed; the other credentials and the SNMP configuration stay as they are. This cannot be undone.\n\nWarning, this credential is in use:\n• SNMP polling is on for this device and uses this credential: it stops working until you save another READ credential.');
     expect(translateMessage('en-US', 'groupB.snmp.credentialDeleted', undefined, { purpose: 'READ' })).toBe('READ credential deleted.');
-    expect(translateSourceText('en-US', 'Credencial READ eliminada.')).toBe('READ credential deleted.');
   });
 });
 

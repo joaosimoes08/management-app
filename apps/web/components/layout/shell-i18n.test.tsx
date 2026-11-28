@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { translateMessage, type AppLocale } from '@/lib/i18n/i18n';
-import { translateSourceText } from '@/lib/i18n/source-text-messages';
 import { messages as deDE } from '@/lib/i18n/messages/shell/de-DE';
 import { messages as esES } from '@/lib/i18n/messages/shell/es-ES';
 import { messages as frFR } from '@/lib/i18n/messages/shell/fr-FR';
@@ -67,6 +66,13 @@ const keyed: Array<[key: string, portuguese: string, params?: Record<string, str
   ['shell.siteSwitcher.create', 'Criar Site'],
   ['shell.siteSwitcher.createdHint', 'O Site foi adicionado à organização e já pode ser usado como contexto ativo.'],
   ['shell.siteSwitcher.switch', 'Mudar para este Site'],
+  ['shell.auth.notAuthenticated', 'Sessão não autenticada.'],
+  ['shell.auth.noAccessToken', 'O Keycloak não devolveu um access token.'],
+  ['shell.auth.sessionExpired', 'A sessão expirou.'],
+  ['shell.auth.keycloakUnreachable', 'Não foi possível contactar o Keycloak.'],
+  ['shell.auth.setupCheckFailed', 'Não foi possível validar o setup inicial.'],
+  ['shell.auth.startFailed', 'Não foi possível iniciar a autenticação.'],
+  ['shell.recentItems.kind.device', 'Equipamento'],
 ];
 const sources = ['app-sidebar.tsx', 'global-search.tsx', 'topbar-state.ts', 'use-topbar-state.ts', 'user-menu.tsx', 'site-switcher.tsx'].map((file) => readFileSync(join(__dirname, file), 'utf8'));
 const withoutComments = (source: string) => source.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
@@ -74,7 +80,6 @@ const withoutComments = (source: string) => source.replace(/\/\*[\s\S]*?\*\/|\/\
 describe('shell keyed messages', () => {
   it.each(keyed)('%s renders the same Portuguese and English as before', (key, portuguese, params) => {
     expect(translateMessage('pt-PT', key, undefined, params)).toBe(portuguese);
-    expect(translateMessage('en-US', key, undefined, params)).toBe(translateSourceText('en-US', portuguese));
   });
 
   it('has every key the app shell use, in both locales and the added languages', () => {
@@ -96,7 +101,7 @@ describe('shell keyed messages', () => {
     const code = sources.map(withoutComments).join('\n');
     for (const [key, portuguese, params] of keyed) {
       // Proper nouns and codes (Portugal, LIS-01) read the same in English and may appear elsewhere.
-      if (params || translateSourceText('en-US', portuguese) === portuguese) continue;
+      if (params || translateMessage('en-US', key) === portuguese) continue;
       expect(code, key).not.toContain(`'${portuguese}'`);
       expect(code, key).not.toContain(`>${portuguese}<`);
     }

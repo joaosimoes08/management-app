@@ -11,7 +11,7 @@ import { CompactModal } from '@/components/ui/compact-modal';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { formatDateTime } from '@/lib/format/date';
 import { useUiText } from '@/components/ui/use-ui-text';
-import { ipamText } from '../i18n';
+import { ipamServerText, ipamText } from '../i18n';
 import { DataTable, type DataTableColumn } from '@/components/data-table/data-table';
 
 const statusLabel: Record<RipeDiffStatus, string> = { get new() { return ipamText('ipam.ripeView.status.new'); }, get changed() { return ipamText('ipam.ripeView.status.changed'); }, get exists() { return ipamText('ipam.ripeView.status.exists'); }, get conflict() { return ipamText('ipam.ripeView.status.conflict'); } };
@@ -52,7 +52,7 @@ const overlapLine = (overlap: RipeOverlap) => {
 };
 /** An OVERLAP caused only by earlier prefixes of the same paste is not about the inventory. */
 const pasteOnlyOverlap = (item: RipeDiffItem) => item.reason === 'OVERLAP' && Boolean(item.overlaps?.length) && (item.overlaps ?? []).every((overlap) => overlap.source === 'paste');
-const reasonText = (item: RipeDiffItem) => (pasteOnlyOverlap(item) ? ipamText('ipam.ripeView.pasteOverlap') : reasonLabel[item.reason] ?? item.message);
+const reasonText = (item: RipeDiffItem) => (pasteOnlyOverlap(item) ? ipamText('ipam.ripeView.pasteOverlap') : reasonLabel[item.reason] ?? ipamServerText(item.message));
 
 /** Extra detail for a diff row: the colliding subnet, the overlaps or the attribute differences. */
 export function ripeDiffDetail(item: RipeDiffItem, vrfs: Vrf[] = []): string[] {
@@ -189,7 +189,7 @@ export function RipeView({ siteId, search, vlans, canPreview, canImport, success
         <button className="primary-button" disabled={previewing}><Eye size={14} /> {previewing ? ui('ipam.ripeView.previewing') : ui('ipam.ripeView.preview')}</button>
       </form>
       {previewError && !pasteOpen && <div className="ipam-alert error" role="alert"><X size={15} />{previewError}</div>}
-      {lastResult && <div className="usage-summary" role="status"><strong>{ui('ipam.ripe.createdCount', undefined, { created: lastResult.created.length })}</strong><span>{ui('ipam.ripe.skippedStatus', undefined, { skipped: lastResult.skipped.length, status: importStatusLabel[lastResult.status] ?? lastResult.status })}</span>{lastResult.skipped.map((item) => <span key={item.cidr} className="mono">{item.cidr}: {item.reason}</span>)}</div>}
+      {lastResult && <div className="usage-summary" role="status"><strong>{ui('ipam.ripe.createdCount', undefined, { created: lastResult.created.length })}</strong><span>{ui('ipam.ripe.skippedStatus', undefined, { skipped: lastResult.skipped.length, status: importStatusLabel[lastResult.status] ?? lastResult.status })}</span>{lastResult.skipped.map((item) => <span key={item.cidr} className="mono">{item.cidr}: {ipamServerText(item.reason)}</span>)}</div>}
     </section>
 
     {preview && stale && <p className="ipam-scope-note" role="status">{ui('ipam.ripeView.stale')}</p>}
@@ -258,7 +258,7 @@ function RipeImportPanel({ item, vrfs, close }: { item: RipeImportRecord | null;
         <div><span>{ui('ipam.ripeView.detail.created')}</span><strong>{item.result?.created?.length ?? 0}</strong></div>
         <div><span>{ui('ipam.ripeView.detail.skipped')}</span><strong>{skipped.length}</strong></div>
       </div>
-      {skipped.length > 0 && <section className="host-section"><h3>{ui('ipam.ripeView.detail.skippedPrefixes')}</h3>{skipped.map((entry) => <article className="host-relation" key={entry.cidr}><div><strong className="mono">{entry.cidr}</strong><span>{entry.reason}</span></div></article>)}</section>}
+      {skipped.length > 0 && <section className="host-section"><h3>{ui('ipam.ripeView.detail.skippedPrefixes')}</h3>{skipped.map((entry) => <article className="host-relation" key={entry.cidr}><div><strong className="mono">{entry.cidr}</strong><span>{ipamServerText(entry.reason)}</span></div></article>)}</section>}
       <section className="host-section"><h3>{ui('ipam.ripeView.prefixes')}</h3>{prefixes.map((cidr) => { const entry = diffByPrefix.get(cidr); return <article className="host-relation" key={cidr}><div><strong className="mono">{cidr}</strong><span>{selectedPrefixes.has(cidr) ? ui('ipam.ripeView.detail.selectedPrefix') : ui('ipam.ripeView.detail.notSelected')}{entry ? ` · ${reasonText(entry)}` : ''}</span>{entry && ripeDiffDetail(entry, vrfs).map((line) => <span key={line}>{line}</span>)}</div>{entry && <DiffBadge status={entry.status} />}</article>; })}{!prefixes.length && <p className="panel-description">{ui('ipam.ripeView.detail.noPrefixes')}</p>}</section>
       {Boolean(item.result?.invalid?.length) && <section className="host-section"><h3>{ui('ipam.ripeView.detail.invalidEntries')}</h3>{(item.result?.invalid ?? []).map((entry) => <article className="host-relation" key={entry.input}><div><strong className="mono">{entry.input}</strong><span>{entry.reason === 'MISSING_PREFIX_LENGTH' ? ui('ipam.ripeView.invalid.missingLength') : ui('ipam.ripeView.invalid.notCidr')}</span></div></article>)}</section>}
     </>}

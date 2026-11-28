@@ -27,6 +27,10 @@ export function rememberRecentItem(userId: string | undefined, item: Omit<Recent
   } catch { /* Recent history is optional when browser storage is unavailable. */ }
 }
 
+// Stored kinds are labels saved in earlier visits; 'Equipamento' is shown in the active language.
+const recentKindKeys: Record<string, string> = { Equipamento: 'shell.recentItems.kind.device' };
+const recentKindLabel = (ui: ReturnType<typeof useUiText>, kind: string) => (Object.hasOwn(recentKindKeys, kind) ? ui(recentKindKeys[kind], kind) : kind);
+
 export function RecentItems({ userId }: { userId: string | undefined }) {
   const ui = useUiText();
   const [items, setItems] = useState<RecentItem[]>([]);
@@ -40,5 +44,5 @@ export function RecentItems({ userId }: { userId: string | undefined }) {
     return () => window.removeEventListener('management-app:recent-items', load);
   }, [userId]);
   if (!items.length) return null;
-  return <section className="recent-items" aria-label={ui('recentItems.label')}><h2>{ui('recentItems.title')}</h2><ul>{items.map((item) => <li key={`${item.kind}:${item.id}`}><a href={item.href}><small>{item.kind}</small><span>{item.label}</span></a></li>)}</ul></section>;
+  return <section className="recent-items" aria-label={ui('recentItems.label')}><h2>{ui('recentItems.title')}</h2><ul>{items.map((item) => <li key={`${item.kind}:${item.id}`}><a href={item.href}><small>{recentKindLabel(ui, item.kind)}</small><span>{item.label}</span></a></li>)}</ul></section>;
 }

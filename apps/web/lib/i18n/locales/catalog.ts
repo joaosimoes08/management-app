@@ -28,11 +28,7 @@ export function isLazyLocale(value: unknown): value is LazyLocale {
 /**
  * One language's texts. Missing entries fall back to English, never to Portuguese.
  * - messages: keyed messages, same keys as the en-US block in i18n.tsx plus this language's file of each domain in ../messages.
- * - sourceText: hard-coded Portuguese UI text (the source) → this language, same keys as enUS in source-text-messages.ts.
- * - substitutions: rules for Portuguese text with variable parts, applied when no sourceText entry matches.
  */
 export type LocaleBundle = {
   messages: Record<string, string>;
-  sourceText: Record<string, string>;
-  substitutions?: Array<[RegExp, string]>;
 };

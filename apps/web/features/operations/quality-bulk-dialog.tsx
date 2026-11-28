@@ -8,6 +8,7 @@ import { formatDateTime } from '@/lib/format/date';
 import type { BulkFindingAction, FindingPerson } from './api';
 import { DEFAULT_SNOOZE_HOURS, personName, snoozeOptionLabel, snoozeOptions, type BulkOutcome } from './quality-workspace';
 import { useUiText } from '@/components/ui/use-ui-text';
+import { localizeServerText } from '@/lib/i18n/server-text';
 
 
 export type BulkParams = { userId?: string | null; durationHours?: number };
@@ -43,8 +44,8 @@ export function QualityBulkDialog({ action, count, finding, assignees, running, 
     </>}
     {done && <div className={`ipam-alert ${allOk ? 'success' : 'error'}`} role="status">{allOk ? <CheckCircle2 size={15} /> : <X size={15} />}{tx('groupB.quality.applied', undefined, { succeeded: outcome.succeeded, total: outcome.items.length })}{outcome.snoozedUntil ? ` ${tx('groupB.quality.snoozedUntil', undefined, { date: formatDateTime(outcome.snoozedUntil, { dateStyle: 'short', timeStyle: 'short' }) })}` : ''}</div>}
     {outcome && <div className="quality-bulk-results"><DataTable rows={outcome.items} rowKey={(item) => item.id} label={tx('operations.quality.bulk.results')} columns={[
-      { id: 'finding', header: tx('operations.quality.finding'), cell: (item) => item.title },
-      { id: 'result', header: tx('operations.quality.bulk.result'), cell: (item) => <span className={`state-badge ${item.ok ? 'occupied' : 'excluded'}`}><i />{item.message}</span> },
+      { id: 'finding', header: tx('operations.quality.finding'), cell: (item) => localizeServerText(tx, item.title) },
+      { id: 'result', header: tx('operations.quality.bulk.result'), cell: (item) => <span className={`state-badge ${item.ok ? 'occupied' : 'excluded'}`}><i />{localizeServerText(tx, item.message)}</span> },
     ]} /></div>}
     <div className="modal-actions">{outcome
       ? <button type="button" className="primary-button" disabled={running} onClick={close}>{tx('operations.quality.bulk.close')}</button>

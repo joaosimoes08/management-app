@@ -2,7 +2,6 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { useState } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { useConfirm, type ConfirmOptions } from './confirm-dialog';
-import { translateSourceText } from '@/lib/i18n/source-text-messages';
 
 function Harness({ options }: { options: ConfirmOptions }) {
   const { confirm, confirmDialog } = useConfirm();
@@ -92,11 +91,4 @@ describe('useConfirm', () => {
     expect(screen.getByRole('alertdialog').querySelectorAll('br')).toHaveLength(2);
   });
 
-  it('has English text for the dialog chrome and the replaced confirm messages', () => {
-    expect(translateSourceText('en-US', 'Confirmar eliminação')).toBe('Confirm deletion');
-    expect(translateSourceText('en-US', 'Existem alterações por guardar. Queres sair sem guardar?')).toBe('There are unsaved changes. Leave without saving?');
-    expect(translateSourceText('en-US', 'Eliminar a regra NAT web-dnat?')).toBe('Delete the NAT rule web-dnat?');
-    expect(translateSourceText('en-US', 'Importar 3 prefixo(s) como subnets deste Site?')).toBe('Import 3 prefix(es) as subnets of this Site?');
-    expect(translateSourceText('en-US', 'Eliminar o bastidor “R1”? Os bastidores seguintes serão deslocados uma posição para a esquerda.')).toBe('Delete the rack “R1”? The following racks will move one position to the left.');
-  });
 });

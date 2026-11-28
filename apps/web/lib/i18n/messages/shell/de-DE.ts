@@ -56,4 +56,11 @@ export const messages: Record<string, string> = {
   'shell.siteSwitcher.create': 'Standort erstellen',
   'shell.siteSwitcher.createdHint': 'Der Standort wurde der Organisation hinzugefügt und kann jetzt als aktiver Kontext verwendet werden.',
   'shell.siteSwitcher.switch': 'Zu diesem Standort wechseln',
+  'shell.auth.notAuthenticated': 'Die Sitzung ist nicht authentifiziert.',
+  'shell.auth.noAccessToken': 'Keycloak hat kein Zugriffstoken zurückgegeben.',
+  'shell.auth.sessionExpired': 'Die Sitzung ist abgelaufen.',
+  'shell.auth.keycloakUnreachable': 'Keycloak ist nicht erreichbar.',
+  'shell.auth.setupCheckFailed': 'Die Ersteinrichtung konnte nicht überprüft werden.',
+  'shell.auth.startFailed': 'Die Authentifizierung konnte nicht gestartet werden.',
+  'shell.recentItems.kind.device': 'Gerät',
 } satisfies Record<ShellMessageKey, string>;

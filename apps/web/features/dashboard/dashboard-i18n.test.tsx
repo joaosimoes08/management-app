@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { translateMessage, type AppLocale } from '@/lib/i18n/i18n';
-import { translateSourceText } from '@/lib/i18n/source-text-messages';
 import { messages as deDE } from '@/lib/i18n/messages/dashboard/de-DE';
 import { messages as esES } from '@/lib/i18n/messages/dashboard/es-ES';
 import { messages as frFR } from '@/lib/i18n/messages/dashboard/fr-FR';
@@ -29,7 +28,6 @@ const withoutComments = (source: string) => source.replace(/\/\*[\s\S]*?\*\/|\/\
 describe('dashboard keyed messages', () => {
   it.each(keyed)('%s renders the same Portuguese and English as before', (key, portuguese, params) => {
     expect(translateMessage('pt-PT', key, undefined, params)).toBe(portuguese);
-    expect(translateMessage('en-US', key, undefined, params)).toBe(translateSourceText('en-US', portuguese));
   });
 
   it('has every key the dashboard layout editor use, in both locales and the added languages', () => {
@@ -51,7 +49,7 @@ describe('dashboard keyed messages', () => {
     const code = sources.map(withoutComments).join('\n');
     for (const [key, portuguese, params] of keyed) {
       // Proper nouns and codes (Portugal, LIS-01) read the same in English and may appear elsewhere.
-      if (params || translateSourceText('en-US', portuguese) === portuguese) continue;
+      if (params || translateMessage('en-US', key) === portuguese) continue;
       expect(code, key).not.toContain(`'${portuguese}'`);
       expect(code, key).not.toContain(`>${portuguese}<`);
     }

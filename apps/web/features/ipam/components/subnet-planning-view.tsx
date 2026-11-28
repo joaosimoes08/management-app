@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { ApiRequestError } from '@/lib/api/errors';
 import { useUiText } from '@/components/ui/use-ui-text';
-import { ipamText } from '../i18n';
+import { ipamServerText, ipamText } from '../i18n';
 import type { Subnet } from '../types';
 import { commitSubnetPlanning, getSubnetPlanning, type SubnetPlanCommitProblem, type SubnetPlanning, type SubnetPlanningAllocationKind, type SubnetPlannedBlock, type SubnetPlanningSegment, type SubnetPlanningShortfall, type SubnetSkippedBlock, type SubnetSplitRow } from '../api';
 
@@ -41,10 +41,10 @@ export function shortfallMessage(item: SubnetPlanningShortfall) {
 function segmentDetail(segment: SubnetPlanningSegment) {
   if (segment.status === 'FREE') return segment.cidrs.join(', ');
   if (segment.status === 'PLANNED') return segment.cidrs[0] ?? '';
-  if (segment.status === 'RESERVED') return segment.label ?? '';
-  if (segment.status === 'CONFLICT') return segment.breakdown ? ipamText('ipam.planning.conflictDetailFree', { cidr: segment.cidrs[0] ?? '', label: segment.label ?? '', free: segment.breakdown.free }) : ipamText('ipam.planning.conflictDetail', { cidr: segment.cidrs[0] ?? '', label: segment.label ?? '' });
+  if (segment.status === 'RESERVED') return ipamServerText(segment.label);
+  if (segment.status === 'CONFLICT') return segment.breakdown ? ipamText('ipam.planning.conflictDetailFree', { cidr: segment.cidrs[0] ?? '', label: ipamServerText(segment.label), free: segment.breakdown.free }) : ipamText('ipam.planning.conflictDetail', { cidr: segment.cidrs[0] ?? '', label: ipamServerText(segment.label) });
   const kinds = (segment.kinds ?? []).map(kindLabel).join(' · ');
-  return segment.label ? `${kinds}: ${segment.label}` : kinds;
+  return segment.label ? `${kinds}: ${ipamServerText(segment.label)}` : kinds;
 }
 
 /** Selector label: CIDR · purpose · VRF · Site, so subnets with the same range in different VRFs can be told apart. */
@@ -137,7 +137,7 @@ export function SubnetPlanningView({ subnets, search = '', canCreate = false }: 
     {created.length > 0 && <div className="ipam-alert success" role="status">{ui('ipam.planning.created', undefined, { cidrs: created.join(', ') })}</div>}
     {conflicts.length > 0 && <>
       <div className="ipam-alert error" role="alert">{ui('ipam.planning.nothingCreated', undefined, { count: conflicts.length })}</div>
-      {conflicts.map((item) => <div className="ipam-alert warning" key={`${item.cidr}-${item.reason}`}>{item.message}</div>)}
+      {conflicts.map((item) => <div className="ipam-alert warning" key={`${item.cidr}-${item.reason}`}>{ipamServerText(item.message)}</div>)}
     </>}
     {plan && <div className="activity-list">
       {plan.message ? <div className="no-data">{plan.message}</div> : <>
@@ -151,7 +151,7 @@ export function SubnetPlanningView({ subnets, search = '', canCreate = false }: 
           <h3>{ui('ipam.planning.plannedBlocks')}</h3>
           {plannedListRows(planned, skipped).map((row) => row.type === 'planned'
             ? <div className="activity-row" key={`planned-${row.block.cidr}`}><strong>{row.block.cidr}</strong><span>{row.block.start} – {row.block.end}</span><span className={`state-badge ${segmentBadge.PLANNED.className}`}><i />{segmentBadge.PLANNED.label}</span><small>{ui('ipam.planning.usable', undefined, { count: row.block.usable })}</small></div>
-            : <div className="activity-row" key={`skipped-${row.block.cidr}`}><strong>{row.block.cidr}</strong><span>{row.block.start} – {row.block.end} · {row.block.conflicts.map((item) => item.label).join(' · ')}</span><span className={`state-badge ${segmentBadge.CONFLICT.className}`}><i />{segmentBadge.CONFLICT.label}</span><small>{row.block.insideExisting && row.block.blocks > 1 ? ui('ipam.planning.skippedBlocks', undefined, { count: row.block.blocks, prefix: row.block.prefix }) : ui('ipam.planning.notPlanned')}</small></div>)}
+            : <div className="activity-row" key={`skipped-${row.block.cidr}`}><strong>{row.block.cidr}</strong><span>{row.block.start} – {row.block.end} · {row.block.conflicts.map((item) => ipamServerText(item.label)).join(' · ')}</span><span className={`state-badge ${segmentBadge.CONFLICT.className}`}><i />{segmentBadge.CONFLICT.label}</span><small>{row.block.insideExisting && row.block.blocks > 1 ? ui('ipam.planning.skippedBlocks', undefined, { count: row.block.blocks, prefix: row.block.prefix }) : ui('ipam.planning.notPlanned')}</small></div>)}
           {plan.skippedTruncated && <div className="no-data">{ui('ipam.planning.skippedTruncated', undefined, { count: skipped.length })}</div>}
           {!planned.length && <div className="no-data">{ui('ipam.planning.noneplanned')}</div>}
           {canCreate && planned.length > 0 && <div className="modal-form">

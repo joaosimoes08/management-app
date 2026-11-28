@@ -11,6 +11,7 @@ import { alertKindLabel, alertNextStep, alertStatusLabel, alertTargetHref, devic
 import { useUiText } from '@/components/ui/use-ui-text';
 import { AlertRowActions, ReadOnlyAlertNote } from './alert-actions';
 import { SeverityTag } from './alert-severity';
+import { localizeServerText } from '@/lib/i18n/server-text';
 
 const HISTORY_ACTIONS = ['OPERATIONAL_ALERT_ACKNOWLEDGED', 'OPERATIONAL_ALERT_SNOOZED', 'OPERATIONAL_ALERT_RESOLVED'];
 
@@ -43,7 +44,7 @@ export function AlertDetailDialog({ alertId, title, close, run, running }: { ale
       {query.error && <div className="ipam-alert error" role="alert"><X size={15} />{query.error instanceof Error ? query.error.message : t('operations.alerts.detail.loadError')}</div>}
       {detail && <>
         <p className="alert-detail-severity"><SeverityTag severity={detail.severity} /> <span>{severityMeaning(detail.severity, t) ?? ''}</span></p>
-        {detail.detail && <p className="panel-description">{detail.detail}</p>}
+        {detail.detail && <p className="panel-description">{localizeServerText(t, detail.detail)}</p>}
         <p className="alert-next-step"><strong>{t('operations.alerts.detail.nextStep')}</strong> {alertNextStep(detail, t)}{href && <> <a href={href}>{t('operations.alerts.detail.open')}</a></>}</p>
         <dl className="alert-detail-facts">
           <div><dt>{t('operations.alerts.field.status')}</dt><dd>{alertStatusLabel(detail.status, t)}{detail.status === 'SNOOZED' && detail.snoozedUntil ? ` ${t('operations.alerts.until', undefined, { date: formatDateTime(detail.snoozedUntil) })}` : ''}</dd></div>
