@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CalendarChangePlan, ChangeCalendar, ChangePlan } from './api';
-import { activityLabels, buildTimeline, checkValue, closingNoteRequired, parseChecklistLines, calendarChunks, calendarRange, calendarWeeks, candidateLabels, dayBoundary, filterPlans, matchesText, mergeCalendars, monthKey, overlapsFor, parseMonth, shiftMonth, spanOf } from './workspace';
+import { translateMessage } from '@/lib/i18n/i18n';
+import { buildTimeline, checkValue, closingNoteRequired, parseChecklistLines, calendarChunks, calendarRange, calendarWeeks, candidateLabels, dayBoundary, filterPlans, matchesText, mergeCalendars, monthKey, overlapsFor, parseMonth, shiftMonth, spanOf } from './workspace';
 
 const plan = (id: string, start: string, end: string, extra: Partial<ChangePlan> = {}): ChangePlan => ({
   id, siteId: 's1', title: `Plano ${id}`, reason: 'Motivo', plannedStartAt: start, plannedEndAt: end, status: 'DRAFT', revision: 1,
@@ -120,7 +121,7 @@ describe('implementation and close-out (Step 30)', () => {
     expect(closingNoteRequired('ROLLED_BACK')).toBe(true);
   });
   it('labels the new audit actions and shows compared values as text', () => {
-    for (const action of ['CHANGE_PLAN_STARTED', 'CHANGE_PLAN_COMPLETED', 'CHANGE_PLAN_FAILED', 'CHANGE_PLAN_ROLLED_BACK', 'CHANGE_PLAN_CHECKLIST_TICKED']) expect(activityLabels[action]).toBeTruthy();
+    for (const action of ['CHANGE_PLAN_STARTED', 'CHANGE_PLAN_COMPLETED', 'CHANGE_PLAN_FAILED', 'CHANGE_PLAN_ROLLED_BACK', 'CHANGE_PLAN_CHECKLIST_TICKED']) expect(translateMessage('pt-PT', `changePlans.activity.${action}`, '')).toBeTruthy();
     expect(checkValue(null)).toBe('—');
     expect(checkValue(24)).toBe('24');
     expect(checkValue({ a: 1 })).toBe('{"a":1}');

@@ -2,7 +2,6 @@
 
 import { translateMessage, useOptionalI18n } from '@/lib/i18n/i18n';
 import type { ChangeEntityType, ChangeStatus, CheckItemResult, CloseStatus, ConflictWarning } from './api';
-import { checkLabels, closeLabels, statusLabels, statusTabLabels, typeLabels, warningTitles } from './workspace';
 
 type Params = Record<string, string | number>;
 /** `t(key, params)` for the change-plans screens; `params.count` picks the `.one` / `.other` form. */
@@ -14,10 +13,10 @@ export function useChangeT(): ChangeT {
   return (key, params, fallback) => (i18n ? i18n.t(key, fallback, params) : translateMessage('pt-PT', key, fallback, params));
 }
 
-/** Labels of the shared label maps in workspace.ts, in the app language (an unknown value falls back to the map, then to itself). */
-export const statusText = (t: ChangeT, status: ChangeStatus) => t(`changePlans.status.${status}`, undefined, statusLabels[status] ?? status);
-export const statusTabText = (t: ChangeT, status: ChangeStatus) => t(`changePlans.statusTab.${status}`, undefined, statusTabLabels[status] ?? status);
-export const typeText = (t: ChangeT, type: ChangeEntityType) => t(`changePlans.type.${type}`, undefined, typeLabels[type] ?? type);
-export const closeText = (t: ChangeT, status: CloseStatus) => t(`changePlans.close.${status}`, undefined, closeLabels[status] ?? status);
-export const checkText = (t: ChangeT, result: CheckItemResult) => t(`changePlans.check.${result}`, undefined, checkLabels[result] ?? result);
-export const warningText = (t: ChangeT, code: ConflictWarning['code']) => t(`changePlans.warning.${code}`, undefined, warningTitles[code] ?? code);
+/** Labels of the shared label maps in workspace.ts, in the app language (an unknown value falls back to itself). */
+export const statusText = (t: ChangeT, status: ChangeStatus) => t(`changePlans.status.${status}`, undefined, status);
+export const statusTabText = (t: ChangeT, status: ChangeStatus) => t(`changePlans.statusTab.${status}`, undefined, status);
+export const typeText = (t: ChangeT, type: ChangeEntityType) => t(`changePlans.type.${type}`, undefined, type);
+export const closeText = (t: ChangeT, status: CloseStatus) => t(`changePlans.close.${status}`, undefined, status);
+export const checkText = (t: ChangeT, result: CheckItemResult) => t(`changePlans.check.${result}`, undefined, result);
+export const warningText = (t: ChangeT, code: ConflictWarning['code']) => t(`changePlans.warning.${code}`, undefined, code);

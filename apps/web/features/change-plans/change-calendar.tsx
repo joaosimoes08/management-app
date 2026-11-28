@@ -34,34 +34,34 @@ export function ChangeCalendar({ month, plans, windows, overlaps, overlapError, 
 
   return <section aria-labelledby="change-calendar-title">
     <div className="change-section-heading panel-heading">
-      <div><h2 id="change-calendar-title">{title}</h2><p className="panel-description">{overlapError ? 'Não foi possível verificar as sobreposições.' : conflicting ? t('changePlans.calendar.overlapsInMonth', { count: conflicting }) : 'Sem janelas sobrepostas neste mês.'}</p></div>
+      <div><h2 id="change-calendar-title">{title}</h2><p className="panel-description">{overlapError ? t('changePlans.monthView.overlapsFailed') : conflicting ? t('changePlans.calendar.overlapsInMonth', { count: conflicting }) : t('changePlans.monthView.noOverlaps')}</p></div>
       <div className="change-actions">
-        <button type="button" className="secondary-button" aria-label="Mês anterior" onClick={() => onMonthChange(monthKey(shiftMonth(month, -1)))}><ChevronLeft size={14} /></button>
-        <button type="button" className="secondary-button" onClick={() => onMonthChange('')}>Hoje</button>
-        <button type="button" className="secondary-button" aria-label="Mês seguinte" onClick={() => onMonthChange(monthKey(shiftMonth(month, 1)))}><ChevronRight size={14} /></button>
+        <button type="button" className="secondary-button" aria-label={t('changePlans.monthView.previousMonth')} onClick={() => onMonthChange(monthKey(shiftMonth(month, -1)))}><ChevronLeft size={14} /></button>
+        <button type="button" className="secondary-button" onClick={() => onMonthChange('')}>{t('changePlans.monthView.today')}</button>
+        <button type="button" className="secondary-button" aria-label={t('changePlans.monthView.nextMonth')} onClick={() => onMonthChange(monthKey(shiftMonth(month, 1)))}><ChevronRight size={14} /></button>
       </div>
     </div>
-    <ul className="change-calendar-legend" aria-label="Legenda do calendário">
+    <ul className="change-calendar-legend" aria-label={t('changePlans.monthView.legend')}>
       {changeStatuses.map((status) => <li key={status}><span className={`change-status status-${status.toLowerCase()}`}>{statusText(t, status)}</span></li>)}
-      <li><span className="state-badge reserved"><i />Manutenção</span></li>
-      <li className="muted-cell">As canceladas aparecem no separador Canceladas.</li>
+      <li><span className="state-badge reserved"><i />{t('changePlans.monthView.maintenance')}</span></li>
+      <li className="muted-cell">{t('changePlans.monthView.cancelledNote')}</li>
     </ul>
-    <div className="ip-table-wrap" role="region" aria-label="Calendário de alterações" tabIndex={0}>
+    <div className="ip-table-wrap" role="region" aria-label={t('changePlans.monthView.calendarLabel')} tabIndex={0}>
       <table className="ip-table change-calendar">
         <thead><tr>{weekdays().map((day) => <th key={day} scope="col">{day}</th>)}</tr></thead>
         <tbody>{weeks.map((week) => <tr key={week[0].key}>{week.map((day) => {
           const today = isToday(day.date);
           return <td key={day.key} className={day.inMonth ? undefined : 'muted-cell'} aria-current={today ? 'date' : undefined}>
-            <strong><time dateTime={day.key}>{day.date.getDate()}</time>{today && <small>Hoje</small>}</strong>
+            <strong><time dateTime={day.key}>{day.date.getDate()}</time>{today && <small>{t('changePlans.monthView.today')}</small>}</strong>
             {day.windows.map((item) => <span key={item.id} className="muted-cell" title={`${item.name} · ${hour(item.startsAt)} – ${hour(item.endsAt)}${item.reason ? ` · ${item.reason}` : ''}`}>
-              <span className="state-badge reserved"><i />Manutenção</span> {item.name}
+              <span className="state-badge reserved"><i />{t('changePlans.monthView.maintenance')}</span> {item.name}
             </span>)}
             {day.plans.map((plan) => {
               const others = overlapsFor(overlaps, plan.id);
               return <button key={plan.id} type="button" className="link-button" title={others.length ? t('changePlans.calendar.planTitleOverlaps', { title: plan.title, status: statusText(t, plan.status), others: others.map((other) => other.title).join(', ') }) : `${plan.title} · ${statusText(t, plan.status)}`} onClick={() => onOpen(plan)}>
                 <span className={`change-status status-${plan.status.toLowerCase()}`}>{hour(plan.plannedStartAt)}</span>
                 <span>{plan.title}</span>
-                {others.length > 0 && <span className="state-badge excluded"><i />Sobreposição</span>}
+                {others.length > 0 && <span className="state-badge excluded"><i />{t('changePlans.monthView.overlap')}</span>}
               </button>;
             })}
           </td>;

@@ -1,28 +1,42 @@
+import { translateMessage } from '@/lib/i18n/i18n';
+
 /**
  * Ajuda articles (Step 36): one list for the index, the article page and the
- * "?" link each page shows next to its title. Text is Portuguese; English comes
- * from the legacy dictionary like the rest of the operational pages.
+ * "?" link each page shows next to its title. The text is keyed in `lib/i18n/messages/help`.
  */
 export type HelpArticle = { slug: string; title: string; description: string; body: string[] };
+type HelpText = (key: string) => string;
 
-export const helpArticles: HelpArticle[] = [
-  { slug: 'primeiros-passos', title: 'Primeiros passos', description: 'Containers, API, frontend, worker e setup inicial.', body: ['Inicia o Docker Desktop e confirma que o daemon está disponível.', 'Na raiz do projeto executa docker compose up -d.', 'Copia .env.example para .env, instala as dependências e executa as migrações.', 'Liga a API, o frontend e o worker de discovery em processos separados.', 'Acede ao frontend, autentica-te no realm COCiber e conclui o setup inicial.'] },
-  { slug: 'ipam', title: 'Operação IPAM', description: 'Site, VLAN, subnet, IP, host e serviços.', body: ['Abre IPAM e navega Site → VLAN → Subnet na árvore de contexto.', 'Na subnet consulta IPs, hosts e serviços.', 'Usa os drawers para criar ou editar dados.', 'Os resultados de discovery permanecem pendentes até aprovação.'] },
-  { slug: 'descoberta', title: 'Discovery ICMP/TCP', description: 'Executar scans e rever resultados pendentes.', body: ['Abre Descoberta e escolhe Nova descoberta.', 'Seleciona a subnet, ICMP/TCP e as portas desejadas.', 'O worker BullMQ deve estar ligado para processar a fila.', 'Apenas hosts alcançáveis por ICMP ou TCP aparecem para revisão.', 'O reverse DNS é usado para preencher o hostname quando disponível.'] },
-  { slug: 'equipamentos', title: 'Equipamentos', description: 'Registar dispositivos, modelos e interfaces.', body: ['Abre Infraestrutura e seleciona Adicionar equipamento.', 'Regista tipo, nome, hostname, IP de gestão, modelo e localização.', 'O ícone é atribuído automaticamente pelo tipo de equipamento. Modelos e equipamentos podem ter imagem frontal própria.', 'As interfaces pertencem sempre a um equipamento-pai.'] },
-  { slug: 'device-360', title: 'Vista 360 do equipamento', description: 'Tudo sobre um equipamento numa só página.', body: ['As ligações para um equipamento (tabelas, pesquisa ⌘ K, vistos recentemente e Qualidade) abrem a sua página 360.', 'A página reúne resumo, interfaces e IPs, ligações, energia, SNMP, host e serviços, ciclo de vida, atestação, alterações abertas e histórico.', 'Cada secção carrega por si: uma fonte lenta ou sem permissão não impede as outras. As secções que o teu papel não pode ler não aparecem.', 'Cada secção tem uma ligação para a página completa já filtrada para o equipamento. O botão Editar abre o formulário no Mapa físico.'] },
-  { slug: 'servidores', title: 'Servidores Linux', description: 'Hosts, serviços e agentes Linux.', body: ['Em Infraestrutura → Equipamentos, escolhe Servidores no filtro Tipo para ver só os servidores, com o estado do agente: Online, Atrasado, Sem agente ou Revogado.', 'Um agente fica atrasado quando passa o limite de minutos sem heartbeat indicado na página.', 'Abre um servidor para ver os serviços observados, os endereços IP, o equipamento associado e o histórico do agente.', 'Quem tem permissão de gestão pode inscrever um agente (o token é mostrado uma única vez) e revogá-lo; o token revogado deixa de aceitar heartbeats.'] },
-  { slug: 'tabelas', title: 'Tabelas, filtros e vistas guardadas', description: 'Ordenar, filtrar, exportar e guardar vistas.', body: ['Clica no cabeçalho de uma coluna para ordenar. A pesquisa, os filtros e a ordenação ficam no endereço da página, por isso podes partilhar a ligação e o botão Voltar desfaz a última alteração de filtro.', 'Limpar filtros repõe a pesquisa e os filtros e mantém a ordenação escolhida.', 'Em Auditoria, Qualidade, IPAM e Alterações, Guardar vista dá um nome aos filtros atuais. Escolhe a vista na lista Vista para a voltar a aplicar ou apaga-a com o ícone do caixote.', 'As vistas guardadas ficam neste browser, para o teu utilizador. Para partilhar uma vista com outra pessoa, usa Copiar ligação.', 'Onde existe, Exportar CSV descarrega as linhas visíveis com as colunas da tabela.'] },
-  { slug: 'pesquisa', title: 'Pesquisa global (⌘ K)', description: 'Encontrar registos em toda a aplicação.', body: ['Prime ⌘ K (Ctrl K no Windows e Linux) ou o botão Pesquisar no topo para abrir a pesquisa.', 'Escreve pelo menos dois caracteres para procurar equipamentos, interfaces, hosts, serviços, alterações, eventos de auditoria e findings de qualidade.', 'Os equipamentos abrem a vista 360. Um finding de qualidade com página de correção aparece também como Corrigir.', 'Em páginas com pesquisa própria, a pesquisa pode procurar apenas neste separador ou em toda a aplicação.'] },
-  { slug: 'auditoria', title: 'Auditoria', description: 'Quem mudou o quê e quando.', body: ['A Auditoria mostra eventos administrativos, alterações de inventário e execuções de discovery, do mais recente para o mais antigo.', 'Filtra por utilizador, tipo de registo, ação e datas no menu Filtros. Os pedidos HTTP ficam ocultos até escolheres Mostrar.', 'Só as escritas ficam registadas: os pedidos de leitura (GET e HEAD) não geram eventos. As leituras sensíveis têm eventos próprios, como as exportações (CSV, inventário, Auditoria) e as transferências de ficheiros dos ativos.', 'Abre um evento para ver o antes → depois quando o evento guardou os valores anteriores.', 'Exportar CSV descarrega os eventos que correspondem aos filtros.'] },
-  { slug: 'qualidade', title: 'Qualidade do inventário', description: 'Fila de findings e correções.', body: ['A Qualidade lista problemas detetados automaticamente no inventário, como equipamentos sem Site, interfaces sem VLAN ou IPs duplicados.', 'Em cada linha podes reconhecer, atribuir ou adiar o finding, abrir o equipamento e abrir o registo a corrigir.', 'Seleciona findings visíveis para os reconhecer, atribuir ou adiar em conjunto.', 'Um finding reconhecido continua na fila até deixar de ser detetado. Agrupa por regra para tratar problemas do mesmo tipo.'] },
-  { slug: 'alteracoes', title: 'Alterações planeadas', description: 'Planear, aprovar, implementar e encerrar.', body: ['Cria uma alteração com título, motivo, janela e alvos. A pré-visualização mostra impactos, cobertura e sobreposições com outras alterações.', 'Um rascunho é submetido para aprovação. Um administrador aprova ou rejeita.', 'Uma alteração aprovada pode ser iniciada. Os avisos de conflito são apenas informativos e não bloqueiam.', 'Durante a implementação marca os passos da lista de implementação. Os passos só podem ser marcados enquanto a alteração está em curso.', 'Encerra como Concluída, Falhou ou Revertida. Para Falhou e Revertida a nota de encerramento é obrigatória.', 'A verificação pós-alteração compara os valores propostos com o inventário atual e mostra Como planeado ou Diferente. O calendário tem legenda de estados; as canceladas aparecem no separador Canceladas.'] },
-  { slug: 'ativos-criticos', title: 'Ativos críticos', description: 'Revisão periódica dos dados dos ativos críticos, com cadência por tier.', body: ['A página Ativos críticos lista os ativos críticos do Site com o último resultado e o próximo prazo de revisão.', 'A cadência de revisão depende do tier do ativo: por omissão, T1 a cada semana, T2 a cada 2 semanas e T3 a cada 4 semanas. Um ADMIN pode mudar a cadência de cada Site em Definições → Sites; o próximo prazo muda, o histórico de revisões não.', 'Em cada revisão confirma nome, tipo, hostname, IP de gestão, número de série, etiqueta e estado, e regista Dados confirmados, Correção pedida ou Não encontrado.', 'Podes registar a revisão de vários ativos selecionados de uma vez.', 'Um grupo responsável pode ficar com a revisão de todos os ativos críticos de um tipo no Site.'] },
-  { slug: 'alertas', title: 'Alertas', description: 'Regras de alerta e períodos agendados.', body: ['Em Alertas consulta os alertas ativos e filtra por Site, severidade, estado e origem.', 'As regras de alerta definem a origem e a severidade mínima que gera alertas, por Site ou para todos.', 'Os períodos agendados (janelas de manutenção) indicam quando o trabalho previsto decorre num Site.'] },
-  { slug: 'snmp', title: 'SNMP', description: 'Polling, divergências e operações controladas.', body: ['Por equipamento, o SNMP mostra o último snapshot, métricas, traps recentes e divergências entre o inventário e o observado.', 'As configurações e credenciais SNMP são apenas para administradores; a sincronização também exige o papel de operador de rede.', 'As divergências podem ser aceites ou ignoradas. A vista de divergências junta todos os equipamentos do Site.', 'Uma operação SET exige pré-visualização do impacto e confirmação antes de ser executada.'] },
-  { slug: 'operacao', title: 'Reset e operação', description: 'Como ligar, desligar e fazer reset da aplicação.', body: ['Para desligar, para os processos API, frontend e worker e executa docker compose down.', 'Para remover também os dados locais, usa docker compose down -v. Esta ação elimina volumes de PostgreSQL, Redis e Keycloak.', 'Para uma instalação limpa, volta a iniciar os containers, instala dependências, gera Prisma, migra e inicia os processos.'] },
-  { slug: 'troubleshooting', title: 'Troubleshooting', description: 'Docker, PostgreSQL, Redis, Keycloak e API.', body: ['Se o Docker não ligar, confirma o Docker Desktop e docker info.', 'Se o Prisma não encontrar DATABASE_URL, confirma o .env na raiz.', 'Se discovery ficar pendente, confirma que npm run worker:dev está ativo.', 'Se o frontend não autenticar, confirma Keycloak, realm COCiber e client simoes-web.'] },
+/** Slug (also the URL and the message key) and paragraph count of each article, in index order. */
+const articleSources: ReadonlyArray<{ slug: string; paragraphs: number }> = [
+  { slug: 'primeiros-passos', paragraphs: 5 },
+  { slug: 'ipam', paragraphs: 4 },
+  { slug: 'descoberta', paragraphs: 5 },
+  { slug: 'equipamentos', paragraphs: 4 },
+  { slug: 'device-360', paragraphs: 4 },
+  { slug: 'servidores', paragraphs: 4 },
+  { slug: 'tabelas', paragraphs: 5 },
+  { slug: 'pesquisa', paragraphs: 4 },
+  { slug: 'auditoria', paragraphs: 5 },
+  { slug: 'qualidade', paragraphs: 4 },
+  { slug: 'alteracoes', paragraphs: 6 },
+  { slug: 'ativos-criticos', paragraphs: 5 },
+  { slug: 'alertas', paragraphs: 3 },
+  { slug: 'snmp', paragraphs: 4 },
+  { slug: 'operacao', paragraphs: 3 },
+  { slug: 'troubleshooting', paragraphs: 4 },
 ];
+
+/** The articles in the language of `t`: title `help.article.<slug>`, description and body from `messages/help`. */
+export const localizedHelpArticles = (t: HelpText): HelpArticle[] => articleSources.map(({ slug, paragraphs }) => ({
+  slug,
+  title: t(`help.article.${slug}`),
+  description: t(`help.articleSummary.${slug}`),
+  body: Array.from({ length: paragraphs }, (_, index) => t(`help.articleBody.${slug}.${index + 1}`)),
+}));
+
+/** The articles in Portuguese, the source language: the path lookups and the index search use these. */
+export const helpArticles: HelpArticle[] = localizedHelpArticles((key) => translateMessage('pt-PT', key));
 
 export const helpArticle = (slug: string) => helpArticles.find((article) => article.slug === slug);
 

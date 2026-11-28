@@ -1,0 +1,150 @@
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
+import { translateMessage, type AppLocale } from '@/lib/i18n/i18n';
+import { translateSourceText } from '@/lib/i18n/source-text-messages';
+import { messages as deDE } from '@/lib/i18n/messages/help/de-DE';
+import { messages as esES } from '@/lib/i18n/messages/help/es-ES';
+import { messages as frFR } from '@/lib/i18n/messages/help/fr-FR';
+import { messages as itIT } from '@/lib/i18n/messages/help/it-IT';
+import { messages as ptPT } from '@/lib/i18n/messages/help/pt-PT';
+import { helpArticles, localizedHelpArticles } from './articles';
+
+// The Ajuda section and its article summaries and bodies moved from hard-coded Portuguese to keyed messages.
+// Titles reuse the existing help.article.<slug> keys; slugs stay in Portuguese because they are URLs.
+// Each key must render exactly the old Portuguese, and en-US exactly what the source-text table made of it.
+// The table gave real English for every string, so there are no fixed-English exceptions.
+const keyed: Array<[key: string, portuguese: string]> = [
+  ['help.section', 'Ajuda'],
+  ['help.articleSummary.primeiros-passos', 'Containers, API, frontend, worker e setup inicial.'],
+  ['help.articleBody.primeiros-passos.1', 'Inicia o Docker Desktop e confirma que o daemon está disponível.'],
+  ['help.articleBody.primeiros-passos.2', 'Na raiz do projeto executa docker compose up -d.'],
+  ['help.articleBody.primeiros-passos.3', 'Copia .env.example para .env, instala as dependências e executa as migrações.'],
+  ['help.articleBody.primeiros-passos.4', 'Liga a API, o frontend e o worker de discovery em processos separados.'],
+  ['help.articleBody.primeiros-passos.5', 'Acede ao frontend, autentica-te no realm COCiber e conclui o setup inicial.'],
+  ['help.articleSummary.ipam', 'Site, VLAN, subnet, IP, host e serviços.'],
+  ['help.articleBody.ipam.1', 'Abre IPAM e navega Site → VLAN → Subnet na árvore de contexto.'],
+  ['help.articleBody.ipam.2', 'Na subnet consulta IPs, hosts e serviços.'],
+  ['help.articleBody.ipam.3', 'Usa os drawers para criar ou editar dados.'],
+  ['help.articleBody.ipam.4', 'Os resultados de discovery permanecem pendentes até aprovação.'],
+  ['help.articleSummary.descoberta', 'Executar scans e rever resultados pendentes.'],
+  ['help.articleBody.descoberta.1', 'Abre Descoberta e escolhe Nova descoberta.'],
+  ['help.articleBody.descoberta.2', 'Seleciona a subnet, ICMP/TCP e as portas desejadas.'],
+  ['help.articleBody.descoberta.3', 'O worker BullMQ deve estar ligado para processar a fila.'],
+  ['help.articleBody.descoberta.4', 'Apenas hosts alcançáveis por ICMP ou TCP aparecem para revisão.'],
+  ['help.articleBody.descoberta.5', 'O reverse DNS é usado para preencher o hostname quando disponível.'],
+  ['help.articleSummary.equipamentos', 'Registar dispositivos, modelos e interfaces.'],
+  ['help.articleBody.equipamentos.1', 'Abre Infraestrutura e seleciona Adicionar equipamento.'],
+  ['help.articleBody.equipamentos.2', 'Regista tipo, nome, hostname, IP de gestão, modelo e localização.'],
+  ['help.articleBody.equipamentos.3', 'O ícone é atribuído automaticamente pelo tipo de equipamento. Modelos e equipamentos podem ter imagem frontal própria.'],
+  ['help.articleBody.equipamentos.4', 'As interfaces pertencem sempre a um equipamento-pai.'],
+  ['help.articleSummary.device-360', 'Tudo sobre um equipamento numa só página.'],
+  ['help.articleBody.device-360.1', 'As ligações para um equipamento (tabelas, pesquisa ⌘ K, vistos recentemente e Qualidade) abrem a sua página 360.'],
+  ['help.articleBody.device-360.2', 'A página reúne resumo, interfaces e IPs, ligações, energia, SNMP, host e serviços, ciclo de vida, atestação, alterações abertas e histórico.'],
+  ['help.articleBody.device-360.3', 'Cada secção carrega por si: uma fonte lenta ou sem permissão não impede as outras. As secções que o teu papel não pode ler não aparecem.'],
+  ['help.articleBody.device-360.4', 'Cada secção tem uma ligação para a página completa já filtrada para o equipamento. O botão Editar abre o formulário no Mapa físico.'],
+  ['help.articleSummary.servidores', 'Hosts, serviços e agentes Linux.'],
+  ['help.articleBody.servidores.1', 'Em Infraestrutura → Equipamentos, escolhe Servidores no filtro Tipo para ver só os servidores, com o estado do agente: Online, Atrasado, Sem agente ou Revogado.'],
+  ['help.articleBody.servidores.2', 'Um agente fica atrasado quando passa o limite de minutos sem heartbeat indicado na página.'],
+  ['help.articleBody.servidores.3', 'Abre um servidor para ver os serviços observados, os endereços IP, o equipamento associado e o histórico do agente.'],
+  ['help.articleBody.servidores.4', 'Quem tem permissão de gestão pode inscrever um agente (o token é mostrado uma única vez) e revogá-lo; o token revogado deixa de aceitar heartbeats.'],
+  ['help.articleSummary.tabelas', 'Ordenar, filtrar, exportar e guardar vistas.'],
+  ['help.articleBody.tabelas.1', 'Clica no cabeçalho de uma coluna para ordenar. A pesquisa, os filtros e a ordenação ficam no endereço da página, por isso podes partilhar a ligação e o botão Voltar desfaz a última alteração de filtro.'],
+  ['help.articleBody.tabelas.2', 'Limpar filtros repõe a pesquisa e os filtros e mantém a ordenação escolhida.'],
+  ['help.articleBody.tabelas.3', 'Em Auditoria, Qualidade, IPAM e Alterações, Guardar vista dá um nome aos filtros atuais. Escolhe a vista na lista Vista para a voltar a aplicar ou apaga-a com o ícone do caixote.'],
+  ['help.articleBody.tabelas.4', 'As vistas guardadas ficam neste browser, para o teu utilizador. Para partilhar uma vista com outra pessoa, usa Copiar ligação.'],
+  ['help.articleBody.tabelas.5', 'Onde existe, Exportar CSV descarrega as linhas visíveis com as colunas da tabela.'],
+  ['help.articleSummary.pesquisa', 'Encontrar registos em toda a aplicação.'],
+  ['help.articleBody.pesquisa.1', 'Prime ⌘ K (Ctrl K no Windows e Linux) ou o botão Pesquisar no topo para abrir a pesquisa.'],
+  ['help.articleBody.pesquisa.2', 'Escreve pelo menos dois caracteres para procurar equipamentos, interfaces, hosts, serviços, alterações, eventos de auditoria e findings de qualidade.'],
+  ['help.articleBody.pesquisa.3', 'Os equipamentos abrem a vista 360. Um finding de qualidade com página de correção aparece também como Corrigir.'],
+  ['help.articleBody.pesquisa.4', 'Em páginas com pesquisa própria, a pesquisa pode procurar apenas neste separador ou em toda a aplicação.'],
+  ['help.articleSummary.auditoria', 'Quem mudou o quê e quando.'],
+  ['help.articleBody.auditoria.1', 'A Auditoria mostra eventos administrativos, alterações de inventário e execuções de discovery, do mais recente para o mais antigo.'],
+  ['help.articleBody.auditoria.2', 'Filtra por utilizador, tipo de registo, ação e datas no menu Filtros. Os pedidos HTTP ficam ocultos até escolheres Mostrar.'],
+  ['help.articleBody.auditoria.3', 'Só as escritas ficam registadas: os pedidos de leitura (GET e HEAD) não geram eventos. As leituras sensíveis têm eventos próprios, como as exportações (CSV, inventário, Auditoria) e as transferências de ficheiros dos ativos.'],
+  ['help.articleBody.auditoria.4', 'Abre um evento para ver o antes → depois quando o evento guardou os valores anteriores.'],
+  ['help.articleBody.auditoria.5', 'Exportar CSV descarrega os eventos que correspondem aos filtros.'],
+  ['help.articleSummary.qualidade', 'Fila de findings e correções.'],
+  ['help.articleBody.qualidade.1', 'A Qualidade lista problemas detetados automaticamente no inventário, como equipamentos sem Site, interfaces sem VLAN ou IPs duplicados.'],
+  ['help.articleBody.qualidade.2', 'Em cada linha podes reconhecer, atribuir ou adiar o finding, abrir o equipamento e abrir o registo a corrigir.'],
+  ['help.articleBody.qualidade.3', 'Seleciona findings visíveis para os reconhecer, atribuir ou adiar em conjunto.'],
+  ['help.articleBody.qualidade.4', 'Um finding reconhecido continua na fila até deixar de ser detetado. Agrupa por regra para tratar problemas do mesmo tipo.'],
+  ['help.articleSummary.alteracoes', 'Planear, aprovar, implementar e encerrar.'],
+  ['help.articleBody.alteracoes.1', 'Cria uma alteração com título, motivo, janela e alvos. A pré-visualização mostra impactos, cobertura e sobreposições com outras alterações.'],
+  ['help.articleBody.alteracoes.2', 'Um rascunho é submetido para aprovação. Um administrador aprova ou rejeita.'],
+  ['help.articleBody.alteracoes.3', 'Uma alteração aprovada pode ser iniciada. Os avisos de conflito são apenas informativos e não bloqueiam.'],
+  ['help.articleBody.alteracoes.4', 'Durante a implementação marca os passos da lista de implementação. Os passos só podem ser marcados enquanto a alteração está em curso.'],
+  ['help.articleBody.alteracoes.5', 'Encerra como Concluída, Falhou ou Revertida. Para Falhou e Revertida a nota de encerramento é obrigatória.'],
+  ['help.articleBody.alteracoes.6', 'A verificação pós-alteração compara os valores propostos com o inventário atual e mostra Como planeado ou Diferente. O calendário tem legenda de estados; as canceladas aparecem no separador Canceladas.'],
+  ['help.articleSummary.ativos-criticos', 'Revisão periódica dos dados dos ativos críticos, com cadência por tier.'],
+  ['help.articleBody.ativos-criticos.1', 'A página Ativos críticos lista os ativos críticos do Site com o último resultado e o próximo prazo de revisão.'],
+  ['help.articleBody.ativos-criticos.2', 'A cadência de revisão depende do tier do ativo: por omissão, T1 a cada semana, T2 a cada 2 semanas e T3 a cada 4 semanas. Um ADMIN pode mudar a cadência de cada Site em Definições → Sites; o próximo prazo muda, o histórico de revisões não.'],
+  ['help.articleBody.ativos-criticos.3', 'Em cada revisão confirma nome, tipo, hostname, IP de gestão, número de série, etiqueta e estado, e regista Dados confirmados, Correção pedida ou Não encontrado.'],
+  ['help.articleBody.ativos-criticos.4', 'Podes registar a revisão de vários ativos selecionados de uma vez.'],
+  ['help.articleBody.ativos-criticos.5', 'Um grupo responsável pode ficar com a revisão de todos os ativos críticos de um tipo no Site.'],
+  ['help.articleSummary.alertas', 'Regras de alerta e períodos agendados.'],
+  ['help.articleBody.alertas.1', 'Em Alertas consulta os alertas ativos e filtra por Site, severidade, estado e origem.'],
+  ['help.articleBody.alertas.2', 'As regras de alerta definem a origem e a severidade mínima que gera alertas, por Site ou para todos.'],
+  ['help.articleBody.alertas.3', 'Os períodos agendados (janelas de manutenção) indicam quando o trabalho previsto decorre num Site.'],
+  ['help.articleSummary.snmp', 'Polling, divergências e operações controladas.'],
+  ['help.articleBody.snmp.1', 'Por equipamento, o SNMP mostra o último snapshot, métricas, traps recentes e divergências entre o inventário e o observado.'],
+  ['help.articleBody.snmp.2', 'As configurações e credenciais SNMP são apenas para administradores; a sincronização também exige o papel de operador de rede.'],
+  ['help.articleBody.snmp.3', 'As divergências podem ser aceites ou ignoradas. A vista de divergências junta todos os equipamentos do Site.'],
+  ['help.articleBody.snmp.4', 'Uma operação SET exige pré-visualização do impacto e confirmação antes de ser executada.'],
+  ['help.articleSummary.operacao', 'Como ligar, desligar e fazer reset da aplicação.'],
+  ['help.articleBody.operacao.1', 'Para desligar, para os processos API, frontend e worker e executa docker compose down.'],
+  ['help.articleBody.operacao.2', 'Para remover também os dados locais, usa docker compose down -v. Esta ação elimina volumes de PostgreSQL, Redis e Keycloak.'],
+  ['help.articleBody.operacao.3', 'Para uma instalação limpa, volta a iniciar os containers, instala dependências, gera Prisma, migra e inicia os processos.'],
+  ['help.articleSummary.troubleshooting', 'Docker, PostgreSQL, Redis, Keycloak e API.'],
+  ['help.articleBody.troubleshooting.1', 'Se o Docker não ligar, confirma o Docker Desktop e docker info.'],
+  ['help.articleBody.troubleshooting.2', 'Se o Prisma não encontrar DATABASE_URL, confirma o .env na raiz.'],
+  ['help.articleBody.troubleshooting.3', 'Se discovery ficar pendente, confirma que npm run worker:dev está ativo.'],
+  ['help.articleBody.troubleshooting.4', 'Se o frontend não autenticar, confirma Keycloak, realm COCiber e client simoes-web.'],
+];
+
+/** Every non-test source file of the Ajuda feature folder. */
+function sourceFiles(dir: string): string[] {
+  return readdirSync(dir).flatMap((name) => {
+    const path = join(dir, name);
+    if (statSync(path).isDirectory()) return sourceFiles(path);
+    return /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name) ? [path] : [];
+  });
+}
+const sources = sourceFiles(__dirname).map((path) => readFileSync(path, 'utf8'));
+
+const locales: AppLocale[] = ['pt-PT', 'en-US', 'es-ES', 'fr-FR', 'de-DE', 'it-IT'];
+
+describe('help keyed messages', () => {
+  it.each(keyed)('%s renders the same Portuguese and English as before', (key, portuguese) => {
+    expect(translateMessage('pt-PT', key)).toBe(portuguese);
+    expect(translateMessage('en-US', key)).toBe(translateSourceText('en-US', portuguese));
+  });
+
+  it('covers every article key, in both locales and the added languages', () => {
+    const expected = ['help.section', ...helpArticles.flatMap((article) => [`help.articleSummary.${article.slug}`, ...article.body.map((_, index) => `help.articleBody.${article.slug}.${index + 1}`)])];
+    const listed = keyed.map(([key]) => key);
+    expect([...listed].sort()).toEqual([...expected].sort());
+    expect(Object.keys(ptPT).sort()).toEqual([...expected].sort());
+    for (const key of listed) {
+      for (const bundle of [esES, frFR, deDE, itIT]) expect(bundle[key as keyof typeof bundle], key).toBeTruthy();
+    }
+    for (const article of helpArticles) {
+      for (const locale of locales) expect(translateMessage(locale, `help.article.${article.slug}`, '∅'), `${locale} ${article.slug}`).not.toBe('∅');
+    }
+  });
+
+  it('builds the same articles in Portuguese and real articles in English', () => {
+    const portuguese = localizedHelpArticles((key) => translateMessage('pt-PT', key));
+    expect(portuguese).toEqual(helpArticles);
+    const english = localizedHelpArticles((key) => translateMessage('en-US', key));
+    expect(english.map((article) => article.slug)).toEqual(helpArticles.map((article) => article.slug));
+    for (const article of english) {
+      expect([article.title, article.description, ...article.body].join(' ')).not.toMatch(/[áàãâéêíóôõúçÁÀÃÂÉÊÍÓÔÕÚÇ]/);
+    }
+  });
+
+  it('leaves no Portuguese literal in the Ajuda components', () => {
+    for (const source of sources) expect(source.replace(/\/\*\*?[\s\S]*?\*\/|\/\/.*$/gm, '')).not.toMatch(/[áàãâéêíóôõúçÁÀÃÂÉÊÍÓÔÕÚÇ]/);
+  });
+});
