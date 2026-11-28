@@ -4,30 +4,23 @@
  */
 import type { TableStateConfig } from '@/components/data-table';
 import type { BulkFindingResponse, FindingFacets, FindingQuery, FindingSeverity, FindingStatus, InventoryFinding } from './api';
+import type { Translate } from './alert-meta';
 
 export const findingStatuses: FindingStatus[] = ['OPEN', 'ACKNOWLEDGED', 'SNOOZED', 'RESOLVED'];
 export const findingSeverities: FindingSeverity[] = ['CRITICAL', 'HIGH', 'WARNING', 'INFO'];
-export const statusTabLabels: Record<FindingStatus, string> = { OPEN: 'Abertos', ACKNOWLEDGED: 'Reconhecidos', SNOOZED: 'Adiados', RESOLVED: 'Resolvidos' };
-export const statusLabels: Record<FindingStatus, string> = { OPEN: 'Aberto', ACKNOWLEDGED: 'Reconhecido', SNOOZED: 'Adiado', RESOLVED: 'Resolvido' };
-export const severityLabels: Record<FindingSeverity, string> = { CRITICAL: 'Crítico', HIGH: 'Alto', WARNING: 'Aviso', INFO: 'Info' };
+export const statusTabLabel = (status: FindingStatus, t: Translate) => t(`operations.quality.statusTab.${status}`);
+export const statusLabel = (status: FindingStatus, t: Translate) => t(`operations.quality.status.${status}`);
+export const severityLabel = (severity: FindingSeverity, t: Translate) => t(`operations.quality.severity.${severity}`);
 export const severityRank: Record<FindingSeverity, number> = { CRITICAL: 0, HIGH: 1, WARNING: 2, INFO: 3 };
 
 /** Rules the API detects today; unknown rules show their code. */
-export const ruleLabels: Record<string, string> = {
-  DEVICE_MISSING_SITE: 'Equipamento sem Site',
-  DEVICE_MISSING_LOCATION: 'Equipamento sem localização',
-  DEVICE_MISSING_MODEL: 'Equipamento sem modelo',
-  NETWORK_DEVICE_MISSING_MANAGEMENT_IP: 'Equipamento de rede sem IP de gestão',
-  INTERFACE_MISSING_MODE: 'Interface sem modo',
-  ACCESS_INTERFACE_MISSING_VLAN: 'Interface access sem VLAN',
-  TRUNK_INTERFACE_MISSING_VLANS: 'Interface trunk sem VLANs permitidas',
-  NETWORK_MODEL_MISSING_PORT_MAP: 'Mapeamento de portas em falta',
-  DEVICE_MODEL_MISSING_FRONT_IMAGE: 'Modelo sem vista frontal',
-  STALE_SNMP_OBSERVATION: 'Observação SNMP desatualizada',
-  STALE_SNMP_DRIFT: 'Divergência SNMP por resolver',
-  DUPLICATE_IP_ROUTING_DOMAIN: 'IP duplicado no domínio de routing',
-};
-export const ruleLabel = (rule: string) => ruleLabels[rule] ?? rule;
+export const KNOWN_RULES: readonly string[] = [
+  'DEVICE_MISSING_SITE', 'DEVICE_MISSING_LOCATION', 'DEVICE_MISSING_MODEL', 'NETWORK_DEVICE_MISSING_MANAGEMENT_IP',
+  'INTERFACE_MISSING_MODE', 'ACCESS_INTERFACE_MISSING_VLAN', 'TRUNK_INTERFACE_MISSING_VLANS', 'NETWORK_MODEL_MISSING_PORT_MAP',
+  'DEVICE_MODEL_MISSING_FRONT_IMAGE', 'STALE_SNMP_OBSERVATION', 'STALE_SNMP_DRIFT', 'DUPLICATE_IP_ROUTING_DOMAIN',
+];
+export const isKnownRule = (rule: string) => KNOWN_RULES.includes(rule);
+export const ruleLabel = (rule: string, t: Translate) => (isKnownRule(rule) ? t(`operations.quality.rule.${rule}`) : rule);
 
 /**
  * The device a finding is about, for the Device 360 link: the entity itself for
@@ -41,10 +34,11 @@ export function findingDeviceId(finding: Pick<InventoryFinding, 'entityType' | '
 }
 
 /** Snooze lengths offered in bulk; the API accepts 1–720 hours. */
-export const snoozeOptions: Array<{ hours: number; label: string }> = [
-  { hours: 1, label: '1 hora' }, { hours: 4, label: '4 horas' }, { hours: 24, label: '24 horas' },
-  { hours: 72, label: '3 dias' }, { hours: 168, label: '7 dias' }, { hours: 720, label: '30 dias' },
+export const snoozeOptions: Array<{ hours: number; unit: 'hours' | 'days'; count: number }> = [
+  { hours: 1, unit: 'hours', count: 1 }, { hours: 4, unit: 'hours', count: 4 }, { hours: 24, unit: 'hours', count: 24 },
+  { hours: 72, unit: 'days', count: 3 }, { hours: 168, unit: 'days', count: 7 }, { hours: 720, unit: 'days', count: 30 },
 ];
+export const snoozeOptionLabel = (option: { unit: 'hours' | 'days'; count: number }, t: Translate) => t(`operations.snooze.${option.unit}`, undefined, { count: option.count });
 export const DEFAULT_SNOOZE_HOURS = 24;
 export const BULK_LIMIT = 200;
 
@@ -98,10 +92,10 @@ export function statusCount(facets: FindingFacets | undefined, status: FindingSt
 }
 
 export type BulkOutcome = { action: BulkFindingResponse['action']; succeeded: number; failed: number; snoozedUntil?: string; items: Array<{ id: string; title: string; ok: boolean; message: string }> };
-const failureLabels: Record<string, string> = { NOT_FOUND: 'Não encontrado ou sem acesso', FORBIDDEN: 'Sem permissão neste Site', INVALID: 'Pedido inválido', ERROR: 'Erro inesperado' };
+const FAILURE_CODES = ['NOT_FOUND', 'FORBIDDEN', 'INVALID', 'ERROR'];
 
 /** Per-item results with the finding title (ids the page no longer shows keep their id). */
-export function bulkOutcome(response: BulkFindingResponse, titles: ReadonlyMap<string, string>): BulkOutcome {
+export function bulkOutcome(response: BulkFindingResponse, titles: ReadonlyMap<string, string>, t: Translate): BulkOutcome {
   return {
     action: response.action,
     succeeded: response.succeeded,
@@ -111,7 +105,7 @@ export function bulkOutcome(response: BulkFindingResponse, titles: ReadonlyMap<s
       id: result.id,
       title: titles.get(result.id) ?? result.id,
       ok: result.ok,
-      message: result.ok ? 'Aplicado' : failureLabels[result.code] ?? result.message ?? result.code,
+      message: result.ok ? t('operations.quality.applied') : FAILURE_CODES.includes(result.code) ? t(`operations.quality.failure.${result.code}`) : result.message ?? result.code,
     })),
   };
 }
