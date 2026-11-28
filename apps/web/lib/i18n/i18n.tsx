@@ -6,10 +6,14 @@ import { getConfiguredLocale, hasSavedOrganizationLocale } from '@/lib/runtime-c
 import { setFormatLocale } from '@/lib/format/date';
 import { STORAGE_KEYS, getLocalItem } from '@/lib/storage-keys';
 import { isAppLocale, isLazyLocale } from './locales/catalog';
-import { getLoadedLocaleBundle, loadLocaleBundle, translateWithBundle } from './locales/loader';
+import { getLoadedLocaleBundle, loadLocaleBundle, needsLocaleBundle, translateWithBundle } from './locales/loader';
+import { domainMessages } from './messages/registry';
 
 export type AppLocale = 'pt-PT' | 'en-US' | 'es-ES' | 'fr-FR' | 'de-DE' | 'it-IT';
-/** Bundled with the app. es-ES, fr-FR, de-DE and it-IT live in ./locales and load only when chosen. */
+/**
+ * Bundled with the app. es-ES, fr-FR, de-DE and it-IT live in ./locales and load only when chosen.
+ * New keys go in ./messages/<domain>/ instead (see messages/README.md); they are merged in below.
+ */
 const messages: Record<'pt-PT' | 'en-US', Record<string, string>> = {
   'pt-PT': {
     'authGate.connecting': 'A ligar a {organization}...', 'authGate.connectFailed': 'Não foi possível ligar.', 'authGate.connectHint': 'Confirma se o Keycloak está ativo e se o client {client} existe no realm {realm}.', 'authGate.retry': 'Tentar novamente', 'authGate.signIn': 'Iniciar sessão',
@@ -141,39 +145,6 @@ const messages: Record<'pt-PT' | 'en-US', Record<string, string>> = {
     'infra.rack.utilisation.UPS': 'Utilização UPS',
     'infra.rack.rangeOf': '{start}–{end} de {total}',
     'infra.frontOf': 'Frente de {name}',
-    'tags.deleteNamed': 'Eliminar {name}',
-    'tags.label': 'Etiquetas',
-    'tags.manage': 'Gerir etiquetas',
-    'tags.saveError': 'Não foi possível guardar as etiquetas.',
-    'tags.loading': 'A carregar etiquetas…',
-    'tags.color.gray': 'Cinzento',
-    'tags.color.blue': 'Azul',
-    'tags.color.green': 'Verde',
-    'tags.color.amber': 'Âmbar',
-    'tags.color.red': 'Vermelho',
-    'tags.color.purple': 'Roxo',
-    'tags.filter.label': 'Filtrar por etiqueta',
-    'tags.filter.all': 'Todas as etiquetas',
-    'tags.filter.removed': 'Etiqueta removida',
-    'tags.new.nameLabel': 'Nome da nova etiqueta',
-    'tags.new.placeholder': 'Nova etiqueta',
-    'tags.new.colorLabel': 'Cor da nova etiqueta',
-    'tags.new.create': 'Criar',
-    'tags.empty.canCreate': 'Este site ainda não tem etiquetas. Cria a primeira abaixo.',
-    'tags.empty.readOnly': 'Este site ainda não tem etiquetas. Um administrador pode criá-las.',
-    'tags.editor.title': 'Etiquetas · {name}',
-    'tags.editor.options': 'Etiquetas do site',
-    'tags.editor.cancel': 'Cancelar',
-    'tags.editor.save': 'Guardar etiquetas',
-    'tags.manager.nameLabel': 'Nome da etiqueta',
-    'tags.manager.colorLabel': 'Cor da etiqueta',
-    'tags.manager.usesTitle': 'Equipamentos · Sub-redes',
-    'tags.manager.save': 'Guardar',
-    'tags.manager.confirmDeleteUsed': 'Eliminar a etiqueta "{name}"? Sai de {uses} itens.',
-    'tags.manager.confirmDelete': 'Eliminar a etiqueta "{name}"?',
-    'tags.manager.description': 'As etiquetas pertencem a este site e servem equipamentos e sub-redes. Contagem: equipamentos · sub-redes.',
-    'tags.manager.readOnlyNote': 'Só administradores e operadores de sistemas podem criar, renomear ou eliminar etiquetas.',
-    'tags.manager.close': 'Fechar',
     'infra.ports.front.tab': 'Frente',
     'infra.ports.rear.tab': 'Traseira',
     'infra.ports.front.image': 'Imagem frontal do modelo',
@@ -1620,39 +1591,6 @@ const messages: Record<'pt-PT' | 'en-US', Record<string, string>> = {
     'infra.rack.utilisation.UPS': 'UPS utilisation',
     'infra.rack.rangeOf': '{start}–{end} of {total}',
     'infra.frontOf': 'Front of {name}',
-    'tags.deleteNamed': 'Delete {name}',
-    'tags.label': 'Tags',
-    'tags.manage': 'Manage tags',
-    'tags.saveError': 'Could not save the tags.',
-    'tags.loading': 'Loading tags…',
-    'tags.color.gray': 'Gray',
-    'tags.color.blue': 'Blue',
-    'tags.color.green': 'Green',
-    'tags.color.amber': 'Amber',
-    'tags.color.red': 'Red',
-    'tags.color.purple': 'Purple',
-    'tags.filter.label': 'Filter by tag',
-    'tags.filter.all': 'All tags',
-    'tags.filter.removed': 'Removed tag',
-    'tags.new.nameLabel': 'New tag name',
-    'tags.new.placeholder': 'New tag',
-    'tags.new.colorLabel': 'New tag colour',
-    'tags.new.create': 'Create',
-    'tags.empty.canCreate': 'This site has no tags yet. Create the first one below.',
-    'tags.empty.readOnly': 'This site has no tags yet. An administrator can create them.',
-    'tags.editor.title': 'Tags · {name}',
-    'tags.editor.options': 'Site tags',
-    'tags.editor.cancel': 'Cancel',
-    'tags.editor.save': 'Save tags',
-    'tags.manager.nameLabel': 'Tag name',
-    'tags.manager.colorLabel': 'Tag colour',
-    'tags.manager.usesTitle': 'Devices · Subnets',
-    'tags.manager.save': 'Save',
-    'tags.manager.confirmDeleteUsed': 'Delete the tag "{name}"? It is removed from {uses} items.',
-    'tags.manager.confirmDelete': 'Delete the tag "{name}"?',
-    'tags.manager.description': 'Tags belong to this site and apply to devices and subnets. Count: devices · subnets.',
-    'tags.manager.readOnlyNote': 'Only administrators and systems operators can create, rename or delete tags.',
-    'tags.manager.close': 'Close',
     'infra.ports.front.tab': 'Front',
     'infra.ports.rear.tab': 'Rear',
     'infra.ports.front.image': 'Model front image',
@@ -2972,6 +2910,12 @@ const messages: Record<'pt-PT' | 'en-US', Record<string, string>> = {
   },
 };
 
+/** The block above plus every registered domain in ./messages. scripts/check-i18n.mjs rejects a key defined in both. */
+const keyedMessages: typeof messages = {
+  'pt-PT': { ...messages['pt-PT'], ...domainMessages['pt-PT'] },
+  'en-US': { ...messages['en-US'], ...domainMessages['en-US'] },
+};
+
 type MessageParams = Record<string, string | number>;
 type I18nValue = {
   locale: AppLocale;
@@ -3161,7 +3105,7 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   // Bumped when an added language's file arrives, so keyed texts re-render in that language.
   const [bundleVersion, setBundleVersion] = useState(0);
   useEffect(() => {
-    if (!isLazyLocale(locale) || getLoadedLocaleBundle(locale)) return;
+    if (!isLazyLocale(locale) || !needsLocaleBundle(locale)) return;
     let cancelled = false;
     void loadLocaleBundle(locale).then(() => { if (!cancelled) setBundleVersion((version) => version + 1); }).catch(() => undefined);
     return () => { cancelled = true; };
@@ -3233,10 +3177,10 @@ function messageTemplate(locale: AppLocale, key: string, count: number | undefin
   if (isLazyLocale(locale)) {
     const own = getLoadedLocaleBundle(locale)?.messages;
     // e.g. fr "many": try the locale's own .other before falling back to English.
-    return ownEntry(own, pluralKey(locale)) ?? (count === undefined ? undefined : ownEntry(own, `${key}.other`)) ?? ownEntry(own, key) ?? ownEntry(messages['en-US'], pluralKey('en-US')) ?? ownEntry(messages['en-US'], key);
+    return ownEntry(own, pluralKey(locale)) ?? (count === undefined ? undefined : ownEntry(own, `${key}.other`)) ?? ownEntry(own, key) ?? ownEntry(keyedMessages['en-US'], pluralKey('en-US')) ?? ownEntry(keyedMessages['en-US'], key);
   }
   const plural = pluralKey(locale);
-  return ownEntry(messages[locale], plural) ?? ownEntry(messages[locale], key) ?? ownEntry(messages['pt-PT'], plural) ?? ownEntry(messages['pt-PT'], key);
+  return ownEntry(keyedMessages[locale], plural) ?? ownEntry(keyedMessages[locale], key) ?? ownEntry(keyedMessages['pt-PT'], plural) ?? ownEntry(keyedMessages['pt-PT'], key);
 }
 
 /** Same lookup as the provider's t(), for a fixed locale. */
