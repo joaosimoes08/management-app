@@ -10,14 +10,16 @@ import { checkAllApplicationLinks, nextCheckAllCursor, type CheckAllCursor, type
 /** Safety net: a batch holds up to 100 links, so 50 batches is far beyond any real catalogue. */
 const MAX_BATCHES = 50;
 
-type Outcome = { code: string; label: string; badge: string; rank: number };
+/** labelKey: message key of a known outcome; unknown codes are shown as sent. */
+type Outcome = { code: string; labelKey?: string; badge: string; rank: number };
+type UiText = ReturnType<typeof useUiText>;
 
 const KNOWN: Record<string, Omit<Outcome, 'code'>> = {
-  AVAILABLE: { label: 'Disponível', badge: 'occupied', rank: 4 },
-  UNAVAILABLE: { label: 'Indisponível', badge: 'excluded', rank: 1 },
-  UNREACHABLE: { label: 'Inacessível', badge: 'excluded', rank: 1 },
-  BLOCKED: { label: 'Bloqueado', badge: 'reserved', rank: 2 },
-  INVALID_URL: { label: 'URL inválido', badge: 'reserved', rank: 2 },
+  AVAILABLE: { labelKey: 'portal.outcome.available', badge: 'occupied', rank: 4 },
+  UNAVAILABLE: { labelKey: 'portal.outcome.unavailable', badge: 'excluded', rank: 1 },
+  UNREACHABLE: { labelKey: 'portal.outcome.unreachable', badge: 'excluded', rank: 1 },
+  BLOCKED: { labelKey: 'portal.outcome.blocked', badge: 'reserved', rank: 2 },
+  INVALID_URL: { labelKey: 'portal.outcome.invalidUrl', badge: 'reserved', rank: 2 },
 };
 
 /** Per-link outcome: the API's code when there is one (BLOCKED, INVALID_URL, …), else available / unavailable. Unknown codes are shown as sent. */
@@ -25,10 +27,11 @@ export function checkOutcome(item: CheckAllItem): Outcome {
   const raw = item.code ?? item.result ?? item.status ?? (item.available ? 'AVAILABLE' : 'UNAVAILABLE');
   const code = String(raw).toUpperCase();
   const known = KNOWN[code];
-  return known ? { code, ...known } : { code, label: code, badge: '', rank: 3 };
+  return known ? { code, ...known } : { code, badge: '', rank: 3 };
 }
 
-const messageOf = (error: unknown) => (error instanceof Error && error.message ? error.message : 'Não foi possível verificar as aplicações.');
+const messageOf = (error: unknown, ui: UiText) => (error instanceof Error && error.message ? error.message : ui('portal.checkAll.error'));
+const outcomeLabel = (outcome: Outcome, ui: UiText) => (outcome.labelKey ? ui(outcome.labelKey) : outcome.code);
 
 export interface CheckAllPanelProps {
   /** Called after a run (complete, stopped or failed) so the catalogue reloads its availability. */
@@ -70,7 +73,7 @@ export function CheckAllPanel({ onFinished, onBatch, close }: CheckAllPanelProps
       }
       setFinished(true);
     } catch (reason) {
-      setError(messageOf(reason));
+      setError(messageOf(reason, ui));
     } finally {
       setRunning(false);
       onFinished();
@@ -89,27 +92,27 @@ export function CheckAllPanel({ onFinished, onBatch, close }: CheckAllPanelProps
   }, [items]);
 
   const columns: DataTableColumn<CheckAllItem>[] = [
-    { id: 'name', header: 'Aplicação', cell: (item) => <strong>{item.name}</strong>, sortValue: (item) => item.name },
-    { id: 'result', header: 'Resultado', cell: (item) => { const outcome = checkOutcome(item); return <span className={`state-badge ${outcome.badge}`.trim()} data-code={outcome.code}><i />{outcome.label}</span>; }, sortValue: (item) => checkOutcome(item).rank },
+    { id: 'name', header: ui('portal.checkAll.application'), cell: (item) => <strong>{item.name}</strong>, sortValue: (item) => item.name },
+    { id: 'result', header: ui('portal.checkAll.result'), cell: (item) => { const outcome = checkOutcome(item); return <span className={`state-badge ${outcome.badge}`.trim()} data-code={outcome.code}><i />{outcomeLabel(outcome, ui)}</span>; }, sortValue: (item) => checkOutcome(item).rank },
     { id: 'http', header: 'HTTP', cell: (item) => (item.httpStatus ?? '—'), sortValue: (item) => item.httpStatus ?? null },
-    { id: 'time', header: 'Tempo', cell: (item) => (typeof item.responseMs === 'number' ? `${formatNumber(item.responseMs)} ms` : '—'), sortValue: (item) => item.responseMs ?? null },
-    { id: 'checkedAt', header: 'Verificado em', cell: (item) => (item.checkedAt ? formatDateTime(item.checkedAt) : '—'), sortValue: (item) => item.checkedAt ?? null },
-    { id: 'message', header: 'Detalhe', cell: (item) => item.message || (checkOutcome(item).code === 'BLOCKED' ? 'O endereço de destino pertence a uma rede restrita.' : '—') },
+    { id: 'time', header: ui('portal.checkAll.time'), cell: (item) => (typeof item.responseMs === 'number' ? `${formatNumber(item.responseMs)} ms` : '—'), sortValue: (item) => item.responseMs ?? null },
+    { id: 'checkedAt', header: ui('portal.checkAll.checkedAt'), cell: (item) => (item.checkedAt ? formatDateTime(item.checkedAt) : '—'), sortValue: (item) => item.checkedAt ?? null },
+    { id: 'message', header: ui('portal.checkAll.detail'), cell: (item) => item.message || (checkOutcome(item).code === 'BLOCKED' ? ui('portal.checkAll.blockedDetail') : '—') },
   ];
 
   const progress = total !== null ? ui('portal.checkAll.progress', undefined, { done: items.length, total }) : ui('portal.checkAll.progressOpen', undefined, { done: items.length });
   return <section className="ipam-card" aria-labelledby="portal-check-all-title" data-testid="portal-check-all">
-    <div className="panel-heading"><div><h2 id="portal-check-all-title">Verificar todas as aplicações</h2></div><button type="button" className="icon-button subtle" onClick={close} disabled={running} aria-label="Fechar"><X size={16} /></button></div>
+    <div className="panel-heading"><div><h2 id="portal-check-all-title">{ui('portal.checkAll.title')}</h2></div><button type="button" className="icon-button subtle" onClick={close} disabled={running} aria-label={ui('portal.close')}><X size={16} /></button></div>
     <div className="table-actions">
-      <label>Âmbito <select value={all ? 'all' : 'checked'} disabled={running} onChange={(event) => setAll(event.target.value === 'all')}><option value="checked">Só com verificação de disponibilidade</option><option value="all">Todas as aplicações ativas</option></select></label>
+      <label>{ui('portal.checkAll.scope')} <select value={all ? 'all' : 'checked'} disabled={running} onChange={(event) => setAll(event.target.value === 'all')}><option value="checked">{ui('portal.checkAll.scopeChecked')}</option><option value="all">{ui('portal.checkAll.scopeAll')}</option></select></label>
       {running
-        ? <button type="button" className="secondary-button" onClick={() => { stopRef.current = true; }}><Square size={14} /> Parar</button>
-        : <button type="button" className="primary-button" onClick={() => void run()}><Search size={14} /> Iniciar verificação</button>}
+        ? <button type="button" className="secondary-button" onClick={() => { stopRef.current = true; }}><Square size={14} /> {ui('portal.checkAll.stop')}</button>
+        : <button type="button" className="primary-button" onClick={() => void run()}><Search size={14} /> {ui('portal.checkAll.start')}</button>}
       {(running || items.length > 0) && <span className="muted-cell" aria-live="polite">{running && <Loader2 className="spin" size={14} />} {progress}</span>}
     </div>
     {error && <div role="alert" className="ipam-alert error"><X size={15} />{error}</div>}
-    {finished && !error && items.length === 0 && <div className="ipam-alert">Não há aplicações para verificar neste âmbito.</div>}
-    {counts.length > 0 && <div className="table-actions" data-testid="portal-check-all-counts">{counts.map(({ outcome, count }) => <span key={outcome.code} className={`state-badge ${outcome.badge}`.trim()}><i />{`${outcome.label}: ${count}`}</span>)}</div>}
-    {items.length > 0 && <DataTable rows={sortByColumns(items, columns, sort)} columns={columns} rowKey={(item) => item.id} label="Resultados da verificação" sort={sort} onSortChange={setSort} defaultSort={defaultSort} />}
+    {finished && !error && items.length === 0 && <div className="ipam-alert">{ui('portal.checkAll.empty')}</div>}
+    {counts.length > 0 && <div className="table-actions" data-testid="portal-check-all-counts">{counts.map(({ outcome, count }) => <span key={outcome.code} className={`state-badge ${outcome.badge}`.trim()}><i />{ui('portal.checkAll.outcomeCount', undefined, { label: outcomeLabel(outcome, ui), count })}</span>)}</div>}
+    {items.length > 0 && <DataTable rows={sortByColumns(items, columns, sort)} columns={columns} rowKey={(item) => item.id} label={ui('portal.checkAll.resultsLabel')} sort={sort} onSortChange={setSort} defaultSort={defaultSort} />}
   </section>;
 }

@@ -10,6 +10,7 @@ export { discovery } from './discovery';
 export { infrastructure } from './infrastructure';
 export { netapp } from './netapp';
 export { operations } from './operations';
+export { portal } from './portal';
 export { settings } from './settings';
 export { shell } from './shell';
 export { snmp } from './snmp';
