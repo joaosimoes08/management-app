@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { translateSourceText } from '@/lib/i18n/source-text-messages';
 import { snmpTrapCategoryLabel, snmpTrapCategoryLabels, snmpTrapStatusLabel, snmpTrapStatusLabels } from './snmp-trap-labels';
 import { translateMessage } from '@/lib/i18n/i18n';
 const pt = (key: string, fallback?: string, params?: Record<string, string | number>) => translateMessage('pt-PT', key, fallback, params);
@@ -33,7 +32,6 @@ describe('SNMP trap kind and status badges', () => {
     expect(snmpTrapStatusLabel(en, 'PROCESSED')).toBe('Processed');
     for (const key of [...Object.values(snmpTrapCategoryLabels), ...Object.values(snmpTrapStatusLabels)]) {
       expect(en(key), key).not.toBe(pt(key));
-      expect(en(key)).toBe(translateSourceText('en-US', pt(key)));
     }
   });
 });

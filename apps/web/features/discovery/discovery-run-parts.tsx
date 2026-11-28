@@ -5,7 +5,7 @@ import { formatDateTime } from '@/lib/format/date';
 import { UNKNOWN_TRAPS_HREF } from '@/features/snmp/snmp-unknown-traps';
 import { discoveryJobProgress, type DiscoveryJob } from './api';
 import { formatDurationMs } from './discovery-results';
-import { discoveryFailureReason, discoveryProgressPercent, discoveryStatusLabel, formatResultCount, isActiveDiscoveryJob } from './discovery-status';
+import { discoveryFailureReason, discoveryJobName, discoveryProgressPercent, discoveryStatusLabel, formatResultCount, isActiveDiscoveryJob } from './discovery-status';
 import { useUiText } from '@/components/ui/use-ui-text';
 
 /**
@@ -48,7 +48,7 @@ export function DiscoveryRunRow({ job, onSelect, selected }: { job: DiscoveryJob
   return <button className={`job-row${selected ? ' selected' : ''}`} onClick={() => onSelect(job.id)} aria-current={selected ? 'true' : undefined}>
     <span className={`job-status ${job.status.toLowerCase()}`} aria-hidden="true" />
     <span>
-      <strong>{job.name}</strong>
+      <strong>{discoveryJobName(tx, job.name)}</strong>
       <small>{job.subnet.cidr} · {job.subnet.site?.name ?? tx('discovery.runParts.noSite')} · {formatResultCount(tx, job._count.results)} · <span className="job-status-label">{discoveryStatusLabel(tx, job.status)}</span>{progress ? ` · ${progress}` : ''}</small>
       <small>{formatDateTime(job.startedAt ?? job.createdAt)}{job.durationMs != null ? ` · ${formatDurationMs(job.durationMs)}` : job.status === 'RUNNING' ? tx('discovery.runParts.running') : ''}</small>
       <DiscoveryRunProgress job={job} />

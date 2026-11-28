@@ -4,7 +4,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { translateMessage } from './i18n';
-import { translateSourceText } from './source-text-messages';
 
 const web = path.resolve(import.meta.dirname, '../..');
 const files = [
@@ -82,11 +81,5 @@ describe('i18n group A keys', () => {
     expect(translateMessage('en-US', 'infra.rack.reorderRacks')).toBe('Reorder racks');
     expect(translateMessage('en-US', 'infra.rack.cardAria.open', undefined, { name: 'R1', count: 1 })).toBe('Open rack R1, 1 device');
     expect(translateMessage('pt-PT', 'infra.rack.cardAria.open', undefined, { name: 'R1', count: 3 })).toBe('Abrir bastidor R1, 3 equipamentos');
-  });
-  it('translates the leftover hard-coded rack strings through the source-text dictionary', () => {
-    expect(translateSourceText('en-US', 'Seleciona uma sala para ver os bastidores')).toBe('Select a room to see its racks');
-    expect(translateSourceText('en-US', 'Detetar grelha automaticamente')).toBe('Detect grid automatically');
-    expect(translateSourceText('en-US', ' Tentar novamente ')).toBe(' Try again ');
-    expect(translateSourceText('en-US', 'Esta sala ainda não tem bastidores')).toBe('This room has no racks yet');
   });
 });

@@ -487,6 +487,8 @@ export const messages = {
   'infrastructure.deviceImageFrame.nativeVlan': 'VLAN nativa {id}',
   'infrastructure.assetsTab.confirmDelete': 'Eliminar o asset “{name}”? As associações visuais serão removidas.',
   'infrastructure.racksTab.confirmDelete': 'Eliminar o bastidor “{name}”? Os bastidores seguintes serão deslocados uma posição para a esquerda.',
+  'infrastructure.power.defaultPduName.UPS': 'PDU UPS',
+  'infrastructure.power.defaultPduName.SUPPLIER': 'PDU Rede',
 } as const satisfies Record<string, string>;
 
 export type InfrastructureMessageKey = keyof typeof messages;

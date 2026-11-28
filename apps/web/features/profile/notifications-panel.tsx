@@ -10,6 +10,7 @@ import {
 } from './api';
 import styles from './notifications-panel.module.css';
 import { ReportSubscriptions } from './report-subscriptions';
+import { localizeServerText } from '@/lib/i18n/server-text';
 
 type Status = 'unread' | 'all';
 
@@ -93,10 +94,10 @@ export function NotificationsPanel({ userId }: { userId: string }) {
       {read.isError && <p className="ipam-alert error" role="alert">{t('notifications.readError')}</p>}
       {active && <section className={styles.detail} aria-labelledby="notification-detail-title">
         <div className="panel-heading">
-          <h3 ref={heading} id="notification-detail-title" tabIndex={-1}>{active.title}</h3>
+          <h3 ref={heading} id="notification-detail-title" tabIndex={-1}>{localizeServerText(t, active.title)}</h3>
           <button className="icon-button" type="button" onClick={close} aria-label={t('notifications.close')}><X size={16} /></button>
         </div>
-        <p>{active.message}</p>
+        <p>{localizeServerText(t, active.message)}</p>
         <time dateTime={active.createdAt}>{formatDate(active.createdAt)}</time>
         {active.href && <div className="form-actions"><a className="secondary-button" href={active.href}>{t('notifications.openSource')}</a></div>}
       </section>}
@@ -106,7 +107,7 @@ export function NotificationsPanel({ userId }: { userId: string }) {
       {rows.length > 0 && <ul className={styles.list}>
         {rows.map((item) => <li key={item.id} className={styles.item}>
           <div className={styles.summary}>
-            <button type="button" className="text-button" disabled={read.isPending} aria-expanded={activeId === item.id} onClick={(event) => activeId === item.id ? close() : open(item, event.currentTarget)}>{item.title}</button>
+            <button type="button" className="text-button" disabled={read.isPending} aria-expanded={activeId === item.id} onClick={(event) => activeId === item.id ? close() : open(item, event.currentTarget)}>{localizeServerText(t, item.title)}</button>
             <span>{topicLabel(item.type)} · <time dateTime={item.createdAt}>{formatDate(item.createdAt)}</time></span>
           </div>
           <span className="state-badge">{t(item.readAt ? 'notifications.read' : 'notifications.unread')}</span>

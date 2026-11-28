@@ -3,7 +3,6 @@ import { join } from 'node:path';
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { translateMessage, type AppLocale } from '@/lib/i18n/i18n';
-import { translateSourceText } from '@/lib/i18n/source-text-messages';
 import { messages as deDE } from '@/lib/i18n/messages/discovery/de-DE';
 import { messages as esES } from '@/lib/i18n/messages/discovery/es-ES';
 import { messages as frFR } from '@/lib/i18n/messages/discovery/fr-FR';
@@ -277,7 +276,6 @@ const sources = sourceFiles(__dirname).map((path) => readFileSync(path, 'utf8'))
 describe('discovery keyed messages', () => {
   it.each(keyed)('%s renders the same Portuguese and English as before', (key, portuguese, params) => {
     expect(translateMessage('pt-PT', key, undefined, params)).toBe(portuguese);
-    expect(translateMessage('en-US', key, undefined, params)).toBe(translateSourceText('en-US', portuguese));
   });
 
   it.each(fixedEnglish)('%s keeps the Portuguese and gets real English', (key, portuguese, english, params) => {

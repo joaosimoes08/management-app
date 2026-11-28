@@ -6,6 +6,11 @@ import { apiFetch, setApiTokenProvider, setApiUnauthorizedHandler } from '@/lib/
 import { fetchCurrentUser } from './api';
 import { getKeycloakInstance, initializeKeycloak } from './keycloak';
 import type { ApiUser, AuthContextValue, SetupStatus } from './types';
+import { getFormatLocale } from '@/lib/format/date';
+import { translateMessage } from '@/lib/i18n/i18n';
+
+/** Sign-in texts in the active app language (I18nProvider keeps the format locale in sync). */
+const authText = (key: string) => translateMessage(getFormatLocale(), key);
 
 const isUnauthorized = (error: unknown) => typeof error === 'object' && error !== null && (error as { status?: unknown }).status === 401;
 
@@ -29,7 +34,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshToken = useCallback(async (): Promise<string> => {
     const keycloak = keycloakRef.current;
-    if (!keycloak?.authenticated || !keycloak.token) throw new Error('Sessão não autenticada.');
+    if (!keycloak?.authenticated || !keycloak.token) throw new Error(authText('shell.auth.notAuthenticated'));
     if (!tokenRefreshPromise.current) {
       tokenRefreshPromise.current = (async () => {
         let refreshed: boolean;
@@ -37,10 +42,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         try {
           refreshed = await keycloak.updateToken(60);
           const nextToken = keycloak.token;
-          if (!nextToken) throw new Error('O Keycloak não devolveu um access token.');
+          if (!nextToken) throw new Error(authText('shell.auth.noAccessToken'));
           accessToken = nextToken;
         } catch (error) {
-          setAuthError('A sessão expirou.');
+          setAuthError(authText('shell.auth.sessionExpired'));
           await keycloak.logout({ redirectUri: window.location.origin });
           throw error;
         }
@@ -71,7 +76,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let active = true;
     const initTimeout = window.setTimeout(() => {
       if (active) {
-        setAuthError('Não foi possível contactar o Keycloak.');
+        setAuthError(authText('shell.auth.keycloakUnreachable'));
         setLoading(false);
       }
     }, 10000);
@@ -91,8 +96,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const accessToken = keycloak.token;
           const [profileResult, identityResult, setupResult] = await Promise.allSettled([
             keycloak.loadUserProfile(),
-            accessToken ? loadIdentity() : Promise.reject(new Error('O Keycloak não devolveu um access token.')),
-            accessToken ? apiFetch<SetupStatus>('/api/v1/setup/status', { redirectOnUnauthorized: false }) : Promise.reject(new Error('O Keycloak não devolveu um access token.')),
+            accessToken ? loadIdentity() : Promise.reject(new Error(authText('shell.auth.noAccessToken'))),
+            accessToken ? apiFetch<SetupStatus>('/api/v1/setup/status', { redirectOnUnauthorized: false }) : Promise.reject(new Error(authText('shell.auth.noAccessToken'))),
           ]);
           if (!active) return;
           // The API identity is authoritative for application access. A profile endpoint
@@ -108,11 +113,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setSetupStatusError(null);
           } else {
             setSetupStatus(null);
-            setSetupStatusError(setupResult.reason instanceof Error ? setupResult.reason.message : 'Não foi possível validar o setup inicial.');
+            setSetupStatusError(setupResult.reason instanceof Error ? setupResult.reason.message : authText('shell.auth.setupCheckFailed'));
           }
         }
       })
-      .catch(() => { if (active) { setAuthenticated(false); setAuthError('Não foi possível iniciar a autenticação.'); } })
+      .catch(() => { if (active) { setAuthenticated(false); setAuthError(authText('shell.auth.startFailed')); } })
       .finally(() => { window.clearTimeout(initTimeout); if (active) setLoading(false); });
 
     refreshTimer.current = window.setInterval(() => { void refreshToken().catch(() => undefined); }, 30_000);

@@ -282,6 +282,8 @@ export const messages = {
   "operations.quality.tableLabel": "Findings de qualidade do inventário",
   "operations.quality.loading": "A carregar…",
   "operations.quality.loadMore": "Carregar mais findings",
+  "operations.events.sseUnavailable": "SSE indisponível.",
+  "operations.events.refreshFailed": "Falha ao atualizar operações.",
 } as const satisfies Record<string, string>;
 
 export type OperationsMessageKey = keyof typeof messages;

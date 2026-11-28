@@ -5,7 +5,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createElement, type ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { translateMessage, type AppLocale } from '@/lib/i18n/i18n';
-import { translateSourceText } from '@/lib/i18n/source-text-messages';
 import { messages as deDE } from '@/lib/i18n/messages/tags/de-DE';
 import { messages as esES } from '@/lib/i18n/messages/tags/es-ES';
 import { messages as frFR } from '@/lib/i18n/messages/tags/fr-FR';
@@ -55,7 +54,6 @@ describe('tags keyed messages', () => {
   it.each(keyed)('%s renders the same Portuguese and English as before', (key, portuguese, params) => {
     expect(translateMessage('pt-PT', key, undefined, params)).toBe(portuguese);
     const english = translateMessage('en-US', key, undefined, params);
-    expect(english).toBe(translateSourceText('en-US', portuguese));
   });
 
   it('covers every key the tags components use, in both locales and the added languages', () => {

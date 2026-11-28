@@ -1,4 +1,6 @@
 import type { ApiPowerValueSource, Device, DeviceModel, PduConnection, PduOutlet, PowerFeedSource, Rack, RackPdu, WattsSource } from './types';
+import { getFormatLocale } from '@/lib/format/date';
+import { translateMessage } from '@/lib/i18n/i18n';
 
 /** Artwork for a vertical PDU strip (32-outlet reference picture, cropped). Width / height of the picture. */
 export const PDU_IMAGE = '/assets/pdu-vertical-32.webp';
@@ -145,9 +147,9 @@ function apiLevel(pdu: RackPdu): PowerLevel | null {
   return Object.values(pdu.levels).map((level) => FROM_API[level] ?? 'ok').reduce((worst, level) => (LEVEL_RANK[level] > LEVEL_RANK[worst] ? level : worst), 'ok' as PowerLevel);
 }
 
-/** Default name of a PDU without one. */
+/** Default name of a PDU without one, in the active app language (I18nProvider keeps it in sync). */
 export function defaultPduName(source: PowerFeedSource): string {
-  return source === 'UPS' ? 'PDU UPS' : 'PDU Rede';
+  return translateMessage(getFormatLocale(), source === 'UPS' ? 'infrastructure.power.defaultPduName.UPS' : 'infrastructure.power.defaultPduName.SUPPLIER');
 }
 
 /**

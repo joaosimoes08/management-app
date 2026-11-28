@@ -12,6 +12,7 @@ import { applyChipFilters, chipOptions, CHIP_NONE, facetCounts, type ChipAccesso
 import { snmpTrapCategoryLabel } from './snmp-trap-labels';
 import { ignoreUnmatchedTraps, listUnmatchedTrapSources, unmatchedTrapSourcesKey, type UnmatchedTrapSource } from './api';
 import { useUiText } from '@/components/ui/use-ui-text';
+import { localizeServerText } from '@/lib/i18n/server-text';
 
 /** Where "Pré-registar" goes: the SNMP pre-registration dialog in Descoberta, prefilled with the source IP. */
 /** The unknown-traps view on the SNMP page (ADMIN only; other roles get an explanation there). */
@@ -29,7 +30,7 @@ export const APP_TEST_TRAP_OID = '1.3.6.1.4.1.8072.2.3.0.1';
 
 /** Readable name for the latest trap of an unknown source: catalogue label, the app test trap, else a vendor trap. The raw OID shows below it. */
 export function unknownTrapName(t: ReturnType<typeof useUiText>, item: Pick<UnmatchedTrapSource, 'lastTrapLabel' | 'lastTrapOid'>): string | null {
-  if (item.lastTrapLabel) return item.lastTrapLabel;
+  if (item.lastTrapLabel) return localizeServerText(t, item.lastTrapLabel);
   if (!item.lastTrapOid) return null;
   return item.lastTrapOid === APP_TEST_TRAP_OID ? snmpTrapCategoryLabel(t, 'SELF_TEST') : snmpTrapCategoryLabel(t, 'VENDOR');
 }

@@ -2,6 +2,7 @@ import { ApiRequestError, apiErrorMessage, clientErrorMessage, type ApiErrorPayl
 import { getPublicRuntimeConfig } from '@/lib/runtime-config';
 import { STORAGE_KEYS, getLocalItem } from '@/lib/storage-keys';
 import { isAppLocale } from '@/lib/i18n/locales/catalog';
+import { localizeServerTextFor } from '@/lib/i18n/server-text';
 import type { AppLocale } from '@/lib/i18n/i18n';
 
 type TokenProvider = () => Promise<string>;
@@ -72,7 +73,8 @@ export async function apiFetch<T = unknown>(path: string, { redirectOnUnauthoriz
     let payload: ApiErrorPayload | undefined;
     try {
       payload = await response.json() as ApiErrorPayload;
-      detail = apiErrorMessage(payload, activeLocale());
+      // A code the web knows is already localized; the API's own Portuguese message is shown in the active language.
+      detail = localizeServerTextFor(storedAppLocale(), apiErrorMessage(payload, activeLocale()));
     } catch {
       // Keep the status as a useful fallback when the API did not return JSON.
     }

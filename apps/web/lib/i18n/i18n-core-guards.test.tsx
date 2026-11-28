@@ -3,9 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LocaleDocumentTitle } from '@/components/layout/locale-document-title';
 import { STORAGE_KEYS } from '@/lib/storage-keys';
 import { I18nProvider, applyDocumentTitle, translateMessage } from './i18n';
-import { translateSourceText } from './source-text-messages';
+import { localizeServerText, localizeServerTextFor } from './server-text';
 import { LAZY_LOCALES } from './locales/catalog';
-import { loadLocaleBundle, translateWithBundle } from './locales/loader';
+import { loadLocaleBundle } from './locales/loader';
 
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ setupStatus: null }) }));
 
@@ -15,19 +15,13 @@ beforeEach(() => { window.localStorage.clear(); });
 afterEach(() => { cleanup(); document.head.innerHTML = ''; });
 
 describe('prototype member names are never translations', () => {
-  it.each(prototypeNames)('source-text English table leaves "%s" as it is', (name) => {
-    expect(() => translateSourceText('en-US', name)).not.toThrow();
-    expect(translateSourceText('en-US', name)).toBe(name);
-    expect(translateSourceText('en-US', `  ${name} `)).toBe(`  ${name} `);
-  });
-
-  it.each(prototypeNames)('each added language falls back to English for "%s"', async (name) => {
-    for (const locale of LAZY_LOCALES) {
-      const bundle = await loadLocaleBundle(locale);
-      const result = translateWithBundle(bundle, name, (text) => translateSourceText('en-US', text));
-      expect(result).toBe(name);
-      expect(result).not.toMatch(/function|\[native code\]/);
+  it.each(prototypeNames)('server texts leave "%s" as it is', async (name) => {
+    for (const locale of LAZY_LOCALES) await loadLocaleBundle(locale);
+    for (const locale of ['pt-PT', 'en-US', ...LAZY_LOCALES] as const) {
+      expect(localizeServerTextFor(locale, name)).toBe(name);
+      expect(localizeServerTextFor(locale, `  ${name} `)).toBe(`  ${name} `);
     }
+    expect(localizeServerText((key) => `T(${key})`, name)).toBe(name);
   });
 
   it.each(prototypeNames)('keyed messages treat "%s" as a missing key', async (name) => {

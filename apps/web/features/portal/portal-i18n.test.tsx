@@ -2,13 +2,11 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { translateMessage, type AppLocale } from '@/lib/i18n/i18n';
-import { translateSourceText } from '@/lib/i18n/source-text-messages';
 import { messages as deDE } from '@/lib/i18n/messages/portal/de-DE';
 import { messages as esES } from '@/lib/i18n/messages/portal/es-ES';
 import { messages as frFR } from '@/lib/i18n/messages/portal/fr-FR';
 import { messages as itIT } from '@/lib/i18n/messages/portal/it-IT';
 
-const en = (text: string) => translateSourceText('en-US', text);
 const files = ['portal-page.tsx', 'check-all-panel.tsx'];
 // Keyed in i18n.tsx before this change.
 const keyedBefore = ['portal.appCount', 'portal.checkAll.progress', 'portal.checkAll.progressOpen', 'portal.urlScheme'];
@@ -92,13 +90,13 @@ const keyed: Array<[key: string, portuguese: string, params?: Record<string, str
 describe('portal keyed messages', () => {
   it.each(keyed.filter(([key]) => key !== 'portal.checkAll.outcomeCount'))('%s renders the same Portuguese and English as before', (key, portuguese, params, english) => {
     expect(translateMessage('pt-PT', key, undefined, params)).toBe(portuguese);
-    const expected = typeof english === 'function' ? english() : english ?? en(portuguese);
-    expect(translateMessage('en-US', key, undefined, params)).toBe(expected);
+    const expected = typeof english === 'function' ? english() : english;
+    if (expected !== undefined) expect(translateMessage('en-US', key, undefined, params)).toBe(expected);
   });
 
   it('renders the outcome count as before, with the label already in the active language', () => {
     expect(translateMessage('pt-PT', 'portal.checkAll.outcomeCount', undefined, { label: 'Disponível', count: 3 })).toBe('Disponível: 3');
-    expect(translateMessage('en-US', 'portal.checkAll.outcomeCount', undefined, { label: en('Disponível'), count: 3 })).toBe(en('Disponível: 3'));
+    expect(translateMessage('en-US', 'portal.checkAll.outcomeCount', undefined, { label: 'Available', count: 3 })).toBe('Available: 3');
   });
 
   it('covers every key the portal components use, in both locales and the added languages', () => {

@@ -9,6 +9,7 @@ import { useRouter } from 'next/navigation';
 import { dashboardKeys, searchPlatform, type GlobalSearchResult } from '@/features/dashboard/api';
 import { entityHref } from '@/lib/routes';
 import { portugueseText, useUiText, type UiText } from '@/components/ui/use-ui-text';
+import { localizeServerText } from '@/lib/i18n/server-text';
 
 type SearchResult = GlobalSearchResult;
 
@@ -18,7 +19,7 @@ const siteIdFromHref = (href: string) => { try { return new URL(href, 'http://lo
 export const withDevicePage = (item: SearchResult): SearchResult => item.type === 'DEVICE' ? { ...item, href: entityHref({ kind: 'device', id: item.id, siteId: siteIdFromHref(item.href) }) } : item;
 /** A quality finding with a fix page gets a second entry that opens it directly. */
 export const expandSearchResults = (items: SearchResult[], text: UiText = portugueseText): SearchResult[] => items.map(withDevicePage).flatMap((item) => item.type === 'QUALITY_FINDING' && item.actionHref && item.actionHref !== item.href
-  ? [item, { id: `${item.id}-action`, type: 'QUALITY_FINDING_ACTION', title: text('shell.search.fixTitle', undefined, { title: item.title }), detail: text('shell.search.fixDetail'), href: item.actionHref }]
+  ? [item, { id: `${item.id}-action`, type: 'QUALITY_FINDING_ACTION', title: text('shell.search.fixTitle', undefined, { title: localizeServerText(text, item.title) }), detail: text('shell.search.fixDetail'), href: item.actionHref }]
   : [item]);
 const resultIcons: Record<string, typeof Search> = { CHANGE_PLAN: GitPullRequestArrow, AUDIT_EVENT: History, QUALITY_FINDING: ClipboardCheck, QUALITY_FINDING_ACTION: Wrench };
 export type RackSearchItem = { id: string; name: string; roomId?: string; room?: { id: string; building?: { id: string } }; devices?: { name: string }[] };
@@ -120,7 +121,7 @@ export function GlobalSearchPalette({ open, onClose, rackSearch, localSearch }: 
           : scope === 'platform' && searching ? <div className="command-empty"><Loader2 className="spin" size={16} /> {ui('globalSearch.searching')}</div>
           : scope === 'platform' && failed ? <div className="command-empty error">{ui('globalSearch.error')}</div>
             : query.trim().length < 2 ? <div className="command-empty">{ui('globalSearch.minChars')}</div>
-              : results.length ? results.map((item, index) => <button key={`${item.type}-${item.id}`} className={index === activeIndex ? 'active' : ''} role="option" aria-selected={index === activeIndex} onMouseEnter={() => setActiveIndex(index)} onClick={() => activate(item)}><span className="command-result-icon"><ResultIcon type={item.type} /></span><span><strong>{item.title}</strong><small>{item.detail}</small></span><ChevronRight size={14} /></button>)
+              : results.length ? results.map((item, index) => <button key={`${item.type}-${item.id}`} className={index === activeIndex ? 'active' : ''} role="option" aria-selected={index === activeIndex} onMouseEnter={() => setActiveIndex(index)} onClick={() => activate(item)}><span className="command-result-icon"><ResultIcon type={item.type} /></span><span><strong>{localizeServerText(ui, item.title)}</strong><small>{localizeServerText(ui, item.detail)}</small></span><ChevronRight size={14} /></button>)
                 : <div className="command-empty">{ui('globalSearch.noResults', undefined, { query: query.trim() })}</div>}
       </div>
     </section>

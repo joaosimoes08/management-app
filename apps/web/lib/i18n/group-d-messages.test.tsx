@@ -2,7 +2,6 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { clientErrorMessage } from '@/lib/api/errors';
 import { translateMessage } from './i18n';
-import { translateSourceText } from './source-text-messages';
 
 // Shared UI follows the active language through useOptionalI18n; render it in English here.
 vi.mock('@/lib/i18n/i18n', async (importOriginal) => {
@@ -35,12 +34,6 @@ describe('i18n group D (shell-wide, app, lib)', () => {
     expect(clientErrorMessage('exportFailed', 'en-US', 403)).toBe('Export failed (403)');
   });
 
-  it('translates auth messages and the API generic fallbacks shown as sent', () => {
-    expect(translateSourceText('en-US', 'A sessão expirou.')).toBe('The session has expired.');
-    expect(translateSourceText('en-US', 'Não foi possível contactar o Keycloak.')).toBe('Could not reach Keycloak.');
-    expect(translateSourceText('en-US', 'O recurso não foi encontrado.')).toBe('The resource was not found.');
-    expect(translateSourceText('en-US', 'Categoria')).toBe('Category');
-  });
 
   it('renders the bulk review dialog in English', async () => {
     const { BulkReviewDialog } = await import('@/features/discovery/bulk-review-dialog');

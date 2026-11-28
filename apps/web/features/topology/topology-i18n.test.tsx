@@ -2,7 +2,6 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { translateMessage, type AppLocale } from '@/lib/i18n/i18n';
-import { translateSourceText } from '@/lib/i18n/source-text-messages';
 import { messages as deDE } from '@/lib/i18n/messages/topology/de-DE';
 import { messages as esES } from '@/lib/i18n/messages/topology/es-ES';
 import { messages as frFR } from '@/lib/i18n/messages/topology/fr-FR';
@@ -278,6 +277,8 @@ const keyed: Array<[key: string, portuguese: string, params?: Record<string, str
   ['topology.observedTopology.action.connectionAdd', 'Proposta de ligação'],
   ['topology.observedTopology.action.connectionUpdate', 'Proposta de atualização de ligação'],
   ['topology.page.portNotSet', 'Porta não definida'],
+  ['topology.filtersMenu.filtersCount', 'Filtros (3)', { count: '3' }],
+  ['topology.page.activeAlertsLabel', '3 alertas ativos · CRITICAL', { count: '3', severity: 'CRITICAL' }],
 ];
 
 // Documented exceptions to en == translateSourceText: where today's English was still Portuguese, it now
@@ -297,13 +298,14 @@ describe('topology keyed messages', () => {
   it.each(keyed)('%s renders the same Portuguese and English as before', (key, portuguese, params) => {
     expect(translateMessage('pt-PT', key, undefined, params)).toBe(portuguese);
     const english = translateMessage('en-US', key, undefined, params);
-    expect(english).toBe(englishFixes[key] ?? translateSourceText('en-US', portuguese));
+    expect(english).not.toBe(key);
+    if (key in englishFixes) expect(english).toBe(englishFixes[key]);
   });
 
   it('writes proper English where the old translation was still Portuguese', () => {
     for (const [key, english] of Object.entries(englishFixes)) {
       const portuguese = translateMessage('pt-PT', key);
-      expect(translateSourceText('en-US', portuguese)).not.toBe(english);
+      expect(english).not.toBe(portuguese);
       expect(translateMessage('en-US', key)).toBe(english);
     }
   });

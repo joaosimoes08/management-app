@@ -22,6 +22,7 @@ import { AlertDetailDialog } from './alert-detail';
 import { SeverityLegend, SeverityTag } from './alert-severity';
 import { useLiveAlertRefresh } from './use-live-alert-refresh';
 import { useUiText } from '@/components/ui/use-ui-text';
+import { localizeServerText } from '@/lib/i18n/server-text';
 
 export type AlertListUrlFilters = { severity: string; status: string; source: string; scope: string };
 /** `scope=all` lists every visible Site; otherwise the active Site. `q` is the search. */
@@ -38,7 +39,7 @@ const baseColumns = (openDetail: (row: AlertListItem) => void, t: Translate): Da
   { id: 'severity', header: t('operations.alerts.field.severity'), cell: (row) => <SeverityTag severity={row.severity} />, sortValue: (row) => severityRank[row.severity] ?? 9 },
   { id: 'title', header: t('operations.alerts.field.alert'), cell: (row) => {
     const href = alertTargetHref(row);
-    return <span className="alert-title-cell"><strong>{href ? <a href={href}>{row.title}</a> : row.title}</strong>{row.detail && <small>{row.detail}</small>}<small className="alert-next-step">{alertNextStep(row, t)}</small><button type="button" className="text-button" onClick={() => openDetail(row)} aria-label={t('operations.alerts.viewDetailNamed', undefined, { title: row.title })}>{t('operations.alerts.detail.historyNote')}</button></span>;
+    return <span className="alert-title-cell"><strong>{href ? <a href={href}>{localizeServerText(t, row.title)}</a> : localizeServerText(t, row.title)}</strong>{row.detail && <small>{localizeServerText(t, row.detail)}</small>}<small className="alert-next-step">{alertNextStep(row, t)}</small><button type="button" className="text-button" onClick={() => openDetail(row)} aria-label={t('operations.alerts.viewDetailNamed', undefined, { title: localizeServerText(t, row.title) })}>{t('operations.alerts.detail.historyNote')}</button></span>;
   } },
   { id: 'device', header: t('operations.alerts.field.device'), cell: (row) => (row.device
     ? <span className="alert-device-cell"><a href={deviceHref(row.device.id, row.siteId)}>{row.device.name || t('operations.alerts.deviceRemoved')}</a>{row.device.managementIp && <small>{row.device.managementIp}</small>}</span>
@@ -106,7 +107,7 @@ export function AlertList({ siteId, table }: { siteId: string; table: TableUrlSt
         empty={!query.error && <div className="no-data">{filtering ? tx('operations.alerts.list.noMatch') : tx('operations.alerts.empty')}</div>} />
       {total > items.length && <p className="panel-description">{tx('operations.alerts.list.showing', undefined, { shown: items.length, total })}</p>}
     </section>
-    {detailFor && <AlertDetailDialog alertId={detailFor.id} title={detailFor.title} close={() => setDetailFor(null)} running={actions.running} run={(action, alerts, hours) => void actions.run(action, alerts, hours)} />}
+    {detailFor && <AlertDetailDialog alertId={detailFor.id} title={localizeServerText(tx, detailFor.title)} close={() => setDetailFor(null)} running={actions.running} run={(action, alerts, hours) => void actions.run(action, alerts, hours)} />}
   </>;
 }
 

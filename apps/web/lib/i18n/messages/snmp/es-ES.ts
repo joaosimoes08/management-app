@@ -339,7 +339,7 @@ export const messages: Record<string, string> = {
   "snmp.drifts.filter.all": "Todas",
   "snmp.drifts.reviewedAt": "Revisada el {time}",
   "snmp.drifts.acceptNamed": "Aceptar {field} de {device}",
-  "snmp.drifts.ignoreNamed": "Ignorar {field} de {device}",
+  "snmp.drifts.ignoreNamed": "Ignorar {field} en {device}",
   "snmp.changePlanAttach.status.approved": "Aprobado",
   "snmp.changePlanAttach.status.inProgress": "En curso",
   "snmp.changePlanAttach.option": "{title} · {status} · hasta {end}",

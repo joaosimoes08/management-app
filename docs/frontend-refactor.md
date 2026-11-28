@@ -83,7 +83,7 @@ apps/web/
 │   │                               #   types.ts (Keycloak isolado)
 │   ├── api/                        # client.ts (apiFetch tipado), types.ts
 │   │                               #   (PaginatedResponse, ApiError), errors.ts
-│   ├── i18n/                       # i18n.tsx + source-text-messages.ts (dicionário PT→EN)
+│   ├── i18n/                       # i18n.tsx + messages/<domínio>/<locale>.ts + server-text.ts
 │   ├── query/                      # QueryProvider (React Query)
 │   └── site-context.tsx
 │
@@ -131,7 +131,7 @@ apps/web/
 ## O que não mudou
 
 - Rotas públicas (`/infraestrutura`, `/ipam`, `/auditoria`, `/definicoes`, …), contratos da API, permissões e regras de negócio.
-- Traduções e o mecanismo de tradução DOM do dicionário `source-text-messages` (antes `legacy-messages`) (substituição futura, fora do âmbito).
+- Traduções: mensagens com chave por domínio (`lib/i18n/messages/`); a tradução DOM do dicionário `source-text-messages` foi removida.
 - UX: nenhuma alteração visual; os diffs de JSX foram verificados (class names e markup idênticos).
 
 ## Validação executada
@@ -148,5 +148,5 @@ apps/web/
 
 - Criar suite de testes frontend (Vitest + Testing Library) para os fluxos críticos (placement de equipamentos, IPAM, permissões).
 - Mover o tipo `Site` (hoje em `features/infrastructure/types.ts` e importado por ipam/settings) para um pacote partilhado, se houver mais partilha entre domínios.
-- Substituir a tradução DOM (`source-text-messages.ts`) por mensagens catalogadas nas features.
+- ~~Substituir a tradução DOM (`source-text-messages.ts`) por mensagens catalogadas nas features.~~ Feito.
 - Avisos de lint residuais: `exhaustive-deps` legados e `<img>` para assets autenticados (object URLs não são compatíveis com `next/image` sem loader customizado).

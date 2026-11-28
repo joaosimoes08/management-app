@@ -18,7 +18,7 @@ type FiltersProps = {
 export function TopologyFiltersMenu({ filters, onChange, types, locations, alertsUnavailable = false }: FiltersProps) {
   const ui = useUiText();
   const active = activeTopologyFilterCount(filters);
-  return <details className="topology-topbar-menu"><summary>{active ? `Filtros (${active})` : ui('topology.filtersMenu.filters')}</summary><div className="topology-topbar-form">
+  return <details className="topology-topbar-menu"><summary>{active ? ui('topology.filtersMenu.filtersCount', undefined, { count: active }) : ui('topology.filtersMenu.filters')}</summary><div className="topology-topbar-form">
     <strong>{ui('topology.filtersMenu.filterMap')}</strong>
     <label>{ui('topology.filtersMenu.deviceType')}<select aria-label={ui('topology.filtersMenu.filterByDeviceType')} value={filters.type} onChange={(event) => onChange({ ...filters, type: event.target.value })}><option value="">{ui('topology.filtersMenu.allTypes')}</option>{types.map((option) => <option key={option.value} value={option.value}>{`${option.label} (${option.count})`}</option>)}</select></label>
     <label>{ui('topology.filtersMenu.location')}<select aria-label={ui('topology.filtersMenu.filterByLocation')} value={filters.location} onChange={(event) => onChange({ ...filters, location: event.target.value })}><option value="">{ui('topology.filtersMenu.allLocations')}</option>{locations.map((option) => <option key={option.value} value={option.value}>{`${option.label} (${option.count})`}</option>)}</select></label>

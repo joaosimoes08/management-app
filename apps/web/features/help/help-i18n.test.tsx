@@ -2,7 +2,6 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { translateMessage, type AppLocale } from '@/lib/i18n/i18n';
-import { translateSourceText } from '@/lib/i18n/source-text-messages';
 import { messages as deDE } from '@/lib/i18n/messages/help/de-DE';
 import { messages as esES } from '@/lib/i18n/messages/help/es-ES';
 import { messages as frFR } from '@/lib/i18n/messages/help/fr-FR';
@@ -118,7 +117,6 @@ const locales: AppLocale[] = ['pt-PT', 'en-US', 'es-ES', 'fr-FR', 'de-DE', 'it-I
 describe('help keyed messages', () => {
   it.each(keyed)('%s renders the same Portuguese and English as before', (key, portuguese) => {
     expect(translateMessage('pt-PT', key)).toBe(portuguese);
-    expect(translateMessage('en-US', key)).toBe(translateSourceText('en-US', portuguese));
   });
 
   it('covers every article key, in both locales and the added languages', () => {

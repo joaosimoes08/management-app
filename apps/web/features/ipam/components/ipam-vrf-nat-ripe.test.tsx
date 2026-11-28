@@ -6,7 +6,6 @@ import { VrfsView } from './vrfs-view';
 import { NatView } from './nat-view';
 import { RipeView, ripeDiffDetail } from './ripe-view';
 import { ApiRequestError, apiErrorMessage } from '@/lib/api/errors';
-import { translateSourceText } from '@/lib/i18n/source-text-messages';
 import type { NatRule, RipeDiffItem, RipeImportRecord, RipePreview, Subnet, Vrf, VrfDetail } from '../types';
 
 const api = vi.hoisted(() => ({
@@ -323,8 +322,6 @@ describe('RipeView', () => {
     fireEvent.click(screen.getByRole('button', { name: /Importar 1 prefixo/ }));
     await acceptConfirm('Importar');
     await waitFor(() => expect(api.importRipe).toHaveBeenCalledWith(expect.objectContaining({ importId: 'imp-3', prefixes: ['10.9.0.0/16'] })));
-    expect(translateSourceText('en-US', 'Sobrepõe-se a 10.9.0.0/16 (nesta lista)')).toBe('Overlaps 10.9.0.0/16 (in this list)');
-    expect(translateSourceText('en-US', 'Sobrepõe um prefixo anterior desta lista no mesmo Site/VRF; só o primeiro é importado.')).toBe('Overlaps an earlier prefix of this list in the same Site/VRF; only the first one is imported.');
   });
 
   it('renders a changed row for a hidden subnet that has no changes array', async () => {
@@ -343,8 +340,6 @@ describe('RipeView', () => {
     const overlapRow = screen.getByText('10.78.0.0/16', { selector: 'td' }).closest('tr')!;
     expect(within(overlapRow).getByText('Contém uma subnet sem acesso de leitura')).toBeInTheDocument();
     expect(ripeDiffDetail(diffItem('10.77.0.0/24', { status: 'changed', reason: 'EXISTS_DIFFERENT_ATTRIBUTES', importable: false, existing: { id: null, cidr: null, hidden: true } }))).toEqual(['Subnet existente: uma subnet sem acesso de leitura', 'Os valores atuais estão ocultos: sem acesso de leitura a esta subnet.']);
-    expect(translateSourceText('en-US', 'Contém uma subnet sem acesso de leitura')).toBe('Contains a subnet you cannot read');
-    expect(translateSourceText('en-US', 'Os valores atuais estão ocultos: sem acesso de leitura a esta subnet.')).toBe('The current values are hidden: you cannot read this subnet.');
   });
 
   it('shows the error returned by a RIPEstat lookup', async () => {

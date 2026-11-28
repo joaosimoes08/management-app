@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { translateMessage } from './i18n';
-import { translateSourceText } from './source-text-messages';
 import { topologyToolbarSummary } from '@/features/topology/toolbar-summary';
 import { discoveryJobProgress } from '@/features/discovery/api';
 import { missingIpEvidence } from '@/features/discovery/discovery-missing';
@@ -27,35 +26,6 @@ describe('i18n group B (topology, quality, discovery, netapp)', () => {
       expect(translateMessage('pt-PT', key)).not.toBe(key);
       expect(translateMessage('en-US', key)).not.toBe(translateMessage('pt-PT', key));
     }
-  });
-
-  it('translates static topology, discovery and NetApp text through the source-text dictionary', () => {
-    expect(translateSourceText('en-US', 'Mapa do site')).toBe('Site map');
-    expect(translateSourceText('en-US', 'Liga de')).toBe('Connects from');
-  });
-});
-
-describe('source-text substitution order', () => {
-  it('translates specific sentences before the generic count rules can half-translate them', () => {
-    expect(translateSourceText('en-US', 'Ver 3 alertas ativos de Core')).toBe('View 3 active alerts of Core');
-    expect(translateSourceText('en-US', 'CSV exportado com 2 eventos.')).toBe('CSV exported with 2 events.');
-    expect(translateSourceText('en-US', '12 eventos carregados')).toBe('12 events loaded');
-    expect(translateSourceText('en-US', '4 de 12 equipamentos visíveis')).toBe('4 of 12 devices visible');
-  });
-
-  it('still applies the generic count rules on their own', () => {
-    expect(translateSourceText('en-US', '3 alertas ativos')).toBe('3 active alerts');
-    expect(translateSourceText('en-US', '12 equipamentos')).toBe('12 devices');
-  });
-
-  it('matches trimmed text, so rules no longer start with a space', () => {
-    expect(translateSourceText('en-US', ' Adiados até 26/11/2026, 10:00.')).toBe(' Snoozed until 26/11/2026, 10:00.');
-    expect(translateSourceText('en-US', ' · 3 selecionados')).toBe(' · 3 selected');
-  });
-
-  it('translates the bulk-review summary when the caller already passes an English noun', () => {
-    expect(translateSourceText('en-US', '5 drifts selecionados. Cada item é verificado à parte; uma falha não impede os restantes.'))
-      .toBe('5 drifts selected. Each item is checked separately; one failure does not stop the others.');
   });
 });
 

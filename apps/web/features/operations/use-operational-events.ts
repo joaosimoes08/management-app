@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/lib/auth';
 import { openOperationalEventStream } from './api';
 import { parseSseChunk, pubSubAvailability, type OperationEvent } from './sse';
+import { getFormatLocale } from '@/lib/format/date';
+import { translateMessage } from '@/lib/i18n/i18n';
 
 type StreamState = 'connecting' | 'up' | 'down';
 type Listener = { event: (event: OperationEvent) => void; state: (state: StreamState, error: Error | null) => void };
@@ -33,7 +35,7 @@ function openStream(path: string): Stream {
     let response: Awaited<ReturnType<typeof openOperationalEventStream>>;
     try {
       response = await openOperationalEventStream(path, stream.controller.signal);
-    } catch (reason) { fail(reason, 'SSE indisponível.'); return; }
+    } catch (reason) { fail(reason, translateMessage(getFormatLocale(), 'operations.events.sseUnavailable')); return; }
     if (stream.closed) return;
     setState(stream, 'up', null);
     const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = '';
@@ -84,7 +86,7 @@ export function useOperationalEvents<T>({ url = '/api/v1/operations/events', fal
     if (!authenticated) return;
     let disposed = false; let timer: number | undefined; let polling = false; const controller = new AbortController();
     // Each subscriber polls its own fallback while the shared stream is down.
-    const poll = async () => { if (!fallbackRef.current || disposed || polling) return; polling = true; try { setData(await fallbackRef.current(controller.signal)); setError(null); } catch (reason) { if (!controller.signal.aborted) setError(reason instanceof Error ? reason : new Error('Falha ao atualizar operações.')); } finally { polling = false; } };
+    const poll = async () => { if (!fallbackRef.current || disposed || polling) return; polling = true; try { setData(await fallbackRef.current(controller.signal)); setError(null); } catch (reason) { if (!controller.signal.aborted) setError(reason instanceof Error ? reason : new Error(translateMessage(getFormatLocale(), 'operations.events.refreshFailed'))); } finally { polling = false; } };
     const startPolling = () => { if (timer === undefined) { void poll(); timer = window.setInterval(() => void poll(), intervalMs); } };
     const stopPolling = () => { if (timer !== undefined) { window.clearInterval(timer); timer = undefined; } };
     const unsubscribe = subscribe(url, {

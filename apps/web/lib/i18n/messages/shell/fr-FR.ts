@@ -56,4 +56,11 @@ export const messages: Record<string, string> = {
   'shell.siteSwitcher.create': 'Créer le Site',
   'shell.siteSwitcher.createdHint': 'Le Site a été ajouté à l’organisation et peut désormais être utilisé comme contexte actif.',
   'shell.siteSwitcher.switch': 'Basculer vers ce Site',
+  'shell.auth.notAuthenticated': 'Session non authentifiée.',
+  'shell.auth.noAccessToken': 'Keycloak n’a pas renvoyé de jeton d’accès.',
+  'shell.auth.sessionExpired': 'La session a expiré.',
+  'shell.auth.keycloakUnreachable': 'Impossible de joindre Keycloak.',
+  'shell.auth.setupCheckFailed': 'Impossible de valider la configuration initiale.',
+  'shell.auth.startFailed': 'Impossible de démarrer l’authentification.',
+  'shell.recentItems.kind.device': 'Équipement',
 } satisfies Record<ShellMessageKey, string>;

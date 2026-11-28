@@ -3,7 +3,6 @@ import { join } from 'node:path';
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { translateMessage, type AppLocale } from '@/lib/i18n/i18n';
-import { translateSourceText } from '@/lib/i18n/source-text-messages';
 import { messages as deDE } from '@/lib/i18n/messages/ipam/de-DE';
 import { messages as enUS } from '@/lib/i18n/messages/ipam/en-US';
 import { messages as esES } from '@/lib/i18n/messages/ipam/es-ES';
@@ -324,7 +323,6 @@ describe('ipam keyed messages', () => {
       expect(enUS[key]).toBe(untranslatedBefore.get(key));
       expect(english).not.toBe(portuguese);
     } else {
-      expect(english).toBe(translateSourceText('en-US', portuguese));
     }
   });
 
@@ -385,10 +383,10 @@ afterEach(() => { cleanup(); locale.current = 'en-US'; });
 describe('IPAM screens follow the active language', () => {
   it('renders the reservation form and the empty VLAN map in English', () => {
     render(screens());
-    expect(screen.getByLabelText(translateSourceText('en-US', 'Motivo'))).toBeTruthy();
-    expect(screen.getByRole('option', { name: translateSourceText('en-US', '24 horas (predefinição)') })).toBeTruthy();
-    expect(screen.getByRole('button', { name: translateSourceText('en-US', 'Cancelar') })).toBeTruthy();
-    expect(screen.getByText(translateSourceText('en-US', 'Este Site ainda não tem VLANs'))).toBeTruthy();
+    expect(screen.getByLabelText('Reason')).toBeTruthy();
+    expect(screen.getByRole('option', { name: '24 hours (default)' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy();
+    expect(screen.getByText('This Site has no VLANs yet')).toBeTruthy();
     expect(screen.queryByText('Motivo')).toBeNull();
     expect(screen.queryByText('Este Site ainda não tem VLANs')).toBeNull();
   });

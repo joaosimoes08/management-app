@@ -266,6 +266,8 @@ export const messages = {
   'topology.observedTopology.action.connectionAdd': 'Proposta de ligação',
   'topology.observedTopology.action.connectionUpdate': 'Proposta de atualização de ligação',
   'topology.page.portNotSet': 'Porta não definida',
+  'topology.filtersMenu.filtersCount': 'Filtros ({count})',
+  'topology.page.activeAlertsLabel': '{count} alertas ativos · {severity}',
 } as const satisfies Record<string, string>;
 
 export type TopologyMessageKey = keyof typeof messages;

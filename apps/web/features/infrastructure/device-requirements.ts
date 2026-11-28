@@ -6,6 +6,7 @@ import type { ApiErrorPayload } from '@/lib/api/errors';
 import type { DeviceForm } from './forms';
 import type { DeviceModel } from './types';
 import { portugueseText, type InfrastructureText } from './infrastructure-text';
+import { localizeServerText } from '@/lib/i18n/server-text';
 
 /**
  * Required device configuration, read from the API registry (GET /api/v1/devices/required-configs,
@@ -27,7 +28,8 @@ export function isDeviceEditorTab(value: unknown): value is DeviceEditorTab {
 }
 
 export function deviceEditorTabLabel(tab: DeviceEditorTab, registry?: RequiredConfigRegistry | null, ui: InfrastructureText = portugueseText): string {
-  return registry?.tabs.find((item) => item.key === tab)?.label ?? ui(DEFAULT_TAB_LABELS[tab]);
+  const label = registry?.tabs.find((item) => item.key === tab)?.label;
+  return label ? localizeServerText(ui, label) : ui(DEFAULT_TAB_LABELS[tab]);
 }
 
 // ── Registry (API) ───────────────────────────────────────────────────────────

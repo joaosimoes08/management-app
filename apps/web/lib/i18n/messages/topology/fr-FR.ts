@@ -268,4 +268,6 @@ export const messages: Record<string, string> = {
   'topology.observedTopology.action.connectionAdd': 'Proposition de connexion',
   'topology.observedTopology.action.connectionUpdate': 'Proposition de mise à jour de connexion',
   'topology.page.portNotSet': 'Port non défini',
+  'topology.filtersMenu.filtersCount': 'Filtres ({count})',
+  'topology.page.activeAlertsLabel': '{count} alertes actives · {severity}',
 } satisfies Record<TopologyMessageKey, string>;
