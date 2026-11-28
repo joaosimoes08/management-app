@@ -27,7 +27,7 @@ export function IpReservationModal({ ip, close, submit }: Props) {
     event.preventDefault();
     const hours = isCustom ? Number(customHours) : Number(duration);
     if (!Number.isInteger(hours) || hours < 1 || hours > 720) {
-      setError('Escolhe uma duração entre 1 hora e 30 dias.');
+      setError(ui('ipam.reserveForm.durationRange'));
       return;
     }
     setPending(true);
@@ -40,13 +40,13 @@ export function IpReservationModal({ ip, close, submit }: Props) {
   return <CompactModal title={ui('ipam.reservation.title', undefined, { address: ip.address })} close={() => { if (!pending) close(); }}>
     <form className="modal-form" onSubmit={save}>
       <p className="reservation-hint">{ui('ipam.reservation.hint')}</p>
-      <label>Duração<select ref={durationRef} value={duration} onChange={(event) => setDuration(event.target.value)}>
-        <option value="4">4 horas</option><option value="24">24 horas (predefinição)</option><option value="72">3 dias</option><option value="168">7 dias</option><option value="custom">Personalizada</option>
+      <label>{ui('ipam.reserveForm.duration')}<select ref={durationRef} value={duration} onChange={(event) => setDuration(event.target.value)}>
+        <option value="4">{ui('ipam.reserveForm.hours4')}</option><option value="24">{ui('ipam.reserveForm.hours24')}</option><option value="72">{ui('ipam.reserveForm.days3')}</option><option value="168">{ui('ipam.reserveForm.days7')}</option><option value="custom">{ui('ipam.reserveForm.custom')}</option>
       </select></label>
-      {isCustom && <label>Duração personalizada em horas<input type="number" min="1" max="720" step="1" required value={customHours} onChange={(event) => setCustomHours(event.target.value)} aria-describedby="reservation-duration-help" /><small id="reservation-duration-help">{ui('ipam.reservation.durationHelp')}</small></label>}
-      <label>Motivo<textarea required maxLength={500} rows={3} value={reason} onChange={(event) => setReason(event.target.value)} /></label>
+      {isCustom && <label>{ui('ipam.reserveForm.customHours')}<input type="number" min="1" max="720" step="1" required value={customHours} onChange={(event) => setCustomHours(event.target.value)} aria-describedby="reservation-duration-help" /><small id="reservation-duration-help">{ui('ipam.reservation.durationHelp')}</small></label>}
+      <label>{ui('ipam.reserveForm.reason')}<textarea required maxLength={500} rows={3} value={reason} onChange={(event) => setReason(event.target.value)} /></label>
       {error && <p className="ipam-alert error" role="alert">{error}</p>}
-      <div className="modal-actions"><button type="button" className="secondary-button" onClick={close} disabled={pending}>Cancelar</button><button className="primary-button" disabled={pending || !reason.trim()}>{pending ? 'A reservar…' : ui('ipam.reservation.submit')}</button></div>
+      <div className="modal-actions"><button type="button" className="secondary-button" onClick={close} disabled={pending}>{ui('ipam.reserveForm.cancel')}</button><button className="primary-button" disabled={pending || !reason.trim()}>{pending ? ui('ipam.reserveForm.reserving') : ui('ipam.reservation.submit')}</button></div>
     </form>
   </CompactModal>;
 }

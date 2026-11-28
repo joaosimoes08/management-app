@@ -37,7 +37,7 @@ export interface NatViewProps {
   toastError: (operation: string, message: string) => void;
 }
 
-const message = (cause: unknown) => (cause instanceof Error ? cause.message : 'Operação falhou.');
+const message = (cause: unknown) => (cause instanceof Error ? cause.message : ipamText('ipam.common.operationFailed'));
 const endpoint = (address?: string | null, port?: number | null) => `${address || ipamText('ipam.nat.any')}${port ? `:${port}` : ''}`;
 export const natInside = (rule: NatRule) => endpoint(rule.sourceAddress || rule.sourceIp?.address || rule.sourceSubnet?.cidr, rule.sourcePort);
 export const natOutside = (rule: NatRule) => endpoint(rule.translatedAddress || rule.translatedIp?.address || rule.translatedSubnet?.cidr, rule.translatedPort);
@@ -80,7 +80,7 @@ export function NatView({ siteId, siteName, search, subnets, canCreate, canUpdat
     event.preventDefault();
     if (!form) return;
     const editing = Boolean(form.id);
-    const operation = editing ? 'Editar regra NAT' : 'Criar regra NAT';
+    const operation = editing ? ui('ipam.natView.editTitle') : ui('ipam.natView.createTitle');
     // Empty optional fields: omitted on create, null on edit so they are cleared. Ports are sent as numbers and validated by the API.
     const optional = (value: string) => value.trim() || (editing ? null : undefined);
     const port = (value: string) => (value.trim() ? Number(value) : editing ? null : undefined);
@@ -96,7 +96,7 @@ export function NatView({ siteId, siteName, search, subnets, canCreate, canUpdat
       if (editing) await updateNatRule(form.id, body);
       else await createNatRule(body);
       setForm(null);
-      success(operation, editing ? 'As alterações foram guardadas.' : ui('ipam.nat.created', undefined, { name: body.name }));
+      success(operation, editing ? ui('ipam.common.changesSaved') : ui('ipam.nat.created', undefined, { name: body.name }));
       await queryClient.invalidateQueries({ queryKey: ['ipam'] });
     } catch (cause) {
       setFormError(message(cause));
@@ -110,49 +110,49 @@ export function NatView({ siteId, siteName, search, subnets, canCreate, canUpdat
     if (!(await askConfirm({ message: ui('ipam.nat.deleteConfirm', undefined, { name: rule.name }), destructive: true }))) return;
     try {
       await deleteNatRule(rule.id);
-      success('Eliminar regra NAT', ui('ipam.nat.deleted', undefined, { name: rule.name }));
+      success(ui('ipam.natView.deleteTitle'), ui('ipam.nat.deleted', undefined, { name: rule.name }));
       await queryClient.invalidateQueries({ queryKey: ['ipam'] });
     } catch (cause) {
-      toastError('Eliminar regra NAT', message(cause));
+      toastError(ui('ipam.natView.deleteTitle'), message(cause));
     }
   };
 
   const columns: DataTableColumn<NatRule>[] = [
-    { id: 'name', header: 'Nome', cell: (rule) => <><strong>{rule.name}</strong>{rule.description && <small>{rule.description}</small>}</> },
-    { id: 'type', header: 'Tipo', cell: (rule) => natTypeLabels[rule.type] ?? rule.type },
-    { id: 'addresses', header: 'Interno ↔ Externo', className: 'mono', cell: (rule) => <>{natInside(rule)} ↔ {natOutside(rule)}{rule.destinationPort ? <small>porta de destino {rule.destinationPort}</small> : null}</> },
-    { id: 'protocol', header: 'Protocolo', cell: (rule) => rule.protocol || 'Qualquer' },
+    { id: 'name', header: ui('ipam.common.name'), cell: (rule) => <><strong>{rule.name}</strong>{rule.description && <small>{rule.description}</small>}</> },
+    { id: 'type', header: ui('ipam.common.type'), cell: (rule) => natTypeLabels[rule.type] ?? rule.type },
+    { id: 'addresses', header: ui('ipam.natView.col.addresses'), className: 'mono', cell: (rule) => <>{natInside(rule)} ↔ {natOutside(rule)}{rule.destinationPort ? <small>{ui('ipam.natView.destinationPortValue', undefined, { port: rule.destinationPort })}</small> : null}</> },
+    { id: 'protocol', header: ui('ipam.natView.protocol'), cell: (rule) => rule.protocol || ui('ipam.natView.anyProtocol') },
     { id: 'vrf', header: 'VRF', cell: (rule) => rule.vrf?.name || '—' },
     { id: 'site', header: 'Site', cell: () => siteName },
-    { id: 'status', header: 'Estado', cell: (rule) => (rule.enabled ? 'Ativa' : 'Desativada') },
-    { id: 'actions', header: 'Ações', className: 'table-actions', cell: (rule) => <>{canUpdate && <button className="icon-button subtle" title={ui('ipam.nat.editRule', undefined, { name: rule.name })} aria-label={ui('ipam.nat.editRule', undefined, { name: rule.name })} onClick={() => openForm(rule)}><Edit3 size={14} /></button>}{canDelete && <button className="icon-button subtle danger" title={ui('ipam.nat.deleteRule', undefined, { name: rule.name })} aria-label={ui('ipam.nat.deleteRule', undefined, { name: rule.name })} onClick={() => void remove(rule)}><Trash2 size={14} /></button>}</> },
+    { id: 'status', header: ui('ipam.common.status'), cell: (rule) => (rule.enabled ? ui('ipam.natView.enabled') : ui('ipam.natView.disabled')) },
+    { id: 'actions', header: ui('ipam.common.actions'), className: 'table-actions', cell: (rule) => <>{canUpdate && <button className="icon-button subtle" title={ui('ipam.nat.editRule', undefined, { name: rule.name })} aria-label={ui('ipam.nat.editRule', undefined, { name: rule.name })} onClick={() => openForm(rule)}><Edit3 size={14} /></button>}{canDelete && <button className="icon-button subtle danger" title={ui('ipam.nat.deleteRule', undefined, { name: rule.name })} aria-label={ui('ipam.nat.deleteRule', undefined, { name: rule.name })} onClick={() => void remove(rule)}><Trash2 size={14} /></button>}</> },
   ];
 
   return <>{confirmDialog}<section className="ipam-card">
-    <div className="panel-heading"><div><h2>Regras NAT do Site</h2><p className="panel-description">Traduções entre endereços internos e externos, por tipo e VRF.</p></div></div>
+    <div className="panel-heading"><div><h2>{ui('ipam.natView.title')}</h2><p className="panel-description">{ui('ipam.natView.description')}</p></div></div>
     <PageToolbarPortal>
-      <select className="context-toolbar-selector" aria-label={ui('ipam.nat.filterType')} value={type} onChange={(event) => setType(event.target.value as NatRuleType | '')}><option value="">Todos os tipos</option>{natTypes.map((value) => <option key={value} value={value}>{natTypeLabels[value]}</option>)}</select>
-      <select className="context-toolbar-selector" aria-label={ui('ipam.nat.filterVrf')} value={vrfId} onChange={(event) => setVrfId(event.target.value)}><option value="">Todos os VRFs</option>{(vrfs ?? []).map((vrf) => <option key={vrf.id} value={vrf.id}>{vrf.name}</option>)}</select>
-      {canCreate && <button className="primary-button" onClick={() => openForm()}><Plus size={14} /> Nova regra NAT</button>}
+      <select className="context-toolbar-selector" aria-label={ui('ipam.nat.filterType')} value={type} onChange={(event) => setType(event.target.value as NatRuleType | '')}><option value="">{ui('ipam.natView.allTypes')}</option>{natTypes.map((value) => <option key={value} value={value}>{natTypeLabels[value]}</option>)}</select>
+      <select className="context-toolbar-selector" aria-label={ui('ipam.nat.filterVrf')} value={vrfId} onChange={(event) => setVrfId(event.target.value)}><option value="">{ui('ipam.natView.allVrfs')}</option>{(vrfs ?? []).map((vrf) => <option key={vrf.id} value={vrf.id}>{vrf.name}</option>)}</select>
+      {canCreate && <button className="primary-button" onClick={() => openForm()}><Plus size={14} /> {ui('ipam.natView.new')}</button>}
     </PageToolbarPortal>
     {error && <div className="ipam-alert error"><X size={15} />{message(error)}</div>}
-    <DataTable rows={items} columns={columns} rowKey={(rule) => rule.id} label="Regras NAT do Site" loading={isLoading} skeletonRows={3} empty={!error && <Empty title={filtered ? 'Sem regras NAT correspondentes' : 'Este Site ainda não tem regras NAT'} text={filtered ? 'Experimenta outra pesquisa ou limpa os filtros.' : canCreate ? 'Cria a primeira regra NAT deste Site.' : 'Ainda não foram configuradas regras NAT neste Site.'} />} />
+    <DataTable rows={items} columns={columns} rowKey={(rule) => rule.id} label={ui('ipam.natView.title')} loading={isLoading} skeletonRows={3} empty={!error && <Empty title={filtered ? ui('ipam.natView.empty.filteredTitle') : ui('ipam.natView.empty.title')} text={filtered ? ui('ipam.natView.empty.filteredText') : canCreate ? ui('ipam.natView.empty.canCreate') : ui('ipam.natView.empty.readOnly')} />} />
 
-    {form && <CompactModal title={form.id ? 'Editar regra NAT' : 'Criar regra NAT'} close={() => setForm(null)}><form className="modal-form" onSubmit={(event) => void submit(event)}>
+    {form && <CompactModal title={form.id ? ui('ipam.natView.editTitle') : ui('ipam.natView.createTitle')} close={() => setForm(null)}><form className="modal-form" onSubmit={(event) => void submit(event)}>
       {formError && <div className="ipam-alert error" role="alert"><X size={15} />{formError}</div>}
-      <label>Nome<input required maxLength={120} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
-      <label>Tipo<select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value as NatRuleType })}>{natTypes.map((value) => <option key={value} value={value}>{natTypeLabels[value]}</option>)}</select></label>
-      <label>Protocolo<select value={form.protocol} onChange={(event) => setForm({ ...form, protocol: event.target.value })}><option value="">Qualquer</option><option value="TCP">TCP</option><option value="UDP">UDP</option><option value="ICMP">ICMP</option></select></label>
-      <label>Endereço interno<input placeholder={ui('ipam.nat.insidePlaceholder')} value={form.sourceAddress} onChange={(event) => setForm({ ...form, sourceAddress: event.target.value })} /></label>
-      <label>Porta interna<input type="number" value={form.sourcePort} onChange={(event) => setForm({ ...form, sourcePort: event.target.value })} /></label>
-      <label>Endereço externo<input placeholder="203.0.113.10" value={form.translatedAddress} onChange={(event) => setForm({ ...form, translatedAddress: event.target.value })} /></label>
-      <label>Porta externa<input type="number" value={form.translatedPort} onChange={(event) => setForm({ ...form, translatedPort: event.target.value })} /></label>
-      <label>Porta de destino<input type="number" value={form.destinationPort} onChange={(event) => setForm({ ...form, destinationPort: event.target.value })} /></label>
-      <label>Subnet interna<select value={form.sourceSubnetId} onChange={(event) => setForm({ ...form, sourceSubnetId: event.target.value })}><option value="">Sem subnet associada</option>{form.sourceSubnetId && !subnets.some((subnet) => subnet.id === form.sourceSubnetId) && <option value={form.sourceSubnetId}>{form.currentSubnetLabel || form.sourceSubnetId}</option>}{subnets.map((subnet) => <option key={subnet.id} value={subnet.id}>{subnet.cidr}</option>)}</select></label>
-      <label>VRF<select value={form.vrfId} onChange={(event) => setForm({ ...form, vrfId: event.target.value })}><option value="">Sem VRF</option>{form.vrfId && !(vrfs ?? []).some((vrf) => vrf.id === form.vrfId) && <option value={form.vrfId}>{form.currentVrfLabel || form.vrfId}</option>}{(vrfs ?? []).map((vrf) => <option key={vrf.id} value={vrf.id}>{vrf.name}</option>)}</select></label>
-      <label>Descrição<textarea maxLength={500} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
-      <label className="settings-check"><input type="checkbox" checked={form.enabled} onChange={(event) => setForm({ ...form, enabled: event.target.checked })} /> Regra ativa</label>
-      <button className="primary-button" disabled={saving}>{saving ? 'A guardar…' : form.id ? 'Guardar alterações' : 'Criar regra NAT'}</button>
+      <label>{ui('ipam.common.name')}<input required maxLength={120} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
+      <label>{ui('ipam.common.type')}<select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value as NatRuleType })}>{natTypes.map((value) => <option key={value} value={value}>{natTypeLabels[value]}</option>)}</select></label>
+      <label>{ui('ipam.natView.protocol')}<select value={form.protocol} onChange={(event) => setForm({ ...form, protocol: event.target.value })}><option value="">{ui('ipam.natView.anyProtocol')}</option><option value="TCP">TCP</option><option value="UDP">UDP</option><option value="ICMP">ICMP</option></select></label>
+      <label>{ui('ipam.natView.insideAddress')}<input placeholder={ui('ipam.nat.insidePlaceholder')} value={form.sourceAddress} onChange={(event) => setForm({ ...form, sourceAddress: event.target.value })} /></label>
+      <label>{ui('ipam.natView.insidePort')}<input type="number" value={form.sourcePort} onChange={(event) => setForm({ ...form, sourcePort: event.target.value })} /></label>
+      <label>{ui('ipam.natView.outsideAddress')}<input placeholder="203.0.113.10" value={form.translatedAddress} onChange={(event) => setForm({ ...form, translatedAddress: event.target.value })} /></label>
+      <label>{ui('ipam.natView.outsidePort')}<input type="number" value={form.translatedPort} onChange={(event) => setForm({ ...form, translatedPort: event.target.value })} /></label>
+      <label>{ui('ipam.natView.destinationPort')}<input type="number" value={form.destinationPort} onChange={(event) => setForm({ ...form, destinationPort: event.target.value })} /></label>
+      <label>{ui('ipam.natView.insideSubnet')}<select value={form.sourceSubnetId} onChange={(event) => setForm({ ...form, sourceSubnetId: event.target.value })}><option value="">{ui('ipam.natView.noSubnet')}</option>{form.sourceSubnetId && !subnets.some((subnet) => subnet.id === form.sourceSubnetId) && <option value={form.sourceSubnetId}>{form.currentSubnetLabel || form.sourceSubnetId}</option>}{subnets.map((subnet) => <option key={subnet.id} value={subnet.id}>{subnet.cidr}</option>)}</select></label>
+      <label>VRF<select value={form.vrfId} onChange={(event) => setForm({ ...form, vrfId: event.target.value })}><option value="">{ui('ipam.common.noVrf')}</option>{form.vrfId && !(vrfs ?? []).some((vrf) => vrf.id === form.vrfId) && <option value={form.vrfId}>{form.currentVrfLabel || form.vrfId}</option>}{(vrfs ?? []).map((vrf) => <option key={vrf.id} value={vrf.id}>{vrf.name}</option>)}</select></label>
+      <label>{ui('ipam.common.description')}<textarea maxLength={500} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
+      <label className="settings-check"><input type="checkbox" checked={form.enabled} onChange={(event) => setForm({ ...form, enabled: event.target.checked })} /> {ui('ipam.natView.active')}</label>
+      <button className="primary-button" disabled={saving}>{saving ? ui('ipam.common.saving') : form.id ? ui('ipam.common.saveChanges') : ui('ipam.natView.createTitle')}</button>
     </form></CompactModal>}
   </section></>;
 }

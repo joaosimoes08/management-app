@@ -29,11 +29,11 @@ export function reserveNextErrorMessage(cause: unknown): string {
         ? ipamText('ipam.nextFree.exhausted', { available })
         : cause.message;
     }
-    if (cause.code === 'IP_RANGE_CHANGED') return 'Os IPs livres mudaram entretanto. A lista foi atualizada; revê-a e tenta novamente.';
-    if (cause.code === 'IP_RANGE_UNSUPPORTED') return 'A reserva automática só está disponível para subnets IPv4.';
+    if (cause.code === 'IP_RANGE_CHANGED') return ipamText('ipam.nextFreeModal.rangeChanged');
+    if (cause.code === 'IP_RANGE_UNSUPPORTED') return ipamText('ipam.nextFreeModal.ipv4Only');
     return cause.message;
   }
-  return cause instanceof Error && cause.message ? cause.message : 'Não foi possível reservar IPs nesta subnet.';
+  return cause instanceof Error && cause.message ? cause.message : ipamText('ipam.nextFreeModal.reserveError');
 }
 
 /** "Próximo IP livre": looks up the next free addresses and, for writers, reserves them atomically. */
@@ -76,7 +76,7 @@ export function NextFreeIpModal({ subnet, canReserve, close, reserved }: Props) 
     event.preventDefault();
     const hours = isCustom ? Number(customHours) : Number(duration);
     if (!Number.isInteger(hours) || hours < 1 || hours > 720) {
-      setReserveError('Escolhe uma duração entre 1 hora e 30 dias.');
+      setReserveError(ui('ipam.reserveForm.durationRange'));
       return;
     }
     setPending(true);
@@ -93,34 +93,34 @@ export function NextFreeIpModal({ subnet, canReserve, close, reserved }: Props) 
   };
 
   return <CompactModal title={ui('ipam.nextFree.title', undefined, { cidr: subnet.cidr })} close={pending ? () => undefined : close}>
-    <form className="modal-form" onSubmit={search} aria-label="Procurar IPs livres">
-      <p className="panel-description">Procura os próximos endereços livres da subnet. Indica um intervalo para limitar a pesquisa.</p>
-      <label>Quantidade<input type="number" min="1" max={NEXT_FREE_MAX_COUNT} step="1" required value={count} onChange={(event) => setCount(event.target.value)} /></label>
-      <label>A partir de<input value={from} maxLength={45} placeholder={ui('ipam.nextFree.example', undefined, { address: '10.0.0.10' })} onChange={(event) => setFrom(event.target.value)} /></label>
-      <label>Até<input value={to} maxLength={45} placeholder={ui('ipam.nextFree.example', undefined, { address: '10.0.0.50' })} onChange={(event) => setTo(event.target.value)} /></label>
+    <form className="modal-form" onSubmit={search} aria-label={ui('ipam.nextFreeModal.searchLabel')}>
+      <p className="panel-description">{ui('ipam.nextFreeModal.description')}</p>
+      <label>{ui('ipam.nextFreeModal.count')}<input type="number" min="1" max={NEXT_FREE_MAX_COUNT} step="1" required value={count} onChange={(event) => setCount(event.target.value)} /></label>
+      <label>{ui('ipam.nextFreeModal.from')}<input value={from} maxLength={45} placeholder={ui('ipam.nextFree.example', undefined, { address: '10.0.0.10' })} onChange={(event) => setFrom(event.target.value)} /></label>
+      <label>{ui('ipam.nextFreeModal.to')}<input value={to} maxLength={45} placeholder={ui('ipam.nextFree.example', undefined, { address: '10.0.0.50' })} onChange={(event) => setTo(event.target.value)} /></label>
       {formError && <p className="ipam-alert error" role="alert">{formError}</p>}
-      <div className="modal-actions"><button type="submit" className="secondary-button" disabled={lookup.isFetching}>{lookup.isFetching ? 'A procurar…' : 'Procurar'}</button></div>
+      <div className="modal-actions"><button type="submit" className="secondary-button" disabled={lookup.isFetching}>{lookup.isFetching ? ui('ipam.nextFreeModal.searching') : ui('ipam.nextFreeModal.search')}</button></div>
     </form>
     <div className="modal-form" aria-live="polite">
-      {lookup.isError && <p className="ipam-alert error" role="alert">{lookup.error instanceof Error ? lookup.error.message : 'Não foi possível procurar IPs livres.'}</p>}
-      {result && result.supported === false && <p className="ipam-alert warning" role="status">{result.message || 'A pesquisa de IPs livres não é suportada nesta subnet.'}</p>}
-      {result && result.supported !== false && !available.length && <p className="ipam-alert warning" role="status">{result.message || 'Não há IPs livres neste intervalo.'}</p>}
+      {lookup.isError && <p className="ipam-alert error" role="alert">{lookup.error instanceof Error ? lookup.error.message : ui('ipam.nextFreeModal.searchError')}</p>}
+      {result && result.supported === false && <p className="ipam-alert warning" role="status">{result.message || ui('ipam.nextFreeModal.unsupported')}</p>}
+      {result && result.supported !== false && !available.length && <p className="ipam-alert warning" role="status">{result.message || ui('ipam.nextFreeModal.none')}</p>}
       {result && result.supported !== false && available.length > 0 && result.exhausted && available.length < result.requested && <p className="ipam-alert warning" role="status">{ui('ipam.nextFree.partial', undefined, { found: available.length, requested: result.requested })}</p>}
-      {available.length > 0 && <DataTable rows={available} rowKey={(item) => item.address} label="IPs livres encontrados" columns={[
+      {available.length > 0 && <DataTable rows={available} rowKey={(item) => item.address} label={ui('ipam.nextFreeModal.foundLabel')} columns={[
         { id: 'ip', header: 'IP', className: 'mono', cell: (item) => item.address },
-        { id: 'tracked', header: 'Registo IPAM', cell: (item) => (item.tracked ? 'Registado como livre' : 'Ainda não registado') },
+        { id: 'tracked', header: ui('ipam.nextFreeModal.col.tracked'), cell: (item) => (item.tracked ? ui('ipam.nextFreeModal.tracked') : ui('ipam.nextFreeModal.untracked')) },
       ]} />}
     </div>
-    {canReserve && !unsupported && available.length > 0 && <form className="modal-form" onSubmit={reserve} aria-label="Reservar IPs livres">
-      <p className="reservation-hint">A reserva é feita no servidor: se os IPs mudarem entretanto, nada é reservado e a lista é atualizada.</p>
-      <label>Duração<select value={duration} onChange={(event) => setDuration(event.target.value)}>
-        <option value="4">4 horas</option><option value="24">24 horas (predefinição)</option><option value="72">3 dias</option><option value="168">7 dias</option><option value="custom">Personalizada</option>
+    {canReserve && !unsupported && available.length > 0 && <form className="modal-form" onSubmit={reserve} aria-label={ui('ipam.nextFreeModal.reserveLabel')}>
+      <p className="reservation-hint">{ui('ipam.nextFreeModal.reserveHint')}</p>
+      <label>{ui('ipam.reserveForm.duration')}<select value={duration} onChange={(event) => setDuration(event.target.value)}>
+        <option value="4">{ui('ipam.reserveForm.hours4')}</option><option value="24">{ui('ipam.reserveForm.hours24')}</option><option value="72">{ui('ipam.reserveForm.days3')}</option><option value="168">{ui('ipam.reserveForm.days7')}</option><option value="custom">{ui('ipam.reserveForm.custom')}</option>
       </select></label>
-      {isCustom && <label>Duração personalizada em horas<input type="number" min="1" max="720" step="1" required value={customHours} onChange={(event) => setCustomHours(event.target.value)} /></label>}
-      <label>Motivo<textarea required maxLength={500} rows={3} value={reason} onChange={(event) => setReason(event.target.value)} /></label>
+      {isCustom && <label>{ui('ipam.reserveForm.customHours')}<input type="number" min="1" max="720" step="1" required value={customHours} onChange={(event) => setCustomHours(event.target.value)} /></label>}
+      <label>{ui('ipam.reserveForm.reason')}<textarea required maxLength={500} rows={3} value={reason} onChange={(event) => setReason(event.target.value)} /></label>
       {reserveError && <p className="ipam-alert error" role="alert">{reserveError}</p>}
-      <div className="modal-actions"><button type="button" className="secondary-button" onClick={close} disabled={pending}>Cancelar</button><button type="submit" className="primary-button" disabled={pending || !reason.trim()}>{pending ? 'A reservar…' : ui('ipam.nextFree.reserveCount', undefined, { ips: query.count ?? 1 })}</button></div>
+      <div className="modal-actions"><button type="button" className="secondary-button" onClick={close} disabled={pending}>{ui('ipam.reserveForm.cancel')}</button><button type="submit" className="primary-button" disabled={pending || !reason.trim()}>{pending ? ui('ipam.reserveForm.reserving') : ui('ipam.nextFree.reserveCount', undefined, { ips: query.count ?? 1 })}</button></div>
     </form>}
-    {canReserve && unsupported && <p className="ipam-alert warning" role="note">A reserva automática só está disponível para subnets IPv4.</p>}
+    {canReserve && unsupported && <p className="ipam-alert warning" role="note">{ui('ipam.nextFreeModal.ipv4Only')}</p>}
   </CompactModal>;
 }
