@@ -10,6 +10,7 @@ export { dashboard } from './dashboard';
 export { discovery } from './discovery';
 export { help } from './help';
 export { infrastructure } from './infrastructure';
+export { ipam } from './ipam';
 export { netapp } from './netapp';
 export { operations } from './operations';
 export { portal } from './portal';

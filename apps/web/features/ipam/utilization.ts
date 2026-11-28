@@ -6,12 +6,12 @@ import { ipamText } from './i18n';
 export const UTILIZATION_WARNING_PERCENT = 80;
 export const UTILIZATION_CRITICAL_PERCENT = 90;
 
-export const utilizationBandOptions = [
-  ['OK', 'Normal'],
-  ['WARNING', 'Atenção (≥ 80%)'],
-  ['CRITICAL', 'Crítica (≥ 90%)'],
-  ['UNTRACKED', 'Não contabilizada (IPv6)'],
-] as const;
+const UTILIZATION_BANDS = ['OK', 'WARNING', 'CRITICAL', 'UNTRACKED'] as const;
+
+/** Filter chips per utilisation band, in the active language. */
+export function utilizationBandOptions(): ReadonlyArray<readonly [string, string]> {
+  return UTILIZATION_BANDS.map((band) => [band, ipamText(`ipam.utilization.filter.${band}`)] as const);
+}
 
 const LABELLED_BANDS = ['WARNING', 'CRITICAL'];
 const bandTone: Record<string, string> = { OK: 'occupied', WARNING: 'reserved', CRITICAL: 'excluded' };
