@@ -218,7 +218,7 @@ export const messages: Record<string, string> = {
   'ipam.ripeView.noImportPermission': 'Vous n’avez pas l’autorisation IMPORT sur ce Site : vous pouvez consulter l’aperçu, mais pas importer.',
   'ipam.ripeView.history.title': 'Historique des importations',
   'ipam.ripeView.history.description': 'Les 50 requêtes et importations RIPE les plus récentes.',
-  'ipam.ripeView.history.label': 'Historique de importações RIPE',
+  'ipam.ripeView.history.label': 'Historique des importations RIPE',
   'ipam.ripeView.history.noMatch': 'Aucune importation correspondante',
   'ipam.ripeView.history.empty': 'Aucune importation RIPE pour le moment',
   'ipam.ripeView.history.emptyText': 'Les aperçus et les importations apparaissent ici.',

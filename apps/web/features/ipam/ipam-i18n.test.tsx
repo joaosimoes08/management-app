@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { translateMessage, type AppLocale } from '@/lib/i18n/i18n';
 import { translateSourceText } from '@/lib/i18n/source-text-messages';
 import { messages as deDE } from '@/lib/i18n/messages/ipam/de-DE';
+import { messages as enUS } from '@/lib/i18n/messages/ipam/en-US';
 import { messages as esES } from '@/lib/i18n/messages/ipam/es-ES';
 import { messages as frFR } from '@/lib/i18n/messages/ipam/fr-FR';
 import { messages as itIT } from '@/lib/i18n/messages/ipam/it-IT';
@@ -280,12 +281,23 @@ const keyed: Array<[key: string, portuguese: string, params?: Record<string, str
 ];
 
 // These showed Portuguese (or a wrong word) in English before: the source-text table had no entry for the
-// built text, only for a fragment ("Até" became "To"). They now have a real translation.
-const untranslatedBefore = new Set([
-  'ipam.hostView.os',
-  'ipam.natView.destinationPortValue',
-  'ipam.subnetsView.reservedUntil',
+// built text, only for a fragment ("Até" became "To"), or the table left a Portuguese word in it.
+// They now have a real translation, pinned here as the exact en-US message.
+const untranslatedBefore = new Map([
+  ['ipam.hostView.os', 'OS'],
+  ['ipam.natView.destinationPortValue', 'destination port {port}'],
+  ['ipam.ripeView.history.label', 'RIPE import history'],
+  ['ipam.subnetsView.reservedUntil', 'Until {date}'],
 ]);
+// Words and spellings that only Portuguese uses. French legitimately writes "ç" (aperçu), so for fr-FR
+// only the Portuguese "-ção/-ções" endings count.
+const portugueseOnly = /[ãõÃÕ]|ç[ãõ]|(?<!\p{L})(não|nao|importações|importação|equipamentos?|também|você|endereços?|configuração|informação)(?!\p{L})/iu;
+const portugueseCedilla = /[çÇ]/;
+const otherLocales = { 'en-US': enUS, 'es-ES': esES, 'fr-FR': frFR, 'de-DE': deDE, 'it-IT': itIT } as const;
+const portugueseLeftovers = () => Object.entries(otherLocales).flatMap(([name, bundle]) =>
+  Object.entries(bundle)
+    .filter(([, value]) => portugueseOnly.test(value) || (name !== 'fr-FR' && portugueseCedilla.test(value)))
+    .map(([key, value]) => `${name} ${key}: ${value}`));
 const sourceFiles = [
   'components/central-permissions.tsx',
   'components/host-panel.tsx',
@@ -309,7 +321,7 @@ describe('ipam keyed messages', () => {
     expect(translateMessage('pt-PT', key, undefined, params)).toBe(portuguese);
     const english = translateMessage('en-US', key, undefined, params);
     if (untranslatedBefore.has(key)) {
-      expect(english).toBeTruthy();
+      expect(enUS[key]).toBe(untranslatedBefore.get(key));
       expect(english).not.toBe(portuguese);
     } else {
       expect(english).toBe(translateSourceText('en-US', portuguese));
@@ -337,6 +349,10 @@ describe('ipam keyed messages', () => {
       for (const locale of ['pt-PT', 'en-US'] as AppLocale[]) expect(translateMessage(locale, key, '∅')).not.toBe('∅');
       for (const bundle of [esES, frFR, deDE, itIT]) expect(bundle[key as keyof typeof bundle], key).toBeTruthy();
     }
+  });
+
+  it('leaves no Portuguese word in the en/es/fr/de/it messages', () => {
+    expect(portugueseLeftovers()).toEqual([]);
   });
 
   it.each(sourceFiles)('leaves no Portuguese literal in %s', (file) => {

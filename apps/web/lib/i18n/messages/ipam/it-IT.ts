@@ -218,7 +218,7 @@ export const messages: Record<string, string> = {
   'ipam.ripeView.noImportPermission': 'Non dispone dell\'autorizzazione IMPORT in questo Sito: può esaminare l\'anteprima, ma non importare.',
   'ipam.ripeView.history.title': 'Cronologia importazioni',
   'ipam.ripeView.history.description': 'Le 50 query e importazioni RIPE più recenti.',
-  'ipam.ripeView.history.label': 'Cronologia di importações RIPE',
+  'ipam.ripeView.history.label': 'Cronologia importazioni RIPE',
   'ipam.ripeView.history.noMatch': 'Nessuna importazione corrispondente',
   'ipam.ripeView.history.empty': 'Non ci sono ancora importazioni RIPE',
   'ipam.ripeView.history.emptyText': 'Le anteprime e le importazioni vengono visualizzate qui.',
