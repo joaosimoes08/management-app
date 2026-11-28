@@ -21,7 +21,7 @@ export type BulkReviewResponse = { status?: string; total?: number; succeeded?: 
 export type BulkReviewItem = { id: string; label: string; detail?: string };
 
 /** Message for a failed item: API message first, then the code, then a generic text. */
-export function bulkItemErrorMessage(result: BulkReviewItemResult, fallback = 'Não foi possível aplicar a revisão a este item.'): string {
+export function bulkItemErrorMessage(result: BulkReviewItemResult, fallback: string): string {
   if (result.ok) return '';
   const message = result.error?.message;
   const text = Array.isArray(message) ? message.join(' ') : message;

@@ -8,6 +8,8 @@ import { SnmpFleetSummaryView } from './snmp-fleet';
 import { formatDriftValue, SnmpDriftsView } from './snmp-drifts';
 import { snmpConfigError, snmpCredentialError } from './snmp-bounds';
 import SnmpPage from './snmp-page';
+import { translateMessage } from '@/lib/i18n/i18n';
+const pt = (key: string, fallback?: string, params?: Record<string, string | number>) => translateMessage('pt-PT', key, fallback, params);
 
 vi.mock('@/lib/api/client', () => ({ apiFetch: vi.fn() }));
 const roles = { current: ['READ_ONLY'] as string[] };
@@ -138,20 +140,20 @@ describe('SNMP drifts', () => {
 describe('SNMP input bounds', () => {
   const valid = { port: 161, intervalMinutes: 15, timeoutMs: 5000, retries: 2 };
   it('validates polling config bounds', () => {
-    expect(snmpConfigError(valid)).toBe('');
-    expect(snmpConfigError({ ...valid, port: 0 })).toMatch(/Porta.*1 e 65535/);
-    expect(snmpConfigError({ ...valid, intervalMinutes: 1441 })).toMatch(/5 e 1440/);
-    expect(snmpConfigError({ ...valid, timeoutMs: 499 })).toMatch(/500 e 30000/);
-    expect(snmpConfigError({ ...valid, retries: 6 })).toMatch(/0 e 5/);
-    expect(snmpConfigError({ ...valid, port: 161.5 })).toMatch(/Porta/);
+    expect(snmpConfigError(pt, valid)).toBe('');
+    expect(snmpConfigError(pt, { ...valid, port: 0 })).toMatch(/Porta.*1 e 65535/);
+    expect(snmpConfigError(pt, { ...valid, intervalMinutes: 1441 })).toMatch(/5 e 1440/);
+    expect(snmpConfigError(pt, { ...valid, timeoutMs: 499 })).toMatch(/500 e 30000/);
+    expect(snmpConfigError(pt, { ...valid, retries: 6 })).toMatch(/0 e 5/);
+    expect(snmpConfigError(pt, { ...valid, port: 161.5 })).toMatch(/Porta/);
   });
   it('validates credential lengths', () => {
-    expect(snmpCredentialError({ version: 'V2C', community: 'short' })).toMatch(/8 e 255/);
-    expect(snmpCredentialError({ version: 'V2C', community: 'longenough' })).toBe('');
-    expect(snmpCredentialError({ version: 'V3', username: '', authKey: '12345678', privKey: '12345678' })).toMatch(/username/);
-    expect(snmpCredentialError({ version: 'V3', username: 'u'.repeat(65), authKey: '12345678', privKey: '12345678' })).toMatch(/64/);
-    expect(snmpCredentialError({ version: 'V3', username: 'ops', authKey: '1234', privKey: '12345678' })).toMatch(/auth key/);
-    expect(snmpCredentialError({ version: 'V3', username: 'ops', authKey: '12345678', privKey: '12345678' })).toBe('');
+    expect(snmpCredentialError(pt, { version: 'V2C', community: 'short' })).toMatch(/8 e 255/);
+    expect(snmpCredentialError(pt, { version: 'V2C', community: 'longenough' })).toBe('');
+    expect(snmpCredentialError(pt, { version: 'V3', username: '', authKey: '12345678', privKey: '12345678' })).toMatch(/username/);
+    expect(snmpCredentialError(pt, { version: 'V3', username: 'u'.repeat(65), authKey: '12345678', privKey: '12345678' })).toMatch(/64/);
+    expect(snmpCredentialError(pt, { version: 'V3', username: 'ops', authKey: '1234', privKey: '12345678' })).toMatch(/auth key/);
+    expect(snmpCredentialError(pt, { version: 'V3', username: 'ops', authKey: '12345678', privKey: '12345678' })).toBe('');
   });
 });
 

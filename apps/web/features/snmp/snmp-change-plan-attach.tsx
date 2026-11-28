@@ -3,6 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { formatDateTime } from '@/lib/format/date';
 import { getAttachableChangePlans, linkSnmpWriteToChangePlan } from './api';
+import { useUiText } from '@/components/ui/use-ui-text';
 
 /** Query key for the attachable plans of one device; invalidated after a SET is attached. */
 export const attachableChangePlansKey = (deviceId: string) => ['snmp', 'attachable-change-plans', deviceId] as const;
@@ -13,7 +14,7 @@ export const attachableChangePlansKey = (deviceId: string) => ['snmp', 'attachab
  */
 export const useAttachableChangePlans = (deviceId: string, enabled = true) => useQuery({ queryKey: attachableChangePlansKey(deviceId), queryFn: () => getAttachableChangePlans(deviceId), enabled: enabled && Boolean(deviceId), staleTime: 30_000 });
 
-const statusLabels = { APPROVED: 'Aprovada', IN_PROGRESS: 'Em curso' } as const;
+const statusLabels = { APPROVED: 'snmp.changePlanAttach.status.approved', IN_PROGRESS: 'snmp.changePlanAttach.status.inProgress' } as const;
 
 /**
  * Step 30: offers to record a SET against an approved or in-progress change
@@ -21,22 +22,23 @@ const statusLabels = { APPROVED: 'Aprovada', IN_PROGRESS: 'Em curso' } as const;
  * when no plan qualifies or the list cannot be read, so the SET flow is unchanged.
  */
 export function SnmpChangePlanAttach({ deviceId, value, onChange }: { deviceId: string; value: string; onChange: (planId: string) => void }) {
+  const t = useUiText();
   const { data, isError } = useAttachableChangePlans(deviceId);
   if (isError || !data?.length) return null;
   return <label>
-    <span>Associar a uma alteração</span>
+    <span>{t('snmp.changePlanAttach.attachToAChange')}</span>
     <select value={value} onChange={(event) => onChange(event.target.value)}>
-      <option value="">Não associar</option>
-      {data.map((plan) => <option key={plan.id} value={plan.id}>{`${plan.title} · ${statusLabels[plan.status] ?? plan.status} · até ${formatDateTime(plan.plannedEndAt, { dateStyle: 'short', timeStyle: 'short' })}`}</option>)}
+      <option value="">{t('snmp.changePlanAttach.doNotAttach')}</option>
+      {data.map((plan) => <option key={plan.id} value={plan.id}>{t('snmp.changePlanAttach.option', undefined, { title: plan.title, status: plan.status in statusLabels ? t(statusLabels[plan.status]) : plan.status, end: formatDateTime(plan.plannedEndAt, { dateStyle: 'short', timeStyle: 'short' }) })}</option>)}
     </select>
-    <small>Alterações aprovadas ou em curso com este equipamento e a janela aberta agora. A escrita fica registada na alteração.</small>
+    <small>{t('snmp.changePlanAttach.approvedOrInProgressChanges')}</small>
   </label>;
 }
 
 /** Runs the SET, then links it. A failed link never hides that the SET already ran. */
-export async function executeAndAttach(execute: () => Promise<unknown>, writeId: string, planId: string) {
+export async function executeAndAttach(t: ReturnType<typeof useUiText>, execute: () => Promise<unknown>, writeId: string, planId: string) {
   await execute();
   if (!planId) return;
   try { await linkSnmpWriteToChangePlan(planId, writeId); }
-  catch (reason) { throw new Error(`Escrita SNMP submetida, mas não foi associada à alteração: ${reason instanceof Error ? reason.message : 'erro desconhecido'}`); }
+  catch (reason) { throw new Error(t('snmp.changePlanAttach.linkFailed', undefined, { reason: reason instanceof Error ? reason.message : t('snmp.changePlanAttach.unknownError') })); }
 }

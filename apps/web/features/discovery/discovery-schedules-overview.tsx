@@ -71,7 +71,7 @@ export function DiscoverySchedulesOverview({ subnets, search = '', onOpen }: { s
                 <div><dt>{t('discoverySchedules.rate')}</dt><dd>{limit(schedule.limits?.probesPerSecond, schedule.limits?.effective.probesPerSecond, 'discoverySchedules.rateValue')}</dd></div>
                 <div><dt>{t('discoverySchedules.sockets')}</dt><dd>{limit(schedule.limits?.maxSockets, schedule.limits?.effective.maxSockets, 'discoverySchedules.socketsValue')}</dd></div>
               </dl>
-              {schedule.lastError && <p className="schedule-last-error">{t('discoverySchedules.failureReason')}: {describeDiscoveryError(schedule.lastError)}</p>}
+              {schedule.lastError && <p className="schedule-last-error">{t('discoverySchedules.failureReason')}: {describeDiscoveryError(t, schedule.lastError)}</p>}
             </>}
           </li>;
         })}

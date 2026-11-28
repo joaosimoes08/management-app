@@ -34,7 +34,7 @@ export function DiscoverySchedulePanel({ subnets, canEdit, onError, subnetId: se
   const [saving, setSaving] = useState(false);
   const [rateText, setRateText] = useState('');
   const [socketsText, setSocketsText] = useState('');
-  const [timeZone, setTimeZone] = useState('fuso local');
+  const [timeZone, setTimeZone] = useState(() => tx('discovery.schedulePanel.localTimeZone'));
   const qc = useQueryClient();
   const scheduleQuery = useQuery({ queryKey: ['discovery', 'schedule', subnetId], queryFn: () => getDiscoverySchedule(subnetId), enabled: Boolean(subnetId) });
   const schedule = scheduleQuery.data;
@@ -43,7 +43,7 @@ export function DiscoverySchedulePanel({ subnets, canEdit, onError, subnetId: se
     // Also when the Site changes and the chosen subnet is no longer in the list.
     if (subnets[0] && !subnets.some((subnet) => subnet.id === subnetId)) setSubnetId(subnets[0].id);
   }, [subnets, subnetId, setSubnetId]);
-  useEffect(() => { setTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone || 'fuso local'); }, []);
+  useEffect(() => { setTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone || tx('discovery.schedulePanel.localTimeZone')); }, [tx]);
   useEffect(() => {
     if (!schedule) return;
     setForm({ enabled: schedule.enabled, intervalHours: schedule.intervalHours, methods: schedule.methods, tcpPorts: schedule.tcpPorts, reverseDns: schedule.reverseDns });
@@ -65,8 +65,8 @@ export function DiscoverySchedulePanel({ subnets, canEdit, onError, subnetId: se
     event.preventDefault();
     if (!subnetId) return;
     const ports = portsText.split(',').map((value) => Number(value.trim())).filter((value) => Number.isInteger(value) && value >= 1 && value <= 65535);
-    if (!form.methods.length) { onError('Escolhe pelo menos um método para a descoberta agendada.'); return; }
-    if (form.methods.includes('TCP') && (!ports.length || ports.length > 64)) { onError('Define entre 1 e 64 portas TCP válidas (1–65535).'); return; }
+    if (!form.methods.length) { onError(tx('discovery.schedulePanel.chooseAtLeastOneMethod')); return; }
+    if (form.methods.includes('TCP') && (!ports.length || ports.length > 64)) { onError(tx('discovery.schedulePanel.setBetween1And64')); return; }
     const limits = limitsInput();
     if (typeof limits === 'string') { onError(limits); return; }
     setSaving(true);
@@ -74,7 +74,7 @@ export function DiscoverySchedulePanel({ subnets, canEdit, onError, subnetId: se
       await updateDiscoverySchedule(subnetId, { ...form, tcpPorts: ports, ...limits });
       await qc.invalidateQueries({ queryKey: ['discovery', 'schedule', subnetId] });
       onError('');
-    } catch (cause) { onError(cause instanceof Error ? cause.message : 'Não foi possível guardar o schedule.'); }
+    } catch (cause) { onError(cause instanceof Error ? cause.message : tx('discovery.schedulePanel.couldNotSaveTheSchedule')); }
     finally { setSaving(false); }
   };
 
@@ -83,39 +83,39 @@ export function DiscoverySchedulePanel({ subnets, canEdit, onError, subnetId: se
     if (!subnetId) return;
     const enabled = !form.enabled;
     const ports = portsText.split(',').map((value) => Number(value.trim())).filter((value) => Number.isInteger(value) && value >= 1 && value <= 65535);
-    if (enabled && (!form.methods.length || (form.methods.includes('TCP') && (!ports.length || ports.length > 64)))) { onError('Configura pelo menos um método e, para TCP, entre 1 e 64 portas válidas.'); return; }
+    if (enabled && (!form.methods.length || (form.methods.includes('TCP') && (!ports.length || ports.length > 64)))) { onError(tx('discovery.schedulePanel.configureAtLeastOneMethod')); return; }
     setSaving(true);
     try {
       await updateDiscoverySchedule(subnetId, { ...form, enabled, tcpPorts: ports });
       await qc.invalidateQueries({ queryKey: ['discovery', 'schedule', subnetId] });
       onError('');
-    } catch (cause) { onError(cause instanceof Error ? cause.message : 'Não foi possível alterar o schedule.'); }
+    } catch (cause) { onError(cause instanceof Error ? cause.message : tx('discovery.schedulePanel.couldNotChangeTheSchedule')); }
     finally { setSaving(false); }
   };
 
   return <section id="discovery-schedule-panel" tabIndex={-1} className="ipam-card discovery-schedule-card">
-    <div className="panel-heading"><div><h2>Schedules de Discovery</h2><p className="panel-description">Uma configuração por subnet. O intervalo permitido é de 1 a 168 horas.</p></div><CalendarClock size={18} /></div>
-    {!subnets.length ? <div className="no-data">Não há subnets disponíveis neste Site.</div> : <>
+    <div className="panel-heading"><div><h2>{tx('discovery.schedulePanel.discoverySchedules')}</h2><p className="panel-description">{tx('discovery.schedulePanel.oneConfigurationPerSubnetThe')}</p></div><CalendarClock size={18} /></div>
+    {!subnets.length ? <div className="no-data">{tx('discovery.schedulePanel.thereAreNoSubnetsAvailable')}</div> : <>
       <label className="schedule-subnet-select">Subnet<select className="context-toolbar-selector" value={subnetId} onChange={(event) => setSubnetId(event.target.value)}>{subnets.map((subnet) => <option key={subnet.id} value={subnet.id}>{subnet.cidr}</option>)}</select></label>
       {scheduleQuery.isPending ? <div className="no-data">{tx('discoverySchedules.loading')}</div> : scheduleQuery.isError ? <div className="ipam-alert error">{tx('discoverySchedules.loadError')}</div> : <>
         <div className="schedule-run-summary" aria-live="polite">
           <div><span><Clock3 size={13} /> {tx('discoverySchedules.nextRun')}</span><strong>{schedule?.enabled ? dateTime(schedule.nextRunAt, timeZone) : tx('discoverySchedules.state.paused')}</strong></div>
           <div><span>{tx('discoverySchedules.lastRun')}</span><strong>{dateTime(schedule?.lastRunAt ?? null, timeZone)}</strong></div>
-          <div><span>Último resultado</span><strong className={schedule?.lastStatus === 'FAILED' ? 'schedule-error-text' : ''}>{schedule?.lastStatus ? discoveryStatusLabel(schedule.lastStatus) : tx('discoverySchedules.neverRun')}</strong></div>
-          <small>Horas apresentadas no fuso {timeZone}.</small>
-          {schedule?.lastError && <p className="schedule-last-error">{describeDiscoveryError(schedule.lastError)}</p>}
+          <div><span>{tx('discovery.schedulePanel.latestResult')}</span><strong className={schedule?.lastStatus === 'FAILED' ? 'schedule-error-text' : ''}>{schedule?.lastStatus ? discoveryStatusLabel(tx, schedule.lastStatus) : tx('discoverySchedules.neverRun')}</strong></div>
+          <small>{tx('discovery.schedulePanel.timesShownInTheTime')}{timeZone}.</small>
+          {schedule?.lastError && <p className="schedule-last-error">{describeDiscoveryError(tx, schedule.lastError)}</p>}
         </div>
         <form className="schedule-form" onSubmit={save}>
-          <label>{tx('discoverySchedules.interval')}<select className="context-toolbar-selector" disabled={!canEdit} value={form.intervalHours} onChange={(event) => setForm({ ...form, intervalHours: Number(event.target.value) })}>{discoveryIntervalChoices(form.intervalHours).map((hours) => <option key={hours} value={hours}>{formatDiscoveryInterval(hours)}</option>)}</select></label>
-          <fieldset disabled={!canEdit}><legend>Métodos</legend>{(['ICMP', 'TCP'] as const).map((method) => <label key={method}><input type="checkbox" checked={form.methods.includes(method)} onChange={() => toggleMethod(method)} />{method}</label>)}</fieldset>
-          <label>Portas TCP<input disabled={!canEdit || !form.methods.includes('TCP')} value={portsText} onChange={(event) => setPortsText(event.target.value)} aria-describedby="schedule-port-help" /><small id="schedule-port-help">Máximo 64 portas, entre 1 e 65535.</small></label>
-          <fieldset className="schedule-limits" disabled={!canEdit}><legend>Limites de carga</legend>
+          <label>{tx('discoverySchedules.interval')}<select className="context-toolbar-selector" disabled={!canEdit} value={form.intervalHours} onChange={(event) => setForm({ ...form, intervalHours: Number(event.target.value) })}>{discoveryIntervalChoices(form.intervalHours).map((hours) => <option key={hours} value={hours}>{formatDiscoveryInterval(tx, hours)}</option>)}</select></label>
+          <fieldset disabled={!canEdit}><legend>{tx('discovery.schedulePanel.methods')}</legend>{(['ICMP', 'TCP'] as const).map((method) => <label key={method}><input type="checkbox" checked={form.methods.includes(method)} onChange={() => toggleMethod(method)} />{method}</label>)}</fieldset>
+          <label>{tx('discovery.schedulePanel.tcpPorts')}<input disabled={!canEdit || !form.methods.includes('TCP')} value={portsText} onChange={(event) => setPortsText(event.target.value)} aria-describedby="schedule-port-help" /><small id="schedule-port-help">{tx('discovery.schedulePanel.atMost64PortsBetween')}</small></label>
+          <fieldset className="schedule-limits" disabled={!canEdit}><legend>{tx('discovery.schedulePanel.loadLimits')}</legend>
             <label>{tx('discoverySchedules.rate')}<input type="number" inputMode="numeric" min={PROBES_PER_SECOND_RANGE[0]} max={PROBES_PER_SECOND_RANGE[1]} step={1} value={rateText} placeholder={String(schedule?.limits?.effective.probesPerSecond ?? 100)} onChange={(event) => setRateText(event.target.value)} aria-describedby="schedule-limits-help" /></label>
             <label>{tx('discoverySchedules.sockets')}<input type="number" inputMode="numeric" min={MAX_SOCKETS_RANGE[0]} max={MAX_SOCKETS_RANGE[1]} step={1} value={socketsText} placeholder={String(schedule?.limits?.effective.maxSockets ?? 64)} onChange={(event) => setSocketsText(event.target.value)} aria-describedby="schedule-limits-help" /></label>
-            <small id="schedule-limits-help">Aplicam-se a todas as execuções desta subnet, manuais e agendadas. Cada ping ou ligação TCP conta como uma sonda. Vazio usa o valor predefinido (em cinzento).</small>
+            <small id="schedule-limits-help">{tx('discovery.schedulePanel.theyApplyToEveryRun')}</small>
           </fieldset>
-          <label className="schedule-reverse-dns"><input type="checkbox" disabled={!canEdit} checked={form.reverseDns} onChange={(event) => setForm({ ...form, reverseDns: event.target.checked })} /> Resolver reverse DNS</label>
-          {canEdit && <div className="schedule-actions"><button type="button" className="secondary-button" onClick={() => void setEnabled()} disabled={saving}>{form.enabled ? <><Pause size={14} /> Pausar</> : <><Play size={14} /> Ativar</>}</button><button className="primary-button" type="submit" disabled={saving || scheduleQuery.isFetching}><Save size={14} />{saving ? 'A guardar…' : schedule?.id ? 'Guardar alterações' : 'Criar schedule pausado'}</button></div>}
+          <label className="schedule-reverse-dns"><input type="checkbox" disabled={!canEdit} checked={form.reverseDns} onChange={(event) => setForm({ ...form, reverseDns: event.target.checked })} /> {tx('discovery.schedulePanel.resolveReverseDns')}</label>
+          {canEdit && <div className="schedule-actions"><button type="button" className="secondary-button" onClick={() => void setEnabled()} disabled={saving}>{form.enabled ? <><Pause size={14} /> {tx('discovery.schedulePanel.pause')}</> : <><Play size={14} /> {tx('discovery.schedulePanel.enable')}</>}</button><button className="primary-button" type="submit" disabled={saving || scheduleQuery.isFetching}><Save size={14} />{saving ? tx('discovery.schedulePanel.saving') : schedule?.id ? tx('discovery.schedulePanel.saveChanges') : tx('discovery.schedulePanel.createPausedSchedule')}</button></div>}
         </form>
         <DiscoverySnmpEnrichmentPanel subnetId={subnetId} onError={onError} />
       </>}

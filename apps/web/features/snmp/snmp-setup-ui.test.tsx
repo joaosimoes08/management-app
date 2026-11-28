@@ -7,6 +7,8 @@ import { SnmpSetupPanel } from './snmp-setup-panel';
 import { APP_TEST_TRAP_OID, preRegisterHref, SnmpUnknownTrapsView, unknownTrapName } from './snmp-unknown-traps';
 import { SnmpSetupWizard } from './snmp-setup-wizard';
 import { SnmpFleetSummaryView } from './snmp-fleet';
+import { translateMessage } from '@/lib/i18n/i18n';
+const pt = (key: string, fallback?: string, params?: Record<string, string | number>) => translateMessage('pt-PT', key, fallback, params);
 
 vi.mock('@/lib/api/client', () => ({ apiFetch: vi.fn() }));
 const mockedFetch = vi.mocked(apiFetch);
@@ -166,8 +168,8 @@ describe('SnmpUnknownTrapsView', () => {
     const vendorRow = within(table).getByText('10.7.7.7').closest('tr')!;
     expect(within(vendorRow).getByText('Trap de fabricante')).toBeInTheDocument();
     expect(within(vendorRow).getByText('1.3.6.1.4.1.99999.1.2')).toBeInTheDocument();
-    expect(unknownTrapName({ lastTrapLabel: 'Porta em baixo', lastTrapOid: '1.3.6.1.6.3.1.1.5.3' })).toBe('Porta em baixo');
-    expect(unknownTrapName({ lastTrapLabel: null, lastTrapOid: null })).toBeNull();
+    expect(unknownTrapName(pt, { lastTrapLabel: 'Porta em baixo', lastTrapOid: '1.3.6.1.6.3.1.1.5.3' })).toBe('Porta em baixo');
+    expect(unknownTrapName(pt, { lastTrapLabel: null, lastTrapOid: null })).toBeNull();
   });
 
   it('shows the empty state', async () => {

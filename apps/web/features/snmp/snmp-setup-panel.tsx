@@ -37,30 +37,31 @@ export function SnmpSetupPanel({ managementIp, username, authProtocol, privProto
   const lineReceiver = container ? (container.state === 'address' ? container.address : null) : chosen || null;
   // Until the receiver settings arrive, v2c is unknown: no v2c lines and no "disabled" notice, just a pending line.
   const v2c = isV2cAllowed(receiver, isLoading);
-  const lines = iosXeSetupLines({ receiver: lineReceiver, port, username, authProtocol, privProtocol, engineId: receiver?.engineId ?? null, v2cAllowed: v2c === true });
+  const lines = iosXeSetupLines(tx, { receiver: lineReceiver, port, username, authProtocol, privProtocol, engineId: receiver?.engineId ?? null, v2cAllowed: v2c === true });
   const receiverId = useId();
 
   return <section className="ipam-card snmp-setup-panel" aria-labelledby={`${receiverId}-title`}>
-    <div className="panel-heading"><div><h2 id={`${receiverId}-title`}>Configurar o switch</h2><p className="panel-description">Linhas Cisco IOS-XE para o switch enviar traps para esta app: primeiro SNMPv3 (recomendado), depois SNMPv2c. Substitui as chaves e a community pelos valores da credencial.</p></div><RadioTower size={18} /></div>
-    {lastTrapReceivedAt !== undefined && <p className={`snmp-setup-status ${lastTrapReceivedAt ? 'received' : 'waiting'}`} role="status">{lastTrapReceivedAt ? <><Check size={14} />{`Última trap recebida: ${formatDateTime(lastTrapReceivedAt)}`}</> : <><Clock size={14} />A aguardar a primeira trap deste equipamento.</>}</p>}
+    <div className="panel-heading"><div><h2 id={`${receiverId}-title`}>{tx('snmp.setupPanel.configureTheSwitch')}</h2><p className="panel-description">{tx('snmp.setupPanel.ciscoIosXeLinesSo')}</p></div><RadioTower size={18} /></div>
+    {lastTrapReceivedAt !== undefined && <p className={`snmp-setup-status ${lastTrapReceivedAt ? 'received' : 'waiting'}`} role="status">{lastTrapReceivedAt ? <><Check size={14} />{tx('snmp.setupPanel.lastTrapReceived', undefined, { time: formatDateTime(lastTrapReceivedAt) })}</> : <><Clock size={14} />{tx('snmp.setupPanel.waitingForThisDeviceS')}</>}</p>}
     <dl className="snmp-setup-facts">
-      <dt>Recetor de traps</dt>
-      <dd>{!canReadReceiver ? 'Só administradores veem o endereço do recetor.' : isLoading ? 'A carregar…' : isError ? 'Não foi possível ler as definições do recetor SNMP.' : container ? (container.state === 'address' ? <span className="snmp-setup-receiver"><span className="mono">{container.display}</span><CopyButton text={container.display} label="Copiar endereço do recetor" /></span> : <span className="snmp-setup-missing" role="note" data-reason={container.reason}>{container.message}</span>) : addresses.length ? <span className="snmp-setup-receiver">{addresses.length > 1 ? <select aria-label="Endereço do recetor" className="context-toolbar-selector" value={chosen} onChange={(event) => setChosen(event.target.value)}>{addresses.map((address) => <option key={address} value={address}>{address}</option>)}</select> : <span className="mono">{addresses[0]}</span>}<CopyButton text={chosen ? `${chosen}${port === 162 ? '' : `:${port}`}` : ''} label="Copiar endereço do recetor" /></span> : <span className="snmp-setup-missing">{`Sem endereço: o recetor SNMP não reportou interfaces. Usa ${RECEIVER_PLACEHOLDER} e confirma em Definições > SNMP.`}</span>}</dd>
-      <dt>Porta UDP</dt>
+      <dt>{tx('snmp.setupPanel.trapReceiver')}</dt>
+      <dd>{!canReadReceiver ? tx('snmp.setupPanel.onlyAdministratorsCanSeeThe') : isLoading ? tx('snmp.setupPanel.loading') : isError ? tx('snmp.setupPanel.couldNotReadTheSnmp') : container ? (container.state === 'address' ? <span className="snmp-setup-receiver"><span className="mono">{container.display}</span><CopyButton text={container.display} label={tx('snmp.setupPanel.copyReceiverAddress')} /></span> : <span className="snmp-setup-missing" role="note" data-reason={container.reason}>{tx(container.message)}</span>) : addresses.length ? <span className="snmp-setup-receiver">{addresses.length > 1 ? <select aria-label={tx('snmp.setupPanel.receiverAddress')} className="context-toolbar-selector" value={chosen} onChange={(event) => setChosen(event.target.value)}>{addresses.map((address) => <option key={address} value={address}>{address}</option>)}</select> : <span className="mono">{addresses[0]}</span>}<CopyButton text={chosen ? `${chosen}${port === 162 ? '' : `:${port}`}` : ''} label={tx('snmp.setupPanel.copyReceiverAddress')} /></span> : <span className="snmp-setup-missing">{tx('snmp.setupPanel.noReceiverAddress', undefined, { placeholder: RECEIVER_PLACEHOLDER })}</span>}</dd>
+      <dt>{tx('snmp.setupPanel.udpPort')}</dt>
       <dd className="mono">{port}</dd>
-      <dt>IP de gestão (trap-source)</dt>
-      <dd className="mono">{managementIp || 'IP esperado do equipamento'}</dd>
-      <dt>Engine ID da app</dt>
-      <dd>{!canReadReceiver ? '—' : isLoading ? 'A carregar…' : isError ? '—' : receiver?.engineId ? <span className="mono">{receiver.engineId}</span> : 'Ainda não gerado: o recetor SNMP ainda não arrancou. Inicia o contentor snmp e volta a abrir esta página.'}</dd>
+      <dt>{tx('snmp.setupPanel.managementIpTrapSource')}</dt>
+      <dd className="mono">{managementIp || tx('snmp.setupPanel.deviceSExpectedIp')}</dd>
+      <dt>{tx('snmp.setupPanel.appEngineId')}</dt>
+      <dd>{!canReadReceiver ? '—' : isLoading ? tx('snmp.setupPanel.loading') : isError ? '—' : receiver?.engineId ? <span className="mono">{receiver.engineId}</span> : tx('snmp.setupPanel.notGeneratedYetTheSnmp')}</dd>
     </dl>
     <p className="snmp-setup-warning"><TriangleAlert size={14} /><span>{managementIp ? tx('groupB.snmp.trapSourceWarningIp', undefined, { ip: managementIp }) : tx('groupB.snmp.trapSourceWarning')}</span></p>
-    <SetupBlock title="SNMPv3 authPriv (polling e traps)" text={lines.v3} />
-    {lines.informs ? <SetupBlock title="Opcional: informs SNMPv3 (com confirmação de entrega)" text={lines.informs} /> : canReadReceiver && receiver && <p className="form-help">Os informs SNMPv3 precisam do engine ID da app, que ainda não existe.</p>}
-    {lines.v2c ? <SetupBlock title="SNMPv2c (polling e traps)" text={lines.v2c} note={<SnmpV2cNote />} /> : v2c === null ? <p className="snmp-v2c-pending" role="status">{V2C_PENDING}</p> : <SnmpV2cDisabledNote />}
+    <SetupBlock title={tx('snmp.setupPanel.snmpv3AuthprivPollingAndTraps')} text={lines.v3} />
+    {lines.informs ? <SetupBlock title={tx('snmp.setupPanel.optionalSnmpv3InformsWithDelivery')} text={lines.informs} /> : canReadReceiver && receiver && <p className="form-help">{tx('snmp.setupPanel.snmpv3InformsNeedTheApp')}</p>}
+    {lines.v2c ? <SetupBlock title={tx('snmp.setupPanel.snmpv2cPollingAndTraps')} text={lines.v2c} note={<SnmpV2cNote />} /> : v2c === null ? <p className="snmp-v2c-pending" role="status">{tx(V2C_PENDING)}</p> : <SnmpV2cDisabledNote />}
   </section>;
 }
 
 function CopyButton({ text, label }: { text: string; label: string }) {
+  const t = useUiText();
   const [copied, setCopied] = useState<'idle' | 'done' | 'failed'>('idle');
   const timer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(timer.current), []);
@@ -69,12 +70,13 @@ function CopyButton({ text, label }: { text: string; label: string }) {
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => setCopied('idle'), 2500);
   };
-  return <button type="button" className="secondary-button snmp-action-button" disabled={!text} onClick={() => void copy()} aria-label={label}>{copied === 'done' ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}{copied === 'done' ? 'Copiado' : copied === 'failed' ? 'Copia manualmente' : 'Copiar'}</button>;
+  return <button type="button" className="secondary-button snmp-action-button" disabled={!text} onClick={() => void copy()} aria-label={label}>{copied === 'done' ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}{copied === 'done' ? t('snmp.setupPanel.copied') : copied === 'failed' ? t('snmp.setupPanel.copyManually') : t('snmp.setupPanel.copy')}</button>;
 }
 
 function SetupBlock({ title, text, note }: { title: string; text: string; note?: ReactNode }) {
+  const t = useUiText();
   return <div className="snmp-setup-block">
-    <div className="snmp-setup-block-head"><strong>{title}</strong><CopyButton text={text} label={`Copiar: ${title}`} /></div>
+    <div className="snmp-setup-block-head"><strong>{title}</strong><CopyButton text={text} label={t('snmp.setupPanel.copyNamed', undefined, { title })} /></div>
     {note}
     <pre tabIndex={0}><code>{text}</code></pre>
   </div>;

@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/api/client';
 import { executeAndAttach, SnmpChangePlanAttach } from './snmp-change-plan-attach';
 import SnmpPage from './snmp-page';
+import { translateMessage } from '@/lib/i18n/i18n';
+const pt = (key: string, fallback?: string, params?: Record<string, string | number>) => translateMessage('pt-PT', key, fallback, params);
 
 vi.mock('@/lib/api/client', () => ({ apiFetch: vi.fn() }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ hasRole: (role: string) => role === 'ADMIN' }) }));
@@ -88,9 +90,9 @@ describe('SNMP SET attach to a change plan (Step 30)', () => {
   it('reports a failed link without hiding that the SET ran', async () => {
     mockedFetch.mockRejectedValue(new Error('Esta escrita SNMP já está associada a outra alteração.'));
     const execute = vi.fn(async () => ({}));
-    await expect(executeAndAttach(execute, 'wr-1', 'plan-1')).rejects.toThrow('Escrita SNMP submetida, mas não foi associada à alteração: Esta escrita SNMP já está associada a outra alteração.');
+    await expect(executeAndAttach(pt, execute, 'wr-1', 'plan-1')).rejects.toThrow('Escrita SNMP submetida, mas não foi associada à alteração: Esta escrita SNMP já está associada a outra alteração.');
     expect(execute).toHaveBeenCalledOnce();
-    await executeAndAttach(execute, 'wr-1', '');
+    await executeAndAttach(pt, execute, 'wr-1', '');
     expect(mockedFetch).toHaveBeenCalledTimes(1);
   });
 });

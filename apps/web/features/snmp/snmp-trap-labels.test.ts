@@ -3,17 +3,20 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { translateSourceText } from '@/lib/i18n/source-text-messages';
 import { snmpTrapCategoryLabel, snmpTrapCategoryLabels, snmpTrapStatusLabel, snmpTrapStatusLabels } from './snmp-trap-labels';
+import { translateMessage } from '@/lib/i18n/i18n';
+const pt = (key: string, fallback?: string, params?: Record<string, string | number>) => translateMessage('pt-PT', key, fallback, params);
+const en = (key: string, fallback?: string, params?: Record<string, string | number>) => translateMessage('en-US', key, fallback, params);
 
 const schema = readFileSync(resolve(process.cwd(), '../../packages/database/prisma/schema.prisma'), 'utf8');
 const catalog = readFileSync(resolve(process.cwd(), '../../packages/snmp-core/src/trap-catalog.ts'), 'utf8');
 
 describe('SNMP trap kind and status badges', () => {
   it('turns raw codes into PT words, never VENDOR or PROCESSED', () => {
-    expect(snmpTrapCategoryLabel('VENDOR')).toBe('Trap de fabricante');
-    expect(snmpTrapStatusLabel('PROCESSED')).toBe('Processada');
-    expect(snmpTrapStatusLabel('UNMATCHED')).toBe('Sem correspondência');
-    expect(snmpTrapCategoryLabel(null)).toBeNull();
-    expect(snmpTrapStatusLabel('SOMETHING_NEW')).toBe('SOMETHING_NEW');
+    expect(snmpTrapCategoryLabel(pt, 'VENDOR')).toBe('Trap de fabricante');
+    expect(snmpTrapStatusLabel(pt, 'PROCESSED')).toBe('Processada');
+    expect(snmpTrapStatusLabel(pt, 'UNMATCHED')).toBe('Sem correspondência');
+    expect(snmpTrapCategoryLabel(pt, null)).toBeNull();
+    expect(snmpTrapStatusLabel(pt, 'SOMETHING_NEW')).toBe('SOMETHING_NEW');
   });
 
   it('covers every trap status in the database enum and every category in the trap catalog', () => {
@@ -26,11 +29,11 @@ describe('SNMP trap kind and status badges', () => {
   });
 
   it('has an English translation for every PT label', () => {
-    expect(translateSourceText('en-US', 'Trap de fabricante')).toBe('Vendor trap');
-    expect(translateSourceText('en-US', 'Processada')).toBe('Processed');
-    for (const label of [...Object.values(snmpTrapCategoryLabels), ...Object.values(snmpTrapStatusLabels)]) {
-      expect(translateSourceText('en-US', label), label).not.toBe(label);
-      expect(translateSourceText('pt-PT', label)).toBe(label);
+    expect(snmpTrapCategoryLabel(en, 'VENDOR')).toBe('Vendor trap');
+    expect(snmpTrapStatusLabel(en, 'PROCESSED')).toBe('Processed');
+    for (const key of [...Object.values(snmpTrapCategoryLabels), ...Object.values(snmpTrapStatusLabels)]) {
+      expect(en(key), key).not.toBe(pt(key));
+      expect(en(key)).toBe(translateSourceText('en-US', pt(key)));
     }
   });
 });

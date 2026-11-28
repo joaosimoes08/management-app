@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { DISCOVERY_INTERVAL_MAX_HOURS, DISCOVERY_INTERVAL_MIN_HOURS, discoveryIntervalChoices, discoveryIntervalOptions, formatDiscoveryInterval } from './discovery-intervals';
-import { translateSourceText } from '@/lib/i18n/source-text-messages';
+import { translateMessage } from '@/lib/i18n/i18n';
+const pt = (key: string, fallback?: string, params?: Record<string, string | number>) => translateMessage('pt-PT', key, fallback, params);
+const en = (key: string, fallback?: string, params?: Record<string, string | number>) => translateMessage('en-US', key, fallback, params);
 
 describe('discovery intervals', () => {
   it('stays inside the 1–168 h range the API accepts', () => {
@@ -16,11 +18,11 @@ describe('discovery intervals', () => {
   });
 
   it('labels hours and whole days, in Portuguese and English', () => {
-    expect(formatDiscoveryInterval(6)).toBe('6 h');
-    expect(formatDiscoveryInterval(36)).toBe('36 h');
-    expect(formatDiscoveryInterval(24)).toBe('1 dia');
-    expect(formatDiscoveryInterval(168)).toBe('7 dias');
-    expect(translateSourceText('en-US', '1 dia')).toBe('1 day');
-    expect(translateSourceText('en-US', '7 dias')).toBe('7 days');
+    expect(formatDiscoveryInterval(pt, 6)).toBe('6 h');
+    expect(formatDiscoveryInterval(pt, 36)).toBe('36 h');
+    expect(formatDiscoveryInterval(pt, 24)).toBe('1 dia');
+    expect(formatDiscoveryInterval(pt, 168)).toBe('7 dias');
+    expect(formatDiscoveryInterval(en, 24)).toBe('1 day');
+    expect(formatDiscoveryInterval(en, 168)).toBe('7 days');
   });
 });

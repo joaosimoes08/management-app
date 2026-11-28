@@ -44,8 +44,8 @@ describe('BulkReviewDialog', () => {
   });
 
   it('falls back from message to code to a generic text', () => {
-    expect(bulkItemErrorMessage({ id: 'x', ok: false, error: { message: ['a', 'b'] } })).toBe('a b');
-    expect(bulkItemErrorMessage({ id: 'x', ok: false, error: { code: 'NEW_CODE' } })).toBe('NEW_CODE');
-    expect(bulkItemErrorMessage({ id: 'x', ok: false })).toMatch(/Não foi possível/);
+    expect(bulkItemErrorMessage({ id: 'x', ok: false, error: { message: ['a', 'b'] } }, 'fallback')).toBe('a b');
+    expect(bulkItemErrorMessage({ id: 'x', ok: false, error: { code: 'NEW_CODE' } }, 'fallback')).toBe('NEW_CODE');
+    expect(bulkItemErrorMessage({ id: 'x', ok: false }, 'fallback')).toBe('fallback');
   });
 });

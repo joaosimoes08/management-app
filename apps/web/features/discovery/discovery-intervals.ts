@@ -1,3 +1,7 @@
+import type { useUiText } from '@/components/ui/use-ui-text';
+
+type Translate = ReturnType<typeof useUiText>;
+
 /**
  * Discovery interval choices. The API accepts any whole number of hours from 1 to 168
  * (apps/api/src/settings/dto.ts intervalHours and apps/api/src/ipam/dto.ts schedule
@@ -7,10 +11,9 @@ export const DISCOVERY_INTERVAL_MIN_HOURS = 1;
 export const DISCOVERY_INTERVAL_MAX_HOURS = 168;
 export const discoveryIntervalOptions = [1, 2, 4, 6, 8, 12, 24, 48, 72, 168] as const;
 
-export function formatDiscoveryInterval(hours: number) {
+export function formatDiscoveryInterval(t: Translate, hours: number) {
   if (hours < 24 || hours % 24 !== 0) return `${hours} h`;
-  const days = hours / 24;
-  return `${days} dia${days > 1 ? 's' : ''}`;
+  return t('discovery.intervals.days', undefined, { count: hours / 24 });
 }
 
 /** Options to render for a select, keeping a saved value that is valid for the API but not in the list. */
